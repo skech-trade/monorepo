@@ -113,6 +113,9 @@ export function SketchCanvas({
   onMove: onMovePt,
   onUp: onUpPt,
   onHead,
+  headLabel,
+  horizonMinutes,
+  showPoints = false,
   className,
 }: {
   feed: Candle[];
@@ -129,12 +132,19 @@ export function SketchCanvas({
   onUp: () => void;
   /** The head of a drawn line, dragged to a new price. */
   onHead: (price: number) => void;
+  /** What the line is worth where it ends, shown at the head while drawing. */
+  headLabel?: string | null;
+  /** How long the right edge is, in minutes. */
+  horizonMinutes: number;
+  /** Dots at every point, for a line made of clicks. */
+  showPoints?: boolean;
   className?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const { w, h } = useSize(box);
   const active = useRef(false);
   const dragging = useRef(false);
+  const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
 
   const plotL = PAD_L;
   const plotR = Math.max(plotL + 1, w - PAD_R);
@@ -165,6 +175,12 @@ export function SketchCanvas({
     onDownPt(p);
   };
   const onMove = (e: ReactPointerEvent) => {
+    const r = box.current?.getBoundingClientRect();
+    if (r && canDraw) {
+      const x = e.clientX - r.left;
+      const yy = e.clientY - r.top;
+      setHover(x >= split && x <= plotR && yy >= plotT && yy <= plotB ? { x, y: yy } : null);
+    }
     if (!active.current) return;
     const p = local(e);
     if (p) onMovePt(p);
@@ -215,6 +231,8 @@ export function SketchCanvas({
     tags.push({ key: "aim", label: "aiming", price: shape.target, tone: "up", y: y(shape.target) });
     if (shape.floor !== null) tags.push({ key: "out", label: "out", price: shape.floor, tone: "down", y: y(shape.floor) });
   }
+  const crosshair = hover && !drawing;
+  if (crosshair) tags.push({ key: "hover", price: priceAtY(hover.y), y: hover.y });
 
   return (
     <div className={cn("relative h-full w-full touch-none select-none overflow-hidden", canDraw && "cursor-crosshair", className)} ref={box}>
@@ -224,6 +242,7 @@ export function SketchCanvas({
           className="block h-full w-full"
           onPointerCancel={onUp}
           onPointerDown={onDown}
+          onPointerLeave={() => setHover(null)}
           onPointerMove={onMove}
           onPointerUp={onUp}
           role="img"
@@ -239,6 +258,28 @@ export function SketchCanvas({
           <text fill="var(--muted-foreground)" fontSize="11" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={split} y={plotB + 15}>
             now
           </text>
+          {/* The right edge in minutes, so the half you draw into has a length. */}
+          {[0.25, 0.5, 0.75, 1].map((f) => (
+            <text
+              fill="var(--muted-foreground)"
+              fontSize="11"
+              key={f}
+              style={{ fontFamily: "var(--font-sans)" }}
+              textAnchor={f === 1 ? "end" : "middle"}
+              x={split + f * (plotR - split)}
+              y={plotB + 15}
+            >
+              +{Math.round(f * horizonMinutes)}m
+            </text>
+          ))}
+
+          {/* Crosshair over the half you draw into, so a level is a level. */}
+          {hover && !drawing ? (
+            <g pointerEvents="none">
+              <line stroke="var(--muted-foreground)" strokeDasharray="2 3" strokeOpacity="0.6" x1={plotL} x2={plotR} y1={hover.y} y2={hover.y} />
+              <line stroke="var(--muted-foreground)" strokeDasharray="2 3" strokeOpacity="0.6" x1={hover.x} x2={hover.x} y1={plotT} y2={plotB} />
+            </g>
+          ) : null}
           <line stroke="var(--muted-foreground)" strokeDasharray="3 4" strokeOpacity="0.5" x1={plotL} x2={plotR} y1={y(price)} y2={y(price)} />
 
           {shape && phase !== "live" ? (
@@ -260,6 +301,12 @@ export function SketchCanvas({
               ) : (
                 <path d={smoothPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeOpacity={phase === "running" ? 0.55 : 1} strokeWidth="2.4" />
               )}
+              {showPoints
+                ? plotted.slice(1, -1).map((p, i) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: positional
+                    <circle cx={p.x} cy={p.y} fill="var(--card)" key={i} r="3" stroke="var(--brand)" strokeWidth="1.5" />
+                  ))
+                : null}
               {head && !drawing ? (
                 <>
                   <circle cx={head.x} cy={head.y} fill="var(--brand)" opacity="0.25" r="6" />
@@ -299,6 +346,24 @@ export function SketchCanvas({
       ) : null}
 
       {w > 0 ? stackTags(tags, h).map((t) => <Tag {...t} key={t.key} />) : null}
+      {crosshair && hover.x > split + 24 && hover.x < plotR - 24 ? (
+        <span
+          className="figures pointer-events-none absolute -translate-x-1/2 rounded-md border bg-popover px-1.5 py-0.5 text-[11px] leading-4 shadow-xs/5"
+          style={{ left: hover.x, top: plotB + 4 }}
+        >
+          +{Math.round(((hover.x - split) / (plotR - split)) * horizonMinutes)}m
+        </span>
+      ) : null}
+
+      {/* What the line is worth where the finger is. */}
+      {head && headLabel && (phase === "drawing" || phase === "drawn") ? (
+        <span
+          className="figures pointer-events-none absolute -translate-x-full -translate-y-full whitespace-nowrap rounded-md bg-brand px-1.5 py-0.5 font-medium text-[11px] text-white leading-4"
+          style={{ left: head.x - 8, top: Math.max(plotT + 20, head.y - 14) }}
+        >
+          {headLabel}
+        </span>
+      ) : null}
 
       {phase === "running" && pnl !== null && run.length > 0 ? (
         <span

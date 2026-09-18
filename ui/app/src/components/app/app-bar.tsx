@@ -5,7 +5,6 @@ import {
   LayoutPanelLeftIcon,
   PenLineIcon,
   ArrowUpFromLineIcon,
-  EyeOffIcon,
   GiftIcon,
   HistoryIcon,
   LifeBuoyIcon,
@@ -15,7 +14,7 @@ import {
   UserIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Kbd } from "@/components/ui/kbd";
@@ -23,7 +22,6 @@ import {
   Menu,
   MenuCheckboxItem,
   MenuGroup,
-  MenuGroupLabel,
   MenuItem,
   MenuPopup,
   MenuSeparator,
@@ -34,6 +32,10 @@ import type { Mode } from "@/lib/mode";
 import { Segmented } from "./controls";
 import { Wordmark } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
+
+/** Mock, like the balance. DiceBear's "shapes" set is CC0: abstract, no face. */
+const HANDLE = "vivek";
+const AVATAR = `https://api.dicebear.com/9.x/shapes/svg?seed=${HANDLE}&backgroundColor=0a0a0a&shape1Color=3b82f6,10b981&shape2Color=f5f5f5&shape3Color=ef4444,f59e0b`;
 
 export function AppBar({
   account,
@@ -89,20 +91,30 @@ export function AppBar({
 
         <Menu>
           <MenuTrigger
-            render={<Button aria-label="Your account" size="icon" variant="outline" />}
+            render={<Button aria-label="Your account" className="rounded-full p-0" size="icon" variant="outline" />}
           >
-            <Avatar className="size-6">
+            <Avatar className="size-7">
+              <AvatarImage alt="" src={AVATAR} />
               <AvatarFallback>
                 <UserIcon className="size-3.5" />
               </AvatarFallback>
             </Avatar>
           </MenuTrigger>
-          <MenuPopup align="end" className="min-w-56">
+          <MenuPopup align="end" className="min-w-60">
+            <div className="flex items-center gap-3 px-2 py-2">
+              <Avatar className="size-10">
+                <AvatarImage alt="" src={AVATAR} />
+                <AvatarFallback>{HANDLE.slice(0, 2)}</AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 leading-tight">
+                <p className="font-medium">Hola, {HANDLE}</p>
+                <p className="text-muted-foreground text-xs">
+                  <span className="figures">${usd(account.balance)}</span> cash
+                </p>
+              </div>
+            </div>
+            <MenuSeparator />
             <MenuGroup>
-              <MenuGroupLabel className="flex items-baseline justify-between">
-                <span>Cash</span>
-                <span className="figures text-foreground">${usd(account.balance)}</span>
-              </MenuGroupLabel>
               <MenuItem>
                 <ArrowDownToLineIcon />
                 Deposit
@@ -117,13 +129,8 @@ export function AppBar({
               </MenuItem>
             </MenuGroup>
             <MenuSeparator />
-            <MenuItem>
-              <UserIcon />
-              Your profile
-            </MenuItem>
             <MenuCheckboxItem checked={blurred} onCheckedChange={(next) => onBlurred(next)}>
-              <EyeOffIcon />
-              Blur balances
+              Privacy
             </MenuCheckboxItem>
             <MenuItem>
               <SettingsIcon />

@@ -19,6 +19,7 @@ import { seedSketches, type Sketch, SketchesSheet, SketchList } from "./sketches
  */
 
 const HISTORY = 46;
+/** Candles a sketch gets. On one-minute bars that is the horizon in minutes. */
 const RUN_BARS = 24;
 const TICK_MS = 1000;
 const SUB_MS = 80;
@@ -233,6 +234,24 @@ export function DrawScreen({ market, order, patch }: { market: Market; order: Or
     toastManager.add({ title: `Drawn in for $${usd(stake, 0)}`, description: `${market.name} going ${shape.long ? "up" : "down"} from $${fmtPrice(price)}. It's playing out now.` });
   };
 
+  // Escape clears, Z or Backspace undoes. Only while the line is yours.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (phase !== "drawn" && phase !== "drawing") return;
+      const target = e.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
+      if (e.key === "Escape") onClear();
+      else if (e.key === "Backspace" || e.key === "Delete" || (e.key.toLowerCase() === "z" && (e.metaKey || e.ctrlKey))) {
+        e.preventDefault();
+        onUndo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const headLabel = shape && quote ? `+$${usd(quote.ifWorks, 0)} if it gets here` : null;
+
   const shown = useMemo(
     () => (phase === "running" && book ? sketches.map((s) => (s.status === "running" ? { ...s, net: book.net } : s)) : sketches),
     [sketches, book, phase],
@@ -250,7 +269,24 @@ export function DrawScreen({ market, order, patch }: { market: Market; order: Or
           ) : null}
         </div>
         <div className="min-h-0 flex-1">
-          <SketchCanvas band={band} feed={feed} onDown={onDown} onHead={onHead} onMove={onMove} onUp={onUp} phase={phase} pnl={book?.net ?? null} price={price} pts={pts} run={run} runBars={RUN_BARS} shape={shape} />
+          <SketchCanvas
+            band={band}
+            feed={feed}
+            headLabel={headLabel}
+            horizonMinutes={RUN_BARS}
+            onDown={onDown}
+            onHead={onHead}
+            onMove={onMove}
+            onUp={onUp}
+            phase={phase}
+            pnl={book?.net ?? null}
+            price={price}
+            pts={pts}
+            run={run}
+            runBars={RUN_BARS}
+            shape={shape}
+            showPoints={tool === "points" && phase === "drawn"}
+          />
         </div>
       </Card>
 
