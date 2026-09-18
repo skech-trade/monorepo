@@ -401,11 +401,6 @@ export function SketchCanvas({
                 <animate attributeName="stroke-dashoffset" dur="1.4s" from="0" repeatCount="indefinite" to="-22" />
               </path>
               <circle cx={split} cy={y(price)} fill="var(--brand)" r="3.5" />
-              {/* A finger, twice, then it gets out of the way. */}
-              <circle fill="var(--brand)" fillOpacity="0.9" r="5">
-                <animateMotion dur="2.6s" fill="freeze" path={hint} repeatCount="2" />
-                <animate attributeName="opacity" begin="5.2s" dur="0.3s" fill="freeze" from="0.9" to="0" />
-              </circle>
               <text fill="var(--muted-foreground)" fontSize="12" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={(split + plotR) / 2} y={plotB - 10}>
                 drag to draw your line
               </text>
