@@ -20,6 +20,8 @@ export type Sketch = {
   net: number;
   exit?: number;
   liquidated?: boolean;
+  /** Share of the way the price stayed inside the ribbon. */
+  accuracy?: number;
 };
 
 export function SketchThumb({ sketch, className }: { sketch: Sketch; className?: string }) {
@@ -58,7 +60,15 @@ function SketchRow({ sketch }: { sketch: Sketch }) {
       <div className="text-right">
         <p className={cn("figures font-medium", won ? "text-up" : "text-down")}>{signedUsd(sketch.net)}</p>
         <p className="text-muted-foreground text-xs">
-          {sketch.status === "running" ? "playing out" : sketch.liquidated ? "wiped out" : won ? "called it" : "missed"}
+          {sketch.status === "running"
+            ? "playing out"
+            : sketch.liquidated
+              ? "wiped out"
+              : sketch.accuracy !== undefined
+                ? `${Math.round(sketch.accuracy * 100)}% inside`
+                : won
+                  ? "called it"
+                  : "missed"}
         </p>
       </div>
     </li>
@@ -109,7 +119,7 @@ export function seedSketches(market: Market): Sketch[] {
   const e2 = market.price * 1.003;
   const shape = (entry: number, ms: number[]): Pt[] => ms.map((m, i) => ({ t: i / (ms.length - 1), price: entry * m }));
   return [
-    { id: "seed-1", long: true, stake: 100, leverage: 5, entry: e1, pts: shape(e1, [1, 0.996, 0.992, 0.995, 1.002, 1.008, 1.012, 1.016]), placedAt: Date.now() - 3 * 3_600_000, status: "settled", net: 23.4, exit: e1 * 1.0047 },
-    { id: "seed-2", long: false, stake: 50, leverage: 10, entry: e2, pts: shape(e2, [1, 1.003, 0.998, 0.993, 0.99, 0.986, 0.985]), placedAt: Date.now() - 55 * 60_000, status: "settled", net: -17.9, exit: e2 * 1.0036 },
+    { id: "seed-1", long: true, stake: 100, leverage: 5, entry: e1, pts: shape(e1, [1, 0.996, 0.992, 0.995, 1.002, 1.008, 1.012, 1.016]), placedAt: Date.now() - 3 * 3_600_000, status: "settled", net: 23.4, exit: e1 * 1.0047, accuracy: 0.83 },
+    { id: "seed-2", long: false, stake: 50, leverage: 10, entry: e2, pts: shape(e2, [1, 1.003, 0.998, 0.993, 0.99, 0.986, 0.985]), placedAt: Date.now() - 55 * 60_000, status: "settled", net: -17.9, exit: e2 * 1.0036, accuracy: 0.38 },
   ];
 }

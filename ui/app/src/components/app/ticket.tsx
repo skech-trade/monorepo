@@ -355,14 +355,20 @@ export function Ticket({
       </div>
 
       {/* The footer stays put: the four figures you read before you press. */}
-      <div className="flex flex-col gap-3 border-t bg-muted/40 p-3">
+      <div className="flex flex-col gap-3 border-t p-3">
         <div className="flex flex-col gap-1.5">
           <Stat label="Entry price" value={`$${fmtPrice(entry)}`} />
           <Stat label="Wiped out at" tone="text-warning-foreground" value={notional > 0 ? `$${fmtPrice(liquidationPrice(order, market))}` : "—"} />
           <Stat label="Margin used" value={pay > 0 ? `$${usd(pay)}` : "—"} />
           <Stat label={maker ? "Fee (maker)" : "Fee (taker)"} value={`$${usd(fee)}`} />
         </div>
-        <Button className="w-full" disabled={pay <= 0} size="lg">
+        {/* The one filled button on the desk, in the colour of the direction. */}
+        <Button
+          className={cn("w-full", long ? "border-success bg-success text-white shadow-success/24 hover:bg-success/90" : "")}
+          disabled={pay <= 0}
+          size="lg"
+          variant={long ? "default" : "destructive"}
+        >
           {pay <= 0 ? "Enter an amount" : `${long ? "Long" : "Short"} ${market.name}`}
         </Button>
       </div>

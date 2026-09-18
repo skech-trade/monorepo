@@ -216,7 +216,7 @@ export function PriceChart({
       },
       grid: {
         horzLines: { color: palette.grid },
-        vertLines: { color: palette.grid },
+        vertLines: { visible: false },
       },
       layout: {
         // Their watermark. Apache-2.0 is satisfied by the NOTICE we ship, so

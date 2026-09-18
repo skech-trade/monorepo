@@ -51,7 +51,7 @@ export function AppBar({
   onBlurred: (blurred: boolean) => void;
 }) {
   return (
-    <header className="flex h-14 items-center gap-3 border-b bg-background px-4">
+    <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-3">
       <Link aria-label="skech home" className="shrink-0 transition-opacity hover:opacity-70" href="/app">
         <Wordmark />
       </Link>

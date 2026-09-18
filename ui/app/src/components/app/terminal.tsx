@@ -17,9 +17,9 @@ export function Terminal({ market, positions }: { market: Market; positions: Pos
   const account = useMemo(() => accountFor(positions), [positions]);
 
   return (
-    <div className="flex min-h-full flex-col bg-muted/40" data-blurred={blurred ? "" : undefined}>
+    <div className="flex h-svh flex-col bg-background" data-blurred={blurred ? "" : undefined}>
       <AppBar account={account} blurred={blurred} mode={mode} onBlurred={setBlurred} onMode={setMode} />
-      <main className="mx-auto w-full max-w-[120rem] flex-1 p-3">
+      <main className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
         {mode === "desk" ? (
           <Desk market={market} order={order} patch={patch} positions={positions} />
         ) : (

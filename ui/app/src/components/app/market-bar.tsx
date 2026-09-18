@@ -2,7 +2,6 @@
 
 import { ChevronDownIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { Card } from "@/components/ui/card";
 import { compactUsd, price as fmtPrice, type Market, signedPct } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import { MarketPicker, TokenAvatar } from "./market-header";
@@ -23,7 +22,7 @@ export function MarketBar({ market, className }: { market: Market; className?: s
   const up = market.changePct >= 0;
 
   return (
-    <Card className={cn("flex-row items-center gap-x-6 gap-y-2 px-3 py-2", className)} render={<header />}>
+    <header className={cn("flex h-12 items-center gap-x-6 bg-background px-3", className)}>
       <button
         aria-haspopup="dialog"
         className="-m-1 flex shrink-0 items-center gap-2.5 rounded-lg p-1 text-left hover:bg-accent"
@@ -54,6 +53,6 @@ export function MarketBar({ market, className }: { market: Market; className?: s
       </div>
 
       <MarketPicker current={market} onOpenChange={setPicking} open={picking} />
-    </Card>
+    </header>
   );
 }

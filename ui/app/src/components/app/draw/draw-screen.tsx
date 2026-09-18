@@ -1,14 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Card } from "@/components/ui/card";
 import { toastManager } from "@/components/ui/toast";
 import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
-import { extend, nextCandle, type Outcome, type Pt, quote as quoteFor, SAMPLES, settle, shapeOf } from "@/lib/sketch";
+import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, verdictFor } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { DrawTools, type Preset, type Tool } from "./draw-tools";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
-import { type Result, SketchBar, VERDICT } from "./sketch-tray";
+import { type Result, SketchBar } from "./sketch-tray";
 import { seedSketches, type Sketch, SketchesSheet } from "./sketches";
 
 /**
@@ -65,34 +64,61 @@ export function DrawScreen({ market }: { market: Market }) {
   const shape = useMemo(() => shapeOf(pts, entry), [pts, entry]);
   const quote = useMemo(() => (shape ? quoteFor(shape, entry, stake, leverage) : null), [shape, entry, stake, leverage]);
   const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage) : null), [run, shape, entry, stake, leverage]);
+  const ribbon = useMemo(() => ribbonFor(feed), [feed]);
+  const accuracy = useMemo(() => (shape && run.length > 0 ? accuracyOf(run, shape.prices, ribbon, RUN_BARS) : null), [run, shape, ribbon]);
+  /** Your last line, moved to today's price. */
+  const ghost = useMemo(
+    () => (lastSketch && phase === "live" ? lastSketch.pts.map((p) => ({ t: p.t, price: p.price + (price - lastSketch.entry) })) : null),
+    [lastSketch, phase, price],
+  );
+  const streamed = useRef(0);
 
-  const live = useRef({ phase, shape, run, feed, entry, stake, leverage });
+  const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon });
   useEffect(() => {
-    live.current = { phase, shape, run, feed, entry, stake, leverage };
+    live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon };
   });
 
   const finish = useCallback((bars: Candle[], early: boolean) => {
-    const { shape: sh, entry: en, stake: st, leverage: lev } = live.current;
+    const { shape: sh, entry: en, stake: st, leverage: lev, ribbon: rb } = live.current;
     if (!sh) return;
     const bk = settle(bars, sh, en, st, lev);
+    const acc = accuracyOf(bars, sh.prices, rb, RUN_BARS);
     const done: Outcome = bk.done ?? "time";
-    const res: Result = { net: bk.net, outcome: early && bk.done === null ? "closed" : done, entry: en, exit: bk.exit, long: sh.long };
+    const res: Result = {
+      net: bk.net,
+      outcome: early && bk.done === null ? "closed" : done,
+      entry: en,
+      exit: bk.exit,
+      long: sh.long,
+      inside: acc.inside,
+      flags: acc.flags,
+      bias: acc.bias,
+    };
     setResult(res);
-    toastManager.add({ title: VERDICT[res.outcome], description: `${signedUsd(bk.net)} on $${usd(st, 0)}`, type: bk.net >= 0 ? "success" : "error" });
-    const settled = (s: Sketch): Sketch => ({ ...s, status: "settled", net: bk.net, exit: bk.exit, liquidated: done === "liquidated" });
+    const word = done === "liquidated" ? "Wiped out" : verdictFor(acc.inside);
+    toastManager.add({ title: word, description: `${Math.round(acc.inside * 100)}% inside your ribbon. ${signedUsd(bk.net)} on $${usd(st, 0)}.`, type: bk.net >= 0 ? "success" : "error" });
+    const settled = (s: Sketch): Sketch => ({ ...s, status: "settled", net: bk.net, exit: bk.exit, liquidated: done === "liquidated", accuracy: acc.inside });
     setSketches((list) => list.map((s) => (s.status === "running" ? settled(s) : s)));
     setLastSketch((s) => (s ? settled(s) : s));
-    setFeed((f) => [...f, ...bars].slice(-HISTORY));
-    setRun([]);
-    setPts([]);
+    // The round stays on screen: dashed line, coloured ribbon, the gap. It
+    // folds into history when the next line starts.
     setPhase("settled");
   }, []);
+
+  /** Put a finished round behind us before the next one. */
+  const fold = () => {
+    if (run.length) setFeed((f) => [...f, ...run].slice(-HISTORY));
+    setRun([]);
+    setPts([]);
+    setResult(null);
+  };
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const tick = setInterval(() => {
       const { phase: ph, shape: sh, run: rn, feed: fd, entry: en } = live.current;
       const now = Date.now();
+      if (ph === "settled") return;
       if (ph !== "running" || !sh) {
         const next = [...fd.slice(1), nextCandle(fd.at(-1)?.c ?? en, VOL, now)];
         setFeed(next);
@@ -110,6 +136,7 @@ export function DrawScreen({ market }: { market: Market }) {
     }, TICK_MS);
     const sub = setInterval(() => {
       const { phase: ph, run: rn } = live.current;
+      if (ph === "settled") return;
       if (ph === "running" && rn.length) setRun((r) => (r.length ? [...r.slice(0, -1), extend(r[r.length - 1], VOL)] : r));
       else setFeed((f) => (f.length ? [...f.slice(0, -1), extend(f[f.length - 1], VOL)] : f));
     }, SUB_MS);
@@ -122,7 +149,9 @@ export function DrawScreen({ market }: { market: Market }) {
   /** Start a line at the live price. A finger lands wherever it lands; the
       gap is carried through the whole drawing. */
   const begin = (pt: Pt) => {
+    fold();
     kept.current = 0;
+    streamed.current = 0;
     lastT.current = -1;
     anchor.current = price - pt.price;
     setResult(null);
@@ -160,7 +189,14 @@ export function DrawScreen({ market }: { market: Market }) {
     if (pt.t - lastT.current < 0.012) return;
     lastT.current = pt.t;
     kept.current += 1;
-    setPts((p) => [...p, shifted(pt)]);
+    // Streamline: the line lags the finger a little, so a shaky hand draws a
+    // calm line. Half way to the pointer each sample, the way Excalidraw does.
+    const target = shifted(pt);
+    setPts((p) => {
+      const last = p[p.length - 1];
+      const eased = last ? last.price + (target.price - last.price) * 0.55 : target.price;
+      return [...p, { t: target.t, price: eased }];
+    });
   };
 
   const onUp = () => {
@@ -198,8 +234,7 @@ export function DrawScreen({ market }: { market: Market }) {
   };
 
   const onClear = () => {
-    setPts([]);
-    setResult(null);
+    fold();
     setPhase("live");
   };
 
@@ -212,7 +247,7 @@ export function DrawScreen({ market }: { market: Market }) {
       bleed: [0, -0.2, -0.35, -0.55, -0.7, -0.9, -1.0, -1.15, -1.25, -1.4],
     };
     const ms = SHAPES[preset];
-    setResult(null);
+    fold();
     setEntry(price);
     setPts(ms.map((m, i) => ({ t: i / (ms.length - 1), price: price + m * amp })));
     kept.current = ms.length;
@@ -258,14 +293,14 @@ export function DrawScreen({ market }: { market: Market }) {
   );
 
   return (
-    <Card aria-label="Draw" className="min-h-[24rem] gap-2 p-3 lg:h-[calc(100svh-4.5rem)]" render={<section />}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <section aria-label="Draw" className="flex h-full min-h-[24rem] flex-col bg-background">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
         <MarketHeader market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
         {phase === "live" || phase === "drawing" || phase === "drawn" ? (
           <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onTool={setTool} onUndo={onUndo} tool={tool} />
         ) : null}
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 px-2 pt-2">
         <SketchCanvas
           band={band}
           feed={feed}
@@ -283,18 +318,20 @@ export function DrawScreen({ market }: { market: Market }) {
           runBars={RUN_BARS}
           shape={shape}
           showPoints={tool === "points" && phase === "drawn"}
+          accuracy={accuracy}
+          ghost={ghost}
+          ribbon={ribbon}
         />
       </div>
       {/* The bar takes its row; the plot above it is never covered. */}
-      <div className="border-t px-1 pt-3">
+      <div className="border-t px-3 py-3">
         <SketchBar
           entry={entry}
           leverage={leverage}
           market={market}
           onCloseNow={() => run.length && finish(run, true)}
           onDrawAgain={() => {
-            setPts([]);
-            setResult(null);
+            fold();
             setPhase("live");
           }}
           onLeverage={setLeverage}
@@ -307,12 +344,15 @@ export function DrawScreen({ market }: { market: Market }) {
           price={price}
           quote={quote}
           result={result}
+          runCount={run.length}
+          runBars={RUN_BARS}
           shape={shape}
           sketch={lastSketch}
+          sketches={shown}
           stake={stake}
         />
       </div>
       <SketchesSheet market={market} onOpenChange={setListOpen} open={listOpen} sketches={shown} />
-    </Card>
+    </section>
   );
 }

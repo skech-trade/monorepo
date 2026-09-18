@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
-import { type Pt, type Shape, smoothPath } from "@/lib/sketch";
+import { type Accuracy, lineAt, type Pt, type Shape, smoothPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
 /**
@@ -116,6 +116,9 @@ export function SketchCanvas({
   headLabel,
   horizonMinutes,
   showPoints = false,
+  accuracy,
+  ghost,
+  ribbon,
   className,
 }: {
   feed: Candle[];
@@ -138,6 +141,12 @@ export function SketchCanvas({
   horizonMinutes: number;
   /** Dots at every point, for a line made of clicks. */
   showPoints?: boolean;
+  /** Which arrived candles closed inside the ribbon. */
+  accuracy: Accuracy | null;
+  /** Your last line, faint, so you notice your habits. */
+  ghost: Pt[] | null;
+  /** Half the ribbon's height, in price. */
+  ribbon: number;
   className?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -216,6 +225,8 @@ export function SketchCanvas({
   }, []);
 
   const plotted = pts.map((pt) => ({ x: split + pt.t * (plotR - split), y: y(pt.price) }));
+  const ribbonPx = Math.min(36, (ribbon / span) * (plotB - plotT));
+  const progress = run.length / runBars;
   const drawing = phase === "drawing";
   const hasLine = plotted.length > 1;
   const head = plotted.at(-1);
@@ -291,15 +302,66 @@ export function SketchCanvas({
             </g>
           ) : null}
 
+          {/* How far the round has run, in the chart's own units. */}
+          {run.length > 0 ? (
+            <line stroke="var(--brand)" strokeWidth="2" x1={split} x2={split + progress * (plotR - split)} y1={plotB + 1} y2={plotB + 1} />
+          ) : null}
+
+          {/* Your last line, moved to today's price, so a habit shows. */}
+          {ghost && ghost.length > 1 && phase === "live" ? (
+            <path
+              d={smoothPath(ghost.map((pt) => ({ x: split + pt.t * (plotR - split), y: y(pt.price) })))}
+              fill="none"
+              stroke="var(--muted-foreground)"
+              strokeDasharray="4 4"
+              strokeOpacity="0.35"
+              strokeWidth="1.5"
+            />
+          ) : null}
+
           <CandleMarks bars={feed} body={Math.max(2, step * 0.6)} dim={hasLine} x={(i) => plotL + i * step + step / 2} y={y} />
           <CandleMarks bars={run} body={Math.max(2, runStep * 0.6)} x={(i) => split + i * runStep + runStep / 2} y={y} />
+
+          {/* The ribbon: stay inside it and the candle counts. Coloured as
+              candles arrive, green inside, grey out. */}
+          {hasLine && !drawing && shape ? (
+            <g>
+              <path d={smoothPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin="round" strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
+              {accuracy?.flags.map((inside, i) => {
+                const cy = y(lineAt(shape.prices, (i + 1) / runBars));
+                return (
+                  <rect
+                    className={phase === "settled" ? "sk-in" : undefined}
+                    fill={inside ? "var(--success)" : "var(--muted-foreground)"}
+                    height={Math.max(4, ribbonPx * 2)}
+                    // biome-ignore lint/suspicious/noArrayIndexKey: positional
+                    key={i}
+                    fillOpacity={inside ? 0.3 : 0.16}
+                    style={phase === "settled" ? { animationDelay: `${i * 35}ms` } : undefined}
+                    width={runStep}
+                    x={split + i * runStep}
+                    y={cy - Math.max(2, ribbonPx)}
+                  />
+                );
+              })}
+            </g>
+          ) : null}
 
           {hasLine ? (
             <g>
               {drawing ? (
                 <polyline fill="none" points={plotted.map((p) => `${p.x},${p.y}`).join(" ")} stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />
               ) : (
-                <path d={smoothPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeOpacity={phase === "running" ? 0.55 : 1} strokeWidth="2.4" />
+                <path
+                  d={smoothPath(plotted)}
+                  fill="none"
+                  stroke="var(--brand)"
+                  strokeDasharray={phase === "settled" ? "5 4" : undefined}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeOpacity={phase === "running" ? 0.7 : phase === "settled" ? 0.6 : 1}
+                  strokeWidth="2.4"
+                />
               )}
               {showPoints
                 ? plotted.slice(1, -1).map((p, i) => (
@@ -335,8 +397,15 @@ export function SketchCanvas({
 
           {phase === "live" ? (
             <g pointerEvents="none">
-              <path d={hint} fill="none" stroke="var(--brand)" strokeDasharray="3 8" strokeLinecap="round" strokeOpacity="0.35" strokeWidth="2" />
+              <path d={hint} fill="none" stroke="var(--brand)" strokeDasharray="3 8" strokeLinecap="round" strokeOpacity="0.35" strokeWidth="2">
+                <animate attributeName="stroke-dashoffset" dur="1.4s" from="0" repeatCount="indefinite" to="-22" />
+              </path>
               <circle cx={split} cy={y(price)} fill="var(--brand)" r="3.5" />
+              {/* A finger, twice, then it gets out of the way. */}
+              <circle fill="var(--brand)" fillOpacity="0.9" r="5">
+                <animateMotion dur="2.6s" fill="freeze" path={hint} repeatCount="2" />
+                <animate attributeName="opacity" begin="5.2s" dur="0.3s" fill="freeze" from="0.9" to="0" />
+              </circle>
               <text fill="var(--muted-foreground)" fontSize="12" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={(split + plotR) / 2} y={plotB - 10}>
                 drag to draw your line
               </text>
@@ -377,6 +446,11 @@ export function SketchCanvas({
           }}
         >
           {signedUsd(pnl)}
+          {accuracy && accuracy.flags.length > 0 ? (
+            <span className={cn("ml-1.5 font-normal", accuracy.flags[accuracy.flags.length - 1] ? "text-up" : "text-muted-foreground")}>
+              {accuracy.flags[accuracy.flags.length - 1] ? "inside" : "outside"}
+            </span>
+          ) : null}
         </span>
       ) : null}
     </div>

@@ -9,7 +9,6 @@ import {
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -205,11 +204,7 @@ export function Pane({
 }) {
   if (collapsed && direction === "column" && onCollapsed) {
     return (
-      <Card
-        aria-label={label ?? title}
-        className={cn("items-center gap-3 py-2", className)}
-        render={<aside />}
-      >
+      <aside aria-label={label ?? title} className={cn("flex flex-col items-center gap-3 bg-background py-2", className)}>
         <FoldButton collapsed direction="column" onCollapsed={onCollapsed} title={title} />
         <span
           className="whitespace-nowrap text-muted-foreground text-xs"
@@ -217,12 +212,12 @@ export function Pane({
         >
           {title}
         </span>
-      </Card>
+      </aside>
     );
   }
   return (
-    <Card aria-label={label ?? title} className={cn("min-w-0 overflow-hidden", className)} render={<section />}>
-      <div className="flex min-w-0 items-center gap-2 px-3 pt-3 pb-2">
+    <section aria-label={label ?? title} className={cn("flex min-w-0 flex-col overflow-hidden bg-background", className)}>
+      <div className="flex h-10 min-w-0 shrink-0 items-center gap-2 px-2">
         {header ?? <h2 className="flex-1 truncate font-medium text-sm">{title}</h2>}
         {onCollapsed ? (
           <FoldButton
@@ -235,6 +230,6 @@ export function Pane({
         ) : null}
       </div>
       {collapsed ? null : <div className={cn("min-h-0 flex-1", bodyClassName)}>{children}</div>}
-    </Card>
+    </section>
   );
 }

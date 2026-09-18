@@ -219,6 +219,53 @@ export function settle(
 }
 
 /**
+ * The ribbon: how far from your line the price may stray and still count as
+ * "inside". Sized from the market's own recent candles, about one and a half
+ * average ranges, so a quiet market gets a tight ribbon and a wild one gets
+ * room. The money is decided by the levels; the ribbon is the score.
+ */
+export function ribbonFor(recent: Candle[]): number {
+  const bars = recent.slice(-20);
+  if (bars.length === 0) return 0;
+  const avg = bars.reduce((sum, c) => sum + (c.h - c.l), 0) / bars.length;
+  return avg * 1.5;
+}
+
+/** The line's price at a fraction of the window, read off the samples. */
+export function lineAt(prices: number[], u: number): number {
+  const x = Math.min(1, Math.max(0, u)) * (prices.length - 1);
+  const i = Math.min(prices.length - 2, Math.floor(x));
+  return prices[i] + (prices[i + 1] - prices[i]) * (x - i);
+}
+
+export type Accuracy = {
+  /** Share of arrived candles that closed inside the ribbon, 0 to 1. */
+  inside: number;
+  /** One flag per candle, in order. */
+  flags: boolean[];
+  /** Mean of line minus close: positive means you drew too high. */
+  bias: number;
+};
+
+export function accuracyOf(bars: Candle[], prices: number[], width: number, runBars: number): Accuracy {
+  if (bars.length === 0) return { inside: 0, flags: [], bias: 0 };
+  let sum = 0;
+  const flags = bars.map((bar, i) => {
+    const want = lineAt(prices, (i + 1) / runBars);
+    sum += want - bar.c;
+    return Math.abs(bar.c - want) <= width;
+  });
+  return { inside: flags.filter(Boolean).length / flags.length, flags, bias: sum / bars.length };
+}
+
+/** Three words, by how much of the way the price stayed inside. */
+export function verdictFor(inside: number): "Called it" | "Close" | "Off" {
+  if (inside >= 0.8) return "Called it";
+  if (inside >= 0.55) return "Close";
+  return "Off";
+}
+
+/**
  * One candle of a random walk, pulled toward the drawn line by `follow`.
  *
  * `follow` is rolled once per sketch and held: near zero the market ignores

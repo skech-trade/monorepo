@@ -38,6 +38,24 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   the other way. No dip means no floor and the whole stake is at risk.
 - Quote: "If it gets there +$X", "The most you can lose $Y", "Put in $S,
   trades like $N". Loss is capped at the stake.
+- The ribbon: a band around the line, one and a half average candle ranges
+  wide, sized from the last twenty candles. Candles that close inside it
+  count. The money is decided by the levels; the ribbon is the score.
+- Feedback while it plays: candle N of 24 in the bar, a progress strip under
+  the future half, the live figure with "inside" or "outside" on the price
+  head, ribbon segments coloured green (inside) or grey as each candle lands.
+- The reveal: the line goes dashed, the segments fade in one by one, the
+  verdict is bucketed by how much of the way the price stayed inside (Called
+  it 80%+, Close 55%+, Off), with the money and the outcome under it, and a
+  directional error ("you drew too high by $92 on average"). Recent rounds as
+  a row of small bars. The round stays on screen until the next line starts.
+- Share text is spoiler free: one glyph per candle, filled inside, hollow out.
+- A faint ghost of your last line sits on the empty canvas at today's price.
+- First run: the hint path marches and a dot rides it twice, then stops. It
+  disappears on the first touch. Escape clears, Z or Backspace undoes.
+- Hierarchy: one board with hairlines, no cards. The header is one 48px row.
+  The one filled button on a view is the direction button in its colour.
+  Candles sit one step quieter than the P&L figures. No vertical grid.
 - Size: wheel, $20 to $500 in $5 steps, click to type. Leverage: 1× to 15×
   meter with "$100 → 10× → $1,000" under it.
 - "Draw it in for $S" places it. Toast confirms.

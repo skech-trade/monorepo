@@ -3,7 +3,6 @@
 import { ChevronUpIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import {
   accountFor,
   candlesFor,
@@ -67,12 +66,14 @@ export function Desk({
 
   return (
     <div
-      className="grid min-w-0 gap-3 xl:h-[calc(100svh-4.5rem)] xl:[grid-template-columns:var(--cols)] xl:[grid-template-rows:auto_minmax(14rem,1fr)_auto]"
+      // One board. The gap is a pixel and the board's ground is the border
+      // colour, so every seam is a hairline and nothing is a card.
+      className="grid min-w-0 gap-px bg-border xl:h-full xl:[grid-template-columns:var(--cols)] xl:[grid-template-rows:auto_minmax(14rem,1fr)_auto]"
       style={{ ["--cols" as string]: columns }}
     >
       <MarketBar className="min-w-0 xl:col-span-2 xl:col-start-1 xl:row-start-1" market={market} />
 
-      <Card aria-label="Price" className="min-w-0 gap-2 p-3 xl:col-start-1 xl:row-start-2" render={<section />}>
+      <section aria-label="Price" className="flex min-w-0 flex-col gap-2 bg-background p-2 xl:col-start-1 xl:row-start-2">
         <ChartToolbar
           kind={kind}
           logScale={logScale}
@@ -119,7 +120,7 @@ export function Desk({
             ))}
           </div>
         ) : null}
-      </Card>
+      </section>
 
       <OrderBook
         className="order-3 xl:order-none xl:col-start-2 xl:row-start-2"

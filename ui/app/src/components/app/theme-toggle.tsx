@@ -5,12 +5,6 @@ import { useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 
-/**
- * Light or dark. The class on <html> is the source of truth: the boot script
- * in layout.tsx sets it before first paint from localStorage or the OS, this
- * subscribes to it, and the chart's palette store watches the same class.
- */
-
 function subscribe(onChange: () => void) {
   const observer = new MutationObserver(onChange);
   observer.observe(document.documentElement, { attributeFilter: ["class"], attributes: true });

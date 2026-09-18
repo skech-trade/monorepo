@@ -29,7 +29,7 @@ function Rows({
       {levels.map((l) => (
         <li key={l.price}>
           <button
-            className="relative flex w-full items-baseline justify-between gap-2 px-3 py-[3px] text-xs hover:bg-accent"
+            className="relative flex h-6 w-full items-center justify-between gap-2 px-3 text-xs hover:bg-accent"
             onClick={() => onPick(l.price)}
             type="button"
           >
@@ -51,7 +51,7 @@ function Tape({ trades }: { trades: Trade[] }) {
   return (
     <ul>
       {trades.map((t) => (
-        <li className="flex items-baseline justify-between gap-2 px-3 py-[3px] text-xs" key={t.id}>
+        <li className="flex h-6 items-center justify-between gap-2 px-3 text-xs" key={t.id}>
           <span className={cn("figures", t.side === "buy" ? "text-up" : "text-down")}>{fmtPrice(t.price)}</span>
           <span className="figures text-muted-foreground">{usd(t.size, 3)}</span>
           <span className="figures text-muted-foreground">
@@ -110,7 +110,7 @@ export function OrderBook({
         {tab === "book" ? (
           <>
             <Rows levels={[...asks].reverse()} max={max} onPick={onPickPrice} side="ask" />
-            <div className="my-1 flex items-baseline justify-between gap-2 border-y bg-muted/60 px-3 py-1.5">
+            <div className="my-1 flex h-8 items-center justify-between gap-2 border-y px-3">
               <span className="figures font-medium">${fmtPrice(market.price)}</span>
               <span className="figures text-muted-foreground text-xs">{fmtPrice(spread)} spread</span>
             </div>

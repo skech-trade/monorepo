@@ -4,7 +4,7 @@ import { CheckIcon, Share2Icon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
-import type { Outcome, Quote, Shape } from "@/lib/sketch";
+import { type Outcome, type Quote, type Shape, verdictFor } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 import { Pill } from "../controls";
 import { DrawControls } from "./draw-controls";
@@ -22,6 +22,11 @@ export type Result = {
   entry: number;
   exit: number;
   long: boolean;
+  /** Share of the way the price stayed inside the ribbon. */
+  inside: number;
+  flags: boolean[];
+  /** Mean of line minus price: positive means you drew too high. */
+  bias: number;
 };
 
 export const VERDICT: Record<Result["outcome"], string> = {
@@ -32,8 +37,12 @@ export const VERDICT: Record<Result["outcome"], string> = {
   liquidated: "Wiped out",
 };
 
+/** One glyph per candle, filled inside the ribbon, hollow outside. Spoiler
+    free and pastes into any chat, the way a Wordle grid does. */
 export function shareText(market: Market, result: Result): string {
-  return `I drew ${market.name} going ${result.long ? "up" : "down"} from $${fmtPrice(result.entry)}. ${VERDICT[result.outcome]}. ${signedUsd(result.net, 0)} on skech.trade`;
+  const glyphs = result.flags.map((f) => (f ? "▮" : "▯")).join("");
+  const word = result.outcome === "liquidated" ? "Wiped out" : verdictFor(result.inside);
+  return `skech · ${market.symbol} ${result.long ? "up" : "down"} · ${Math.round(result.inside * 100)}% inside\n${glyphs}\n${word}. ${signedUsd(result.net, 0)} on skech.trade`;
 }
 
 function ShareButton({ text }: { text: string }) {
@@ -90,6 +99,9 @@ export function SketchBar({
   result,
   sketch,
   openCount,
+  runCount,
+  runBars,
+  sketches,
   onPlace,
   onDrawAgain,
   onCloseNow,
@@ -109,6 +121,9 @@ export function SketchBar({
   result: Result | null;
   sketch: Sketch | null;
   openCount: number;
+  runCount: number;
+  runBars: number;
+  sketches: Sketch[];
   onPlace: () => void;
   onDrawAgain: () => void;
   onCloseNow: () => void;
@@ -149,7 +164,13 @@ export function SketchBar({
         <Button onClick={onDrawAgain} variant="ghost">
           Draw again
         </Button>
-        <Button onClick={onPlace}>Draw it in for ${usd(stake, 0)}</Button>
+        <Button
+          className={shape.long ? "border-success bg-success text-white shadow-success/24 hover:bg-success/90" : ""}
+          onClick={onPlace}
+          variant={shape.long ? "default" : "destructive"}
+        >
+          Draw it in for ${usd(stake, 0)}
+        </Button>
       </div>
     );
   }
@@ -167,7 +188,7 @@ export function SketchBar({
         </p>
         <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
           <span className="size-1.5 animate-pulse rounded-full bg-info" />
-          Playing out
+          Candle <F>{runCount}</F> of <F>{runBars}</F>
         </span>
         <Button onClick={onCloseNow} variant="outline">
           Take it off now
@@ -178,16 +199,41 @@ export function SketchBar({
 
   if (phase === "settled" && result) {
     const won = result.net >= 0;
+    const word = result.outcome === "liquidated" ? "Wiped out" : verdictFor(result.inside);
+    const pct = Math.round(result.inside * 100);
+    const off = Math.abs(result.bias);
+    const recent = sketches.filter((s) => s.accuracy !== undefined).slice(0, 8).reverse();
     return (
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
         {sketch ? <SketchThumb className="h-10 w-[4.25rem] shrink-0" sketch={sketch} /> : null}
         <span className="flex flex-col leading-none">
-          <span className={cn("figures font-semibold text-xl", won ? "text-up" : "text-down")}>{signedUsd(result.net)}</span>
-          <span className={cn("mt-1 text-xs", won ? "text-up" : "text-down")}>{VERDICT[result.outcome]}</span>
+          <span className={cn("font-semibold text-xl", pct >= 80 ? "text-up" : pct >= 55 ? "text-foreground" : "text-down")}>{word}</span>
+          <span className="mt-1 text-muted-foreground text-xs">
+            <F>{pct}%</F> inside your ribbon
+          </span>
         </span>
-        <p className="mr-auto text-muted-foreground text-xs">
+        <Money label={VERDICT[result.outcome].toLowerCase()} tone={won ? "text-up" : "text-down"} value={signedUsd(result.net)} />
+        <p className="mr-auto max-w-[26rem] text-muted-foreground text-xs">
           You drew {market.name} going {result.long ? "up" : "down"} from <F>${fmtPrice(result.entry)}</F>. It closed at <F>${fmtPrice(result.exit)}</F>.
+          {off >= 1 ? (
+            <>
+              {" "}
+              You drew too {result.bias > 0 ? "high" : "low"} by <F>${usd(off, 0)}</F> on average.
+            </>
+          ) : null}
         </p>
+        {/* Your last rounds, as bars. A trend, not a coin flip. */}
+        {recent.length > 1 ? (
+          <span aria-label="Your recent accuracy" className="flex h-6 items-end gap-0.5" title="Inside the ribbon, last rounds">
+            {recent.map((s) => (
+              <span
+                className={cn("w-1.5 rounded-sm", (s.accuracy ?? 0) >= 0.8 ? "bg-success" : (s.accuracy ?? 0) >= 0.55 ? "bg-primary/60" : "bg-input")}
+                key={s.id}
+                style={{ height: `${Math.max(15, (s.accuracy ?? 0) * 100)}%` }}
+              />
+            ))}
+          </span>
+        ) : null}
         {lines}
         <ShareButton text={shareText(market, result)} />
         <Button onClick={onDrawAgain} variant="outline">
