@@ -7,10 +7,9 @@ import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd
 import { extend, nextCandle, type Outcome, type Pt, quote as quoteFor, SAMPLES, settle, shapeOf } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { DrawTools, type Preset, type Tool } from "./draw-tools";
-import type { Order } from "../ticket";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
-import { type Result, SketchTray, VERDICT } from "./sketch-tray";
-import { seedSketches, type Sketch, SketchesSheet, SketchList } from "./sketches";
+import { type Result, SketchBar, VERDICT } from "./sketch-tray";
+import { seedSketches, type Sketch, SketchesSheet } from "./sketches";
 
 /**
  * Draw. The chart, the line you put on it, what the line is worth.
@@ -38,9 +37,10 @@ function easeBand(from: Band, to: Band): Band {
   return { lo: from.lo + (to.lo - from.lo) * k, hi: from.hi + (to.hi - from.hi) * k };
 }
 
-export function DrawScreen({ market, order, patch }: { market: Market; order: Order; patch: (next: Partial<Order>) => void }) {
-  const stake = Number.parseFloat(order.pay) || 100;
-  const leverage = order.leverage;
+export function DrawScreen({ market }: { market: Market }) {
+  // Draw's own. The desk ticket's pay and leverage are a different field.
+  const [stake, setStake] = useState(100);
+  const [leverage, setLeverage] = useState(10);
   const seed = useMemo(() => candlesFor(market, "1m").slice(-HISTORY), [market]);
 
   const [phase, setPhase] = useState<Phase>("live");
@@ -258,41 +258,38 @@ export function DrawScreen({ market, order, patch }: { market: Market; order: Or
   );
 
   return (
-    <div className="flex min-h-0 flex-col gap-3 lg:h-[calc(100svh-4.5rem)] lg:flex-row">
-      <Card aria-label="Price" className="min-h-[16rem] min-w-0 flex-1 gap-2 p-3" render={<section />}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <MarketHeader
-            market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }}
-          />
-          {phase === "live" || phase === "drawing" || phase === "drawn" ? (
-            <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onTool={setTool} onUndo={onUndo} tool={tool} />
-          ) : null}
-        </div>
-        <div className="min-h-0 flex-1">
-          <SketchCanvas
-            band={band}
-            feed={feed}
-            headLabel={headLabel}
-            horizonMinutes={RUN_BARS}
-            onDown={onDown}
-            onHead={onHead}
-            onMove={onMove}
-            onUp={onUp}
-            phase={phase}
-            pnl={book?.net ?? null}
-            price={price}
-            pts={pts}
-            run={run}
-            runBars={RUN_BARS}
-            shape={shape}
-            showPoints={tool === "points" && phase === "drawn"}
-          />
-        </div>
-      </Card>
-
-      <Card aria-label="Your sketch" className="max-h-[55svh] shrink-0 gap-6 overflow-y-auto p-4 lg:max-h-none lg:w-[22rem]" render={<aside />}>
-        <SketchTray
+    <Card aria-label="Draw" className="min-h-[24rem] gap-2 p-3 lg:h-[calc(100svh-4.5rem)]" render={<section />}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <MarketHeader market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
+        {phase === "live" || phase === "drawing" || phase === "drawn" ? (
+          <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onTool={setTool} onUndo={onUndo} tool={tool} />
+        ) : null}
+      </div>
+      <div className="min-h-0 flex-1">
+        <SketchCanvas
+          band={band}
+          feed={feed}
+          headLabel={headLabel}
+          horizonMinutes={RUN_BARS}
+          onDown={onDown}
+          onHead={onHead}
+          onMove={onMove}
+          onUp={onUp}
+          phase={phase}
+          pnl={book?.net ?? null}
+          price={price}
+          pts={pts}
+          run={run}
+          runBars={RUN_BARS}
+          shape={shape}
+          showPoints={tool === "points" && phase === "drawn"}
+        />
+      </div>
+      {/* The bar takes its row; the plot above it is never covered. */}
+      <div className="border-t px-1 pt-3">
+        <SketchBar
           entry={entry}
+          leverage={leverage}
           market={market}
           onCloseNow={() => run.length && finish(run, true)}
           onDrawAgain={() => {
@@ -300,11 +297,11 @@ export function DrawScreen({ market, order, patch }: { market: Market; order: Or
             setResult(null);
             setPhase("live");
           }}
+          onLeverage={setLeverage}
           onOpenList={() => setListOpen(true)}
           onPlace={onPlace}
+          onStake={setStake}
           openCount={sketches.length}
-          order={order}
-          patch={patch}
           phase={phase}
           pnl={book?.net ?? null}
           price={price}
@@ -312,16 +309,10 @@ export function DrawScreen({ market, order, patch }: { market: Market; order: Or
           result={result}
           shape={shape}
           sketch={lastSketch}
+          stake={stake}
         />
-        {phase !== "drawn" ? (
-          <div className="hidden lg:block">
-            <p className="px-2 pb-1 font-medium text-muted-foreground text-xs">Your lines</p>
-            <SketchList sketches={shown} />
-          </div>
-        ) : null}
-      </Card>
-
+      </div>
       <SketchesSheet market={market} onOpenChange={setListOpen} open={listOpen} sketches={shown} />
-    </div>
+    </Card>
   );
 }

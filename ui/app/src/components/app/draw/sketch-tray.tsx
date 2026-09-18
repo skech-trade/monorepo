@@ -6,16 +6,14 @@ import { Button } from "@/components/ui/button";
 import { type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
 import type { Outcome, Quote, Shape } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
-import { Figure, Pill } from "../controls";
-import type { Order } from "../ticket";
+import { Pill } from "../controls";
 import { DrawControls } from "./draw-controls";
 import type { Phase } from "./sketch-canvas";
 import { type Sketch, SketchThumb } from "./sketches";
 
 /**
- * The tray beside the chart. Four faces: invite, quote, playing out, result.
- * Every number in dollars at the stake you picked, the loss at the same size
- * as the gain.
+ * The bar along the foot of the chart. One line, four faces: invite, quote,
+ * playing out, result. It never covers the plot; the chart gives it the row.
  */
 
 export type Result = {
@@ -42,7 +40,6 @@ function ShareButton({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   return (
     <Button
-      className="flex-1"
       onClick={async () => {
         try {
           if (typeof navigator.share === "function") {
@@ -56,7 +53,6 @@ function ShareButton({ text }: { text: string }) {
           // Dismissed or blocked.
         }
       }}
-      size="lg"
     >
       {done ? <CheckIcon /> : <Share2Icon />}
       {done ? "Copied" : "Show your call"}
@@ -65,23 +61,31 @@ function ShareButton({ text }: { text: string }) {
 }
 
 /** A figure inside a sentence. */
-function F({ children }: { children: React.ReactNode }) {
-  return <span className="figures text-foreground">{children}</span>;
+function F({ children, tone }: { children: React.ReactNode; tone?: string }) {
+  return <span className={cn("figures text-foreground", tone)}>{children}</span>;
 }
 
-function Direction({ long }: { long: boolean }) {
-  return <Pill tone={long ? "up" : "down"}>{long ? "Going up" : "Going down"}</Pill>;
+/** A big figure with a word under it. Two of these carry the quote. */
+function Money({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <span className="flex flex-col leading-none">
+      <span className={cn("figures font-semibold text-xl", tone)}>{value}</span>
+      <span className="mt-1 text-muted-foreground text-xs">{label}</span>
+    </span>
+  );
 }
 
-export function SketchTray({
+export function SketchBar({
   market,
   phase,
   shape,
   entry,
   price,
   quote,
-  order,
-  patch,
+  stake,
+  leverage,
+  onStake,
+  onLeverage,
   pnl,
   result,
   sketch,
@@ -97,8 +101,10 @@ export function SketchTray({
   entry: number;
   price: number;
   quote: Quote | null;
-  order: Order;
-  patch: (next: Partial<Order>) => void;
+  stake: number;
+  leverage: number;
+  onStake: (stake: number) => void;
+  onLeverage: (leverage: number) => void;
   pnl: number | null;
   result: Result | null;
   sketch: Sketch | null;
@@ -108,54 +114,42 @@ export function SketchTray({
   onCloseNow: () => void;
   onOpenList: () => void;
 }) {
-  const stake = Number.parseFloat(order.pay) || 100;
+  const controls = <DrawControls leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} />;
+  const lines = (
+    <Button onClick={onOpenList} variant="outline">
+      Your lines <span className="figures text-muted-foreground">{openCount}</span>
+    </Button>
+  );
 
   if (phase === "live" || phase === "drawing") {
     return (
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <p className="font-semibold text-base">Draw where you think {market.name} goes.</p>
-          <p className="text-muted-foreground">Drag across the right of the chart. Nothing&rsquo;s at stake until you press the button.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <DrawControls order={order} patch={patch} />
-          <Button className="ml-auto lg:hidden" onClick={onOpenList} variant="outline">
-            Your lines <span className="figures text-muted-foreground">{openCount}</span>
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="mr-auto text-muted-foreground">
+          <span className="font-medium text-foreground">Draw where you think {market.name} goes.</span> Drag across the right of the chart. Nothing&rsquo;s at
+          stake until you press the button.
+        </p>
+        {controls}
+        {lines}
       </div>
     );
   }
 
   if (phase === "drawn" && shape && quote) {
     return (
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-2">
-          <Direction long={shape.long} />
-          <span className="text-muted-foreground">
-            from <span className="figures text-foreground">${fmtPrice(entry)}</span>
-          </span>
-          <Button className="ml-auto" onClick={onDrawAgain} size="sm" variant="ghost">
-            Draw again
-          </Button>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Figure label="If it gets there" size="lg" tone="text-up" value={`+$${usd(quote.ifWorks, 0)}`} />
-          <Figure label="The most you can lose" size="lg" tone="text-down" value={`$${usd(quote.mostLose, 0)}`} />
-        </div>
-        <p className="text-muted-foreground">
-          Aiming for <F>${fmtPrice(shape.target)}</F>
-          {shape.floor === null ? (
-            <>, and it never dips, so all <F>${usd(stake, 0)}</F> is on the table.</>
-          ) : (
-            <>, out at <F>${fmtPrice(shape.floor)}</F>.</>
-          )}{" "}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <Pill tone={shape.long ? "up" : "down"}>{shape.long ? "Going up" : "Going down"}</Pill>
+        <Money label="if it gets there" tone="text-up" value={`+$${usd(quote.ifWorks, 0)}`} />
+        <Money label="the most you can lose" tone="text-down" value={`$${usd(quote.mostLose, 0)}`} />
+        <p className="mr-auto max-w-[28rem] text-muted-foreground text-xs">
+          From <F>${fmtPrice(entry)}</F>, aiming for <F>${fmtPrice(shape.target)}</F>
+          {shape.floor === null ? <>. Never dips, so all <F>${usd(stake, 0)}</F> is on the table.</> : <>, out at <F>${fmtPrice(shape.floor)}</F>.</>}{" "}
           <F>${usd(stake, 0)}</F> trades like <F>${usd(quote.notional, 0)}</F>.
         </p>
-        <DrawControls order={order} patch={patch} />
-        <Button className="w-full" onClick={onPlace} size="lg">
-          Draw it in for ${usd(stake, 0)}
+        {controls}
+        <Button onClick={onDrawAgain} variant="ghost">
+          Draw again
         </Button>
+        <Button onClick={onPlace}>Draw it in for ${usd(stake, 0)}</Button>
       </div>
     );
   }
@@ -163,31 +157,21 @@ export function SketchTray({
   if (phase === "running" && shape) {
     const live = pnl ?? 0;
     return (
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-2">
-          <Direction long={shape.long} />
-          <span className="text-muted-foreground">
-            ${usd(stake, 0)} at {order.leverage}×
-          </span>
-          <span className="ml-auto flex items-center gap-1.5 text-muted-foreground text-xs">
-            <span className="size-1.5 animate-pulse rounded-full bg-info" />
-            Playing out
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Figure label="Right now" size="lg" tone={Math.abs(live) < 0.005 ? undefined : live > 0 ? "text-up" : "text-down"} value={signedUsd(live)} />
-          <Figure label="The most you can lose" size="lg" tone="text-down" value={`$${usd(quote?.mostLose ?? stake, 0)}`} />
-        </div>
-        <p className="text-muted-foreground">
-          In at <F>${fmtPrice(entry)}</F>, now <F>${fmtPrice(price)}</F>. Aiming for <F>${fmtPrice(shape.target)}</F>
-          {shape.floor !== null ? <>, out at <F>${fmtPrice(shape.floor)}</F></> : null}.
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <Pill tone={shape.long ? "up" : "down"}>{shape.long ? "Going up" : "Going down"}</Pill>
+        <Money label="right now" tone={Math.abs(live) < 0.005 ? undefined : live > 0 ? "text-up" : "text-down"} value={signedUsd(live)} />
+        <Money label="the most you can lose" tone="text-down" value={`$${usd(quote?.mostLose ?? stake, 0)}`} />
+        <p className="mr-auto text-muted-foreground text-xs">
+          <F>${usd(stake, 0)}</F> at <F>{leverage}×</F>. In at <F>${fmtPrice(entry)}</F>, now <F>${fmtPrice(price)}</F>, aiming for{" "}
+          <F>${fmtPrice(shape.target)}</F>.
         </p>
-        <div className="flex flex-col gap-2">
-          <Button className="w-full" onClick={onCloseNow} size="lg" variant="outline">
-            Take it off now
-          </Button>
-          <p className="text-center text-muted-foreground text-xs">Candles arrive every second in this preview.</p>
-        </div>
+        <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+          <span className="size-1.5 animate-pulse rounded-full bg-info" />
+          Playing out
+        </span>
+        <Button onClick={onCloseNow} variant="outline">
+          Take it off now
+        </Button>
       </div>
     );
   }
@@ -195,24 +179,20 @@ export function SketchTray({
   if (phase === "settled" && result) {
     const won = result.net >= 0;
     return (
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-4">
-          {sketch ? <SketchThumb className="h-14 w-24 shrink-0" sketch={sketch} /> : null}
-          <div className="min-w-0">
-            <p className={cn("font-medium text-xs", won ? "text-up" : "text-down")}>{VERDICT[result.outcome]}</p>
-            <p className={cn("figures font-semibold text-2xl", won ? "text-up" : "text-down")}>{signedUsd(result.net)}</p>
-          </div>
-        </div>
-        <p className="text-muted-foreground">
-          You drew {market.name} going {result.long ? "up" : "down"} from <span className="figures text-foreground">${fmtPrice(result.entry)}</span>. It closed at{" "}
-          <span className="figures text-foreground">${fmtPrice(result.exit)}</span>.
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+        {sketch ? <SketchThumb className="h-10 w-[4.25rem] shrink-0" sketch={sketch} /> : null}
+        <span className="flex flex-col leading-none">
+          <span className={cn("figures font-semibold text-xl", won ? "text-up" : "text-down")}>{signedUsd(result.net)}</span>
+          <span className={cn("mt-1 text-xs", won ? "text-up" : "text-down")}>{VERDICT[result.outcome]}</span>
+        </span>
+        <p className="mr-auto text-muted-foreground text-xs">
+          You drew {market.name} going {result.long ? "up" : "down"} from <F>${fmtPrice(result.entry)}</F>. It closed at <F>${fmtPrice(result.exit)}</F>.
         </p>
-        <div className="flex gap-2">
-          <ShareButton text={shareText(market, result)} />
-          <Button className="flex-1" onClick={onDrawAgain} size="lg" variant="outline">
-            Draw another
-          </Button>
-        </div>
+        {lines}
+        <ShareButton text={shareText(market, result)} />
+        <Button onClick={onDrawAgain} variant="outline">
+          Draw another
+        </Button>
       </div>
     );
   }

@@ -6,7 +6,6 @@ import { Popover, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger
 import { usd } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import { DRAW_STEPS, LeverageMeter } from "../leverage-meter";
-import type { Order } from "../ticket";
 import styles from "./amount-wheel.module.css";
 
 const STEP = 5;
@@ -146,8 +145,19 @@ function Setting({ label, value }: { label: string; value: string }) {
 }
 
 /** Size and leverage, each a button wearing its value, each opening a popover. */
-export function DrawControls({ order, patch, className }: { order: Order; patch: (next: Partial<Order>) => void; className?: string }) {
-  const stake = Number.parseFloat(order.pay) || 100;
+export function DrawControls({
+  stake,
+  leverage,
+  onStake,
+  onLeverage,
+  className,
+}: {
+  stake: number;
+  leverage: number;
+  onStake: (stake: number) => void;
+  onLeverage: (leverage: number) => void;
+  className?: string;
+}) {
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <Popover>
@@ -158,21 +168,21 @@ export function DrawControls({ order, patch, className }: { order: Order; patch:
           <PopoverTitle>Pick your size</PopoverTitle>
           <PopoverDescription>How much you put in.</PopoverDescription>
           <div className="pt-4">
-            <AmountWheel onChange={(v) => patch({ pay: String(v) })} value={stake} />
+            <AmountWheel onChange={onStake} value={stake} />
           </div>
         </PopoverPopup>
       </Popover>
       <Popover>
         <PopoverTrigger render={<Button variant="outline" />}>
-          <Setting label="Leverage" value={`${order.leverage}×`} />
+          <Setting label="Leverage" value={`${leverage}×`} />
         </PopoverTrigger>
         <PopoverPopup align="start" className="w-80">
           <PopoverTitle>Set leverage</PopoverTitle>
           <PopoverDescription>
-            Put in ${usd(stake, 0)}, trade like ${usd(stake * order.leverage, 0)}.
+            Put in ${usd(stake, 0)}, trade like ${usd(stake * leverage, 0)}.
           </PopoverDescription>
           <div className="pt-4">
-            <LeverageMeter onChange={(leverage) => patch({ leverage })} stake={stake} steps={DRAW_STEPS} value={order.leverage} />
+            <LeverageMeter onChange={onLeverage} stake={stake} steps={DRAW_STEPS} value={leverage} />
           </div>
         </PopoverPopup>
       </Popover>

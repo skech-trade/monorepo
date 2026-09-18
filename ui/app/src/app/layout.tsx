@@ -43,7 +43,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
       </head>
       <body className="flex min-h-full flex-col bg-background font-sans text-foreground text-sm">
-        <ToastProvider position="bottom-right">
+        <ToastProvider position="top-right">
           <TooltipProvider delay={300}>{children}</TooltipProvider>
         </ToastProvider>
       </body>

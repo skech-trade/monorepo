@@ -48,9 +48,12 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   called it / out where you drew it / time's up / taken off / wiped out.
   Toast. Result card with the sketch as a picture, "Show your call" (share or
   copy), "Draw another".
-- Your lines: every sketch as a thumbnail with side, stake at leverage, from
-  and to prices, P&L and status. Inline beside the chart on a desk, in a sheet
-  elsewhere. Two seeded lines from earlier.
+- Your lines: every sketch as a thumbnail with side, stake at leverage, entry
+  price, P&L and status, in a side sheet opened from the bar. Two seeded lines
+  from earlier.
+- Layout: one full-width chart card. Market and tools above the plot, the bar
+  below it. Nothing sits over the plot. Draw keeps its own stake and leverage,
+  separate from the Desk ticket.
 
 ## Desk
 

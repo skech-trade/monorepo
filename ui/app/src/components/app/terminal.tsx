@@ -23,7 +23,7 @@ export function Terminal({ market, positions }: { market: Market; positions: Pos
         {mode === "desk" ? (
           <Desk market={market} order={order} patch={patch} positions={positions} />
         ) : (
-          <DrawScreen market={market} order={order} patch={patch} />
+          <DrawScreen market={market} />
         )}
       </main>
     </div>

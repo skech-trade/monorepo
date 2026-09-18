@@ -33,10 +33,12 @@ src/components/app the screen: app-bar, market-header, account-card, desk,
 
 ## Draw and Desk
 
-**Draw** is the default and the product: drag a line into the empty half of
-the chart, the tray reads it as where you're aiming and where you're out,
-quotes "if it gets there" and "the most you can lose" at the stake and
-leverage you pick, and one button draws it in. It plays out against a
+**Draw** is the default and the product: one chart, full width, with a bar
+along its foot. Drag a line into the empty half, the bar reads it as where
+you're aiming and where you're out, quotes "if it gets there" and "the most
+you can lose" at the stake and leverage you pick, and one button draws it in.
+Pen, Line and Points tools, Undo, Clear, and three quick Shapes sit above the
+chart; the head of a drawn line is a handle. "Your lines" opens a side sheet. It plays out against a
 simulated feed and settles on the same rule it was quoted on. Every line is
 kept as a picture in "Your lines". **Desk** is the terminal: chart with
 studies, book and tape, the full ticket, positions, every panel folding.
