@@ -17,9 +17,9 @@ type Props = { params: Promise<{ token: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { token } = await params;
   const market = marketFor(token);
-  if (!market) return { title: "Not found · skech" };
+  if (!market) return { title: "Not found" };
   return {
-    title: `${market.name} · skech`,
+    title: market.name,
     description: `Trade ${market.name} on skech.`,
   };
 }

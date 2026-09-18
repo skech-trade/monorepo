@@ -5,7 +5,7 @@ import { toastManager } from "@/components/ui/toast";
 import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
 import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify, verdictWord } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
-import { DrawTools, type Preset, type Tool } from "./draw-tools";
+import { DrawTools, type Preset, PRESETS, type Tool } from "./draw-tools";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
 import { type Result, SketchBar } from "./sketch-tray";
 import { seedSketches, type Sketch, SketchesSheet } from "./sketches";
@@ -287,12 +287,7 @@ export function DrawScreen({ market }: { market: Market }) {
   /** A common call, drawn for you at the scale of the chart. Drag it after. */
   const onPreset = (preset: Preset) => {
     const amp = (band.hi - band.lo) * 0.16;
-    const SHAPES: Record<Preset, number[]> = {
-      "dip-rip": [0, -0.3, -0.6, -0.7, -0.45, 0, 0.5, 0.95, 1.25, 1.45],
-      "straight-up": [0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.05, 1.2, 1.35],
-      bleed: [0, -0.2, -0.35, -0.55, -0.7, -0.9, -1.0, -1.15, -1.25, -1.4],
-    };
-    const ms = SHAPES[preset];
+    const ms = PRESETS.find((p) => p.value === preset)?.shape ?? [0, 1];
     fold();
     setEntry(price);
     setPts(ms.map((m, i) => ({ t: i / (ms.length - 1), price: price + m * amp })));
