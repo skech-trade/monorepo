@@ -199,6 +199,28 @@ export function candlesFor(
   return out;
 }
 
+/**
+ * One step of the bar still forming.
+ *
+ * Draw runs on the fastest bar we have and the chart moves while you are
+ * looking at it, because a plan drawn onto a frozen picture is a picture. The
+ * step is small — four ticks a second at this size is a few dollars a minute on
+ * Bitcoin, which is about what the real thing does on a quiet afternoon.
+ *
+ * The high and low only ever widen, the way a bar actually forms; the close is
+ * the only part that can go back where it came from.
+ */
+export function tickCandle(bar: Candle, step = 0.00012): Candle {
+  const c = bar.c * (1 + (Math.random() - 0.5) * 2 * step);
+  return {
+    ...bar,
+    c,
+    h: Math.max(bar.h, c),
+    l: Math.min(bar.l, c),
+    v: bar.v + Math.random() * 0.04,
+  };
+}
+
 // --- open positions --------------------------------------------------------
 
 /**
