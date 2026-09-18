@@ -3,6 +3,7 @@
 import { TrendingDownIcon, TrendingUpIcon, XIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { CollapsiblePanel } from "./collapsible";
 import { Disclosure, Segmented, Stat, Switch } from "./controls";
@@ -528,17 +529,17 @@ export function OrderTicket({
           }
           label="Leverage"
         />
-        <input
+        {/* coss/ui's Slider, with the filled half in the brand rather than
+            the near-black: the black on this ticket is the one button. */}
+        <Slider
           aria-label="Leverage"
-          className="slider"
+          className="px-1 [&_[data-slot=slider-indicator]]:bg-brand"
           max={100}
           min={1}
-          onChange={(event) => patch({ leverage: Number(event.target.value) })}
+          onValueChange={(next) =>
+            patch({ leverage: Array.isArray(next) ? next[0] : next })
+          }
           step={1}
-          style={{
-            ["--fill" as string]: `${((order.leverage - 1) / 99) * 100}%`,
-          }}
-          type="range"
           value={order.leverage}
         />
         <Segmented

@@ -13,6 +13,7 @@ import {
   UserIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import {
   Menu,
   MenuContent,
@@ -71,9 +72,7 @@ function SearchField({ className }: { className?: string }) {
         type="search"
       />
       <span className="hidden shrink-0 items-center gap-1.5 sm:flex">
-        <kbd className="rounded-md bg-surface-3 px-1.5 py-0.5 text-kicker text-fg-subtle">
-          /
-        </kbd>
+        <Kbd className="bg-surface-3 text-fg-subtle">/</Kbd>
       </span>
     </div>
   );
@@ -154,7 +153,14 @@ export function AppBar({
       {/* Takes the middle on a wide screen and its own full-width line below
           `md`, where a search field sharing a row with five other controls is
           80px wide and useless. */}
-      <SearchField className="order-3 w-full md:order-none md:mx-auto md:w-auto md:max-w-lg md:flex-1 xl:max-w-2xl" />
+      {/* Draw on a phone is one screen with no scroll, and a field that
+          searches a list of one is not worth the 44px it costs there. */}
+      <SearchField
+        className={cn(
+          "order-3 w-full md:order-none md:mx-auto md:w-auto md:max-w-lg md:flex-1 xl:max-w-2xl",
+          mode === "draw" && "hidden md:flex",
+        )}
+      />
 
       <div className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
         <Cash account={account} />

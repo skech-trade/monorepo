@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Empty as CossEmpty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { CollapsiblePanel } from "./collapsible";
 import { Pill, Segmented } from "./controls";
@@ -53,9 +54,13 @@ function Detail({
 
 function Empty({ children }: { children: string }) {
   return (
-    <p className="px-4 py-10 text-center text-caption text-fg-subtle">
-      {children}
-    </p>
+    <CossEmpty className="py-8 md:py-8">
+      <EmptyHeader>
+        <EmptyDescription className="text-caption text-fg-subtle">
+          {children}
+        </EmptyDescription>
+      </EmptyHeader>
+    </CossEmpty>
   );
 }
 

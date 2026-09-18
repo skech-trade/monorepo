@@ -8,6 +8,8 @@ import {
   ScalingIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import type { ChartKind, Overlay, Study } from "./chart";
 import { Segmented } from "./controls";
@@ -46,28 +48,6 @@ const STUDIES: { value: Study; label: string }[] = [
   { value: "macd", label: "MACD" },
 ];
 
-function Toggle({
-  on,
-  onClick,
-  children,
-}: {
-  on: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Button
-      aria-pressed={on}
-      className="rounded-full"
-      onClick={onClick}
-      size="xs"
-      variant={on ? "secondary" : "ghost"}
-    >
-      {children}
-    </Button>
-  );
-}
-
 export function ChartToolbar({
   timeframe,
   onTimeframe,
@@ -97,9 +77,6 @@ export function ChartToolbar({
   mode: Mode;
   className?: string;
 }) {
-  const toggle = <T,>(list: T[], value: T): T[] =>
-    list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
-
   return (
     // One scrolling row on a phone, wrapping only once there is room to wrap
     // into. Wrapped, this is three rows and 120px of chrome above a 320px
@@ -138,31 +115,56 @@ export function ChartToolbar({
           !shows("studies", mode) && "hidden",
         )}
       >
-        {OVERLAYS.map((overlay) => (
-          <Toggle
-            key={overlay.value}
-            on={overlays.includes(overlay.value)}
-            onClick={() => onOverlays(toggle(overlays, overlay.value))}
-          >
-            {overlay.label}
-          </Toggle>
-        ))}
+        {/* coss/ui toggle groups: several can be on at once, which is what
+            separates these from the segmented controls to their left. */}
+        <ToggleGroup
+          aria-label="Overlays"
+          className="gap-1"
+          onValueChange={(next) => onOverlays(next as Overlay[])}
+          size="sm"
+          multiple
+          value={overlays}
+        >
+          {OVERLAYS.map((overlay) => (
+            <ToggleGroupItem
+              className="rounded-full text-kicker data-pressed:bg-secondary"
+              key={overlay.value}
+              value={overlay.value}
+            >
+              {overlay.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
 
         <span aria-hidden="true" className="mx-1 h-4 w-px bg-hairline" />
 
-        {STUDIES.map((study) => (
-          <Toggle
-            key={study.value}
-            on={studies.includes(study.value)}
-            onClick={() => onStudies(toggle(studies, study.value))}
-          >
-            {study.label}
-          </Toggle>
-        ))}
+        <ToggleGroup
+          aria-label="Studies"
+          className="gap-1"
+          onValueChange={(next) => onStudies(next as Study[])}
+          size="sm"
+          multiple
+          value={studies}
+        >
+          {STUDIES.map((study) => (
+            <ToggleGroupItem
+              className="rounded-full text-kicker data-pressed:bg-secondary"
+              key={study.value}
+              value={study.value}
+            >
+              {study.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
 
         <span aria-hidden="true" className="mx-1 h-4 w-px bg-hairline" />
 
-        <Toggle on={logScale} onClick={() => onLogScale(!logScale)}>
+        <Toggle
+          className="rounded-full text-kicker data-pressed:bg-secondary"
+          onPressedChange={(next) => onLogScale(next)}
+          pressed={logScale}
+          size="sm"
+        >
           Log
         </Toggle>
         <Button

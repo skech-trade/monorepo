@@ -14,7 +14,7 @@ import {
   type Study,
 } from "./chart";
 import { ChartToolbar } from "./chart-toolbar";
-import { DrawControls } from "./draw-controls";
+import { DrawScreen } from "./draw-screen";
 import { MarketHeader } from "./market-header";
 import {
   accountFor,
@@ -77,7 +77,7 @@ export function Terminal({
   market: Market;
   positions: Position[];
 }) {
-  const [mode, setMode] = useState<Mode>("desk");
+  const [mode, setMode] = useState<Mode>("draw");
   const [blurred, setBlurred] = useState(false);
   const [timeframe, setTimeframe] = useState<Timeframe>("15m");
   const [order, setOrder] = useState<Order>(emptyOrder);
@@ -232,8 +232,6 @@ export function Terminal({
     />
   );
 
-  /** Draw has nothing left to put in a toolbar once the timeframes are gone. */
-  const withToolbar = shows("timeframes", mode) || shows("studies", mode);
 
   const chart = (
     <PriceChart
@@ -342,7 +340,10 @@ export function Terminal({
               <div
                 className="h-[clamp(18rem,44vh,26rem)] min-h-0 xl:h-auto xl:flex-1"
                 style={{
-                  ["--study-floor" as string]: `${20 + shownStudies.length * 5}rem`,
+                  // 16rem plus 4 per study. It was 20 plus 5, which at a
+                  // 900px laptop viewport ran the chart row 40px into the
+                  // positions panel below it and clipped its tab strip.
+                  ["--study-floor" as string]: `${16 + shownStudies.length * 4}rem`,
                   minHeight: undefined,
                 }}
               >
@@ -432,39 +433,19 @@ export function Terminal({
         </>
       ) : (
         /*
-         * Draw. The chart, the whole chart, and the market it is of.
+         * Draw. The chart, the line, and the tray that quotes it.
          *
-         * `100svh` rather than `100vh`: on a phone the URL bar counts, and a
-         * chart sized to the large viewport spends its bottom eighth behind
-         * browser chrome that only retracts once you scroll — on a screen that
-         * has nothing to scroll.
+         * Fills the viewport under the app bar and does not scroll: on a
+         * phone the tray sits at the bottom where a thumb is, and a page that
+         * scrolls under a finger that is trying to draw is a page that loses
+         * the line. `svh` because the URL bar counts.
          */
-        <section
-          aria-label="Price"
-          className="panel flex min-w-0 flex-col rounded-4xl p-3"
-        >
-          {/* The identity on the left, size and leverage on the right. There is
-              no long/short here: the direction is the line you draw on the
-              chart, and a pair of buttons offering to decide it for you would
-              be a second way to do the one thing this screen is for. */}
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pb-3">
-            <MarketHeader
-              className="min-w-0 flex-1 px-1 pb-0"
-              market={market}
-              variant="inline"
-            />
-            <DrawControls order={order} patch={patch} />
-          </div>
-          {withToolbar ? toolbar : null}
-          {/* The cards are gone from under the chart, so the chart gets the
-              page. `svh` rather than `vh`: on a phone the URL bar counts, and a
-              chart sized to the large viewport spends its bottom eighth behind
-              chrome that only retracts once you scroll — on a screen that has
-              nothing to scroll. */}
-          <div className="h-[clamp(20rem,calc(100svh-15rem),56rem)] min-h-0">
-            {chart}
-          </div>
-        </section>
+        <DrawScreen
+          className="h-[calc(100svh-5.25rem)] sm:h-[calc(100svh-5.75rem)]"
+          market={market}
+          order={order}
+          patch={patch}
+        />
       )}
 
 

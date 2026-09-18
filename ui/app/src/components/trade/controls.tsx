@@ -2,6 +2,9 @@
 
 import { ChevronDownIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Switch as CossSwitch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,11 +26,12 @@ import { cn } from "@/lib/utils";
 
 export type SegmentTone = "default" | "up" | "down";
 
-/** The landing's --up and --down at an alpha. No -dim token of our own. */
+/** The landing's --up and --down at an alpha, on the sliding thumb. */
 const THUMB: Record<SegmentTone, string> = {
-  default: "bg-thumb text-foreground shadow-card",
-  up: "bg-up/10 text-up",
-  down: "bg-down/10 text-down",
+  default:
+    "[&>[data-slot=tab-indicator]]:bg-thumb [&>[data-slot=tab-indicator]]:shadow-card",
+  up: "[&>[data-slot=tab-indicator]]:bg-up/10 [&>[data-slot=tab-indicator]]:shadow-none",
+  down: "[&>[data-slot=tab-indicator]]:bg-down/10 [&>[data-slot=tab-indicator]]:shadow-none",
 };
 
 export type Segment<T extends string> = {
@@ -37,6 +41,11 @@ export type Segment<T extends string> = {
   tone?: SegmentTone;
 };
 
+/**
+ * coss/ui's Tabs underneath, so the thumb slides between segments rather
+ * than blinking from one to the next. The pill shape is ours: the track is
+ * fully rounded and the indicator inherits it.
+ */
 export function Segmented<T extends string>({
   value,
   onChange,
@@ -57,51 +66,49 @@ export function Segmented<T extends string>({
   /** Segments share the width equally. For two-up choices like long/short. */
   grow?: boolean;
 }) {
+  const tone = options.find((o) => o.value === value)?.tone ?? "default";
   return (
-    <div
-      aria-label={label}
-      className={cn(
-        "well inline-flex items-center gap-1 rounded-full p-1",
-        grow && "flex w-full",
-        className,
-      )}
-      role="tablist"
+    <Tabs
+      className={cn("gap-0", grow && "w-full")}
+      onValueChange={(next) => onChange(next as T)}
+      value={value}
     >
-      {options.map((option) => {
-        const selected = option.value === value;
-        return (
-          <button
-            aria-selected={selected}
+      <TabsList
+        aria-label={label}
+        className={cn(
+          "well rounded-full p-1 text-fg-subtle",
+          grow && "w-full",
+          THUMB[tone],
+          className,
+        )}
+      >
+        {options.map((option) => (
+          <TabsTab
             className={cn(
-              "flex items-center justify-center gap-1.5 rounded-full transition-[background,color,box-shadow] duration-micro ease-smooth-out [&_svg]:shrink-0",
+              "rounded-full text-fg-subtle hover:text-foreground data-active:text-foreground [&_svg]:shrink-0",
               size === "sm"
-                ? "h-8 px-3 text-kicker [&_svg]:size-3.5"
-                : "h-11 px-4 font-semibold text-[0.9375rem] tracking-[-0.012em] [&_svg]:size-4",
-              grow && "flex-1",
-              selected
-                ? THUMB[option.tone ?? "default"]
-                : "text-fg-subtle hover:text-foreground",
+                ? "h-8 px-3 text-kicker sm:h-8 [&_svg]:size-3.5 sm:[&_svg]:size-3.5"
+                : "h-11 px-4 font-semibold text-[0.9375rem] tracking-[-0.012em] sm:h-11 sm:text-[0.9375rem] [&_svg]:size-4 sm:[&_svg]:size-4",
+              !grow && "grow-0",
+              option.tone === "up" && "data-active:text-up",
+              option.tone === "down" && "data-active:text-down",
             )}
             key={option.value}
-            onClick={() => onChange(option.value)}
-            role="tab"
-            type="button"
+            value={option.value}
           >
             {option.label}
-          </button>
-        );
-      })}
-    </div>
+          </TabsTab>
+        ))}
+      </TabsList>
+    </Tabs>
   );
 }
 
 /**
  * On or off, for the one setting on this screen that is genuinely binary.
  *
- * `role="switch"` rather than a checkbox: a checkbox is a thing you are
- * selecting, a switch is a thing you are turning on, and a screen reader says
- * so differently. The track takes the tone of what it turns on, so the switch
- * under "get out at" is the same red as the rule it draws on the chart.
+ * coss/ui's Switch. The track takes the tone of what it turns on, so the
+ * switch under "get out at" is the same red as the rule it draws on the chart.
  */
 export function Switch({
   checked,
@@ -117,27 +124,17 @@ export function Switch({
   tone?: "default" | "up" | "down";
 }) {
   return (
-    <button
-      aria-checked={checked}
+    <CossSwitch
       aria-label={label}
+      checked={checked}
       className={cn(
-        "relative h-[1.625rem] w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-micro ease-smooth-out",
-        !checked && "bg-surface-3",
-        checked && tone === "down" && "bg-down",
-        checked && tone === "up" && "bg-up",
-        checked && tone === "default" && "bg-brand",
+        "data-unchecked:bg-surface-3",
+        tone === "default" && "data-checked:bg-brand",
+        tone === "up" && "data-checked:bg-up",
+        tone === "down" && "data-checked:bg-down",
       )}
-      onClick={() => onChange(!checked)}
-      role="switch"
-      type="button"
-    >
-      <span
-        className={cn(
-          "absolute top-0.5 left-0.5 size-[1.375rem] rounded-full bg-thumb shadow-card transition-transform duration-micro ease-smooth-out",
-          checked && "translate-x-[1.125rem]",
-        )}
-      />
-    </button>
+      onCheckedChange={(next) => onChange(next)}
+    />
   );
 }
 
@@ -166,8 +163,9 @@ export function Stat({
   );
 }
 
-/** A soft chip. Reads, never presses — for a side on a row or a change on a
-    price. Anything you can press is a `Button`. */
+/** A soft chip. Reads, never presses, for a side on a row or a change on a
+    price. coss/ui's Badge in the pill shape. Anything you can press is a
+    `Button`. */
 export function Pill({
   children,
   tone = "default",
@@ -178,17 +176,19 @@ export function Pill({
   className?: string;
 }) {
   return (
-    <span
+    <Badge
       className={cn(
-        "inline-flex items-center rounded-full px-2.5 py-1 text-kicker",
+        "h-auto rounded-full px-2.5 py-1 font-semibold text-kicker sm:text-kicker",
         tone === "up" && "bg-up/10 text-up",
         tone === "down" && "bg-down/10 text-down",
         tone === "default" && "well text-fg-muted",
         className,
       )}
+      size="lg"
+      variant={tone === "up" ? "success" : tone === "down" ? "error" : "secondary"}
     >
       {children}
-    </span>
+    </Badge>
   );
 }
 

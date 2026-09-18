@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { ToastProvider } from "@/components/ui/toast";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
 /*
@@ -45,7 +47,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html className={`h-full ${inter.variable} antialiased`} lang="en">
       <body className="flex min-h-full flex-col bg-background font-sans text-foreground">
-        {children}
+        <ToastProvider position="bottom-right">
+          <TooltipProvider delay={300}>{children}</TooltipProvider>
+        </ToastProvider>
       </body>
     </html>
   );

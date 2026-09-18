@@ -27,39 +27,63 @@ its address in `LISTED`; nothing below that line knows there is only one.
 
 ## Draw and Desk
 
-One screen at two densities, switched from the app bar. `src/components/
-trade/mode.ts` is the only place the difference is written down — every
-component takes `mode` and reads `shows(...)`, so a fix lands in both.
+One product at two densities, switched from the app bar. `src/components/
+trade/mode.ts` is the only place the difference is written down.
 
-The words are deliberate. "Lite" and "Pro" rank the reader, and the product is
-aimed at people who have never traded, so the default cannot be the one that
-reads as training wheels. **Draw** is what you do there: the chart is the whole
-screen and the line you draw on it is the trade. **Desk** is a trading desk — a
-place, not a skill level.
+**Draw** is the default and the product: the landing page's hero canvas made
+real. You drag a line across the empty right half of the chart, the tray
+beside it quotes the line in two dollar figures, you set how much, and you
+press. The chart never disappears under a confirmation screen. **Desk** is a
+trading desk, a place rather than a skill level, for the reader who already
+knows what a limit order is.
 
 | | Draw | Desk |
 | --- | --- | --- |
-| Chart | candles, fastest bar, full height | + timeframes, type, EMA, bands, volume, RSI, MACD, log scale |
-| Identity | inside the chart, price and today's move only | its own folding panel, with the 24h figures |
-| Ticket | size wheel, leverage meter, long/short | the full eleven-field ticket |
-| Order book and tape | — | ✓ (click a row to set your price) |
-| Equity / margin / health | — | ✓ |
-| Order types | — | market, limit, + trigger behind **Advanced** |
-| Margin mode, reduce-only, post-only | — | ✓, behind **Advanced** |
-| Below the chart | — | positions, resting orders, fills |
+| Chart | our own SVG, one-minute candles, drawable | lightweight-charts with timeframes, type, EMA, bands, volume, RSI, MACD, log scale |
+| Identity | inline, live price and today's move | its own folding panel, with the 24h figures |
+| Ticket | the tray: direction read off the line, "if it gets there" and "the most you can lose", size wheel, leverage meter, one button | the full eleven-field ticket |
+| Order book and tape | no | yes (click a row to set your price) |
+| Equity / margin / health | no | yes |
+| Below the chart | "Your lines": every sketch as a picture with its result | positions, resting orders, fills |
 
-Draw has no timeframe row. Picking a bar length is a question about how you
-intend to trade, asked before you have done anything, and the honest answer for
-the reader Draw is for is "I do not know what a 4-hour candle is". It runs on
-the fastest bar, which is also the one that makes a drawn line resolve in
-minutes. The desk trader's own choice is kept rather than overwritten, so
-flipping to Draw and back does not quietly edit a setting.
+### How Draw works
 
-Draw's two controls are the landing page's two cards made real — the scroll
-wheel from `ui/landing/src/components/site/amount-wheel.tsx` and the notched
-leverage meter from `how-it-works.tsx`, both now interactive and wired to the
-order. A marketing page that shows a control the product does not have is a lie
-told in a nice font.
+`sketch.ts` is the model and has no React in it. A drawing is a list of
+`{ t, price }` points, 0 to 1 across the window. `shapeOf` reads it into the
+three prices the copy promises: where you start (the live price), where you're
+aiming (the furthest the line gets on its own side) and where you're out (the
+furthest it strays the other way; a line that never dips sets no floor and the
+whole stake is on the table). `quote` turns those into the two dollar figures
+at the stake and leverage chosen. `settle` runs the same rule against the
+candles that arrive: one position from entry to whichever of the two levels
+the price touches first, tested on the wick, adverse level checked first, loss
+capped at the stake. The number you were shown is the number you get.
+
+`sketch-canvas.tsx` is the chart: sized to its box in pixels so a tall
+viewport gets a tall chart. While the finger is down the line is the raw
+points, so it wobbles like a hand; on release it settles into a Catmull-Rom
+curve. The first touch is anchored to the live price, so the shape is yours
+and the start is the market's. Tags on the right axis stack when they would
+overlap.
+
+`sketch-sheet.tsx` is the tray with four faces: invite, quote, playing out,
+result. `sketches.tsx` is the list of lines as pictures. `draw-screen.tsx` owns
+the state and the clock.
+
+The clock is a simulation, one candle a second, pulled toward the drawn line
+by a factor rolled once per sketch. The captions say so. Swap the feed and the
+drawing, the quote and the settlement stay as they are.
+
+## coss/ui
+
+The controls are coss/ui components (https://coss.com/ui), fetched from its
+registry into `src/components/ui` and owned here: Tabs (under `Segmented`, so
+the thumb slides), Switch, Slider, Toggle and ToggleGroup (the chart studies),
+Badge (under `Pill`), Kbd, Tooltip (on the fold chevrons), Toast (drawn in,
+settled), Sheet (your lines), Empty, and a few not yet used. `button`, `dialog`,
+`menu`, `popover` and `spinner` predate this and are coss-shaped already. The
+one local change is in `tabs.tsx`: the indicator takes the list's radius, so a
+pill track gets a pill thumb.
 
 ## Folding panels
 

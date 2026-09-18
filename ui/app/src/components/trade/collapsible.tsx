@@ -7,6 +7,7 @@ import {
   ChevronUpIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 /**
@@ -56,19 +57,27 @@ export function FoldButton({
       ? ChevronRightIcon
       : ChevronUpIcon;
 
+  const words = `${collapsed ? "Show" : "Hide"} ${title.toLowerCase()}`;
   return (
-    <button
-      aria-expanded={!collapsed}
-      aria-label={`${collapsed ? "Show" : "Hide"} ${title.toLowerCase()}`}
-      className={cn(
-        "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-fg-subtle transition-colors duration-micro ease-smooth-out hover:bg-surface-2 hover:text-foreground",
-        className,
-      )}
-      onClick={() => onCollapsed(!collapsed)}
-      type="button"
-    >
-      <Chevron className="size-4" />
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            aria-expanded={!collapsed}
+            aria-label={words}
+            className={cn(
+              "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-fg-subtle transition-colors duration-micro ease-smooth-out hover:bg-surface-2 hover:text-foreground",
+              className,
+            )}
+            onClick={() => onCollapsed(!collapsed)}
+            type="button"
+          />
+        }
+      >
+        <Chevron className="size-4" />
+      </TooltipTrigger>
+      <TooltipPopup>{words}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -96,24 +105,13 @@ export function CollapsiblePanel({
   /** Names the region for a screen reader. Defaults to the title. */
   label?: string;
 }) {
-  const Chevron = collapsed
-    ? direction === "column"
-      ? ChevronLeftIcon
-      : ChevronDownIcon
-    : direction === "column"
-      ? ChevronRightIcon
-      : ChevronUpIcon;
-
   const toggle = (
-    <button
-      aria-expanded={!collapsed}
-      aria-label={`${collapsed ? "Show" : "Hide"} ${title.toLowerCase()}`}
-      className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-fg-subtle transition-colors duration-micro ease-smooth-out hover:bg-surface-2 hover:text-foreground"
-      onClick={() => onCollapsed(!collapsed)}
-      type="button"
-    >
-      <Chevron className="size-4" />
-    </button>
+    <FoldButton
+      collapsed={collapsed}
+      direction={direction}
+      onCollapsed={onCollapsed}
+      title={title}
+    />
   );
 
   if (collapsed && direction === "column") {
