@@ -24,14 +24,17 @@ const HISTORY = 46;
  */
 const RUN_BARS = 24;
 /**
- * How much longer the round gets each time the line runs off the end.
+ * How fast the round lengthens while the pen is held at the edge, per second.
  *
- * A twentieth, not a chunk. It was twelve candles a step — half the round at
- * once — and the whole picture lurched sideways under the pen every time you
- * touched the edge. At five percent the canvas creeps out ahead of the line
- * instead, which is what a reader wants: more room, not a new chart.
+ * A tenth, and it compounds, so the longer you hold the more room arrives — but
+ * gently: a second of holding turns twenty-four candles into twenty-six.
+ *
+ * It grew in chunks before, on every pointer move. Two things were wrong with
+ * that. Holding the pen still produced no moves at all, so the canvas stopped
+ * opening exactly when you were asking it to; and each chunk was half the round
+ * arriving at once, which threw the whole picture sideways under your hand.
  */
-const RUN_GROWTH = 1.05;
+const RUN_GROWTH = 1.1;
 /** As long as a sketch may get. An hour and a half is already a long wait. */
 const RUN_MAX = 96;
 const TICK_MS = 1000;
@@ -67,6 +70,8 @@ export function DrawScreen({ market }: { market: Market }) {
    * running out, it was the round ending there.
    */
   const [runBars, setRunBars] = useState(RUN_BARS);
+  /** The same number, readable between renders by the growth loop. */
+  const barsRef = useRef(RUN_BARS);
   const [pts, setPts] = useState<Pt[]>([]);
   const [feed, setFeed] = useState<Candle[]>(seed);
   const [run, setRun] = useState<Candle[]>([]);
@@ -148,6 +153,7 @@ export function DrawScreen({ market }: { market: Market }) {
     setRun([]);
     setPts([]);
     setRunBars(RUN_BARS);
+    barsRef.current = RUN_BARS;
     setResult(null);
   };
 
@@ -200,16 +206,38 @@ export function DrawScreen({ market }: { market: Market }) {
    *
    * Not while it is running. The round has started; its length is settled.
    */
-  const lengthen = useCallback(() => {
-    if (live.current.phase === "running" || live.current.phase === "settled") return;
-    setRunBars((bars) => {
-      // At least one candle, or five percent of a short round rounds to nothing.
-      const next = Math.min(RUN_MAX, Math.max(bars + 1, Math.round(bars * RUN_GROWTH)));
-      if (next === bars) return bars;
-      const k = bars / next;
-      setPts((p) => p.map((pt) => ({ ...pt, t: pt.t * k })));
-      return next;
-    });
+  const lengthen = useCallback((seconds: number) => {
+    const { phase: ph } = live.current;
+    if (ph === "running" || ph === "settled") return;
+    /*
+      Read from a ref, not from state.
+
+      This runs twenty times a second and each step is computed from the last,
+      so it cannot wait for a render to tell it where it got to. The rescale
+      used to live inside the state updater, which React is free to run twice —
+      and that halved the drawing's width in one step instead of nudging it.
+    */
+    // Kept as a fraction of a candle, so growth is continuous rather than a
+    // stutter of whole bars. Only the axis labels ever round it.
+    const bars = barsRef.current;
+    const next = Math.min(RUN_MAX, bars * RUN_GROWTH ** seconds);
+    if (next <= bars) return;
+    const k = bars / next;
+    barsRef.current = next;
+    setRunBars(next);
+    setPts((p) => p.map((pt) => ({ ...pt, t: pt.t * k })));
+    /**
+     * And the pen's own mark moves with them.
+     *
+     * The pen only lays a point down once it has travelled a little since the
+     * last one, and it remembers where that was. Stretch the round without
+     * moving that memory and it sits in the future for ever: every later point
+     * looks like no progress at all, so the line stops dead at the edge and
+     * nothing you do will draw again. This is the whole of "I am not able to
+     * draw" — the canvas opened and the pen had already been told it was at the
+     * end of it.
+     */
+    lastT.current *= k;
   }, []);
 
   /** Start a line at the live price. A finger lands wherever it lands; the
@@ -286,11 +314,13 @@ export function DrawScreen({ market }: { market: Market }) {
     lastT.current = pt.t;
     kept.current += 1;
     // Streamline: the line lags the finger a little, so a shaky hand draws a
-    // calm line.
+    // calm line. Only a little, though — at 0.55 each point moved barely half
+    // the way to the finger, which rounds the top off every peak before the
+    // line is even simplified. A sharp turn is usually the thing being drawn.
     const target = shifted(pt);
     setPts((p) => {
       const last = p[p.length - 1];
-      const eased = last ? last.price + (target.price - last.price) * 0.55 : target.price;
+      const eased = last ? last.price + (target.price - last.price) * 0.85 : target.price;
       return [...p, { t: target.t, price: eased }];
     });
   };
@@ -395,7 +425,7 @@ export function DrawScreen({ market }: { market: Market }) {
           band={band}
           feed={feed}
           headLabel={headLabel}
-          horizonMinutes={runBars}
+          horizonMinutes={Math.round(runBars)}
           editableFrom={editableFrom}
           onDown={onDown}
           onExtend={lengthen}

@@ -9,6 +9,15 @@ export const SAMPLES = 32;
 
 /** A reversal smaller than this fraction of entry is a wobble, not a turn. */
 const TOL = 0.0022;
+/**
+ * Two vertices closer than this share of the round are one turn.
+ *
+ * The same idea as `TOL` along the other axis: there it is a move too small to
+ * be a reversal, here it is a gap too short to be a leg. A stretch three
+ * hundredths of the round long is under a minute on a half-hour sketch — not
+ * something anyone drew on purpose, and nothing a position can be opened in.
+ */
+const TURN_GAP = 0.03;
 /** Under this total travel the drawing says nothing worth trading. */
 const FLAT = 0.004;
 
@@ -224,7 +233,21 @@ export function settle(
  * with time scaled into price units; the tolerance grows until the line fits
  * the budget.
  */
-export function simplify(pts: Pt[], priceSpan: number, maxPoints = 8): Pt[] {
+export function simplify(
+  pts: Pt[],
+  priceSpan: number,
+  /**
+   * No cap, by default.
+   *
+   * There was one at eight, and it did not thin the line — it destroyed it. The
+   * tolerance is raised until the result fits, so a zigzag of four peaks, which
+   * needs nine points, had its tolerance inflated by half again and again until
+   * only one peak was left. You drew four and got one. The base tolerance alone
+   * takes the tremor out of a hand; how many turns are left after that is the
+   * drawing's business, not a budget's.
+   */
+  maxPoints = Number.POSITIVE_INFINITY,
+): Pt[] {
   if (pts.length <= 2) return pts;
   const scale = priceSpan; // one unit of t is worth the whole visible price range
   const dist = (p: Pt, a: Pt, b: Pt) => {
@@ -256,7 +279,43 @@ export function simplify(pts: Pt[], priceSpan: number, maxPoints = 8): Pt[] {
     eps *= 1.5;
     out = rdp(pts, eps);
   }
-  return out;
+
+  /*
+    One turn, not two.
+
+    Simplification can keep both samples that straddle the top of a peak — they
+    are each a long way off the chord, so each looks worth keeping — and the
+    result is a pair of handles a few pixels apart at the apex. That is not a
+    detail, it is a leg of no length: the stretch between them rises or falls by
+    nothing, so it opens no position and buys the reader nothing but a second
+    handle to catch with the mouse.
+
+    Where a pair is too close to be two turns, the apex is kept: whichever of
+    the two carries the move further in the direction it was already going. The
+    first point is the entry and the last is where the line was left, so neither
+    is ever traded away for a peak.
+  */
+  const thinned: Pt[] = [];
+  for (let i = 0; i < out.length; i++) {
+    const p = out[i];
+    const last = thinned.at(-1);
+    if (!last || p.t - last.t >= TURN_GAP) {
+      thinned.push(p);
+      continue;
+    }
+    if (thinned.length === 1) continue;
+    if (i === out.length - 1) {
+      thinned[thinned.length - 1] = p;
+      continue;
+    }
+    const prev = thinned.at(-2) as Pt;
+    const rising = last.price >= prev.price;
+    const apex = rising
+      ? p.price > last.price
+      : p.price < last.price;
+    if (apex) thinned[thinned.length - 1] = p;
+  }
+  return thinned;
 }
 
 /**

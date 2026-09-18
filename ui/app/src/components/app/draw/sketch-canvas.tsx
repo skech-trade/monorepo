@@ -140,8 +140,8 @@ export function SketchCanvas({
   onGrab: (index: number) => void;
   /** A point double-clicked away. */
   onRemove: (index: number) => void;
-  /** The line has run off the right edge and wants the round to be longer. */
-  onExtend?: () => void;
+  /** Held at the right edge: lengthen the round by this many seconds of growth. */
+  onExtend?: (seconds: number) => void;
   /** Points at or before this time are fixed: they have already happened. */
   editableFrom: number;
   /** What the line is worth where it ends, shown at the head while drawing. */
@@ -160,8 +160,10 @@ export function SketchCanvas({
   const box = useRef<HTMLDivElement>(null);
   const { w, h } = useSize(box);
   const active = useRef(false);
-  /** When the round was last lengthened, so holding at the edge paces itself. */
-  const grew = useRef(0);
+  /** Where the pointer is, for the loop that reads it while it is not moving. */
+  const at = useRef<{ x: number; y: number } | null>(null);
+  /** Held against the right edge, so the round should be opening up. */
+  const [pushing, setPushing] = useState(false);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
 
   const plotL = PAD_L;
@@ -184,21 +186,13 @@ export function SketchCanvas({
     const yy = Math.min(plotB, Math.max(plotT, e.clientY - r.top));
     return { t: (x - split) / (plotR - split), price: priceAtY(yy) };
   };
-  /**
-   * Past the right edge, the round gets longer.
-   *
-   * Paced rather than fired on every move: one step every third of a second, so
-   * holding the pen at the edge grows the canvas at a rate you can watch rather
-   * than jumping to the maximum in one flick of the wrist.
-   */
-  const pushPast = (e: ReactPointerEvent) => {
+  /** Within this of the right edge counts as pushing against it. */
+  const EDGE = 18;
+  const track = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
-    if (!r || !onExtend) return;
-    if (e.clientX - r.left < plotR - 2) return;
-    const now = performance.now();
-    if (now - grew.current < 340) return;
-    grew.current = now;
-    onExtend();
+    if (!r) return;
+    at.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+    setPushing(active.current && !!onExtend && at.current.x >= plotR - EDGE);
   };
 
   const onDown = (e: ReactPointerEvent) => {
@@ -207,9 +201,8 @@ export function SketchCanvas({
     if (!p) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     active.current = true;
-    grew.current = 0;
     onDownPt(p);
-    pushPast(e);
+    track(e);
   };
   const onMove = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
@@ -221,11 +214,12 @@ export function SketchCanvas({
     if (!active.current) return;
     const p = local(e);
     if (p) onMovePt(p);
-    pushPast(e);
+    track(e);
   };
   const onUp = () => {
     if (!active.current) return;
     active.current = false;
+    setPushing(false);
     onUpPt();
   };
   /** Taking hold of a point: the svg's own move and up handlers take it from here. */
@@ -245,6 +239,47 @@ export function SketchCanvas({
     el.addEventListener("touchmove", block, { passive: false });
     return () => el.removeEventListener("touchmove", block);
   }, []);
+
+  /* The handlers as of this render, for the loop below to call. It is started
+     once per push and must not be torn down every time the round grows. */
+  const now = useRef({ extend: onExtend, move: onMovePt, price: priceAtY });
+  useEffect(() => {
+    now.current = { extend: onExtend, move: onMovePt, price: priceAtY };
+  });
+
+  /**
+   * Held against the edge, the canvas opens.
+   *
+   * On a clock rather than on pointer moves, because holding the pen still is
+   * exactly how someone asks for more room and a still pointer fires no moves
+   * at all — which is why it stopped expanding the moment you stopped wiggling.
+   * Frame by frame, by however much time has actually passed, so the speed is
+   * the same on any machine.
+   *
+   * The head is pushed back to the end on every frame too. Growing the round
+   * shrinks every point's share of it, including the one under your finger, so
+   * without this the line would shrink away from the edge you are pressing
+   * against instead of drawing on into the room it just made.
+   */
+  useEffect(() => {
+    if (!pushing) return;
+    let last = performance.now();
+    const id = setInterval(() => {
+      const t = performance.now();
+      // By elapsed time rather than per tick, so the speed is the same whatever
+      // rate the browser actually gives us.
+      const seconds = Math.min(0.12, (t - last) / 1000);
+      last = t;
+      const here = at.current;
+      if (!here) return;
+      now.current.extend?.(seconds);
+      // Reach for the end of the round. The pen lays a point down once enough
+      // fresh canvas has arrived under it, so holding here draws rather than
+      // stretching one segment.
+      now.current.move({ t: 1, price: now.current.price(here.y) });
+    }, 50);
+    return () => clearInterval(id);
+  }, [pushing]);
 
   const plotted = pts.map((pt) => ({ x: split + pt.t * (plotR - split), y: y(pt.price) }));
   const ribbonPx = Math.min(36, (ribbon / span) * (plotB - plotT));
