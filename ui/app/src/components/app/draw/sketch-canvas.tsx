@@ -112,10 +112,12 @@ export function SketchCanvas({
   onDown: onDownPt,
   onMove: onMovePt,
   onUp: onUpPt,
-  onHead,
+  onGrab,
+  onRemove,
+  editableFrom,
   headLabel,
   horizonMinutes,
-  showPoints = false,
+  tool,
   accuracy,
   ghost,
   ribbon,
@@ -133,14 +135,17 @@ export function SketchCanvas({
   onDown: (pt: Pt) => void;
   onMove: (pt: Pt) => void;
   onUp: () => void;
-  /** The head of a drawn line, dragged to a new price. */
-  onHead: (price: number) => void;
+  /** A point taken hold of, by index. Moves then arrive through onMove. */
+  onGrab: (index: number) => void;
+  /** A point double-clicked away. */
+  onRemove: (index: number) => void;
+  /** Points at or before this time are fixed: they have already happened. */
+  editableFrom: number;
   /** What the line is worth where it ends, shown at the head while drawing. */
   headLabel?: string | null;
   /** How long the right edge is, in minutes. */
   horizonMinutes: number;
-  /** Dots at every point, for a line made of clicks. */
-  showPoints?: boolean;
+  tool: "points" | "pen";
   /** Which arrived candles closed inside the ribbon. */
   accuracy: Accuracy | null;
   /** Your last line, faint, so you notice your habits. */
@@ -152,7 +157,6 @@ export function SketchCanvas({
   const box = useRef<HTMLDivElement>(null);
   const { w, h } = useSize(box);
   const active = useRef(false);
-  const dragging = useRef(false);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
 
   const plotL = PAD_L;
@@ -166,7 +170,7 @@ export function SketchCanvas({
 
   const step = (split - plotL) / Math.max(1, feed.length);
   const runStep = (plotR - split) / runBars;
-  const canDraw = phase === "live" || phase === "drawn";
+  const canDraw = phase === "live" || phase === "drawn" || (phase === "running" && tool === "points");
 
   const local = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
@@ -199,19 +203,12 @@ export function SketchCanvas({
     active.current = false;
     onUpPt();
   };
-  const headDown = (e: ReactPointerEvent) => {
+  /** Taking hold of a point: the svg's own move and up handlers take it from here. */
+  const grab = (index: number) => (e: ReactPointerEvent) => {
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragging.current = true;
-  };
-  const headMove = (e: ReactPointerEvent) => {
-    if (!dragging.current) return;
-    const r = box.current?.getBoundingClientRect();
-    if (!r) return;
-    onHead(priceAtY(Math.min(plotB, Math.max(plotT, e.clientY - r.top))));
-  };
-  const headUp = () => {
-    dragging.current = false;
+    active.current = true;
+    onGrab(index);
   };
 
   useEffect(() => {
@@ -363,35 +360,29 @@ export function SketchCanvas({
                   strokeWidth="2.4"
                 />
               )}
-              {showPoints
-                ? plotted.slice(1, -1).map((p, i) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: positional
-                    <circle cx={p.x} cy={p.y} fill="var(--card)" key={i} r="3" stroke="var(--brand)" strokeWidth="1.5" />
-                  ))
+              {/* Every point is a handle once the line is down. Ahead of
+                  now they move and go; behind now they have happened. */}
+              {!drawing && (phase === "drawn" || phase === "running")
+                ? plotted.slice(1).map((p, i) => {
+                    const index = i + 1;
+                    const live = pts[index].t > editableFrom;
+                    return (
+                      <circle
+                        className={cn(live && "cursor-move hover:fill-brand")}
+                        cx={p.x}
+                        cy={p.y}
+                        fill={live ? "var(--card)" : "var(--brand)"}
+                        key={index}
+                        onDoubleClick={live ? () => onRemove(index) : undefined}
+                        onPointerDown={live ? grab(index) : undefined}
+                        r={live ? 6 : 3}
+                        stroke="var(--brand)"
+                        strokeWidth={live ? 2 : 0}
+                      />
+                    );
+                  })
                 : null}
-              {head && !drawing ? (
-                <>
-                  <circle cx={head.x} cy={head.y} fill="var(--brand)" opacity="0.25" r="6" />
-                  <circle cx={head.x} cy={head.y} fill="var(--brand)" r="3" />
-                </>
-              ) : null}
-              {/* The head is a handle while the line is yours to change: drag
-                  it and the tail follows, the start stays where you got in. */}
-              {head && phase === "drawn" ? (
-                <circle
-                  className="cursor-ns-resize"
-                  cx={head.x}
-                  cy={head.y}
-                  fill="var(--card)"
-                  onPointerCancel={headUp}
-                  onPointerDown={headDown}
-                  onPointerMove={headMove}
-                  onPointerUp={headUp}
-                  r="7"
-                  stroke="var(--brand)"
-                  strokeWidth="2"
-                />
-              ) : null}
+              {head && !drawing && phase === "settled" ? <circle cx={head.x} cy={head.y} fill="var(--brand)" r="3" /> : null}
             </g>
           ) : null}
 
@@ -402,7 +393,7 @@ export function SketchCanvas({
               </path>
               <circle cx={split} cy={y(price)} fill="var(--brand)" r="3.5" />
               <text fill="var(--muted-foreground)" fontSize="12" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={(split + plotR) / 2} y={plotB - 10}>
-                drag to draw your line
+                {tool === "points" ? "click to place your points" : "drag to draw your line"}
               </text>
             </g>
           ) : null}

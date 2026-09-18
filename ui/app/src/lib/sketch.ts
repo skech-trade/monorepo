@@ -219,6 +219,47 @@ export function settle(
 }
 
 /**
+ * A hand-drawn stroke reduced to the few points that shape it, so a pen line
+ * becomes a point line and can be edited the same way. Ramer-Douglas-Peucker
+ * with time scaled into price units; the tolerance grows until the line fits
+ * the budget.
+ */
+export function simplify(pts: Pt[], priceSpan: number, maxPoints = 8): Pt[] {
+  if (pts.length <= 2) return pts;
+  const scale = priceSpan; // one unit of t is worth the whole visible price range
+  const dist = (p: Pt, a: Pt, b: Pt) => {
+    const ax = a.t * scale;
+    const bx = b.t * scale;
+    const px = p.t * scale;
+    const dx = bx - ax;
+    const dy = b.price - a.price;
+    const len = Math.hypot(dx, dy) || 1;
+    return Math.abs(dy * px - dx * p.price + bx * a.price - b.price * ax) / len;
+  };
+  const rdp = (list: Pt[], eps: number): Pt[] => {
+    if (list.length <= 2) return list;
+    let worst = 0;
+    let at = 0;
+    for (let i = 1; i < list.length - 1; i++) {
+      const d = dist(list[i], list[0], list[list.length - 1]);
+      if (d > worst) {
+        worst = d;
+        at = i;
+      }
+    }
+    if (worst <= eps) return [list[0], list[list.length - 1]];
+    return [...rdp(list.slice(0, at + 1), eps).slice(0, -1), ...rdp(list.slice(at), eps)];
+  };
+  let eps = priceSpan * 0.01;
+  let out = rdp(pts, eps);
+  while (out.length > maxPoints && eps < priceSpan) {
+    eps *= 1.5;
+    out = rdp(pts, eps);
+  }
+  return out;
+}
+
+/**
  * The ribbon: how far from your line the price may stray and still count as
  * "inside". Sized from the market's own recent candles, about one and a half
  * average ranges, so a quiet market gets a tight ribbon and a wild one gets

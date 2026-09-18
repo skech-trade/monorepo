@@ -24,12 +24,14 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - Chart you draw on. History on the left, an empty half on the right, a "now"
   divider, a faint hint of the gesture, one line of instruction.
 - Live simulated feed, one candle a second, forming candle updates within it.
-- Tools: Pen (drag), Line (drag a straight line to where it ends), Points
-  (click each turn; the curve joins them). Undo, Clear. Shapes menu with three
-  common calls (dip then run, straight up, slow bleed) drawn at the chart's
-  scale, to be dragged into shape.
-- Once drawn, the head of the line is a handle: drag it and the tail follows
-  with a cubic falloff while the start holds. Redrawing costs nothing.
+- Points is the default: click to place a point, the curve joins them. Pen
+  drags a stroke that settles into its few turning points on release. Undo,
+  Clear. Shapes menu with three common calls drawn at the chart's scale.
+- Every point is a handle once the line is down: drag to move (both axes,
+  held between its neighbours in time), double-click to remove, click the
+  empty future to insert one there. While a round plays out the points ahead
+  of now stay editable and the past is fixed. Redrawing costs nothing.
+- The line is the landing's ballpoint blue.
 - Drag to draw. Time only goes forward. First touch is anchored to the live
   price. Raw stroke while the finger is down, smoothed on release. A tap or a
   flat line is not a trade.

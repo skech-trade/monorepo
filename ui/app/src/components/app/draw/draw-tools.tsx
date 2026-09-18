@@ -3,7 +3,6 @@
 import {
   ChevronDownIcon,
   EraserIcon,
-  MinusIcon,
   PenLineIcon,
   ShapesIcon,
   Undo2Icon,
@@ -16,14 +15,15 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
- * Three ways to put a line down, and two ways to take it back.
+ * Two ways to put a line down, and two ways to take it back.
  *
- * Pen is a finger. Line is a straight drag to where you think it ends.
- * Points is a click per turn, for someone who thinks in levels. Shapes are
- * three common calls, one press each, there to be dragged into shape.
+ * Points is a click per turn and is the default: every point is a handle you
+ * can move or remove, before and while it plays out. Pen is a finger, and a
+ * pen stroke settles into points on release so it edits the same way. Shapes
+ * are three common calls, one press each.
  */
 
-export type Tool = "pen" | "line" | "points";
+export type Tool = "points" | "pen";
 
 export type Preset = "dip-rip" | "straight-up" | "bleed";
 
@@ -69,19 +69,14 @@ export function DrawTools({
         value={[tool]}
         variant="outline"
       >
-        <Tip words="Pen: drag to draw">
-          <ToggleGroupItem aria-label="Pen" value="pen">
-            <PenLineIcon />
-          </ToggleGroupItem>
-        </Tip>
-        <Tip words="Line: drag to where it ends">
-          <ToggleGroupItem aria-label="Line" value="line">
-            <MinusIcon className="-rotate-45" />
-          </ToggleGroupItem>
-        </Tip>
-        <Tip words="Points: click each turn">
+        <Tip words="Points: click to place, drag to move, double-click to remove">
           <ToggleGroupItem aria-label="Points" value="points">
             <WaypointsIcon />
+          </ToggleGroupItem>
+        </Tip>
+        <Tip words="Pen: drag to draw, it settles into points">
+          <ToggleGroupItem aria-label="Pen" value="pen">
+            <PenLineIcon />
           </ToggleGroupItem>
         </Tip>
       </ToggleGroup>

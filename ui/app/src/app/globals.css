@@ -100,8 +100,12 @@
   --up-mark: color-mix(in srgb, var(--success) 78%, var(--background));
   --down: var(--destructive-foreground);
   --down-mark: color-mix(in srgb, var(--destructive) 78%, var(--background));
-  --brand: var(--info);
+  --brand: #2b62de;
   --grid-line: var(--border);
+}
+
+.dark {
+  --brand: #8fb0ff;
 }
 
 @theme inline {

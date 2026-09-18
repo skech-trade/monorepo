@@ -148,15 +148,9 @@ export function SketchBar({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Lead tone="text-up">+${usd(quote.ifWorks, 0)}</Lead>
         <p className="mr-auto max-w-[34rem] text-muted-foreground">
-          if {market.name} gets to <F>${fmtPrice(shape.target)}</F>, going {shape.long ? "up" : "down"} from <F>${fmtPrice(entry)}</F>.{" "}
-          <F tone="text-down">${usd(quote.mostLose, 0)}</F> is the most you can lose
-          {shape.floor === null ? (
-            <>, since the line never {shape.long ? "dips below" : "rises above"} where you start</>
-          ) : (
-            <>, out at <F>${fmtPrice(shape.floor)}</F></>
-          )}
-          . <F>${usd(stake, 0)}</F> trades like{" "}
-          <F>${usd(quote.notional, 0)}</F>.
+          if it gets to <F>${fmtPrice(shape.target)}</F>. Most you can lose <F tone="text-down">${usd(quote.mostLose, 0)}</F>
+          {shape.floor === null ? <> (the line never turns back)</> : <>, out at <F>${fmtPrice(shape.floor)}</F></>}. <F>${usd(stake, 0)}</F> trades like{" "}
+          <F>${usd(quote.notional, 0)}</F>. Drag a point to change it.
         </p>
         {controls}
         <Button onClick={onDrawAgain} variant="ghost">
@@ -179,9 +173,8 @@ export function SketchBar({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Lead tone={Math.abs(live) < 0.005 ? undefined : live > 0 ? "text-up" : "text-down"}>{signedUsd(live)}</Lead>
         <p className="mr-auto max-w-[34rem] text-muted-foreground">
-          right now, going {shape.long ? "up" : "down"} with <F>${usd(stake, 0)}</F> at <F>{leverage}×</F>. In at <F>${fmtPrice(entry)}</F>, now{" "}
-          <F>${fmtPrice(price)}</F>, aiming for <F>${fmtPrice(shape.target)}</F>. <F tone="text-down">${usd(quote?.mostLose ?? stake, 0)}</F> is the most you can
-          lose.
+          right now. In at <F>${fmtPrice(entry)}</F>, now <F>${fmtPrice(price)}</F>, aiming for <F>${fmtPrice(shape.target)}</F>. Most you can lose{" "}
+          <F tone="text-down">${usd(quote?.mostLose ?? stake, 0)}</F>. The points ahead of now are still yours to move.
         </p>
         <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
           <span className="size-1.5 animate-pulse rounded-full bg-info" />
