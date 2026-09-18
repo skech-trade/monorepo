@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
 import type { Outcome, Quote, Shape } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
-import { Figure, Pill, Stat } from "../controls";
+import { Figure, Pill } from "../controls";
 import type { Order } from "../ticket";
 import { DrawControls } from "./draw-controls";
 import type { Phase } from "./sketch-canvas";
@@ -62,6 +62,11 @@ function ShareButton({ text }: { text: string }) {
       {done ? "Copied" : "Show your call"}
     </Button>
   );
+}
+
+/** A figure inside a sentence. */
+function F({ children }: { children: React.ReactNode }) {
+  return <span className="figures text-foreground">{children}</span>;
 }
 
 function Direction({ long }: { long: boolean }) {
@@ -138,18 +143,19 @@ export function SketchTray({
           <Figure label="If it gets there" size="lg" tone="text-up" value={`+$${usd(quote.ifWorks, 0)}`} />
           <Figure label="The most you can lose" size="lg" tone="text-down" value={`$${usd(quote.mostLose, 0)}`} />
         </div>
-        <div className="flex flex-col gap-1.5 rounded-lg border bg-muted/40 p-3">
-          <Stat label="Where you're aiming" value={`$${fmtPrice(shape.target)}`} />
-          <Stat label="Where you're out" tone={shape.floor === null ? "text-muted-foreground" : undefined} value={shape.floor === null ? `Never dips, so all $${usd(stake, 0)}` : `$${fmtPrice(shape.floor)}`} />
-          <Stat label="Put in" value={`$${usd(stake, 0)}, trades like $${usd(quote.notional, 0)}`} />
-        </div>
+        <p className="text-muted-foreground">
+          Aiming for <F>${fmtPrice(shape.target)}</F>
+          {shape.floor === null ? (
+            <>, and it never dips, so all <F>${usd(stake, 0)}</F> is on the table.</>
+          ) : (
+            <>, out at <F>${fmtPrice(shape.floor)}</F>.</>
+          )}{" "}
+          <F>${usd(stake, 0)}</F> trades like <F>${usd(quote.notional, 0)}</F>.
+        </p>
         <DrawControls order={order} patch={patch} />
-        <div className="flex flex-col gap-2">
-          <Button className="w-full" onClick={onPlace} size="lg">
-            Draw it in for ${usd(stake, 0)}
-          </Button>
-          <p className="text-center text-muted-foreground text-xs">Interface preview. Nothing is placed.</p>
-        </div>
+        <Button className="w-full" onClick={onPlace} size="lg">
+          Draw it in for ${usd(stake, 0)}
+        </Button>
       </div>
     );
   }
@@ -172,11 +178,10 @@ export function SketchTray({
           <Figure label="Right now" size="lg" tone={Math.abs(live) < 0.005 ? undefined : live > 0 ? "text-up" : "text-down"} value={signedUsd(live)} />
           <Figure label="The most you can lose" size="lg" tone="text-down" value={`$${usd(quote?.mostLose ?? stake, 0)}`} />
         </div>
-        <div className="flex flex-col gap-1.5 rounded-lg border bg-muted/40 p-3">
-          <Stat label="You got in at" value={`$${fmtPrice(entry)}`} />
-          <Stat label="Now" value={`$${fmtPrice(price)}`} />
-          <Stat label="Where you're aiming" value={`$${fmtPrice(shape.target)}`} />
-        </div>
+        <p className="text-muted-foreground">
+          In at <F>${fmtPrice(entry)}</F>, now <F>${fmtPrice(price)}</F>. Aiming for <F>${fmtPrice(shape.target)}</F>
+          {shape.floor !== null ? <>, out at <F>${fmtPrice(shape.floor)}</F></> : null}.
+        </p>
         <div className="flex flex-col gap-2">
           <Button className="w-full" onClick={onCloseNow} size="lg" variant="outline">
             Take it off now

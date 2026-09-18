@@ -365,7 +365,6 @@ export function Ticket({
         <Button className="w-full" disabled={pay <= 0} size="lg">
           {pay <= 0 ? "Enter an amount" : `${long ? "Long" : "Short"} ${market.name}`}
         </Button>
-        <p className="text-center text-muted-foreground text-xs">Interface preview. Nothing is placed.</p>
       </div>
     </Pane>
   );
