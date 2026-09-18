@@ -1,6 +1,6 @@
 "use client";
 
-import { TrendingDownIcon, TrendingUpIcon, XIcon } from "lucide-react";
+import { TrendingDownIcon, TrendingUpIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -128,7 +128,12 @@ export function liquidationPrice(order: Order, market: Market): number {
   return order.side === "long" ? entry * (1 - move) : entry * (1 + move);
 }
 
-/** A label above a field, and whatever the field wants on the right of it. */
+/**
+ * A label above a field, and whatever the field wants on the right of it.
+ *
+ * Baseline, not centre: the aside is always a figure, and two pieces of text
+ * on a row line up on their baselines rather than on their boxes.
+ */
 function FieldHead({ label, aside }: { label: string; aside?: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 px-1">
@@ -198,7 +203,7 @@ function Chip({
     <Button
       className="flex-1 rounded-full"
       onClick={onClick}
-      size="sm"
+      size="lg"
       variant="outline"
     >
       {children}
@@ -253,62 +258,57 @@ function Amount({
   );
 }
 
-/** A level you set here and drag on the chart. Stop loss and take profit. */
+/**
+ * A level you set here and drag on the chart. Stop loss and take profit.
+ *
+ * Half a row wide on the desk, because the two of them go side by side — and
+ * that is what took the cross out. Turning the switch off already sets the
+ * level to null, so the ✕ beside the price was a second control for the one
+ * thing the switch does, and it was the first thing a 174px column could not
+ * afford. "Drag it on the chart" went the same way and comes back once, under
+ * the pair, rather than twice, once under each.
+ *
+ * One well rather than a floating label above a tinted box. Two reasons, and
+ * the first is that it was the flimsiest thing in the ticket: every other
+ * control here is a surface you can see the edges of, and these were two words
+ * and a switch sitting on the panel with nothing under them.
+ *
+ * The second is arithmetic. Setting a level used to cost 52px — a whole second
+ * block — which is why the ticket had to reserve room it then spent most of
+ * its life not using. Inside the well the price is a second line, 21px, and
+ * the difference is what let everything else grow.
+ */
 function Exit({
   label,
   price,
   tone,
   onToggle,
-  onClear,
 }: {
   label: string;
   price: number | null;
   tone: "down" | "up";
   onToggle: (on: boolean) => void;
-  onClear: () => void;
 }) {
+  const on = price !== null;
+  const tint = tone === "down" ? "text-down" : "text-up";
+
   return (
-    <div className="flex flex-col gap-2">
-      <FieldHead
-        aside={
-          <Switch
-            checked={price !== null}
-            label={label}
-            onChange={onToggle}
-            tone={tone}
-          />
-        }
-        label={label}
-      />
-      {price !== null ? (
-        <div className="flex items-center gap-2">
-          <div
-            className={cn(
-              "flex h-11 flex-1 items-center gap-3 rounded-2xl px-4",
-              tone === "down" ? "bg-down/10" : "bg-up/10",
-            )}
-          >
-            <span
-              className={cn(
-                "figures text-caption font-medium",
-                tone === "down" ? "text-down" : "text-up",
-              )}
-            >
-              ${fmtPrice(price)}
-            </span>
-            <span className="ml-auto text-kicker text-fg-subtle">
-              Drag it on the chart
-            </span>
-          </div>
-          <Button
-            aria-label={`Clear ${label.toLowerCase()}`}
-            onClick={onClear}
-            size="icon-sm"
-            variant="ghost"
-          >
-            <XIcon />
-          </Button>
-        </div>
+    <div
+      className={cn(
+        "flex min-h-16 flex-col justify-center gap-1 rounded-2xl px-4 py-3 transition-colors duration-micro ease-smooth-out",
+        on ? (tone === "down" ? "bg-down/10" : "bg-up/10") : "well",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className={cn("truncate text-kicker", on ? tint : "text-fg-subtle")}>
+          {label}
+        </span>
+        <Switch checked={on} label={label} onChange={onToggle} tone={tone} />
+      </div>
+      {on ? (
+        <span className={cn("figures truncate text-caption font-medium", tint)}>
+          ${fmtPrice(price)}
+        </span>
       ) : null}
     </div>
   );
@@ -424,7 +424,12 @@ export function OrderTicket({
       onCollapsed={onCollapsed}
       title="Ticket"
     >
-    <div className="flex min-h-0 flex-1 flex-col gap-5 px-1 pt-4 xl:overflow-y-auto">
+    {/* 16px between groups on the desk rather than 20. The groups are wide
+        blocks with their own internal 8px rhythm, so the extra four pixels
+        were not doing separating work — and four of them is a row of the
+        exits, which is the difference between the ticket ending above the
+        footer and the ticket growing a scrollbar. */}
+    <div className="flex min-h-0 flex-1 flex-col gap-5 px-1 pt-4 xl:gap-4 xl:overflow-y-auto">
       <div className="flex flex-col gap-2">
         {/* "Use mark" is a link in the label row, not a button welded to the
             right of the field. As a button it made the input narrower than
@@ -469,23 +474,42 @@ export function OrderTicket({
         ) : null}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <FieldHead
-          aside={
-            <span className="figures text-caption text-fg-subtle">
-              ${usd(advanced ? account.free : account.balance)}{" "}
-              {advanced ? "free" : "available"}
-            </span>
-          }
-          label="You pay"
-        />
-        <Amount
-          label="Amount you pay"
-          onChange={(value) => patch({ pay: value })}
-          suffix={<span className="text-caption text-fg-muted">USDC</span>}
-          value={order.pay}
-        />
-        <div className="flex gap-1.5">
+      {/*
+       * What you put in and what you get out, on one line.
+       *
+       * Two halves of one sentence, and stacked they cost two 82px blocks —
+       * which, with the two exits below doing the same thing, is what put the
+       * ticket into its own scrollbar on a laptop. Side by side they read as
+       * the exchange they are, and the ticket ends above the fold.
+       *
+       * The shortcuts stay full width underneath rather than moving into the
+       * left column: four of them do not fit in half a column, and there is
+       * only one field here you can type into, so there is nothing for them to
+       * be ambiguous about.
+       *
+       * DOM order is pay, shortcuts, get — the phone's order, top to bottom.
+       * The desk puts "You get" back up on the first row explicitly.
+       */}
+      <div className="grid gap-2 xl:grid-cols-2 xl:gap-x-3">
+        <div className="flex min-w-0 flex-col gap-2 xl:col-start-1 xl:row-start-1">
+          <FieldHead
+            aside={
+              <span className="figures truncate text-caption text-fg-subtle">
+                ${usd(advanced ? account.free : account.balance)}{" "}
+                {advanced ? "free" : "available"}
+              </span>
+            }
+            label="You pay"
+          />
+          <Amount
+            label="Amount you pay"
+            onChange={(value) => patch({ pay: value })}
+            suffix={<span className="text-caption text-fg-muted">USDC</span>}
+            value={order.pay}
+          />
+        </div>
+
+        <div className="flex gap-1.5 xl:col-span-2 xl:col-start-1 xl:row-start-2">
           {[0.25, 0.5, 0.75, 1].map((fraction) => (
             <Chip
               key={fraction}
@@ -495,27 +519,27 @@ export function OrderTicket({
             </Chip>
           ))}
         </div>
-      </div>
 
-      <div className="flex flex-col gap-2">
-        <FieldHead
-          aside={
-            <span className="figures text-caption text-fg-subtle">
-              ${usd(notional)}
+        <div className="flex min-w-0 flex-col gap-2 xl:col-start-2 xl:row-start-1">
+          <FieldHead
+            aside={
+              <span className="figures text-caption text-fg-subtle">
+                ${usd(notional)}
+              </span>
+            }
+            label={long ? "You get" : "You sell"}
+          />
+          <div className="well flex h-14 items-center gap-2 rounded-2xl px-4">
+            <span
+              className={cn(
+                "figures min-w-0 flex-1 truncate text-title",
+                units > 0 ? "text-foreground" : "text-fg-subtle",
+              )}
+            >
+              {usd(units, units >= 1 ? 4 : 6)}
             </span>
-          }
-          label={long ? "You get" : "You sell"}
-        />
-        <div className="well flex h-14 items-center gap-2 rounded-2xl px-4">
-          <span
-            className={cn(
-              "figures min-w-0 flex-1 truncate text-title",
-              units > 0 ? "text-foreground" : "text-fg-subtle",
-            )}
-          >
-            {usd(units, units >= 1 ? 4 : 6)}
-          </span>
-          <span className="text-caption text-fg-muted">{market.symbol}</span>
+            <span className="text-caption text-fg-muted">{market.symbol}</span>
+          </div>
         </div>
       </div>
 
@@ -553,23 +577,67 @@ export function OrderTicket({
         />
       </div>
 
-      <Exit
-        label="Get out at"
-        onClear={() => patch({ stopLoss: null })}
-        onToggle={(on) => patch({ stopLoss: on ? exitAt("stop") : null })}
-        price={order.stopLoss}
-        tone="down"
-      />
+      {/*
+       * Both exits on one row.
+       *
+       * They are one decision with two sides — where this ends if it goes
+       * wrong, where it ends if it goes right — so a reader sets them looking
+       * at both, and a pair is only legible as a pair when it is one row.
+       *
+       * The hint is here rather than inside each `Exit`: it was the same
+       * sentence printed twice, and it is still true printed once.
+       */}
+      <div className="flex flex-col gap-3">
+        <div className="grid items-start gap-x-3 gap-y-5 xl:grid-cols-2">
+          <Exit
+            label="Get out at"
+            onToggle={(on) => patch({ stopLoss: on ? exitAt("stop") : null })}
+            price={order.stopLoss}
+            tone="down"
+          />
 
-      <Exit
-        label="Take profit at"
-        onClear={() => patch({ takeProfit: null })}
-        onToggle={(on) => patch({ takeProfit: on ? exitAt("target") : null })}
-        price={order.takeProfit}
-        tone="up"
-      />
+          <Exit
+            label="Take profit at"
+            onToggle={(on) =>
+              patch({ takeProfit: on ? exitAt("target") : null })
+            }
+            price={order.takeProfit}
+            tone="up"
+          />
+        </div>
 
+        {/* Always on the page, not only once a level exists.
+            Two reasons and they happen to be the same reason. The panel
+            reserves the height either way — the exits' second lines have to
+            land somewhere — so a line that appears and disappears buys nothing
+            and moves everything below it. And the sentence is most useful
+            before you have touched a switch, when "what does this do" is
+            still a live question: it says a line lands on the chart, and that
+            you move it there rather than typing it. */}
+        <p className="px-1 text-kicker text-fg-subtle">
+          {order.stopLoss !== null && order.takeProfit !== null
+            ? "Drag them on the chart"
+            : order.stopLoss !== null || order.takeProfit !== null
+              ? "Drag it on the chart"
+              : "Set one and drag it on the chart"}
+        </p>
+      </div>
+
+      {/*
+       * The drawer sits at the foot of the body, not straight under the exits.
+       *
+       * The ticket is as tall as the three grid rows beside it, and its content
+       * is not — so there is slack, and the only question is where it goes.
+       * Spread across the gaps it makes the whole ticket loose; left under the
+       * last control it is a hole. Here it is the break between the order you
+       * are placing and the settings you almost never touch, with Advanced
+       * landing against the summary it belongs beside.
+       *
+       * It also means nothing above it moves when an exit opens: the exits grow
+       * down into the slack and Advanced stays where it is.
+       */}
       {advanced ? (
+        <div className="xl:mt-auto">
         <Disclosure
           label={changed === 0 ? "Advanced" : `Advanced · ${changed} changed`}
           onToggle={setAdvancedOpen}
@@ -634,6 +702,7 @@ export function OrderTicket({
             </div>
           </div>
         </Disclosure>
+        </div>
       ) : null}
 
     </div>

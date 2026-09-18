@@ -204,6 +204,10 @@ export function Pill({
  * remembered between visits on purpose: the closed state is the recommendation,
  * and a ticket that silently reopens six switches because you looked at them
  * once is a ticket that grows over time.
+ *
+ * 56px, the height of the ticket's own fields. It is the last thing above the
+ * summary and the button, and at 44px it read as a footnote to the ticket
+ * rather than a part of it.
  */
 export function Disclosure({
   label,
@@ -220,7 +224,7 @@ export function Disclosure({
     <div className="flex flex-col gap-4">
       <button
         aria-expanded={open}
-        className="well flex h-11 w-full items-center justify-between gap-3 rounded-2xl px-4 text-kicker text-fg-muted transition-colors duration-micro ease-smooth-out hover:bg-surface-3 hover:text-foreground"
+        className="well flex h-14 w-full items-center justify-between gap-3 rounded-2xl px-4 text-kicker text-fg-muted transition-colors duration-micro ease-smooth-out hover:bg-surface-3 hover:text-foreground"
         onClick={() => onToggle(!open)}
         type="button"
       >
