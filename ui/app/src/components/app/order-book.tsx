@@ -47,14 +47,24 @@ function Rows({
   );
 }
 
+/**
+ * The tape runs three columns to the book's two, and the figures are tabular,
+ * so the widths are fixed here and shared with the headings above it. Left to
+ * `justify-between` the headings land wherever the words happen to be wide,
+ * and "Size" ends up over the clock.
+ */
+const TAPE_ROW = "flex h-6 items-center gap-3 px-3 text-xs";
+const TAPE_SIZE = "w-12 text-right";
+const TAPE_TIME = "w-16 text-right";
+
 function Tape({ trades }: { trades: Trade[] }) {
   return (
     <ul>
       {trades.map((t) => (
-        <li className="flex h-6 items-center justify-between gap-2 px-3 text-xs" key={t.id}>
-          <span className={cn("figures", t.side === "buy" ? "text-up" : "text-down")}>{fmtPrice(t.price)}</span>
-          <span className="figures text-muted-foreground">{usd(t.size, 3)}</span>
-          <span className="figures text-muted-foreground">
+        <li className={TAPE_ROW} key={t.id}>
+          <span className={cn("figures flex-1", t.side === "buy" ? "text-up" : "text-down")}>{fmtPrice(t.price)}</span>
+          <span className={cn("figures text-muted-foreground", TAPE_SIZE)}>{usd(t.size, 3)}</span>
+          <span className={cn("figures text-muted-foreground", TAPE_TIME)}>
             {new Date(t.t).toLocaleTimeString(undefined, { hour: "2-digit", hour12: false, minute: "2-digit", second: "2-digit" })}
           </span>
         </li>
@@ -102,10 +112,18 @@ export function OrderBook({
       onCollapsed={onCollapsed}
       title="Book"
     >
-      <div className="flex items-baseline justify-between px-3 pb-1 text-muted-foreground text-xs">
-        <span>Price</span>
-        <span>Size</span>
-      </div>
+      {tab === "book" ? (
+        <div className="flex items-baseline justify-between px-3 pb-1 text-muted-foreground text-xs">
+          <span>Price</span>
+          <span>Size</span>
+        </div>
+      ) : (
+        <div className={cn(TAPE_ROW, "h-auto items-baseline pb-1 text-muted-foreground")}>
+          <span className="flex-1">Price</span>
+          <span className={TAPE_SIZE}>Size</span>
+          <span className={TAPE_TIME}>Time</span>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "book" ? (
           <>

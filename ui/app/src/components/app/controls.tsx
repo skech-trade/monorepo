@@ -23,6 +23,18 @@ export type Segment<T extends string> = {
   tone?: Tone;
 };
 
+/**
+ * coss sizes a segmented track off its items, and an item runs two pixels
+ * taller than a Button of the same name — so a segmented control never lines
+ * up with the button next to it. Pinning the item two pixels shorter makes the
+ * track come out at the Button height: sm 28, default 32, lg 36.
+ */
+const SEGMENT_HEIGHTS: Record<"sm" | "default" | "lg", string> = {
+  default: "[&_[data-slot=tabs-tab]]:h-8 sm:[&_[data-slot=tabs-tab]]:h-7",
+  lg: "[&_[data-slot=tabs-tab]]:h-9 sm:[&_[data-slot=tabs-tab]]:h-8",
+  sm: "[&_[data-slot=tabs-tab]]:h-7 sm:[&_[data-slot=tabs-tab]]:h-6",
+};
+
 /** Pick one of a few. coss Tabs, so the thumb slides. */
 export function Segmented<T extends string>({
   value,
@@ -47,6 +59,7 @@ export function Segmented<T extends string>({
       <TabsList
         aria-label={label}
         className={cn(
+          SEGMENT_HEIGHTS[size],
           grow && "w-full",
           tone === "up" && "[&>[data-slot=tab-indicator]]:bg-success/12",
           tone === "down" && "[&>[data-slot=tab-indicator]]:bg-destructive/12",
@@ -180,6 +193,11 @@ export function FoldButton({
  * A panel of the desk. A coss Card with a one-row header that holds the
  * panel's own control and the fold chevron. Folded sideways it is a rail
  * with its name set vertically; folded up it keeps only the header.
+ *
+ * The header is eleven deep so the pill inside it clears the card's corner by
+ * about as much as it clears the sides. A 2xl corner is 18px of curve, and a
+ * pill set three pixels below it and eight in from the edge reads as squeezed
+ * out of the corner rather than sitting in it.
  */
 export function Pane({
   title,
@@ -217,8 +235,8 @@ export function Pane({
   }
   return (
     <section aria-label={label ?? title} className={cn("flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-background", className)}>
-      <div className="flex h-10 min-w-0 shrink-0 items-center gap-2 px-2">
-        {header ?? <h2 className="flex-1 truncate font-medium text-sm">{title}</h2>}
+      <div className="flex h-11 min-w-0 shrink-0 items-center gap-2 px-2">
+        {header ?? <h2 className="flex-1 truncate px-1 font-medium text-sm">{title}</h2>}
         {onCollapsed ? (
           <FoldButton
             className="ml-auto shrink-0"

@@ -114,6 +114,7 @@ export function SketchCanvas({
   onUp: onUpPt,
   onGrab,
   onRemove,
+  onExtend,
   editableFrom,
   headLabel,
   horizonMinutes,
@@ -139,6 +140,8 @@ export function SketchCanvas({
   onGrab: (index: number) => void;
   /** A point double-clicked away. */
   onRemove: (index: number) => void;
+  /** The line has run off the right edge and wants the round to be longer. */
+  onExtend?: () => void;
   /** Points at or before this time are fixed: they have already happened. */
   editableFrom: number;
   /** What the line is worth where it ends, shown at the head while drawing. */
@@ -157,6 +160,8 @@ export function SketchCanvas({
   const box = useRef<HTMLDivElement>(null);
   const { w, h } = useSize(box);
   const active = useRef(false);
+  /** When the round was last lengthened, so holding at the edge paces itself. */
+  const grew = useRef(0);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
 
   const plotL = PAD_L;
@@ -179,13 +184,32 @@ export function SketchCanvas({
     const yy = Math.min(plotB, Math.max(plotT, e.clientY - r.top));
     return { t: (x - split) / (plotR - split), price: priceAtY(yy) };
   };
+  /**
+   * Past the right edge, the round gets longer.
+   *
+   * Paced rather than fired on every move: one step every third of a second, so
+   * holding the pen at the edge grows the canvas at a rate you can watch rather
+   * than jumping to the maximum in one flick of the wrist.
+   */
+  const pushPast = (e: ReactPointerEvent) => {
+    const r = box.current?.getBoundingClientRect();
+    if (!r || !onExtend) return;
+    if (e.clientX - r.left < plotR - 2) return;
+    const now = performance.now();
+    if (now - grew.current < 340) return;
+    grew.current = now;
+    onExtend();
+  };
+
   const onDown = (e: ReactPointerEvent) => {
     if (!canDraw) return;
     const p = local(e);
     if (!p) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     active.current = true;
+    grew.current = 0;
     onDownPt(p);
+    pushPast(e);
   };
   const onMove = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
@@ -197,6 +221,7 @@ export function SketchCanvas({
     if (!active.current) return;
     const p = local(e);
     if (p) onMovePt(p);
+    pushPast(e);
   };
   const onUp = () => {
     if (!active.current) return;

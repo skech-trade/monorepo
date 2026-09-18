@@ -43,8 +43,8 @@ export function MarketBar({ market, className }: { market: Market; className?: s
       </span>
 
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
-        <Pair label="24h high">{fmtPrice(market.high24h)}</Pair>
-        <Pair label="24h low">{fmtPrice(market.low24h)}</Pair>
+        <Pair label="24h high">${fmtPrice(market.high24h)}</Pair>
+        <Pair label="24h low">${fmtPrice(market.low24h)}</Pair>
         <Pair label="24h volume">{compactUsd(market.volume24h)}</Pair>
         <Pair className="hidden 2xl:inline-flex" label="Open interest">{compactUsd(market.openInterest)}</Pair>
         <Pair className="hidden 2xl:inline-flex" label="Funding" tone={market.funding >= 0 ? "text-up" : "text-down"}>

@@ -17,8 +17,23 @@ import { seedSketches, type Sketch, SketchesSheet } from "./sketches";
  */
 
 const HISTORY = 46;
-/** Candles a sketch gets. On one-minute bars that is the horizon in minutes. */
+/**
+ * Candles a sketch starts with. On one-minute bars that is the horizon in
+ * minutes — and it is a starting length, not a limit: drawing off the right
+ * edge lengthens the round.
+ */
 const RUN_BARS = 24;
+/**
+ * How much longer the round gets each time the line runs off the end.
+ *
+ * A twentieth, not a chunk. It was twelve candles a step — half the round at
+ * once — and the whole picture lurched sideways under the pen every time you
+ * touched the edge. At five percent the canvas creeps out ahead of the line
+ * instead, which is what a reader wants: more room, not a new chart.
+ */
+const RUN_GROWTH = 1.05;
+/** As long as a sketch may get. An hour and a half is already a long wait. */
+const RUN_MAX = 96;
 const TICK_MS = 1000;
 const SUB_MS = 80;
 const VOL = 0.0016;
@@ -43,6 +58,15 @@ export function DrawScreen({ market }: { market: Market }) {
   const seed = useMemo(() => candlesFor(market, "1m").slice(-HISTORY), [market]);
 
   const [phase, setPhase] = useState<Phase>("live");
+  /**
+   * How long this sketch is, in candles.
+   *
+   * State rather than a constant because the line decides it. Draw to the right
+   * edge and keep going and the round gets longer — which is the only honest
+   * way to offer "let me draw further", since the edge was never the screen
+   * running out, it was the round ending there.
+   */
+  const [runBars, setRunBars] = useState(RUN_BARS);
   const [pts, setPts] = useState<Pt[]>([]);
   const [feed, setFeed] = useState<Candle[]>(seed);
   const [run, setRun] = useState<Candle[]>([]);
@@ -79,23 +103,23 @@ export function DrawScreen({ market }: { market: Market }) {
   const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage) : null), [shape, entryView, stake, leverage]);
   const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage) : null), [run, shape, entry, stake, leverage]);
   const ribbon = useMemo(() => ribbonFor(feed), [feed]);
-  const accuracy = useMemo(() => (shape && run.length > 0 ? accuracyOf(run, shape.prices, ribbon, RUN_BARS) : null), [run, shape, ribbon]);
+  const accuracy = useMemo(() => (shape && run.length > 0 ? accuracyOf(run, shape.prices, ribbon, runBars) : null), [run, runBars, shape, ribbon]);
   /** Your last line, moved to today's price. */
   const ghost = useMemo(
     () => (lastSketch && phase === "live" ? lastSketch.pts.map((p) => ({ t: p.t, price: p.price + (price - lastSketch.entry) })) : null),
     [lastSketch, phase, price],
   );
 
-  const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon });
+  const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon, runBars });
   useEffect(() => {
-    live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon };
+    live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon, runBars };
   });
 
   const finish = useCallback((bars: Candle[], early: boolean) => {
-    const { shape: sh, entry: en, stake: st, leverage: lev, ribbon: rb } = live.current;
+    const { shape: sh, entry: en, stake: st, leverage: lev, ribbon: rb, runBars: rbars } = live.current;
     if (!sh) return;
     const bk = settle(bars, sh, en, st, lev);
-    const acc = accuracyOf(bars, sh.prices, rb, RUN_BARS);
+    const acc = accuracyOf(bars, sh.prices, rb, rbars);
     const done: Outcome = bk.done ?? "time";
     const res: Result = {
       net: bk.net,
@@ -123,6 +147,7 @@ export function DrawScreen({ market }: { market: Market }) {
     if (run.length) setFeed((f) => [...f, ...run].slice(-HISTORY));
     setRun([]);
     setPts([]);
+    setRunBars(RUN_BARS);
     setResult(null);
   };
 
@@ -140,13 +165,13 @@ export function DrawScreen({ market }: { market: Market }) {
         return;
       }
       const open = rn.at(-1)?.c ?? en;
-      const along = sh.prices[Math.min(SAMPLES - 1, Math.round(((rn.length + 1) / RUN_BARS) * (SAMPLES - 1)))];
+      const along = sh.prices[Math.min(SAMPLES - 1, Math.round(((rn.length + 1) / live.current.runBars) * (SAMPLES - 1)))];
       const bar = nextCandle(open, VOL, now, along, follow.current);
       const next = [...rn, bar];
       setRun(next);
       setBand((b) => easeBand(b, bandFor([...fd, ...next].slice(-HISTORY), bar.c, sh.prices)));
       const bk = settle(next, sh, en, live.current.stake, live.current.leverage);
-      if (bk.done !== null || next.length >= RUN_BARS) finish(next, false);
+      if (bk.done !== null || next.length >= live.current.runBars) finish(next, false);
     }, TICK_MS);
     const sub = setInterval(() => {
       const { phase: ph, run: rn } = live.current;
@@ -161,7 +186,31 @@ export function DrawScreen({ market }: { market: Market }) {
   }, [finish]);
 
   /** Points at or before this time have already happened. */
-  const editableFrom = phase === "running" ? run.length / RUN_BARS + 0.01 : 0;
+  const editableFrom = phase === "running" ? run.length / runBars + 0.01 : 0;
+
+  /**
+   * The line runs off the end, so the end moves.
+   *
+   * Everything on this chart is positioned as a fraction of the round, so
+   * lengthening it is one division: the points keep the minute they were drawn
+   * at and simply sit a smaller fraction of the way along. The drawing slides
+   * left and fresh canvas appears on the right, which is what "let me draw
+   * further" has to mean when the right edge was the round ending rather than
+   * the screen running out.
+   *
+   * Not while it is running. The round has started; its length is settled.
+   */
+  const lengthen = useCallback(() => {
+    if (live.current.phase === "running" || live.current.phase === "settled") return;
+    setRunBars((bars) => {
+      // At least one candle, or five percent of a short round rounds to nothing.
+      const next = Math.min(RUN_MAX, Math.max(bars + 1, Math.round(bars * RUN_GROWTH)));
+      if (next === bars) return bars;
+      const k = bars / next;
+      setPts((p) => p.map((pt) => ({ ...pt, t: pt.t * k })));
+      return next;
+    });
+  }, []);
 
   /** Start a line at the live price. A finger lands wherever it lands; the
       gap is carried through the whole drawing. */
@@ -346,9 +395,10 @@ export function DrawScreen({ market }: { market: Market }) {
           band={band}
           feed={feed}
           headLabel={headLabel}
-          horizonMinutes={RUN_BARS}
+          horizonMinutes={runBars}
           editableFrom={editableFrom}
           onDown={onDown}
+          onExtend={lengthen}
           onGrab={onGrab}
           onMove={onMove}
           onRemove={onRemove}
@@ -358,7 +408,7 @@ export function DrawScreen({ market }: { market: Market }) {
           price={price}
           pts={view}
           run={run}
-          runBars={RUN_BARS}
+          runBars={runBars}
           shape={shape}
           tool={tool}
           accuracy={accuracy}
@@ -388,7 +438,7 @@ export function DrawScreen({ market }: { market: Market }) {
           quote={quote}
           result={result}
           runCount={run.length}
-          runBars={RUN_BARS}
+          runBars={runBars}
           shape={shape}
           sketch={lastSketch}
           sketches={shown}

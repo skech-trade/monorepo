@@ -165,7 +165,7 @@ function Exit({
         />
       </div>
       {price !== null ? (
-        <div className={cn("flex h-8 items-center gap-3 rounded-lg px-3 text-xs", tone === "down" ? "bg-destructive/8" : "bg-success/8")}>
+        <div className={cn("flex h-7 items-center gap-3 rounded-full px-3 text-xs", tone === "down" ? "bg-destructive/8" : "bg-success/8")}>
           <span className={cn("figures font-medium", tone === "down" ? "text-down" : "text-up")}>${fmtPrice(price)}</span>
           <span className="ml-auto text-muted-foreground">Drag it on the chart</span>
           <Button aria-label={`Clear ${label.toLowerCase()}`} className="-mr-2" onClick={onClear} size="icon-xs" variant="ghost">
@@ -238,6 +238,7 @@ export function Ticket({
             { value: "long", tone: "up", label: (<><TrendingUpIcon />Long</>) },
             { value: "short", tone: "down", label: (<><TrendingDownIcon />Short</>) },
           ]}
+          size="sm"
           value={order.side}
         />
       }
@@ -276,7 +277,7 @@ export function Ticket({
           <Amount label="Amount you pay" onChange={(pay) => patch({ pay })} unit="USDC" value={order.pay} />
           <div className="grid grid-cols-4 gap-1.5">
             {[0.25, 0.5, 0.75, 1].map((f) => (
-              <Button key={f} onClick={() => patch({ pay: (BALANCE * f).toFixed(2) })} size="xs" variant="outline">
+              <Button key={f} onClick={() => patch({ pay: (BALANCE * f).toFixed(2) })} size="sm" variant="outline">
                 {f === 1 ? "Max" : `${f * 100}%`}
               </Button>
             ))}

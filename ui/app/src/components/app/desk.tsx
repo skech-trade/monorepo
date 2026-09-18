@@ -111,7 +111,7 @@ export function Desk({
                   setFolded((c) => c.filter((x) => x !== s));
                   setStudies((c) => (c.includes(s) ? c : [...c, s]));
                 }}
-                size="xs"
+                size="sm"
                 variant="outline"
               >
                 {STUDY_LABEL[s]}
