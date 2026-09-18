@@ -266,6 +266,19 @@ export function verdictFor(inside: number): "Called it" | "Close" | "Off" {
 }
 
 /**
+ * The word for a round. Hitting where you aimed is a call whatever the path.
+ * Otherwise the ribbon decides, but a round that lost money is never "Called
+ * it": the path was right and the ending was not, and the word should not
+ * argue with the figure beside it.
+ */
+export function verdictWord(outcome: Outcome | "closed", inside: number, net: number): string {
+  if (outcome === "liquidated") return "Wiped out";
+  if (outcome === "target") return "Called it";
+  const word = verdictFor(inside);
+  return word === "Called it" && net < 0 ? "Close" : word;
+}
+
+/**
  * One candle of a random walk, pulled toward the drawn line by `follow`.
  *
  * `follow` is rolled once per sketch and held: near zero the market ignores

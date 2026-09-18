@@ -4,7 +4,7 @@ import { CheckIcon, Share2Icon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
-import { type Outcome, type Quote, type Shape, verdictFor } from "@/lib/sketch";
+import { type Outcome, type Quote, type Shape, verdictWord } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 import { DrawControls } from "./draw-controls";
 import type { Phase } from "./sketch-canvas";
@@ -29,7 +29,7 @@ export type Result = {
 };
 
 export const VERDICT: Record<Result["outcome"], string> = {
-  target: "Called it",
+  target: "It got there",
   floor: "Out where you drew it",
   time: "Time's up",
   closed: "Taken off",
@@ -40,7 +40,7 @@ export const VERDICT: Record<Result["outcome"], string> = {
     free and pastes into any chat, the way a Wordle grid does. */
 export function shareText(market: Market, result: Result): string {
   const glyphs = result.flags.map((f) => (f ? "▮" : "▯")).join("");
-  const word = result.outcome === "liquidated" ? "Wiped out" : verdictFor(result.inside);
+  const word = verdictWord(result.outcome, result.inside, result.net);
   return `skech · ${market.symbol} ${result.long ? "up" : "down"} · ${Math.round(result.inside * 100)}% inside\n${glyphs}\n${word}. ${signedUsd(result.net, 0)} on skech.trade`;
 }
 
@@ -150,7 +150,12 @@ export function SketchBar({
         <p className="mr-auto max-w-[34rem] text-muted-foreground">
           if {market.name} gets to <F>${fmtPrice(shape.target)}</F>, going {shape.long ? "up" : "down"} from <F>${fmtPrice(entry)}</F>.{" "}
           <F tone="text-down">${usd(quote.mostLose, 0)}</F> is the most you can lose
-          {shape.floor === null ? <>, since the line never dips</> : <>, out at <F>${fmtPrice(shape.floor)}</F></>}. <F>${usd(stake, 0)}</F> trades like{" "}
+          {shape.floor === null ? (
+            <>, since the line never {shape.long ? "dips below" : "rises above"} where you start</>
+          ) : (
+            <>, out at <F>${fmtPrice(shape.floor)}</F></>
+          )}
+          . <F>${usd(stake, 0)}</F> trades like{" "}
           <F>${usd(quote.notional, 0)}</F>.
         </p>
         {controls}
@@ -191,7 +196,7 @@ export function SketchBar({
 
   if (phase === "settled" && result) {
     const won = result.net >= 0;
-    const word = result.outcome === "liquidated" ? "Wiped out" : verdictFor(result.inside);
+    const word = verdictWord(result.outcome, result.inside, result.net);
     const pct = Math.round(result.inside * 100);
     const off = Math.abs(result.bias);
     const recent = sketches.filter((s) => s.accuracy !== undefined).slice(0, 8).reverse();

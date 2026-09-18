@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toastManager } from "@/components/ui/toast";
 import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
-import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, verdictFor } from "@/lib/sketch";
+import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, verdictWord } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { DrawTools, type Preset, type Tool } from "./draw-tools";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
@@ -61,8 +61,20 @@ export function DrawScreen({ market }: { market: Market }) {
 
   const price = run.at(-1)?.c ?? feed.at(-1)?.c ?? market.price;
   const prev = market.price - market.change;
-  const shape = useMemo(() => shapeOf(pts, entry), [pts, entry]);
-  const quote = useMemo(() => (shape ? quoteFor(shape, entry, stake, leverage) : null), [shape, entry, stake, leverage]);
+  /**
+   * A line that is drawn but not placed starts where you get in, which is
+   * now. So until you press the button the whole line rides the live price;
+   * `pts` keeps the shape, `view` is the shape moved to today.
+   */
+  const riding = phase === "drawn" && pts.length > 0;
+  const entryView = riding ? price : entry;
+  const view = useMemo(() => {
+    if (!riding) return pts;
+    const shift = price - pts[0].price;
+    return pts.map((p) => ({ ...p, price: p.price + shift }));
+  }, [riding, pts, price]);
+  const shape = useMemo(() => shapeOf(view, entryView), [view, entryView]);
+  const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage) : null), [shape, entryView, stake, leverage]);
   const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage) : null), [run, shape, entry, stake, leverage]);
   const ribbon = useMemo(() => ribbonFor(feed), [feed]);
   const accuracy = useMemo(() => (shape && run.length > 0 ? accuracyOf(run, shape.prices, ribbon, RUN_BARS) : null), [run, shape, ribbon]);
@@ -95,7 +107,7 @@ export function DrawScreen({ market }: { market: Market }) {
       bias: acc.bias,
     };
     setResult(res);
-    const word = done === "liquidated" ? "Wiped out" : verdictFor(acc.inside);
+    const word = verdictWord(done, acc.inside, bk.net);
     toastManager.add({ title: word, description: `${Math.round(acc.inside * 100)}% inside your ribbon. ${signedUsd(bk.net)} on $${usd(st, 0)}.`, type: bk.net >= 0 ? "success" : "error" });
     const settled = (s: Sketch): Sketch => ({ ...s, status: "settled", net: bk.net, exit: bk.exit, liquidated: done === "liquidated", accuracy: acc.inside });
     setSketches((list) => list.map((s) => (s.status === "running" ? settled(s) : s)));
@@ -121,8 +133,9 @@ export function DrawScreen({ market }: { market: Market }) {
       if (ph === "settled") return;
       if (ph !== "running" || !sh) {
         const next = [...fd.slice(1), nextCandle(fd.at(-1)?.c ?? en, VOL, now)];
+        const last = next.at(-1)?.c ?? en;
         setFeed(next);
-        setBand((b) => easeBand(b, bandFor(next, next.at(-1)?.c ?? en, sh ? sh.prices : [])));
+        setBand((b) => easeBand(b, bandFor(next, last, sh ? sh.prices : [])));
         return;
       }
       const open = rn.at(-1)?.c ?? en;
@@ -214,10 +227,13 @@ export function DrawScreen({ market }: { market: Market }) {
 
   /** Drag the head: the tail follows with a cubic falloff, the start holds. */
   const onHead = (to: number) => {
+    // `to` is in today's prices; the stored shape may sit at the price it
+    // was drawn at, so the move is measured against the ridden head.
+    const headNow = view[view.length - 1]?.price ?? to;
     setPts((p) => {
       if (p.length < 2) return p;
       const n = p.length - 1;
-      const shift = to - p[n].price;
+      const shift = to - headNow;
       return p.map((pt, i) => (i === 0 ? pt : { ...pt, price: pt.price + (i / n) ** 3 * shift }));
     });
   };
@@ -256,8 +272,7 @@ export function DrawScreen({ market }: { market: Market }) {
 
   const onPlace = () => {
     if (!shape) return;
-    const shift = price - entry;
-    const moved = pts.map((p) => ({ ...p, price: p.price + shift }));
+    const moved = view;
     setPts(moved);
     setEntry(price);
     follow.current = -0.12 + Math.random() * 0.62;
@@ -275,6 +290,7 @@ export function DrawScreen({ market }: { market: Market }) {
       if (phase !== "drawn" && phase !== "drawing") return;
       const target = e.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
+      if (document.querySelector('[role="dialog"], [role="menu"], [data-slot="popover-popup"]')) return;
       if (e.key === "Escape") onClear();
       else if (e.key === "Backspace" || e.key === "Delete" || (e.key.toLowerCase() === "z" && (e.metaKey || e.ctrlKey))) {
         e.preventDefault();
@@ -313,7 +329,7 @@ export function DrawScreen({ market }: { market: Market }) {
           phase={phase}
           pnl={book?.net ?? null}
           price={price}
-          pts={pts}
+          pts={view}
           run={run}
           runBars={RUN_BARS}
           shape={shape}
@@ -326,7 +342,7 @@ export function DrawScreen({ market }: { market: Market }) {
       {/* The bar takes its row; the plot above it is never covered. */}
       <div className="border-t px-3 py-3">
         <SketchBar
-          entry={entry}
+          entry={entryView}
           leverage={leverage}
           market={market}
           onCloseNow={() => run.length && finish(run, true)}

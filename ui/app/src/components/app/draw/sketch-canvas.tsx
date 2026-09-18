@@ -410,7 +410,7 @@ export function SketchCanvas({
       ) : null}
 
       {w > 0 ? stackTags(tags, h).map((t) => <Tag {...t} key={t.key} />) : null}
-      {crosshair && hover.x > split + 24 && hover.x < plotR - 24 ? (
+      {crosshair && hover.x > split + 28 && hover.x < plotR - 44 ? (
         <span
           className="figures pointer-events-none absolute -translate-x-1/2 rounded-md border bg-popover px-1.5 py-0.5 text-[11px] leading-4 shadow-xs/5"
           style={{ left: hover.x, top: plotB + 4 }}
