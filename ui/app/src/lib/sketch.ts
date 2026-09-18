@@ -236,6 +236,8 @@ export function settle(
 export function simplify(
   pts: Pt[],
   priceSpan: number,
+  /** The entry price, to judge a move against the same bar the legs use. */
+  tolerance: number,
   /**
    * No cap, by default.
    *
@@ -310,12 +312,39 @@ export function simplify(
     }
     const prev = thinned.at(-2) as Pt;
     const rising = last.price >= prev.price;
-    const apex = rising
-      ? p.price > last.price
-      : p.price < last.price;
+    const apex = rising ? p.price > last.price : p.price < last.price;
     if (apex) thinned[thinned.length - 1] = p;
   }
-  return thinned;
+
+  /*
+    And a handle has to mean something.
+
+    A point that its neighbours barely move to and barely move away from is not
+    a turn and not the end of a leg — the price either side of it is the same
+    price as far as the compiler is concerned, so nothing opens there and
+    nothing closes. It is a handle that does nothing but sit in the way of the
+    one you meant to grab. Three of them across a near-level stretch is the same
+    straight line drawn in three pieces.
+
+    The same threshold the legs use, so what survives here is exactly what can
+    become a position. Ends are kept: they are the entry and where you stopped.
+  */
+  const grip = tolerance * TOL;
+  const kept: Pt[] = [];
+  for (let i = 0; i < thinned.length; i++) {
+    const p = thinned[i];
+    if (i === 0 || i === thinned.length - 1) {
+      kept.push(p);
+      continue;
+    }
+    const before = kept.at(-1) as Pt;
+    const after = thinned[i + 1];
+    const dead =
+      Math.abs(p.price - before.price) < grip &&
+      Math.abs(after.price - p.price) < grip;
+    if (!dead) kept.push(p);
+  }
+  return kept;
 }
 
 /**

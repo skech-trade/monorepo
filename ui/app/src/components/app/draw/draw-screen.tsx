@@ -336,7 +336,7 @@ export function DrawScreen({ market }: { market: Market }) {
         setPhase("live");
         return;
       }
-      setPts((p) => simplify(p, band.hi - band.lo));
+      setPts((p) => simplify(p, band.hi - band.lo, entry));
     }
     const sh = shapeOf(pts, entry);
     if (tool === "pen" && (!sh || sh.flat)) {
