@@ -31,7 +31,7 @@ import { Pill } from "./controls";
 export function TokenAvatar({ symbol, className }: { symbol: string; className?: string }) {
   if (symbol === "BTC") return <BitcoinMark className={cn("size-9 shrink-0", className)} />;
   return (
-    <Avatar className={cn("size-9", className)}>
+    <Avatar className={cn("size-9 rounded-full", className)}>
       <AvatarFallback className="font-semibold text-xs">{symbol.slice(0, 3)}</AvatarFallback>
     </Avatar>
   );

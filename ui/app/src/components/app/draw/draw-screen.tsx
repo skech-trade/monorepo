@@ -309,7 +309,7 @@ export function DrawScreen({ market }: { market: Market }) {
   );
 
   return (
-    <section aria-label="Draw" className="flex h-full min-h-[24rem] flex-col bg-background">
+    <section aria-label="Draw" className="m-2 flex min-h-[24rem] flex-1 flex-col overflow-hidden rounded-2xl border bg-background">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
         <MarketHeader market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
         {phase === "live" || phase === "drawing" || phase === "drawn" ? (

@@ -15,7 +15,7 @@
   right: 0;
   height: var(--item);
   transform: translateY(-50%);
-  border-radius: var(--radius-md);
+  border-radius: 999px;
   background: var(--muted);
   pointer-events: none;
 }

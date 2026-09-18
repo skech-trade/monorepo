@@ -35,7 +35,7 @@ export function SketchThumb({ sketch, className }: { sketch: Sketch; className?:
   const pts = sketch.pts.map((p) => ({ x: 6 + p.t * (W - 12), y: y(p.price) }));
   const head = pts.at(-1);
   return (
-    <svg aria-hidden="true" className={cn("rounded-md border bg-muted/50", className)} viewBox={`0 0 ${W} ${H}`}>
+    <svg aria-hidden="true" className={cn("rounded-xl border bg-muted/50", className)} viewBox={`0 0 ${W} ${H}`}>
       <line stroke="var(--muted-foreground)" strokeDasharray="2 3" strokeOpacity="0.5" x1="0" x2={W} y1={y(sketch.entry)} y2={y(sketch.entry)} />
       <path d={smoothPath(pts)} fill="none" stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
       {head ? <circle cx={head.x} cy={head.y} fill="var(--brand)" r="2.4" /> : null}

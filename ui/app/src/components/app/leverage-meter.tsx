@@ -51,7 +51,7 @@ export function LeverageMeter({
         aria-valuemin={steps[0]}
         aria-valuenow={value}
         aria-valuetext={`${value} times`}
-        className="grid h-3 gap-1 rounded-md focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4"
+        className="grid h-3 gap-1 rounded-full focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4"
         onKeyDown={(e) => {
           const by = e.key === "ArrowUp" || e.key === "ArrowRight" ? 1 : e.key === "ArrowDown" || e.key === "ArrowLeft" ? -1 : 0;
           if (by === 0) return;
@@ -65,7 +65,7 @@ export function LeverageMeter({
         {steps.map((s, i) => (
           <button
             aria-label={`${s} times`}
-            className={cn("h-full cursor-pointer rounded-sm transition-colors", i < lit ? "bg-primary" : "bg-input hover:bg-primary/30")}
+            className={cn("h-full cursor-pointer rounded-full transition-colors", i < lit ? "bg-primary" : "bg-input hover:bg-primary/30")}
             key={s}
             onClick={() => onChange(s)}
             tabIndex={-1}

@@ -204,7 +204,7 @@ export function Pane({
 }) {
   if (collapsed && direction === "column" && onCollapsed) {
     return (
-      <aside aria-label={label ?? title} className={cn("flex flex-col items-center gap-3 bg-background py-2", className)}>
+      <aside aria-label={label ?? title} className={cn("flex flex-col items-center gap-3 rounded-2xl border bg-background py-2", className)}>
         <FoldButton collapsed direction="column" onCollapsed={onCollapsed} title={title} />
         <span
           className="whitespace-nowrap text-muted-foreground text-xs"
@@ -216,7 +216,7 @@ export function Pane({
     );
   }
   return (
-    <section aria-label={label ?? title} className={cn("flex min-w-0 flex-col overflow-hidden bg-background", className)}>
+    <section aria-label={label ?? title} className={cn("flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-background", className)}>
       <div className="flex h-10 min-w-0 shrink-0 items-center gap-2 px-2">
         {header ?? <h2 className="flex-1 truncate font-medium text-sm">{title}</h2>}
         {onCollapsed ? (

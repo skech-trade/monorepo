@@ -798,7 +798,7 @@ export function PriceChart({
         {studies.filter((study) => study !== "volume").map((study) => (
           <div className="absolute left-2" key={study}>
             <button
-              className="pointer-events-auto flex items-center gap-1 rounded-md border bg-popover px-2 py-0.5 text-muted-foreground text-xs shadow-xs/5 hover:text-foreground"
+              className="pointer-events-auto flex items-center gap-1 rounded-full border bg-popover px-2.5 py-0.5 text-muted-foreground text-xs shadow-xs/5 hover:text-foreground"
               onClick={() => onCloseStudy?.(study)}
               type="button"
             >
@@ -819,7 +819,7 @@ export function PriceChart({
         person who has never traded was going to read anyway.
       */}
       {withLegend && legend ? (
-        <div className="pointer-events-none absolute top-2 left-2 z-10 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-md border bg-popover px-2.5 py-1 text-xs shadow-xs/5">
+        <div className="pointer-events-none absolute top-2 left-2 z-10 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-full border bg-popover px-3 py-1 text-xs shadow-xs/5">
           {(
             [
               ["O", legend.o],

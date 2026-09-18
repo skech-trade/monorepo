@@ -66,7 +66,7 @@ function Tag({ price, y, tone = "default", label }: TagSpec) {
   return (
     <span
       className={cn(
-        "figures pointer-events-none absolute right-1 flex -translate-y-1/2 items-baseline gap-1 rounded-md px-1.5 py-0.5 text-[11px] leading-4",
+        "figures pointer-events-none absolute right-1 flex -translate-y-1/2 items-baseline gap-1 rounded-full px-2 py-0.5 text-[11px] leading-4",
         tone === "default" && "border bg-popover text-foreground shadow-xs/5",
         tone === "up" && "bg-success text-white",
         tone === "down" && "bg-destructive text-white",
@@ -412,7 +412,7 @@ export function SketchCanvas({
       {w > 0 ? stackTags(tags, h).map((t) => <Tag {...t} key={t.key} />) : null}
       {crosshair && hover.x > split + 28 && hover.x < plotR - 44 ? (
         <span
-          className="figures pointer-events-none absolute -translate-x-1/2 rounded-md border bg-popover px-1.5 py-0.5 text-[11px] leading-4 shadow-xs/5"
+          className="figures pointer-events-none absolute -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 text-[11px] leading-4 shadow-xs/5"
           style={{ left: hover.x, top: plotB + 4 }}
         >
           +{Math.round(((hover.x - split) / (plotR - split)) * horizonMinutes)}m
@@ -422,7 +422,7 @@ export function SketchCanvas({
       {/* What the line is worth where the finger is. */}
       {head && headLabel && (phase === "drawing" || phase === "drawn") ? (
         <span
-          className="figures pointer-events-none absolute -translate-x-full -translate-y-full whitespace-nowrap rounded-md bg-brand px-1.5 py-0.5 font-medium text-[11px] text-white leading-4"
+          className="figures pointer-events-none absolute -translate-x-full -translate-y-full whitespace-nowrap rounded-full bg-brand px-2 py-0.5 font-medium text-[11px] text-white leading-4"
           style={{ left: head.x - 8, top: Math.max(plotT + 20, head.y - 14) }}
         >
           {headLabel}

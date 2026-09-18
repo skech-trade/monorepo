@@ -19,7 +19,7 @@ export function Terminal({ market, positions }: { market: Market; positions: Pos
   return (
     <div className="flex h-svh flex-col bg-background" data-blurred={blurred ? "" : undefined}>
       <AppBar account={account} blurred={blurred} mode={mode} onBlurred={setBlurred} onMode={setMode} />
-      <main className="flex min-h-0 w-full flex-1 flex-col overflow-auto">
+      <main className="flex min-h-0 w-full flex-1 flex-col overflow-auto bg-muted/40">
         {mode === "desk" ? (
           <Desk market={market} order={order} patch={patch} positions={positions} />
         ) : (

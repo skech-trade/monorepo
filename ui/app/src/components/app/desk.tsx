@@ -68,12 +68,12 @@ export function Desk({
     <div
       // One board. The gap is a pixel and the board's ground is the border
       // colour, so every seam is a hairline and nothing is a card.
-      className="grid min-w-0 gap-px bg-border xl:h-full xl:[grid-template-columns:var(--cols)] xl:[grid-template-rows:auto_minmax(14rem,1fr)_auto]"
+      className="grid min-w-0 gap-2 bg-muted/40 p-2 xl:h-full xl:[grid-template-columns:var(--cols)] xl:[grid-template-rows:auto_minmax(14rem,1fr)_auto]"
       style={{ ["--cols" as string]: columns }}
     >
-      <MarketBar className="min-w-0 xl:col-span-2 xl:col-start-1 xl:row-start-1" market={market} />
+      <MarketBar className="min-w-0 rounded-2xl border xl:col-span-2 xl:col-start-1 xl:row-start-1" market={market} />
 
-      <section aria-label="Price" className="flex min-w-0 flex-col gap-2 bg-background p-2 xl:col-start-1 xl:row-start-2">
+      <section aria-label="Price" className="flex min-w-0 flex-col gap-2 rounded-2xl border bg-background p-2 xl:col-start-1 xl:row-start-2">
         <ChartToolbar
           kind={kind}
           logScale={logScale}
