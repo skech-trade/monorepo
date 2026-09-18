@@ -234,11 +234,18 @@ export function SketchCanvas({
     })),
   );
 
+  /*
+    The live price, and nothing else.
+
+    There were two more rules here — "aiming" where the line ends up and "out"
+    at the far side — and they described exits this product does not have. A
+    drawn line is not a target you get taken out at and not a stop you get
+    stopped at; the only thing that closes a position here is running out of
+    money. Two coloured levels promising otherwise were answering a question
+    nobody had asked, in the one place the reader is trying to read their own
+    line.
+  */
   const tags: TagSpec[] = [{ key: "now", price, y: y(price) }];
-  if (shape && phase !== "live") {
-    tags.push({ key: "aim", label: "aiming", price: shape.target, tone: "up", y: y(shape.target) });
-    if (shape.floor !== null) tags.push({ key: "out", label: "out", price: shape.floor, tone: "down", y: y(shape.floor) });
-  }
   const crosshair = hover && !drawing;
   if (crosshair) tags.push({ key: "hover", price: priceAtY(hover.y), y: hover.y });
 
@@ -289,15 +296,6 @@ export function SketchCanvas({
             </g>
           ) : null}
           <line stroke="var(--muted-foreground)" strokeDasharray="3 4" strokeOpacity="0.5" x1={plotL} x2={plotR} y1={y(price)} y2={y(price)} />
-
-          {shape && phase !== "live" ? (
-            <g>
-              <line stroke="var(--up)" strokeDasharray="3 4" strokeOpacity="0.6" x1={split} x2={plotR} y1={y(shape.target)} y2={y(shape.target)} />
-              {shape.floor !== null ? (
-                <line stroke="var(--down)" strokeDasharray="3 4" strokeOpacity="0.6" x1={split} x2={plotR} y1={y(shape.floor)} y2={y(shape.floor)} />
-              ) : null}
-            </g>
-          ) : null}
 
           {/* How far the round has run, in the chart's own units. */}
           {run.length > 0 ? (
