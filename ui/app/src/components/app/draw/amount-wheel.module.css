@@ -1,0 +1,77 @@
+/* The stake as a picker wheel. Scroll snapping does the feel. */
+.wrap {
+  --item: 2rem;
+  position: relative;
+  width: 100%;
+  max-width: 9rem;
+  height: calc(var(--item) * 3);
+  margin-inline: auto;
+}
+
+.band {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: var(--item);
+  transform: translateY(-50%);
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  pointer-events: none;
+}
+
+.wheel {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-snap-type: y mandatory;
+  cursor: ns-resize;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 32%, #000 68%, transparent 100%);
+}
+
+.wheel::-webkit-scrollbar {
+  display: none;
+}
+
+.wheel:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+  border-radius: var(--radius-lg);
+}
+
+.track {
+  padding-block: var(--item);
+}
+
+.value {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--item);
+  scroll-snap-align: center;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.55;
+  transition: color 150ms ease, opacity 150ms ease;
+}
+
+.value[data-selected] {
+  color: var(--foreground);
+  font-size: 1.25rem;
+  font-weight: 600;
+  opacity: 1;
+}
+
+.value[data-near] {
+  opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .value {
+    transition: none;
+  }
+}

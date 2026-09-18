@@ -1,0 +1,158 @@
+"use client";
+
+import { CheckIcon, ChevronDownIcon, CopyIcon, SearchIcon } from "lucide-react";
+import Link from "next/link";
+import { useState } from "react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import {
+  price as fmtPrice,
+  LISTED,
+  type Market,
+  marketFor,
+  shortAddress,
+  signedPct,
+} from "@/lib/market";
+import { cn } from "@/lib/utils";
+import { Pill } from "./controls";
+
+/** The token's mark: a monogram on a plate. We do not have the art. */
+export function TokenAvatar({ symbol, className }: { symbol: string; className?: string }) {
+  return (
+    <Avatar className={cn("size-9 rounded-lg", className)}>
+      <AvatarFallback className="rounded-lg bg-info/10 font-semibold text-info-foreground text-xs">
+        {symbol.slice(0, 3)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+function CopyAddress({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      aria-label={`Copy ${address}`}
+      className="relative -ml-1.5 text-muted-foreground"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(address);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1400);
+        } catch {
+          // Blocked clipboard. The address is on screen.
+        }
+      }}
+      size="xs"
+      variant="ghost"
+    >
+      <span className="figures">{shortAddress(address)}</span>
+      {copied ? <CheckIcon className="text-up" /> : <CopyIcon />}
+    </Button>
+  );
+}
+
+export function MarketPicker({
+  open,
+  onOpenChange,
+  current,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  current: Market;
+}) {
+  const markets = LISTED.map(marketFor).filter((m): m is Market => m !== null);
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogPopup className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Markets</DialogTitle>
+          <DialogDescription>One listed today. The list is the shape it keeps at two hundred.</DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="flex flex-col gap-3">
+          <InputGroup>
+            <InputGroupAddon>
+              <SearchIcon />
+            </InputGroupAddon>
+            <InputGroupInput aria-label="Search markets" disabled placeholder="Search. Bitcoin only, for now" type="search" />
+          </InputGroup>
+          <ul className="-mx-2 flex flex-col">
+            {markets.map((m) => {
+              const here = m.address === current.address;
+              return (
+                <li
+                  className={cn(
+                    "relative flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-accent",
+                    here && "bg-muted",
+                  )}
+                  key={m.address}
+                >
+                  <DialogClose
+                    aria-label={`Open ${m.name}`}
+                    className="absolute inset-0 rounded-lg"
+                    render={<Link href={`/app/${m.address}`} />}
+                  />
+                  <TokenAvatar symbol={m.symbol} />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-2 font-medium">
+                      {m.name}
+                      {here ? <Pill>Open</Pill> : null}
+                    </p>
+                    <CopyAddress address={m.address} />
+                  </div>
+                  <div className="text-right">
+                    <p className="figures">${fmtPrice(m.price)}</p>
+                    <p className={cn("figures text-xs", m.changePct >= 0 ? "text-up" : "text-down")}>
+                      {signedPct(m.changePct)}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </DialogPanel>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+/** Which market and what it costs, at the top of the Draw chart. The left
+    half is the button that opens the picker. */
+export function MarketHeader({ market, className }: { market: Market; className?: string }) {
+  const [picking, setPicking] = useState(false);
+  const up = market.changePct >= 0;
+  return (
+    <div className={cn("flex items-center", className)}>
+      <button
+        aria-haspopup="dialog"
+        className="-m-1.5 flex min-w-0 items-center gap-3 rounded-lg p-1.5 text-left hover:bg-accent"
+        onClick={() => setPicking(true)}
+        type="button"
+      >
+        <TokenAvatar symbol={market.symbol} />
+        <span className="min-w-0">
+          <span className="flex items-center gap-1 font-medium leading-none">
+            {market.name}
+            <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+          </span>
+          <span className="mt-1 flex items-baseline gap-2">
+            <span className="figures font-semibold text-xl">${fmtPrice(market.price)}</span>
+            <Pill tone={up ? "up" : "down"}>
+              <span className="figures">{signedPct(market.changePct)}</span>
+            </Pill>
+          </span>
+        </span>
+      </button>
+      <MarketPicker current={market} onOpenChange={setPicking} open={picking} />
+    </div>
+  );
+}

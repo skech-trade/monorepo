@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { marketFor, positionsFor } from "@/components/trade/market";
-import { Terminal } from "@/components/trade/terminal";
+import { marketFor, positionsFor } from "@/lib/market";
+import { Terminal } from "@/components/app/terminal";
 
 /**
  * The trading screen, at `/app/<token address>`.

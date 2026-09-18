@@ -1,0 +1,351 @@
+"use client";
+
+import { ChevronDownIcon, TrendingDownIcon, TrendingUpIcon, XIcon } from "lucide-react";
+import { type ReactNode, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import { BALANCE, price as fmtPrice, type Market, priceDp, usd } from "@/lib/market";
+import { cn } from "@/lib/utils";
+import { Pane, Segmented, Stat } from "./controls";
+
+/* ---- the order ------------------------------------------------------------ */
+
+export type Side = "long" | "short";
+export type MarginMode = "cross" | "isolated";
+
+export type Order = {
+  side: Side;
+  /** Cross the book, or rest on it. A stop is a market order that waits. */
+  base: "market" | "limit";
+  triggered: boolean;
+  /** Raw input: "" and "0." are both states a user is in. */
+  pay: string;
+  limit: string;
+  trigger: string;
+  leverage: number;
+  margin: MarginMode;
+  stopLoss: number | null;
+  takeProfit: number | null;
+  reduceOnly: boolean;
+  postOnly: boolean;
+};
+
+export const LEVERAGE_PRESETS = [2, 5, 10, 25, 50, 100];
+const TAKER_FEE = 0.0005;
+const MAKER_FEE = 0.0002;
+const MAINTENANCE = 0.9;
+
+export function emptyOrder(): Order {
+  return {
+    base: "market",
+    leverage: 10,
+    limit: "",
+    margin: "cross",
+    pay: "",
+    postOnly: false,
+    reduceOnly: false,
+    side: "long",
+    stopLoss: null,
+    takeProfit: null,
+    trigger: "",
+    triggered: false,
+  };
+}
+
+export function isResting(order: Order): boolean {
+  return order.base === "limit";
+}
+
+export function entryPrice(order: Order, market: Market): number {
+  const limit = Number.parseFloat(order.limit);
+  if (isResting(order) && Number.isFinite(limit) && limit > 0) return limit;
+  return market.price;
+}
+
+export function liquidationPrice(order: Order, market: Market): number {
+  const entry = entryPrice(order, market);
+  const move = MAINTENANCE / order.leverage;
+  return order.side === "long" ? entry * (1 - move) : entry * (1 + move);
+}
+
+/* ---- pieces ---------------------------------------------------------------- */
+
+function Label({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-xs">
+      <span className="font-medium text-muted-foreground">{children}</span>
+      {aside}
+    </div>
+  );
+}
+
+function Amount({
+  value,
+  onChange,
+  placeholder = "0.00",
+  unit,
+  label,
+  size = "lg",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  unit: string;
+  label: string;
+  size?: "lg" | "default";
+}) {
+  return (
+    <InputGroup>
+      <InputGroupInput
+        aria-label={label}
+        className="figures"
+        inputMode="decimal"
+        onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))}
+        placeholder={placeholder}
+        size={size}
+        value={value}
+      />
+      <InputGroupAddon align="inline-end">
+        <InputGroupText>{unit}</InputGroupText>
+      </InputGroupAddon>
+    </InputGroup>
+  );
+}
+
+function Flag({
+  label,
+  checked,
+  onChange,
+  disabled = false,
+  hint,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="flex flex-col">
+        <span className={cn("text-sm", disabled && "text-muted-foreground")}>{label}</span>
+        {hint ? <span className="text-muted-foreground text-xs">{hint}</span> : null}
+      </span>
+      <Switch aria-label={label} checked={checked && !disabled} disabled={disabled} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+/** A level you set here and drag on the chart. */
+function Exit({
+  label,
+  price,
+  tone,
+  onToggle,
+  onClear,
+}: {
+  label: string;
+  price: number | null;
+  tone: "down" | "up";
+  onToggle: (on: boolean) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-medium text-muted-foreground text-xs">{label}</span>
+        <Switch
+          aria-label={label}
+          checked={price !== null}
+          className={tone === "down" ? "data-checked:bg-destructive" : "data-checked:bg-success"}
+          onCheckedChange={onToggle}
+        />
+      </div>
+      {price !== null ? (
+        <div className={cn("flex h-8 items-center gap-3 rounded-lg px-3 text-xs", tone === "down" ? "bg-destructive/8" : "bg-success/8")}>
+          <span className={cn("figures font-medium", tone === "down" ? "text-down" : "text-up")}>${fmtPrice(price)}</span>
+          <span className="ml-auto text-muted-foreground">Drag it on the chart</span>
+          <Button aria-label={`Clear ${label.toLowerCase()}`} className="-mr-2" onClick={onClear} size="icon-xs" variant="ghost">
+            <XIcon />
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ---- the ticket ------------------------------------------------------------ */
+
+export function Ticket({
+  market,
+  free,
+  order,
+  patch,
+  collapsed,
+  onCollapsed,
+  className,
+}: {
+  market: Market;
+  free: number;
+  order: Order;
+  patch: (next: Partial<Order>) => void;
+  collapsed: boolean;
+  onCollapsed: (collapsed: boolean) => void;
+  className?: string;
+}) {
+  const [advanced, setAdvanced] = useState(false);
+  const pay = Number.parseFloat(order.pay) || 0;
+  const entry = entryPrice(order, market);
+  const notional = pay * order.leverage;
+  const units = entry > 0 ? notional / entry : 0;
+  const resting = isResting(order);
+  const maker = resting || order.postOnly;
+  const fee = notional * (maker ? MAKER_FEE : TAKER_FEE);
+  const long = order.side === "long";
+  const exitAt = (kind: "stop" | "target") =>
+    entry * (long ? (kind === "stop" ? 0.95 : 1.08) : kind === "stop" ? 1.05 : 0.92);
+  const changed = [order.triggered, order.margin !== "cross", order.reduceOnly, order.postOnly && resting].filter(Boolean).length;
+
+  return (
+    <Pane
+      bodyClassName="flex min-h-0 flex-1 flex-col"
+      className={className}
+      collapsed={collapsed}
+      direction="column"
+      header={
+        <Segmented
+          className="w-full"
+          grow
+          label="Direction"
+          onChange={(side) =>
+            patch({
+              side,
+              stopLoss: order.stopLoss === null ? null : entry * (side === "long" ? 0.95 : 1.05),
+              takeProfit: order.takeProfit === null ? null : entry * (side === "long" ? 1.08 : 0.92),
+            })
+          }
+          options={[
+            { value: "long", tone: "up", label: (<><TrendingUpIcon />Long</>) },
+            { value: "short", tone: "down", label: (<><TrendingDownIcon />Short</>) },
+          ]}
+          value={order.side}
+        />
+      }
+      label="Order ticket"
+      onCollapsed={onCollapsed}
+      title="Ticket"
+    >
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 pt-1 pb-3">
+        <div className="flex flex-col gap-2">
+          <Label
+            aside={
+              resting ? (
+                <Button className="h-auto p-0 text-xs" onClick={() => patch({ limit: market.price.toFixed(priceDp(market.price)) })} size="xs" variant="link">
+                  Use mark
+                </Button>
+              ) : undefined
+            }
+          >
+            Price
+          </Label>
+          <Segmented
+            grow
+            label="Order type"
+            onChange={(base) => patch({ base })}
+            options={[{ value: "market", label: "Market" }, { value: "limit", label: "Limit" }]}
+            size="sm"
+            value={order.base}
+          />
+          {resting ? (
+            <Amount label="Limit price" onChange={(limit) => patch({ limit })} placeholder={fmtPrice(market.price)} size="default" unit="USD" value={order.limit} />
+          ) : null}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label aside={<span className="figures text-muted-foreground">${usd(free)} free</span>}>You pay</Label>
+          <Amount label="Amount you pay" onChange={(pay) => patch({ pay })} unit="USDC" value={order.pay} />
+          <div className="grid grid-cols-4 gap-1.5">
+            {[0.25, 0.5, 0.75, 1].map((f) => (
+              <Button key={f} onClick={() => patch({ pay: (BALANCE * f).toFixed(2) })} size="xs" variant="outline">
+                {f === 1 ? "Max" : `${f * 100}%`}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label aside={<span className="figures text-muted-foreground">${usd(notional)}</span>}>{long ? "You get" : "You sell"}</Label>
+          <InputGroup>
+            <InputGroupInput aria-label="Position size" className={cn("figures", units === 0 && "text-muted-foreground")} readOnly size="lg" value={usd(units, units >= 1 ? 4 : 6)} />
+            <InputGroupAddon align="inline-end">
+              <InputGroupText>{market.symbol}</InputGroupText>
+            </InputGroupAddon>
+          </InputGroup>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <Label aside={<span className="figures">{order.leverage}×</span>}>Leverage</Label>
+          <Slider aria-label="Leverage" max={100} min={1} onValueChange={(v) => patch({ leverage: Array.isArray(v) ? v[0] : v })} step={1} value={order.leverage} />
+          <Segmented
+            grow
+            label="Leverage presets"
+            onChange={(v) => patch({ leverage: Number(v) })}
+            options={LEVERAGE_PRESETS.map((p) => ({ value: String(p), label: `${p}×` }))}
+            size="sm"
+            value={String(order.leverage)}
+          />
+        </div>
+
+        <Exit label="Get out at" onClear={() => patch({ stopLoss: null })} onToggle={(on) => patch({ stopLoss: on ? exitAt("stop") : null })} price={order.stopLoss} tone="down" />
+        <Exit label="Take profit at" onClear={() => patch({ takeProfit: null })} onToggle={(on) => patch({ takeProfit: on ? exitAt("target") : null })} price={order.takeProfit} tone="up" />
+
+        <Collapsible onOpenChange={setAdvanced} open={advanced}>
+          <CollapsibleTrigger
+            render={<Button className="w-full justify-between" size="sm" variant="secondary" />}
+          >
+            {changed === 0 ? "Advanced" : `Advanced · ${changed} changed`}
+            <ChevronDownIcon className={cn("transition-transform", advanced && "rotate-180")} />
+          </CollapsibleTrigger>
+          <CollapsiblePanel>
+            <div className="flex flex-col gap-4 pt-4">
+              <div className="flex flex-col gap-2">
+                <Flag
+                  checked={order.triggered}
+                  hint={order.triggered ? `Becomes a ${order.base === "limit" ? "stop limit" : "stop"} order` : undefined}
+                  label="Only when the price reaches"
+                  onChange={(triggered) => patch({ triggered })}
+                />
+                {order.triggered ? (
+                  <Amount label="Trigger price" onChange={(trigger) => patch({ trigger })} placeholder={fmtPrice(market.price)} size="default" unit="trigger" value={order.trigger} />
+                ) : null}
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Margin</Label>
+                <Segmented grow label="Margin mode" onChange={(margin) => patch({ margin })} options={[{ value: "cross", label: "Cross" }, { value: "isolated", label: "Isolated" }]} size="sm" value={order.margin} />
+              </div>
+              <Flag checked={order.reduceOnly} label="Reduce only" onChange={(reduceOnly) => patch({ reduceOnly })} />
+              <Flag checked={order.postOnly} disabled={!resting} hint={resting ? undefined : "Needs a limit price"} label="Post only" onChange={(postOnly) => patch({ postOnly })} />
+            </div>
+          </CollapsiblePanel>
+        </Collapsible>
+      </div>
+
+      {/* The footer stays put: the four figures you read before you press. */}
+      <div className="flex flex-col gap-3 border-t bg-muted/40 p-3">
+        <div className="flex flex-col gap-1.5">
+          <Stat label="Entry price" value={`$${fmtPrice(entry)}`} />
+          <Stat label="Wiped out at" tone="text-warning-foreground" value={notional > 0 ? `$${fmtPrice(liquidationPrice(order, market))}` : "—"} />
+          <Stat label="Margin used" value={pay > 0 ? `$${usd(pay)}` : "—"} />
+          <Stat label={maker ? "Fee (maker)" : "Fee (taker)"} value={`$${usd(fee)}`} />
+        </div>
+        <Button className="w-full" disabled={pay <= 0} size="lg">
+          {pay <= 0 ? "Enter an amount" : `${long ? "Long" : "Short"} ${market.name}`}
+        </Button>
+        <p className="text-center text-muted-foreground text-xs">Interface preview. Nothing is placed.</p>
+      </div>
+    </Pane>
+  );
+}
