@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronUpIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AccountBar } from "./account-bar";
@@ -18,11 +18,13 @@ import { DrawControls } from "./draw-controls";
 import { MarketHeader } from "./market-header";
 import {
   accountFor,
+  type Candle,
   candlesFor,
   fillsFor,
   type Market,
   ordersFor,
   type Position,
+  tickCandle,
   TIMEFRAMES,
   type Timeframe,
 } from "./market";
@@ -36,6 +38,8 @@ import {
   OrderTicket,
 } from "./order-ticket";
 import { Positions } from "./positions";
+import { PlanReadout } from "./plan-readout";
+import { compile, type Stroke } from "./trace";
 
 /**
  * The trading screen.
@@ -62,6 +66,25 @@ import { Positions } from "./positions";
 
 /** Rail width when a column is folded. Matches the chevron's hit area. */
 const RAIL = "2.75rem";
+
+/**
+ * How much future the pen gets, in bars.
+ *
+ * Also the number of columns the drawing is cut into, because one bar is one
+ * column: the resolution the plan is compiled at is the resolution the chart is
+ * drawn at, so a turn you can see is a turn that can trade, and one you cannot
+ * is not.
+ */
+const FUTURE_BARS = 40;
+
+/**
+ * Bars of history behind it.
+ *
+ * Desk shows four hundred. Here the future has to be a third of the picture and
+ * still be wide enough to draw on — at four hundred bars a future bar is three
+ * pixels and the pen has nothing to aim at.
+ */
+const DRAW_HISTORY = 90;
 
 /** What a folded study calls itself in the tray. Matches the pane's own chip. */
 const STUDY_LABEL: Record<Study, string> = {
@@ -118,9 +141,98 @@ export function Terminal({
     : TIMEFRAMES[0];
 
   const candles = useMemo(
-    () => candlesFor(market, shownTimeframe),
-    [market, shownTimeframe],
+    () => candlesFor(market, shownTimeframe, desk ? 400 : DRAW_HISTORY),
+    [desk, market, shownTimeframe],
   );
+  /* ---- Draw: the pen, the clock, and what they compile to ------------------ */
+
+  const [strokes, setStrokes] = useState<Stroke[]>([]);
+  /**
+   * The hand as first drawn.
+   *
+   * Taking hold of a turn replaces the drawing with the plan's own polyline —
+   * that is what makes the turn draggable. This keeps what was drawn before
+   * that, so the shape you asked for stays on the chart behind the straight
+   * lines it became.
+   */
+  const [ghost, setGhost] = useState<Stroke[]>([]);
+  /** The bar still forming. Null on Desk, where the chart is a record. */
+  const [live, setLive] = useState<Candle | null>(null);
+
+  /**
+   * The chart moves, on the fastest bar we have.
+   *
+   * A minute bar and four ticks a second. Drawing a plan onto a frozen picture
+   * teaches the wrong thing — the price you drew through is a price the market
+   * is still deciding, and watching the last candle breathe while you draw is
+   * the cheapest way to say so. Desk stays still: it is a record of what
+   * happened, and a record that twitches is a record you cannot read.
+   */
+  const lastBar = candles[candles.length - 1] ?? null;
+  /* Derived rather than synchronised: a tick left over from the last series —
+     another market, another timeframe — belongs to a bar that is no longer the
+     last one, and the way to ignore it is to notice that, not to reset it in an
+     effect and render twice. */
+  const shownLive = live && lastBar && live.t === lastBar.t ? live : lastBar;
+
+  useEffect(() => {
+    if (desk || !lastBar) return;
+    const id = setInterval(() => {
+      setLive((bar) => tickCandle(bar && bar.t === lastBar.t ? bar : lastBar));
+    }, 250);
+    return () => clearInterval(id);
+  }, [desk, lastBar]);
+
+  const barSeconds =
+    candles.length > 1
+      ? Math.round((candles[1].t - candles[0].t) / 1000)
+      : 60;
+  const horizon = FUTURE_BARS * barSeconds;
+  const refPrice = shownLive?.c ?? market.price;
+
+  /**
+   * How big a swing has to be before it counts as a turn.
+   *
+   * A fraction of what the chart is actually doing, not of the price. The
+   * sandbox this came from fixes it at a quarter percent, which is right for a
+   * synthetic market that moves ten percent in fifteen minutes and useless on a
+   * real minute chart that moves one — there the tolerance is wider than the
+   * whole picture and every drawing compiles to a single leg. Eight percent of
+   * the visible range means a turn has to be visible to count, whatever the
+   * market is doing that hour.
+   */
+  const tolPct = useMemo(() => {
+    const highs = candles.map((c) => c.h);
+    const lows = candles.map((c) => c.l);
+    const range = Math.max(...highs) - Math.min(...lows);
+    return Math.min(Math.max((range * 0.08 * 100) / refPrice, 0.02), 0.5);
+  }, [candles, refPrice]);
+
+  /**
+   * The drawing, as orders.
+   *
+   * Recompiled on every tick as well as every stroke, because the first leg is
+   * anchored to the live price: a line touching now starts wherever the market
+   * is when it fires, not where it was when you drew it.
+   */
+  const plan = useMemo(
+    () =>
+      compile(strokes, {
+        columns: FUTURE_BARS,
+        // The ticket\'s taker rate. Two of them per leg, in and out.
+        feeRate: 0.0005,
+        // Two empty bars is a pen that left the surface; three is a decision.
+        gapMin: 2,
+        horizon,
+        legBudget: 12,
+        leverage: order.leverage,
+        margin: Number.parseFloat(order.pay) || 100,
+        refPrice,
+        tolPct,
+      }),
+    [horizon, order.leverage, order.pay, refPrice, strokes, tolPct],
+  );
+
   const account = useMemo(() => accountFor(positions), [positions]);
   const orders = useMemo(() => ordersFor(market), [market]);
   const fills = useMemo(() => fillsFor(market), [market]);
@@ -239,6 +351,8 @@ export function Terminal({
     <PriceChart
       candles={candles}
       fitToken={fitToken}
+      future={desk ? 0 : FUTURE_BARS}
+      live={desk ? null : shownLive}
       kind={shows("studies", mode) ? kind : "candles"}
       legend={shows("studies", mode)}
       levels={levels}
@@ -250,6 +364,19 @@ export function Terminal({
         );
       }}
       overlays={shownOverlays}
+      sketch={
+        desk
+          ? undefined
+          : {
+              columnSeconds: barSeconds,
+              ghost,
+              horizon,
+              onGhost: setGhost,
+              onStrokes: setStrokes,
+              plan,
+              strokes,
+            }
+      }
       studies={shownStudies}
     />
   );
@@ -461,8 +588,22 @@ export function Terminal({
               chart sized to the large viewport spends its bottom eighth behind
               chrome that only retracts once you scroll — on a screen that has
               nothing to scroll. */}
-          <div className="h-[clamp(20rem,calc(100svh-15rem),56rem)] min-h-0">
+          <div className="relative h-[clamp(20rem,calc(100svh-15rem),56rem)] min-h-0">
             {chart}
+            {/* Bottom left, over the chart. The candles a reader is drawing on
+                are in the middle and the right; the bottom left is where the
+                oldest bars are, which is the corner nobody is aiming at. */}
+            <div className="pointer-events-none absolute bottom-3 left-3 z-20 flex">
+              <PlanReadout
+                leverage={order.leverage}
+                onClear={() => {
+                  setStrokes([]);
+                  setGhost([]);
+                }}
+                onUndo={() => setStrokes((all) => all.slice(0, -1))}
+                plan={plan}
+              />
+            </div>
           </div>
         </section>
       )}
