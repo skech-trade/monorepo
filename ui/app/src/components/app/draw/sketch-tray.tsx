@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
 import { type Outcome, type Quote, type Shape, verdictFor } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
-import { Pill } from "../controls";
 import { DrawControls } from "./draw-controls";
 import type { Phase } from "./sketch-canvas";
 import { type Sketch, SketchThumb } from "./sketches";
@@ -74,14 +73,9 @@ function F({ children, tone }: { children: React.ReactNode; tone?: string }) {
   return <span className={cn("figures text-foreground", tone)}>{children}</span>;
 }
 
-/** A big figure with a word under it. Two of these carry the quote. */
-function Money({ label, value, tone }: { label: string; value: string; tone?: string }) {
-  return (
-    <span className="flex flex-col leading-none">
-      <span className={cn("figures font-semibold text-xl", tone)}>{value}</span>
-      <span className="mt-1 text-muted-foreground text-xs">{label}</span>
-    </span>
-  );
+/** The one figure that leads a line. */
+function Lead({ children, tone }: { children: React.ReactNode; tone?: string }) {
+  return <span className={cn("figures shrink-0 font-semibold text-xl leading-none", tone)}>{children}</span>;
 }
 
 export function SketchBar({
@@ -151,14 +145,13 @@ export function SketchBar({
 
   if (phase === "drawn" && shape && quote) {
     return (
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <Pill tone={shape.long ? "up" : "down"}>{shape.long ? "Going up" : "Going down"}</Pill>
-        <Money label="if it gets there" tone="text-up" value={`+$${usd(quote.ifWorks, 0)}`} />
-        <Money label="the most you can lose" tone="text-down" value={`$${usd(quote.mostLose, 0)}`} />
-        <p className="mr-auto max-w-[28rem] text-muted-foreground text-xs">
-          From <F>${fmtPrice(entry)}</F>, aiming for <F>${fmtPrice(shape.target)}</F>
-          {shape.floor === null ? <>. Never dips, so all <F>${usd(stake, 0)}</F> is on the table.</> : <>, out at <F>${fmtPrice(shape.floor)}</F>.</>}{" "}
-          <F>${usd(stake, 0)}</F> trades like <F>${usd(quote.notional, 0)}</F>.
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <Lead tone="text-up">+${usd(quote.ifWorks, 0)}</Lead>
+        <p className="mr-auto max-w-[34rem] text-muted-foreground">
+          if {market.name} gets to <F>${fmtPrice(shape.target)}</F>, going {shape.long ? "up" : "down"} from <F>${fmtPrice(entry)}</F>.{" "}
+          <F tone="text-down">${usd(quote.mostLose, 0)}</F> is the most you can lose
+          {shape.floor === null ? <>, since the line never dips</> : <>, out at <F>${fmtPrice(shape.floor)}</F></>}. <F>${usd(stake, 0)}</F> trades like{" "}
+          <F>${usd(quote.notional, 0)}</F>.
         </p>
         {controls}
         <Button onClick={onDrawAgain} variant="ghost">
@@ -178,13 +171,12 @@ export function SketchBar({
   if (phase === "running" && shape) {
     const live = pnl ?? 0;
     return (
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <Pill tone={shape.long ? "up" : "down"}>{shape.long ? "Going up" : "Going down"}</Pill>
-        <Money label="right now" tone={Math.abs(live) < 0.005 ? undefined : live > 0 ? "text-up" : "text-down"} value={signedUsd(live)} />
-        <Money label="the most you can lose" tone="text-down" value={`$${usd(quote?.mostLose ?? stake, 0)}`} />
-        <p className="mr-auto text-muted-foreground text-xs">
-          <F>${usd(stake, 0)}</F> at <F>{leverage}×</F>. In at <F>${fmtPrice(entry)}</F>, now <F>${fmtPrice(price)}</F>, aiming for{" "}
-          <F>${fmtPrice(shape.target)}</F>.
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <Lead tone={Math.abs(live) < 0.005 ? undefined : live > 0 ? "text-up" : "text-down"}>{signedUsd(live)}</Lead>
+        <p className="mr-auto max-w-[34rem] text-muted-foreground">
+          right now, going {shape.long ? "up" : "down"} with <F>${usd(stake, 0)}</F> at <F>{leverage}×</F>. In at <F>${fmtPrice(entry)}</F>, now{" "}
+          <F>${fmtPrice(price)}</F>, aiming for <F>${fmtPrice(shape.target)}</F>. <F tone="text-down">${usd(quote?.mostLose ?? stake, 0)}</F> is the most you can
+          lose.
         </p>
         <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
           <span className="size-1.5 animate-pulse rounded-full bg-info" />
@@ -204,23 +196,18 @@ export function SketchBar({
     const off = Math.abs(result.bias);
     const recent = sketches.filter((s) => s.accuracy !== undefined).slice(0, 8).reverse();
     return (
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         {sketch ? <SketchThumb className="h-10 w-[4.25rem] shrink-0" sketch={sketch} /> : null}
-        <span className="flex flex-col leading-none">
-          <span className={cn("font-semibold text-xl", pct >= 80 ? "text-up" : pct >= 55 ? "text-foreground" : "text-down")}>{word}</span>
-          <span className="mt-1 text-muted-foreground text-xs">
-            <F>{pct}%</F> inside your ribbon
-          </span>
-        </span>
-        <Money label={VERDICT[result.outcome].toLowerCase()} tone={won ? "text-up" : "text-down"} value={signedUsd(result.net)} />
-        <p className="mr-auto max-w-[26rem] text-muted-foreground text-xs">
-          You drew {market.name} going {result.long ? "up" : "down"} from <F>${fmtPrice(result.entry)}</F>. It closed at <F>${fmtPrice(result.exit)}</F>.
+        <span className={cn("shrink-0 font-semibold text-xl leading-none", pct >= 80 ? "text-up" : pct >= 55 ? "text-foreground" : "text-down")}>{word}</span>
+        <p className="mr-auto max-w-[36rem] text-muted-foreground">
+          <F>{pct}%</F> of the way inside your ribbon, <F tone={won ? "text-up" : "text-down"}>{signedUsd(result.net)}</F>, {VERDICT[result.outcome].toLowerCase()}. You
+          drew {market.name} going {result.long ? "up" : "down"} from <F>${fmtPrice(result.entry)}</F>; it closed at <F>${fmtPrice(result.exit)}</F>
           {off >= 1 ? (
             <>
-              {" "}
-              You drew too {result.bias > 0 ? "high" : "low"} by <F>${usd(off, 0)}</F> on average.
+              , too {result.bias > 0 ? "high" : "low"} by <F>${usd(off, 0)}</F> on average
             </>
           ) : null}
+          .
         </p>
         {/* Your last rounds, as bars. A trend, not a coin flip. */}
         {recent.length > 1 ? (
