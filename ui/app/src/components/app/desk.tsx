@@ -44,7 +44,6 @@ export function Desk({
   const [bookShut, setBookShut] = useState(false);
   const [ticketShut, setTicketShut] = useState(false);
   const [positionsShut, setPositionsShut] = useState(false);
-  const [topShut, setTopShut] = useState(false);
 
   const candles = useMemo(() => candlesFor(market, timeframe), [market, timeframe]);
   const account = useMemo(() => accountFor(positions), [positions]);
@@ -71,13 +70,7 @@ export function Desk({
       className="grid min-w-0 gap-3 xl:h-[calc(100svh-4.5rem)] xl:[grid-template-columns:var(--cols)] xl:[grid-template-rows:auto_minmax(14rem,1fr)_auto]"
       style={{ ["--cols" as string]: columns }}
     >
-      <MarketBar
-        account={account}
-        className="min-w-0 xl:col-span-2 xl:col-start-1 xl:row-start-1"
-        collapsed={topShut}
-        market={market}
-        onCollapsed={setTopShut}
-      />
+      <MarketBar className="min-w-0 xl:col-span-2 xl:col-start-1 xl:row-start-1" market={market} />
 
       <Card aria-label="Price" className="min-w-0 gap-2 p-3 xl:col-start-1 xl:row-start-2" render={<section />}>
         <ChartToolbar
@@ -93,10 +86,7 @@ export function Desk({
           studies={studies}
           timeframe={timeframe}
         />
-        <div
-          className="h-[clamp(18rem,44vh,26rem)] min-h-0 xl:h-auto xl:flex-1 xl:min-h-[var(--study-floor)]"
-          style={{ ["--study-floor" as string]: `${16 + studies.length * 4}rem` }}
-        >
+        <div className="h-[clamp(18rem,44vh,26rem)] min-h-0 xl:h-auto xl:min-h-0 xl:flex-1">
           <PriceChart
             candles={candles}
             fitToken={fitToken}
@@ -142,7 +132,7 @@ export function Desk({
       <Ticket
         className="order-2 xl:order-none xl:col-start-3 xl:row-span-3 xl:row-start-1 xl:h-full xl:overflow-hidden"
         collapsed={ticketShut}
-        free={account.free}
+        account={account}
         market={market}
         onCollapsed={setTicketShut}
         order={order}

@@ -25,13 +25,23 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#ffffff",
-  colorScheme: "light",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0c0c0c" },
+  ],
+  colorScheme: "light dark",
 };
+
+/* Runs before paint so the stored theme is the first one painted. */
+const THEME_BOOT = `(function(){try{var t=localStorage.getItem("theme");var d=t?t==="dark":matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d)}catch(e){}})()`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html className={`h-full ${inter.variable} ${mono.variable} antialiased`} lang="en">
+    <html className={`h-full ${inter.variable} ${mono.variable} antialiased`} lang="en" suppressHydrationWarning>
+      <head>
+        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: must run before paint */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+      </head>
       <body className="flex min-h-full flex-col bg-background font-sans text-foreground text-sm">
         <ToastProvider position="bottom-right">
           <TooltipProvider delay={300}>{children}</TooltipProvider>

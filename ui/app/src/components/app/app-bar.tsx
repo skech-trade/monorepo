@@ -2,6 +2,8 @@
 
 import {
   ArrowDownToLineIcon,
+  LayoutPanelLeftIcon,
+  PenLineIcon,
   ArrowUpFromLineIcon,
   EyeOffIcon,
   GiftIcon,
@@ -28,9 +30,10 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu";
 import { type Account, usd } from "@/lib/market";
-import { type Mode, MODES } from "@/lib/mode";
+import type { Mode } from "@/lib/mode";
 import { Segmented } from "./controls";
 import { Wordmark } from "./logo";
+import { ThemeToggle } from "./theme-toggle";
 
 export function AppBar({
   account,
@@ -68,10 +71,21 @@ export function AppBar({
           <span className="text-muted-foreground">cash</span>
         </Button>
         <Button className="hidden lg:inline-flex" variant="secondary">
+          <ArrowDownToLineIcon />
           Deposit
         </Button>
 
-        <Segmented label="Draw or Desk" onChange={onMode} options={MODES} value={mode} />
+        <Segmented
+          label="Draw or Desk"
+          onChange={onMode}
+          options={[
+            { value: "draw", label: (<><PenLineIcon />Draw</>) },
+            { value: "desk", label: (<><LayoutPanelLeftIcon />Desk</>) },
+          ]}
+          value={mode}
+        />
+
+        <ThemeToggle />
 
         <Menu>
           <MenuTrigger

@@ -24,6 +24,12 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - Chart you draw on. History on the left, an empty half on the right, a "now"
   divider, a faint hint of the gesture, one line of instruction.
 - Live simulated feed, one candle a second, forming candle updates within it.
+- Tools: Pen (drag), Line (drag a straight line to where it ends), Points
+  (click each turn; the curve joins them). Undo, Clear. Shapes menu with three
+  common calls (dip then run, straight up, slow bleed) drawn at the chart's
+  scale, to be dragged into shape.
+- Once drawn, the head of the line is a handle: drag it and the tail follows
+  with a cubic falloff while the start holds. Redrawing costs nothing.
 - Drag to draw. Time only goes forward. First touch is anchored to the live
   price. Raw stroke while the finger is down, smoothed on release. A tap or a
   flat line is not a trade.
@@ -58,8 +64,8 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - Book: bids and asks with depth bars, spread row, click a row to set the
   limit price. Tape tab with recent prints.
 - Ticket: Long / Short. Market / Limit, "Use mark". You pay (USDC) with
-  25 / 50 / 75 / Max. You get (BTC). Leverage 1 to 100 as a slider with
-  presets 2 5 10 25 50 100. Get out at and Take profit at, each a switch that
+  25 / 50 / 75 / Max. You get (BTC). Leverage as the notched meter, 1× to 100×,
+  with presets 2 5 10 25 50 100. Get out at and Take profit at, each a switch that
   drops a draggable level on the chart, clearable. Advanced: trigger price
   (turns market into stop, limit into stop-limit), margin cross / isolated,
   reduce only, post only (needs a limit). Summary: entry, wiped out at, margin

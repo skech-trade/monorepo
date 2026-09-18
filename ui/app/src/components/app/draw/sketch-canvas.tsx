@@ -109,8 +109,10 @@ export function SketchCanvas({
   price,
   shape,
   pnl,
-  onDraw,
-  onDrawEnd,
+  onDown: onDownPt,
+  onMove: onMovePt,
+  onUp: onUpPt,
+  onHead,
   className,
 }: {
   feed: Candle[];
@@ -122,13 +124,17 @@ export function SketchCanvas({
   price: number;
   shape: Shape | null;
   pnl: number | null;
-  onDraw: (pt: Pt, first: boolean) => void;
-  onDrawEnd: () => void;
+  onDown: (pt: Pt) => void;
+  onMove: (pt: Pt) => void;
+  onUp: () => void;
+  /** The head of a drawn line, dragged to a new price. */
+  onHead: (price: number) => void;
   className?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const { w, h } = useSize(box);
   const active = useRef(false);
+  const dragging = useRef(false);
 
   const plotL = PAD_L;
   const plotR = Math.max(plotL + 1, w - PAD_R);
@@ -156,17 +162,31 @@ export function SketchCanvas({
     if (!p) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     active.current = true;
-    onDraw(p, true);
+    onDownPt(p);
   };
   const onMove = (e: ReactPointerEvent) => {
     if (!active.current) return;
     const p = local(e);
-    if (p) onDraw(p, false);
+    if (p) onMovePt(p);
   };
   const onUp = () => {
     if (!active.current) return;
     active.current = false;
-    onDrawEnd();
+    onUpPt();
+  };
+  const headDown = (e: ReactPointerEvent) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragging.current = true;
+  };
+  const headMove = (e: ReactPointerEvent) => {
+    if (!dragging.current) return;
+    const r = box.current?.getBoundingClientRect();
+    if (!r) return;
+    onHead(priceAtY(Math.min(plotB, Math.max(plotT, e.clientY - r.top))));
+  };
+  const headUp = () => {
+    dragging.current = false;
   };
 
   useEffect(() => {
@@ -245,6 +265,23 @@ export function SketchCanvas({
                   <circle cx={head.x} cy={head.y} fill="var(--brand)" opacity="0.25" r="6" />
                   <circle cx={head.x} cy={head.y} fill="var(--brand)" r="3" />
                 </>
+              ) : null}
+              {/* The head is a handle while the line is yours to change: drag
+                  it and the tail follows, the start stays where you got in. */}
+              {head && phase === "drawn" ? (
+                <circle
+                  className="cursor-ns-resize"
+                  cx={head.x}
+                  cy={head.y}
+                  fill="var(--card)"
+                  onPointerCancel={headUp}
+                  onPointerDown={headDown}
+                  onPointerMove={headMove}
+                  onPointerUp={headUp}
+                  r="7"
+                  stroke="var(--brand)"
+                  strokeWidth="2"
+                />
               ) : null}
             </g>
           ) : null}

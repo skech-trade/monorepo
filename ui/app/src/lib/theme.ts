@@ -42,14 +42,14 @@ const FALLBACK: Record<keyof typeof TOKENS, string> = {
 const SENTINEL = "#010203";
 const hex2 = (n: number) => n.toString(16).padStart(2, "0");
 
-function resolver(): (value: string, fallback: string) => string {
+function resolver(): (value: string, fallback: string, over?: [number, number, number]) => string {
   const canvas = document.createElement("canvas");
   canvas.width = 1;
   canvas.height = 1;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return (_value, fallback) => fallback;
 
-  return (value, fallback) => {
+  return (value, fallback, over = [255, 255, 255]) => {
     const trimmed = value.trim();
     if (!trimmed) return fallback;
     ctx.fillStyle = SENTINEL;
@@ -66,8 +66,8 @@ function resolver(): (value: string, fallback: string) => string {
     // chart gets the colour the eye sees rather than a transparent grey.
     if (a < 255) {
       const k = a / 255;
-      const mix = (c: number) => Math.round(c * k + 255 * (1 - k));
-      return `#${hex2(mix(r))}${hex2(mix(g))}${hex2(mix(b))}`;
+      const mix = (c: number, o: number) => Math.round(c * k + o * (1 - k));
+      return `#${hex2(mix(r, over[0]))}${hex2(mix(g, over[1]))}${hex2(mix(b, over[2]))}`;
     }
     return `#${hex2(r)}${hex2(g)}${hex2(b)}`;
   };
@@ -83,9 +83,13 @@ function alpha(color: string, a: number): string {
 export function readPalette(): Palette {
   const resolve = resolver();
   const style = getComputedStyle(document.documentElement);
+  // The page ground first, so alpha tokens composite over it in either theme.
+  const bg = resolve(style.getPropertyValue("--background"), FALLBACK.bg);
+  const n = Number.parseInt(bg.slice(1), 16);
+  const over: [number, number, number] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   const out = {} as Record<keyof typeof TOKENS, string>;
   for (const key of Object.keys(TOKENS) as (keyof typeof TOKENS)[]) {
-    out[key] = resolve(style.getPropertyValue(TOKENS[key]), FALLBACK[key]);
+    out[key] = resolve(style.getPropertyValue(TOKENS[key]), FALLBACK[key], over);
   }
   return { ...out, upSoft: alpha(out.upMark, 0.32), downSoft: alpha(out.downMark, 0.32) };
 }

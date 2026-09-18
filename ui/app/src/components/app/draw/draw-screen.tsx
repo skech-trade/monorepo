@@ -6,6 +6,7 @@ import { toastManager } from "@/components/ui/toast";
 import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
 import { extend, nextCandle, type Outcome, type Pt, quote as quoteFor, SAMPLES, settle, shapeOf } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
+import { DrawTools, type Preset, type Tool } from "./draw-tools";
 import type { Order } from "../ticket";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
 import { type Result, SketchTray, VERDICT } from "./sketch-tray";
@@ -51,6 +52,7 @@ export function DrawScreen({ market, order, patch }: { market: Market; order: Or
   const [sketches, setSketches] = useState<Sketch[]>(() => seedSketches(market));
   const [listOpen, setListOpen] = useState(false);
   const [lastSketch, setLastSketch] = useState<Sketch | null>(null);
+  const [tool, setTool] = useState<Tool>("pen");
 
   const follow = useRef(0);
   const lastT = useRef(-1);
@@ -116,30 +118,103 @@ export function DrawScreen({ market, order, patch }: { market: Market; order: Or
     };
   }, [finish]);
 
-  const onDraw = (pt: Pt, first: boolean) => {
-    if (first) {
-      kept.current = 0;
-      lastT.current = -1;
-      anchor.current = price - pt.price;
-      setResult(null);
-      setEntry(price);
-      setPts([{ t: 0, price }]);
-      setPhase("drawing");
+  /** Start a line at the live price. A finger lands wherever it lands; the
+      gap is carried through the whole drawing. */
+  const begin = (pt: Pt) => {
+    kept.current = 0;
+    lastT.current = -1;
+    anchor.current = price - pt.price;
+    setResult(null);
+    setEntry(price);
+    setPts([{ t: 0, price }]);
+  };
+  const shifted = (pt: Pt): Pt => ({ t: pt.t, price: pt.price + anchor.current });
+
+  const onDown = (pt: Pt) => {
+    if (tool === "points" && phase === "drawn" && pts.length > 1) {
+      // Another turn. Time only goes one way.
+      const last = pts[pts.length - 1];
+      if (pt.t <= last.t + 0.02) return;
+      setPts((p) => [...p, shifted(pt)]);
+      return;
+    }
+    begin(pt);
+    if (tool === "points") {
+      setPts([{ t: 0, price }, { t: Math.max(pt.t, 0.03), price }]);
+      kept.current = 3;
+    }
+    setPhase("drawing");
+  };
+
+  const onMove = (pt: Pt) => {
+    if (tool === "line") {
+      setPts((p) => [p[0], shifted({ t: Math.max(pt.t, 0.03), price: pt.price })]);
+      kept.current = 3;
+      return;
+    }
+    if (tool === "points") {
+      setPts((p) => [...p.slice(0, -1), shifted({ t: Math.max(pt.t, 0.03), price: pt.price })]);
       return;
     }
     if (pt.t - lastT.current < 0.012) return;
     lastT.current = pt.t;
     kept.current += 1;
-    setPts((p) => [...p, { t: pt.t, price: pt.price + anchor.current }]);
+    setPts((p) => [...p, shifted(pt)]);
   };
 
-  const onDrawEnd = () => {
+  const onUp = () => {
+    if (phase !== "drawing") return;
     const sh = shapeOf(pts, entry);
     if (kept.current < 3 || !sh || sh.flat) {
-      setPts([]);
-      setPhase("live");
-      return;
+      if (tool !== "points") {
+        setPts([]);
+        setPhase("live");
+        return;
+      }
     }
+    setPhase("drawn");
+  };
+
+  /** Drag the head: the tail follows with a cubic falloff, the start holds. */
+  const onHead = (to: number) => {
+    setPts((p) => {
+      if (p.length < 2) return p;
+      const n = p.length - 1;
+      const shift = to - p[n].price;
+      return p.map((pt, i) => (i === 0 ? pt : { ...pt, price: pt.price + (i / n) ** 3 * shift }));
+    });
+  };
+
+  const onUndo = () => {
+    setPts((p) => {
+      const next = tool === "pen" ? p.slice(0, Math.max(1, p.length - Math.ceil((p.length - 1) / 3))) : p.slice(0, -1);
+      if (next.length < 2) {
+        setPhase("live");
+        return [];
+      }
+      return next;
+    });
+  };
+
+  const onClear = () => {
+    setPts([]);
+    setResult(null);
+    setPhase("live");
+  };
+
+  /** A common call, drawn for you at the scale of the chart. Drag it after. */
+  const onPreset = (preset: Preset) => {
+    const amp = (band.hi - band.lo) * 0.16;
+    const SHAPES: Record<Preset, number[]> = {
+      "dip-rip": [0, -0.3, -0.6, -0.7, -0.45, 0, 0.5, 0.95, 1.25, 1.45],
+      "straight-up": [0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.05, 1.2, 1.35],
+      bleed: [0, -0.2, -0.35, -0.55, -0.7, -0.9, -1.0, -1.15, -1.25, -1.4],
+    };
+    const ms = SHAPES[preset];
+    setResult(null);
+    setEntry(price);
+    setPts(ms.map((m, i) => ({ t: i / (ms.length - 1), price: price + m * amp })));
+    kept.current = ms.length;
     setPhase("drawn");
   };
 
@@ -166,11 +241,16 @@ export function DrawScreen({ market, order, patch }: { market: Market; order: Or
   return (
     <div className="flex min-h-0 flex-col gap-3 lg:h-[calc(100svh-4.5rem)] lg:flex-row">
       <Card aria-label="Price" className="min-h-[16rem] min-w-0 flex-1 gap-2 p-3" render={<section />}>
-        <MarketHeader
-          market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }}
-        />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <MarketHeader
+            market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }}
+          />
+          {phase === "live" || phase === "drawing" || phase === "drawn" ? (
+            <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onTool={setTool} onUndo={onUndo} tool={tool} />
+          ) : null}
+        </div>
         <div className="min-h-0 flex-1">
-          <SketchCanvas band={band} feed={feed} onDraw={onDraw} onDrawEnd={onDrawEnd} phase={phase} pnl={book?.net ?? null} price={price} pts={pts} run={run} runBars={RUN_BARS} shape={shape} />
+          <SketchCanvas band={band} feed={feed} onDown={onDown} onHead={onHead} onMove={onMove} onUp={onUp} phase={phase} pnl={book?.net ?? null} price={price} pts={pts} run={run} runBars={RUN_BARS} shape={shape} />
         </div>
       </Card>
 

@@ -233,11 +233,15 @@ export function PriceChart({
         textColor: palette.fgSubtle,
       },
       rightPriceScale: {
-        borderVisible: false,
-        scaleMargins: { bottom: 0.08, top: 0.08 },
+        borderColor: palette.hairline,
+        borderVisible: true,
+        scaleMargins: { bottom: 0.22, top: 0.08 },
       },
       timeScale: {
-        borderVisible: false,
+        barSpacing: 7,
+        borderColor: palette.hairline,
+        borderVisible: true,
+        minBarSpacing: 2,
         /**
          * Fold a column away and the chart gets 240px wider. Without these the
          * library keeps the bar spacing and extends the visible range past the
@@ -249,9 +253,8 @@ export function PriceChart({
          * emptiness later.
          */
         fixLeftEdge: true,
-        fixRightEdge: true,
         lockVisibleTimeRangeOnResize: true,
-        rightOffset: 4,
+        rightOffset: 10,
         secondsVisible: false,
         timeVisible: true,
       },
@@ -357,6 +360,10 @@ export function PriceChart({
         instance.addSeries(CandlestickSeries, {
           ...shared,
           priceFormat,
+          lastValueVisible: true,
+          priceLineVisible: true,
+          priceLineStyle: LineStyle.Dotted,
+          priceLineWidth: 1,
           borderDownColor: palette.downMark,
           borderUpColor: palette.upMark,
           downColor: palette.downMark,
@@ -448,18 +455,18 @@ export function PriceChart({
     let pane = 0;
 
     if (studies.includes("volume")) {
-      pane += 1;
       const bars = keep(
-        instance.addSeries(
-          HistogramSeries,
-          {
-            lastValueVisible: false,
-            priceFormat: { type: "volume" },
-            priceLineVisible: false,
-          },
-          pane,
-        ),
+        instance.addSeries(HistogramSeries, {
+          lastValueVisible: false,
+          priceFormat: { type: "volume" },
+          priceLineVisible: false,
+          priceScaleId: "volume",
+        }),
       );
+      instance.priceScale("volume").applyOptions({
+        scaleMargins: { bottom: 0, top: 0.8 },
+        visible: false,
+      });
       bars.setData(
         volumeOf(candles).map((v) => ({
           color: v.rising ? palette.upSoft : palette.downSoft,
@@ -564,13 +571,24 @@ export function PriceChart({
      */
     const panes = instance.panes();
     if (panes.length > 1) {
-      panes[0].setStretchFactor(4);
+      panes[0].setStretchFactor(3);
       for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1);
     }
 
-    instance.timeScale().fitContent();
+    // Show the last stretch of bars, not every bar squeezed to width. Applied
+    // now and again after layout: on first mount the container has no width
+    // yet, and a range set against a zero-width scale comes out as a fit.
+    const shown = Math.min(data.length, 130);
+    const applyRange = () =>
+      instance.timeScale().setVisibleLogicalRange({
+        from: data.length - shown,
+        to: data.length + 10,
+      });
+    applyRange();
+    const raf = requestAnimationFrame(() => requestAnimationFrame(applyRange));
 
     return () => {
+      cancelAnimationFrame(raf);
       for (const s of added) {
         try {
           instance.removeSeries(s);
@@ -777,7 +795,7 @@ export function PriceChart({
         className="pointer-events-none absolute inset-x-0 top-0 z-10"
         ref={studyLayer}
       >
-        {studies.map((study) => (
+        {studies.filter((study) => study !== "volume").map((study) => (
           <div className="absolute left-2" key={study}>
             <button
               className="pointer-events-auto flex items-center gap-1 rounded-md border bg-popover px-2 py-0.5 text-muted-foreground text-xs shadow-xs/5 hover:text-foreground"

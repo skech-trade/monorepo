@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { usd } from "@/lib/market";
 import { cn } from "@/lib/utils";
+import { DRAW_STEPS, LeverageMeter } from "../leverage-meter";
 import type { Order } from "../ticket";
 import styles from "./amount-wheel.module.css";
 
@@ -12,9 +13,6 @@ const STEP = 5;
 const MIN = 20;
 const MAX = 500;
 const AMOUNTS = Array.from({ length: (MAX - MIN) / STEP + 1 }, (_, i) => MIN + i * STEP);
-const NOTCHES = 15;
-const MAX_LEVERAGE = 15;
-const MIN_LIT = 0.5;
 
 /** The stake, on a wheel. The middle row is also a field: click it to type. */
 function AmountWheel({ value, onChange }: { value: number; onChange: (value: number) => void }) {
@@ -138,58 +136,6 @@ function AmountWheel({ value, onChange }: { value: number; onChange: (value: num
   );
 }
 
-/** How hard: fifteen notches, and under them what the multiple does to the money. */
-function LeverageMeter({ value, stake, onChange }: { value: number; stake: number; onChange: (value: number) => void }) {
-  const unlit = NOTCHES - value;
-  const litRun = Math.max(value / NOTCHES, MIN_LIT);
-  const columns = unlit === 0 ? `repeat(${NOTCHES}, 1fr)` : `repeat(${value}, ${litRun / value}fr) repeat(${unlit}, ${(1 - litRun) / unlit}fr)`;
-  return (
-    <div className="flex w-full flex-col">
-      <div
-        aria-label="How hard"
-        aria-valuemax={MAX_LEVERAGE}
-        aria-valuemin={1}
-        aria-valuenow={value}
-        aria-valuetext={`${value} times`}
-        className="grid h-3 gap-1 rounded-md focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4"
-        onKeyDown={(e) => {
-          const by = e.key === "ArrowUp" || e.key === "ArrowRight" ? 1 : e.key === "ArrowDown" || e.key === "ArrowLeft" ? -1 : 0;
-          if (by === 0) return;
-          e.preventDefault();
-          onChange(Math.min(MAX_LEVERAGE, Math.max(1, value + by)));
-        }}
-        role="slider"
-        style={{ gridTemplateColumns: columns }}
-        tabIndex={0}
-      >
-        {Array.from({ length: NOTCHES }, (_, i) => (
-          <button
-            aria-label={`${i + 1} times`}
-            className={cn("h-full cursor-pointer rounded-sm transition-colors", i < value ? "bg-primary" : "bg-input hover:bg-primary/30")}
-            // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length meter
-            key={i}
-            onClick={() => onChange(i + 1)}
-            tabIndex={-1}
-            type="button"
-          />
-        ))}
-      </div>
-      <div className="mt-2.5 flex items-baseline gap-3 text-xs">
-        <div className="flex min-w-0 items-baseline gap-2" style={{ width: `calc(${(litRun - 0.5 / NOTCHES) * 100}% + 1.6rem)` }}>
-          <span className="figures shrink-0 text-muted-foreground">${usd(stake, 0)}</span>
-          <span aria-hidden="true" className="flex min-w-0 flex-1 items-center gap-1 self-center text-muted-foreground/60">
-            <span className="h-px min-w-0 flex-1 bg-current" />
-            <span className="figures shrink-0 font-medium text-[11px] text-foreground leading-none">{value}×</span>
-            <span className="h-px min-w-0 flex-1 bg-current" />
-          </span>
-          <span className="figures shrink-0 font-semibold text-foreground text-sm">${usd(stake * value, 0)}</span>
-        </div>
-        {value < MAX_LEVERAGE ? <span className="figures ml-auto shrink-0 text-muted-foreground">${usd(stake * MAX_LEVERAGE, 0)}</span> : null}
-      </div>
-    </div>
-  );
-}
-
 function Setting({ label, value }: { label: string; value: string }) {
   return (
     <>
@@ -226,7 +172,7 @@ export function DrawControls({ order, patch, className }: { order: Order; patch:
             Put in ${usd(stake, 0)}, trade like ${usd(stake * order.leverage, 0)}.
           </PopoverDescription>
           <div className="pt-4">
-            <LeverageMeter onChange={(leverage) => patch({ leverage })} stake={stake} value={order.leverage} />
+            <LeverageMeter onChange={(leverage) => patch({ leverage })} stake={stake} steps={DRAW_STEPS} value={order.leverage} />
           </div>
         </PopoverPopup>
       </Popover>

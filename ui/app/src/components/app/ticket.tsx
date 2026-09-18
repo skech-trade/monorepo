@@ -5,11 +5,11 @@ import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
-import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { BALANCE, price as fmtPrice, type Market, priceDp, usd } from "@/lib/market";
+import { type Account, BALANCE, price as fmtPrice, type Market, priceDp, signedUsd, usd } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import { Pane, Segmented, Stat } from "./controls";
+import { DESK_STEPS, LeverageMeter } from "./leverage-meter";
 
 /* ---- the order ------------------------------------------------------------ */
 
@@ -179,9 +179,16 @@ function Exit({
 
 /* ---- the ticket ------------------------------------------------------------ */
 
+function healthTone(h: number): { tone: string; word: string } {
+  if (h >= 2) return { tone: "text-up", word: "healthy" };
+  if (h >= 1.25) return { tone: "", word: "steady" };
+  if (h >= 1.1) return { tone: "text-warning-foreground", word: "tight" };
+  return { tone: "text-down", word: "at risk" };
+}
+
 export function Ticket({
   market,
-  free,
+  account,
   order,
   patch,
   collapsed,
@@ -189,7 +196,7 @@ export function Ticket({
   className,
 }: {
   market: Market;
-  free: number;
+  account: Account;
   order: Order;
   patch: (next: Partial<Order>) => void;
   collapsed: boolean;
@@ -265,7 +272,7 @@ export function Ticket({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label aside={<span className="figures text-muted-foreground">${usd(free)} free</span>}>You pay</Label>
+          <Label aside={<span className="figures text-muted-foreground">${usd(account.free)} free</span>}>You pay</Label>
           <Amount label="Amount you pay" onChange={(pay) => patch({ pay })} unit="USDC" value={order.pay} />
           <div className="grid grid-cols-4 gap-1.5">
             {[0.25, 0.5, 0.75, 1].map((f) => (
@@ -287,8 +294,8 @@ export function Ticket({
         </div>
 
         <div className="flex flex-col gap-3">
-          <Label aside={<span className="figures">{order.leverage}×</span>}>Leverage</Label>
-          <Slider aria-label="Leverage" max={100} min={1} onValueChange={(v) => patch({ leverage: Array.isArray(v) ? v[0] : v })} step={1} value={order.leverage} />
+          <Label>Leverage</Label>
+          <LeverageMeter onChange={(leverage) => patch({ leverage })} stake={pay || 100} steps={DESK_STEPS} value={order.leverage} />
           <Segmented
             grow
             label="Leverage presets"
@@ -331,6 +338,20 @@ export function Ticket({
             </div>
           </CollapsiblePanel>
         </Collapsible>
+
+        {/* The account, where a trader looks for it: under the order. */}
+        <div className="flex flex-col gap-1.5 border-t pt-4">
+          <p className="mb-1 font-medium text-muted-foreground text-xs">Account</p>
+          <Stat label="Equity" value={`$${usd(account.equity)}`} />
+          <Stat label="Unrealised" tone={account.unrealised >= 0 ? "text-up" : "text-down"} value={signedUsd(account.unrealised)} />
+          <Stat label="Margin used" value={`$${usd(account.used)}`} />
+          <Stat label="Free" value={`$${usd(account.free)}`} />
+          <Stat
+            label="Health"
+            tone={Number.isFinite(account.health) ? healthTone(account.health).tone : "text-muted-foreground"}
+            value={Number.isFinite(account.health) ? `${usd(account.health, 1)}× ${healthTone(account.health).word}` : "no positions"}
+          />
+        </div>
       </div>
 
       {/* The footer stays put: the four figures you read before you press. */}

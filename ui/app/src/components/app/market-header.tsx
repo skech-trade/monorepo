@@ -24,15 +24,15 @@ import {
   signedPct,
 } from "@/lib/market";
 import { cn } from "@/lib/utils";
+import { BitcoinMark } from "./bitcoin-mark";
 import { Pill } from "./controls";
 
-/** The token's mark: a monogram on a plate. We do not have the art. */
+/** The token's mark. Bitcoin's own; a monogram for anything we have no art for. */
 export function TokenAvatar({ symbol, className }: { symbol: string; className?: string }) {
+  if (symbol === "BTC") return <BitcoinMark className={cn("size-9 shrink-0", className)} />;
   return (
-    <Avatar className={cn("size-9 rounded-lg", className)}>
-      <AvatarFallback className="rounded-lg bg-info/10 font-semibold text-info-foreground text-xs">
-        {symbol.slice(0, 3)}
-      </AvatarFallback>
+    <Avatar className={cn("size-9", className)}>
+      <AvatarFallback className="font-semibold text-xs">{symbol.slice(0, 3)}</AvatarFallback>
     </Avatar>
   );
 }
