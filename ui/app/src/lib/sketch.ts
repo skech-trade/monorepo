@@ -541,7 +541,24 @@ export function nextCandle(
   toward: number | null = null,
   follow = 0,
 ): Candle {
-  const pull = toward === null ? 0 : (toward - open) * follow;
+  /*
+    The lean toward the line, bounded by what a bar can actually move.
+
+    `follow` is rolled negative about a fifth of the time, and a negative
+    proportional pull is not a market walking away — it is compound interest on
+    the gap. Each bar multiplied the distance from the line by 1 + |follow|, so
+    over twenty-four bars a twelve percent lean became sixteen times the gap and
+    over ninety-six it became fifty thousand times: a market that leaves the
+    solar system rather than one that disagrees with you.
+
+    Capped at a couple of bars' worth of move, it is a drift either way. The cap
+    almost never binds on a positive follow, where the gap closes and the pull
+    shrinks with it; it binds constantly on a negative one, which is exactly
+    where it is needed.
+  */
+  const lean = toward === null ? 0 : (toward - open) * follow;
+  const most = open * vol * 2;
+  const pull = Math.min(most, Math.max(-most, lean));
   const close = open + pull + open * vol * (Math.random() - 0.5) * 2;
   const wick = open * vol * (0.3 + Math.random() * 0.8);
   return {
