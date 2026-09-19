@@ -32,8 +32,40 @@ const TURN_GAP = 0.03;
 /** Under this total travel the drawing says nothing worth trading. */
 const FLAT = 0.0002;
 
-/** Taker fee per side, as on the landing. */
-export const FEE = 0.00045;
+/**
+ * What a venue charges, per side, as a fraction of the position's value.
+ *
+ * Read off the two we would plausibly route to, base tier, no staking and no
+ * referral, in September 2026:
+ *
+ *   Hyperliquid  perps tier 0: 0.045% taker, 0.015% maker. Seven volume tiers
+ *                down to 0.024% / 0.000% above $7B of 14-day volume, plus a
+ *                5-40% staking discount and a referral discount on the first
+ *                $25M.  hyperliquid.gitbook.io/hyperliquid-docs/trading/fees
+ *   Lighter      standard accounts: zero maker, zero taker, all markets. Only
+ *                its Premium tier for HFT pays anything, and that is 0.0040% /
+ *                0.0280%.  docs.lighter.xyz/trading/trading-fees
+ *
+ * A drawn line has to be in the market at a particular minute, so it crosses
+ * the spread: the taker rate is the one that applies, and it is charged on the
+ * way in and again on the way out of every leg.
+ *
+ * Hyperliquid's taker is the default because it is the expensive answer of the
+ * two, and a simulation that flatters the reader about costs is the one kind
+ * of lie this screen cannot afford. On Lighter standard this is simply zero,
+ * and every fee argument on this screen goes away with it.
+ */
+export const VENUES = {
+  hyperliquid: { taker: 0.00045, maker: 0.00015 },
+  lighter: { taker: 0, maker: 0 },
+  lighterPremium: { taker: 0.00028, maker: 0.00004 },
+} as const;
+
+/** The venue the figures on screen are quoted at. */
+export const VENUE: keyof typeof VENUES = "hyperliquid";
+
+/** Taker fee per side. Charged twice a leg: once in, once out. */
+export const FEE = VENUES[VENUE].taker;
 /** The venue closes a leg when equity falls to this fraction of notional. */
 const MAINT = 0.0125;
 
