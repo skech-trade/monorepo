@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type Candle, type Market, signedUsd, usd } from "@/lib/market";
-import { legPath, lineAt, type Pt, verdictWord } from "@/lib/sketch";
-import { type Palette, readPalette } from "@/lib/theme";
+import { lineAt, type Pt } from "@/lib/sketch";
+import { type Palette, readPalette, subscribePalette } from "@/lib/theme";
 import { HANDLE } from "@/lib/user";
 import { cn } from "@/lib/utils";
 import type { Sketch } from "./sketches";
 
 /**
  * A round, played back. Everything a round was is kept on the sketch: the
- * line, the candles that arrived, which minutes paid. This draws them again,
- * on screen as an SVG and off screen onto a canvas for a picture or a clip.
- * Nothing leaves the browser.
+ * line, the candles that arrived, which minutes paid. One painter draws it
+ * again onto a canvas, on screen and for the picture and the clip, so the
+ * three always agree. Nothing leaves the browser.
  */
 
 /**
@@ -75,60 +75,49 @@ export type Seg = { text: string; mono?: boolean };
 
 const WORDS = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
 
-/** What happened, in one sentence, after "you drew Bitcoin down, $100 at 10×." */
-export function whatHappened(sketch: Sketch): Seg[] {
-  const pct = Math.round((sketch.right ?? sketch.accuracy ?? 0) * 100);
+/** The clause after "put $470 on Bitcoin going down at 10×": what the market did about it. */
+function happened(sketch: Sketch): Seg[] {
+  const pct = { text: `${Math.round((sketch.right ?? sketch.accuracy ?? 0) * 100)}%`, mono: true };
   switch (sketch.outcome) {
     case "target":
-      return sketch.net >= 0 ? [{ text: "It got where the line said." }] : [{ text: "It got there, but the move was smaller than the fees." }];
+      return sketch.net >= 0 ? [{ text: " and it went exactly there" }] : [{ text: " and it got there, just not far enough to cover the fees" }];
     case "floor":
-      return [{ text: "It hit the floor first." }];
+      return [{ text: " and it hit the floor first" }];
     case "liquidated":
-      return [{ text: "It ran the other way and took the whole stake." }];
+      return [{ text: " and it ran the other way" }];
     case "closed":
-      return [{ text: "Taken off early, " }, { text: `${pct}%`, mono: true }, { text: " of the way." }];
+      return [{ text: " and took it off " }, pct, { text: " of the way in" }];
     default:
-      return [{ text: "It stayed with the line " }, { text: `${pct}%`, mono: true }, { text: " of the way." }];
+      return [{ text: " and it stayed with the line " }, pct, { text: " of the way" }];
   }
 }
 
-/** The sentence under the money on the card. Third person: it is for other people. */
-export function cardStory(sketch: Sketch, market: Market): Seg[] {
-  return [
-    { text: `${HANDLE} drew ${market.name} ${sketch.long ? "up" : "down"}, ` },
-    { text: `$${usd(sketch.stake, 0)}`, mono: true },
-    { text: " at " },
-    { text: `${sketch.leverage}×`, mono: true },
-    { text: ". " },
-    ...whatHappened(sketch),
-  ];
-}
-
-/** The sentence beside the money in the app. Second person: it is yours. */
-export function roundStory(sketch: Sketch, market: Market, round: number, streak: number): Seg[] {
+/**
+ * The one sentence on the card, under the money. Third person, since the card
+ * is for other people. Runs long on purpose; a string of short ones reads as
+ * generated.
+ */
+export function cardStory(sketch: Sketch, market: Market, streak = 0): Seg[] {
   const out: Seg[] = [
-    { text: `You drew ${market.name} ${sketch.long ? "up" : "down"}, ` },
+    { text: `${HANDLE} put ` },
     { text: `$${usd(sketch.stake, 0)}`, mono: true },
-    { text: " at " },
+    { text: ` on ${market.name} going ${sketch.long ? "up" : "down"} at ` },
     { text: `${sketch.leverage}×`, mono: true },
-    { text: ". " },
-    ...whatHappened(sketch),
+    ...happened(sketch),
   ];
-  if (streak >= 2) {
-    const n = streak < WORDS.length ? WORDS[streak][0].toUpperCase() + WORDS[streak].slice(1) : String(streak);
-    out.push({ text: ` ${n} in a row.` });
-  }
-  out.push({ text: ` Round ${round}.` });
+  if (streak >= 2 && sketch.net >= 0) out.push({ text: `, ${streak < WORDS.length ? WORDS[streak] : streak} in a row` });
+  out.push({ text: "." });
   return out;
 }
 
 /** What goes in the post. First person, since you are the one posting it. */
-export function postText(sketch: Sketch, market: Market): string {
-  const word = verdictWord(sketch.outcome ?? "time", sketch.right ?? sketch.accuracy ?? 0, sketch.net);
-  const happened = whatHappened(sketch)
+export function postText(sketch: Sketch, market: Market, streak = 0): string {
+  const opener = sketch.outcome === "target" && sketch.net >= 0 ? "Called it. " : sketch.outcome === "liquidated" ? "Wiped out. " : "";
+  const body = cardStory(sketch, market, streak)
     .map((s) => s.text)
-    .join("");
-  return `${word}. Drew ${market.name} ${sketch.long ? "up" : "down"} on skech, $${usd(sketch.stake, 0)} at ${sketch.leverage}×. ${happened} ${signedUsd(sketch.net)}.\n\nskech.trade`;
+    .join("")
+    .replace(`${HANDLE} put`, "Put");
+  return `${opener}${body} ${signedUsd(sketch.net)} on skech.\n\nskech.trade`;
 }
 
 /** X's compose window, prefilled. Text only: X takes no file by link, so the picture rides the clipboard. */
@@ -139,65 +128,44 @@ export function xPostUrl(text: string): string {
 /* ---- on screen ---------------------------------------------------------------- */
 
 /**
- * The round on screen. `frame` is how far through the playback it is, 0 to 1;
- * pass `play` to run it from the start over a few seconds.
+ * The card, on screen, painted by the same hand that paints the picture and
+ * the clip, so what you see is what gets posted. Bump `play` to run it from
+ * the start: the line draws itself, the candles arrive, the money lands.
  */
-export function ReplayChart({ sketch, play = 0, className }: { sketch: Sketch; play?: number; className?: string }) {
-  const [frame, setFrame] = useState(1);
+export function RoundCanvas({ sketch, market, streak = 0, play = 0, className }: { sketch: Sketch; market: Market; streak?: number; play?: number; className?: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const [look, setLook] = useState<Look | null>(null);
+  const [theme, setTheme] = useState(0);
+  useEffect(() => subscribePalette(() => setTheme((n) => n + 1)), []);
   useEffect(() => {
-    if (!play) return;
+    let live = true;
+    prepareLook().then((l) => live && setLook(l));
+    return () => {
+      live = false;
+    };
+  }, [theme]);
+  // Only a new `play` runs the animation. A theme change or a fresh look
+  // repaints the finished frame where it was.
+  const played = useRef(0);
+  useEffect(() => {
+    const ctx = ref.current?.getContext("2d");
+    if (!ctx || !look) return;
+    if (!play || played.current === play) {
+      paintRound(ctx, sketch, market, 1, look, streak);
+      return;
+    }
+    played.current = play;
     let raf = 0;
     const start = performance.now();
     const tick = (now: number) => {
-      const f = Math.min(1, (now - start) / 3200);
-      setFrame(f);
+      const f = Math.min(1, (now - start) / 5000);
+      paintRound(ctx, sketch, market, f, look, streak);
       if (f < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [play]);
-
-  const W = 480;
-  const H = 200;
-  const { run, runBars, line, y, x, step, minutes } = layout(sketch, W, H, { t: 12, b: 18, l: 8, r: 8 });
-  const shown = Math.round(frame * run.length);
-  const plotted = line.map((p) => ({ x: x(p.t), y: y(p.price) }));
-  const path = legPath(plotted);
-  const prices = sampled(line, sketch.entry);
-
-  return (
-    <svg aria-label="The round, played back" className={cn("block w-full", className)} viewBox={`0 0 ${W} ${H}`}>
-      <line stroke="var(--muted-foreground)" strokeDasharray="3 4" strokeOpacity="0.5" x1={0} x2={W} y1={y(sketch.entry)} y2={y(sketch.entry)} />
-      {run.slice(0, shown).map((c, i) => {
-        const good = paid(line, sketch.entry, runBars, i, c);
-        const cx = x((i + 0.5) / runBars);
-        const body = Math.max(2, step * 0.6);
-        const tone = c.c >= c.o ? "var(--up-mark)" : "var(--down-mark)";
-        const top = y(Math.max(c.o, c.c));
-        const bottom = y(Math.min(c.o, c.c));
-        const at = y(lineAt(prices, (i + 1) / runBars));
-        return (
-          // biome-ignore lint/suspicious/noArrayIndexKey: positional
-          <g key={i}>
-            <rect fill={good ? "var(--success)" : "var(--destructive)"} fillOpacity="0.22" height={14} width={step} x={x(i / runBars)} y={at - 7} />
-            <line stroke={tone} strokeWidth="1" x1={cx} x2={cx} y1={y(c.h)} y2={y(c.l)} />
-            <rect fill={tone} height={Math.max(1, bottom - top)} width={body} x={cx - body / 2} y={top} />
-          </g>
-        );
-      })}
-      <path d={path} fill="none" stroke="var(--brand)" strokeDasharray="5 4" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.85" strokeWidth="2" />
-      {sketch.pts.slice(1).map((p, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: positional
-        <circle cx={x(p.t)} cy={y(p.price)} fill="var(--card)" key={i} r="3" stroke="var(--brand)" strokeWidth="1.5" />
-      ))}
-      <text fill="var(--muted-foreground)" fontSize="10" style={{ fontFamily: "var(--font-sans)" }} x={8} y={H - 5}>
-        start
-      </text>
-      <text fill="var(--muted-foreground)" fontSize="10" style={{ fontFamily: "var(--font-sans)" }} textAnchor="end" x={W - 8} y={H - 5}>
-        +{minutes}m
-      </text>
-    </svg>
-  );
+  }, [look, play, sketch, market, streak]);
+  return <canvas aria-label="The round, as the card that gets posted" className={cn("block aspect-video w-full", className)} height={CARD.H} ref={ref} width={CARD.W} />;
 }
 
 /* ---- the card ------------------------------------------------------------------ */
@@ -291,7 +259,7 @@ const ease = (u: number) => 1 - (1 - u) ** 4;
  * is frame 1; a clip is every frame in turn. The chart is the whole card;
  * the words sit along its foot.
  */
-export function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market: Market, frame: number, look: Look) {
+export function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market: Market, frame: number, look: Look, streak = 0) {
   const { W, H, M } = CARD;
   const { p } = look;
   ctx.clearRect(0, 0, W, H);
@@ -303,7 +271,7 @@ export function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market
   // The words along the foot, measured first so the chart knows its floor.
   const won = sketch.net >= 0;
   const money = signedUsd(sketch.net);
-  const story = cardStory(sketch, market);
+  const story = cardStory(sketch, market, streak);
   ctx.font = `400 22px ${look.sans}`;
   const tag = "Draw yours at skech.trade";
   const tagW = ctx.measureText(tag).width;
@@ -422,10 +390,10 @@ function card(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
 }
 
 /** The round as a picture. */
-export async function exportPng(sketch: Sketch, market: Market): Promise<Blob> {
+export async function exportPng(sketch: Sketch, market: Market, streak = 0): Promise<Blob> {
   const look = await prepareLook();
   const { canvas, ctx } = card();
-  paintRound(ctx, sketch, market, 1, look);
+  paintRound(ctx, sketch, market, 1, look, streak);
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("no blob"))), "image/png"));
 }
 
@@ -456,7 +424,7 @@ export function canRecordClip(): boolean {
  * document while it records, out of sight, because some browsers only hand
  * frames to the stream for a canvas that is attached.
  */
-export async function recordClip(sketch: Sketch, market: Market, seconds = 5): Promise<Clip> {
+export async function recordClip(sketch: Sketch, market: Market, streak = 0, seconds = 5): Promise<Clip> {
   const picked = clipMime();
   if (!picked || !("captureStream" in HTMLCanvasElement.prototype)) throw new Error("unsupported");
   const look = await prepareLook();
@@ -464,7 +432,7 @@ export async function recordClip(sketch: Sketch, market: Market, seconds = 5): P
   canvas.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none";
   document.body.appendChild(canvas);
   try {
-    paintRound(ctx, sketch, market, 0, look);
+    paintRound(ctx, sketch, market, 0, look, streak);
     const stream = canvas.captureStream(30);
     const rec = new MediaRecorder(stream, { mimeType: picked.mime, videoBitsPerSecond: 5_000_000 });
     const chunks: Blob[] = [];
@@ -480,7 +448,7 @@ export async function recordClip(sketch: Sketch, market: Market, seconds = 5): P
     await new Promise<void>((resolve) => {
       const tick = (now: number) => {
         const f = Math.min(1, (now - start) / (seconds * 1000));
-        paintRound(ctx, sketch, market, f, look);
+        paintRound(ctx, sketch, market, f, look, streak);
         if (f < 1) requestAnimationFrame(tick);
         else setTimeout(resolve, 1200);
       };

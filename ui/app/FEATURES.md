@@ -68,17 +68,13 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   "Take it off now".
 - Settled on the same rule as the quote, on the wick, adverse level first:
   called it / out where you drew it / time's up / taken off / wiped out.
-  Toast. The Rounds sheet opens on the round just played. The sheet's one
-  line of summary is a sentence ("2 of 4 came good today. Up $5.59 on
-  Bitcoin."). The card leads with the money as the one figure and says the
-  rest in a sentence beside it: the verdict word, "You drew Bitcoin down,
-  $100 at 10×", what happened (got where the line said, hit the floor first,
-  stayed with the line N% of the way, taken off early, ran the other way and
-  took the stake), "Two in a row" when it applies, and the round number. No
-  eyebrow, no pill, no dot-separated meta. Then the round drawn back (your
-  line dashed, the candles that arrived, the ribbon coloured by how it went).
-- "Called it" is never shown next to a loss. Getting to the target with a
-  move smaller than the fees reads "Close".
+  Toast. The Rounds sheet opens on the round just played. Its header is the
+  word Rounds and nothing else. The card under it is the card: the same
+  canvas the picture and the clip are painted from, so what you see is what
+  gets posted. No text block above it, no eyebrow, no pill, no summary line.
+  Replay runs the card's own animation in place. Today's tally sits where a
+  tally goes, in the table's footer: "Bitcoin today, 2 of 3 came good" and
+  the total on the right.
 - The round is as long as the line. Placing a trade sets the clock to the
   line's last minute (never under three) and rescales the points to span it,
   so a nine minute line is a nine minute call and the chart, the replay and
@@ -89,18 +85,24 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   dark, the page's own fonts, the real mark): the chart is the whole card,
   the time axis fits what was drawn and what came, the line is a solid pen
   stroke in the brand blue, candles arrive against it. At the foot: the money
-  as the one figure, then one sentence in the third person ("vivek drew
-  Bitcoin up, $100 at 10×. It got where the line said."), and "Draw yours at
-  skech.trade" on the right. Nothing else. In a clip the line draws itself
+  as the one figure, then one sentence that runs long on purpose, in the
+  third person ("vivek put $100 on Bitcoin going up at 10× and it stayed
+  with the line 75% of the way, two in a row."), and "Draw yours at
+  skech.trade" on the right. Nothing else. The post text is the same
+  sentence in the first person, opened with "Called it." or "Wiped out."
+  only when that is what happened. In a clip the line draws itself
   first, the candles arrive, the money lands, over five seconds.
 - Replay and export, all client side: Replay animates the candles back in,
   Picture saves a PNG of the card (share sheet where the browser offers one,
   a download otherwise). Clip records the card off a canvas with the
   MediaRecorder API, MP4 where the browser can write it and WebM otherwise,
   the on-screen chart replaying alongside; the finished clip then plays in
-  the card with Post on X, Save clip, Share and Back to the chart. The share
-  sheet only opens off a fresh click, which is why a clip is handed over in
-  two steps. A browser that cannot record says so in one line.
+  the card with Post on X, Save clip, Share and Back to the chart. The clip
+  plays in the app's own player, not the browser's: play or pause by the
+  button or by clicking the picture, a brand blue line to scrub, the time in
+  figures, and a replay arrow when it ends. The share sheet only opens off a
+  fresh click, which is why a clip is handed over in two steps. A browser
+  that cannot record says so in one line.
 - Post on X, with no app key: X takes no file from a page, so the compose
   window opens prefilled with the words (first person, spoiler free) and the
   picture goes on the clipboard in the same click, to paste in. With a clip

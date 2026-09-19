@@ -4,12 +4,13 @@ import { CheckIcon, DownloadIcon, FilmIcon, PlayIcon, Share2Icon } from "lucide-
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
-import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Sheet, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type Candle, type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
-import { legPath, type Outcome, type Pt, verdictWord } from "@/lib/sketch";
+import { legPath, type Outcome, type Pt } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
-import { canRecordClip, canShareFile, type Clip, copyPicture, exportPng, postText, recordClip, ReplayChart, roundStory, saveBlob, type Seg, shareOrSave, xPostUrl } from "./replay";
+import { ClipPlayer } from "./clip-player";
+import { canRecordClip, canShareFile, type Clip, copyPicture, exportPng, postText, recordClip, RoundCanvas, saveBlob, shareOrSave, xPostUrl } from "./replay";
 
 /** A sketch is a position you can look at. The list keeps the drawing. */
 export type Sketch = {
@@ -74,33 +75,14 @@ function XMark() {
   );
 }
 
-/** A sentence in runs: words in the sans, figures in the mono. */
-function Story({ segs }: { segs: Seg[] }) {
-  return (
-    <>
-      {segs.map((s, i) =>
-        s.mono ? (
-          // biome-ignore lint/suspicious/noArrayIndexKey: positional
-          <span className="figures text-foreground" key={i}>
-            {s.text}
-          </span>
-        ) : (
-          // biome-ignore lint/suspicious/noArrayIndexKey: positional
-          <span key={i}>{s.text}</span>
-        ),
-      )}
-    </>
-  );
-}
-
 /**
  * The latest round, as a card: the money, one sentence saying what happened,
  * a replay you can run again, and the picture or clip to send. This is where
  * a round ends now, in the same place every earlier round is listed, rather
  * than in a dialog over the chart.
  */
-export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: Sketch; market: Market; round: number; streak: number; onNext?: () => void }) {
-  const [play, setPlay] = useState(1);
+export function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; market: Market; streak: number; onNext?: () => void }) {
+  const [play, setPlay] = useState(0);
   const [busy, setBusy] = useState<"png" | "clip" | null>(null);
   const [done, setDone] = useState<string | null>(null);
   /** A recorded clip waits here for the click that saves or shares it. */
@@ -111,10 +93,7 @@ export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: S
     const { url } = clip;
     return () => URL.revokeObjectURL(url);
   }, [clip]);
-  const won = sketch.net >= 0;
-  const right = sketch.right ?? sketch.accuracy ?? 0;
-  const word = verdictWord(sketch.outcome ?? "time", right, sketch.net);
-  const text = postText(sketch, market);
+  const text = postText(sketch, market, streak);
 
   const say = (w: string) => {
     setDone(w);
@@ -126,8 +105,8 @@ export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: S
     setBusy("png");
     setNote(null);
     try {
-      const blob = await exportPng(sketch, market);
-      say((await shareOrSave(blob, `skech-round-${round}.png`, text)) === "shared" ? "Shared" : "Saved");
+      const blob = await exportPng(sketch, market, streak);
+      say((await shareOrSave(blob, `skech-${market.symbol.toLowerCase()}-round.png`, text)) === "shared" ? "Shared" : "Saved");
     } catch (e) {
       if ((e as DOMException).name !== "AbortError") setNote("Couldn't make the picture here.");
     } finally {
@@ -145,7 +124,7 @@ export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: S
     setNote(null);
     setPlay((n) => n + 1);
     try {
-      const made = await recordClip(sketch, market);
+      const made = await recordClip(sketch, market, streak);
       setClip({ ...made, url: URL.createObjectURL(made.blob) });
     } catch {
       setNote("The recording didn't take. Try once more, or save a picture.");
@@ -154,7 +133,7 @@ export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: S
     }
   };
 
-  const clipName = clip ? `skech-round-${round}.${clip.ext}` : "";
+  const clipName = clip ? `skech-${market.symbol.toLowerCase()}-round.${clip.ext}` : "";
   const shareClip = async () => {
     if (!clip) return;
     try {
@@ -186,30 +165,14 @@ export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: S
       setNote("The post is open in a new tab. The clip is saved, drag it in.");
       return;
     }
-    const ok = await copyPicture(exportPng(sketch, market));
+    const ok = await copyPicture(exportPng(sketch, market, streak));
     setNote(ok ? "The post is open in a new tab. The picture is on your clipboard, paste it in." : "The post is open in a new tab. Save the picture and drop it in.");
   };
 
   return (
-    <div className="flex flex-col gap-4 p-4">
-      {/* One figure leads. Everything else about the round is a sentence beside it. */}
-      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <span className={cn("figures font-semibold text-3xl leading-none", won ? "text-up" : "text-down")}>{signedUsd(sketch.net)}</span>
-        <p className="min-w-0 flex-1 basis-64 text-muted-foreground text-sm leading-snug">
-          <span className="font-medium text-foreground">{word}.</span> <Story segs={roundStory(sketch, market, round, streak)} />
-        </p>
-      </div>
-
-      <div className="overflow-hidden rounded-xl border bg-muted/30">
-        {clip ? (
-          // biome-ignore lint/a11y/useMediaCaption: a silent clip of the chart above
-          <video autoPlay className="block aspect-video w-full bg-background" controls loop muted playsInline src={clip.url} />
-        ) : sketch.run && sketch.run.length > 0 ? (
-          <ReplayChart play={play} sketch={sketch} />
-        ) : (
-          <SketchThumb className="h-40 w-full" sketch={sketch} />
-        )}
-      </div>
+    <div className="flex flex-col gap-3 p-4">
+      {/* The card is the whole story: what you see here is what gets posted. */}
+      <div className="overflow-hidden rounded-xl border">{clip ? <ClipPlayer src={clip.url} /> : <RoundCanvas market={market} play={play} sketch={sketch} streak={streak} />}</div>
 
       {note ? <p className="text-muted-foreground text-xs">{note}</p> : null}
 
@@ -303,7 +266,10 @@ function Outcome({ sketch }: { sketch: Sketch }) {
  * the word for it. A pill saying so as well was the same fact twice, in the
  * widest possible form, in a list whose whole point is the shapes.
  */
-export function SketchList({ sketches }: { sketches: Sketch[] }) {
+export function SketchList({ sketches, market }: { sketches: Sketch[]; market: Market }) {
+  const settled = sketches.filter((s) => s.status === "settled");
+  const total = settled.reduce((sum, s) => sum + s.net, 0);
+  const won = settled.filter((s) => s.net >= 0).length;
   if (sketches.length === 0) {
     return (
       <Empty className="py-8 md:py-8">
@@ -335,7 +301,7 @@ export function SketchList({ sketches }: { sketches: Sketch[] }) {
             </TableCell>
             <TableCell className="figures whitespace-nowrap">${fmtPrice(s.entry)}</TableCell>
             <TableCell className="figures whitespace-nowrap">
-              {s.exit === undefined ? <span className="text-muted-foreground">&mdash;</span> : `$${fmtPrice(s.exit)}`}
+              {s.exit === undefined ? <span className="text-muted-foreground">open</span> : `$${fmtPrice(s.exit)}`}
             </TableCell>
             <TableCell className="whitespace-nowrap pr-3 text-right">
               <span className={cn("figures font-medium", s.net >= 0 ? "text-up" : "text-down")}>{signedUsd(s.net)}</span>
@@ -346,6 +312,18 @@ export function SketchList({ sketches }: { sketches: Sketch[] }) {
           </TableRow>
         ))}
       </TableBody>
+      {settled.length > 0 ? (
+        <TableFooter>
+          <TableRow>
+            <TableCell className="pl-3 text-muted-foreground" colSpan={4}>
+              {market.name} today, <span className="figures text-foreground">{won}</span> of <span className="figures text-foreground">{settled.length}</span> came good
+            </TableCell>
+            <TableCell className="pr-3 text-right">
+              <span className={cn("figures font-medium", total >= 0 ? "text-up" : "text-down")}>{signedUsd(total)}</span>
+            </TableCell>
+          </TableRow>
+        </TableFooter>
+      ) : null}
     </Table>
   );
 }
@@ -363,9 +341,7 @@ export function RoundsSheet({
   market: Market;
   onNext?: () => void;
 }) {
-  const total = sketches.reduce((sum, s) => sum + s.net, 0);
   const settled = sketches.filter((s) => s.status === "settled");
-  const won = settled.filter((s) => s.net >= 0).length;
   const latest = settled[0];
   const streak = streakOf(sketches);
   return (
@@ -373,24 +349,14 @@ export function RoundsSheet({
       <SheetPopup className="sm:max-w-2xl" side="right" variant="inset">
         <SheetHeader>
           <SheetTitle>Rounds</SheetTitle>
-          <SheetDescription>
-            {settled.length === 0 ? (
-              "Nothing has settled yet. Your first round lands here."
-            ) : (
-              <>
-                <span className="figures text-foreground">{won}</span> of <span className="figures text-foreground">{settled.length}</span> came good today. {total >= 0 ? "Up" : "Down"}{" "}
-                <span className={cn("figures", total >= 0 ? "text-up" : "text-down")}>${usd(Math.abs(total))}</span> on {market.name}.
-              </>
-            )}
-          </SheetDescription>
         </SheetHeader>
         <SheetPanel className="p-0">
           {latest ? (
             <div className="border-b">
-              <RoundCard market={market} onNext={onNext} round={settled.length} sketch={latest} streak={streak} />
+              <RoundCard market={market} onNext={onNext} sketch={latest} streak={streak} />
             </div>
           ) : null}
-          <SketchList sketches={sketches} />
+          <SketchList market={market} sketches={sketches} />
         </SheetPanel>
       </SheetPopup>
     </Sheet>
