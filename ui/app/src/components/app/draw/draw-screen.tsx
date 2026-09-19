@@ -148,7 +148,7 @@ export function DrawScreen({ market }: { market: Market }) {
     const { shape: sh, entry: en, stake: st, leverage: lev, runBars: rbars } = live.current;
     if (!sh) return;
     const bk = settle(bars, sh, en, st, lev);
-    const acc = accuracyOf(bars, sh.prices, rbars);
+    const acc = accuracyOf(bars, sh.prices, rbars, sh.long);
     const done: Outcome = bk.done ?? "time";
     const res: Result = {
       net: bk.net,
@@ -156,28 +156,31 @@ export function DrawScreen({ market }: { market: Market }) {
       entry: en,
       exit: bk.exit,
       long: sh.long,
-      paid: acc.paid,
+      right: acc.right,
       flags: acc.flags,
       bias: acc.bias,
     };
     setResult(res);
-    const word = verdictWord(done, acc.paid, bk.net);
+    const word = verdictWord(done, acc.right, bk.net);
     /*
       The money first, and in the terms the stake was set in.
 
       It led with "24% inside your ribbon" beside a round that returned twenty
       five percent — two numbers a reader will try to reconcile and cannot,
       because one was scoring how near the line came and the other was scoring
-      the trade. Both figures here are the trade: what it made on what you put
-      up, and how much of the round paid on the way.
+      the trade.
+
+      Both figures here are the trade, and they are weighted the same way, so
+      one can never make the other look like a lie: what it made on what you
+      put up, and how much of the move you called getting there.
     */
     const back = st > 0 ? bk.net / st : 0;
     toastManager.add({
       title: word,
-      description: `${signedUsd(bk.net)} on $${usd(st, 0)} — ${back >= 0 ? "up" : "down"} ${Math.abs(Math.round(back * 100))}%. ${Math.round(acc.paid * 100)}% of the round paid.`,
+      description: `${signedUsd(bk.net)} on $${usd(st, 0)} — ${back >= 0 ? "up" : "down"} ${Math.abs(Math.round(back * 100))}%. You were right ${Math.round(acc.right * 100)}% of the way.`,
       type: bk.net >= 0 ? "success" : "error",
     });
-    const settled = (s: Sketch): Sketch => ({ ...s, status: "settled", net: bk.net, exit: bk.exit, liquidated: done === "liquidated", accuracy: acc.paid });
+    const settled = (s: Sketch): Sketch => ({ ...s, status: "settled", net: bk.net, exit: bk.exit, liquidated: done === "liquidated", accuracy: acc.right });
     setSketches((list) => list.map((s) => (s.status === "running" ? settled(s) : s)));
     setLastSketch((s) => (s ? settled(s) : s));
     // The round stays on screen: dashed line, coloured ribbon, the gap. It

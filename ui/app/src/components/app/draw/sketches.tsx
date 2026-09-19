@@ -20,7 +20,7 @@ export type Sketch = {
   net: number;
   exit?: number;
   liquidated?: boolean;
-  /** Share of the round that made money. */
+  /** Share of the move that went your way. Over a half means it profited. */
   accuracy?: number;
 };
 
@@ -65,7 +65,7 @@ function SketchRow({ sketch }: { sketch: Sketch }) {
             : sketch.liquidated
               ? "wiped out"
               : sketch.accuracy !== undefined
-                ? `${Math.round(sketch.accuracy * 100)}% paid`
+                ? `right ${Math.round(sketch.accuracy * 100)}%`
                 : won
                   ? "called it"
                   : "missed"}

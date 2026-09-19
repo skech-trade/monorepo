@@ -402,8 +402,11 @@ export function lineAt(prices: number[], u: number): number {
 }
 
 export type Accuracy = {
-  /** Share of arrived candles that made money, 0 to 1. */
-  paid: number;
+  /**
+   * Share of the round's movement that went your way, 0 to 1. Above a half
+   * exactly when the round made money — that is the point of weighting it.
+   */
+  right: number;
   /** One flag per candle, in order: did that minute pay. */
   flags: boolean[];
   /** Mean of line minus close: positive means you drew too high. */
@@ -411,49 +414,65 @@ export type Accuracy = {
 };
 
 /**
- * How the round went, candle by candle — by what each one made, not by how
- * near it landed.
+ * How much of the round went your way — weighted by money, not by minutes.
  *
  * The direction the line is going at that moment is the position you are in,
- * the candle's own move is what the market did, and the two multiplied is
- * whether that minute paid. That is exactly the test the chart shades with, so
+ * the candle's own move is what the market did, and the two multiplied is what
+ * that minute made. Sum what it made for you, sum what it took, and the share
+ * is the first over the total. That is the same test the chart shades with, so
  * the figure in the copy and the colours under the line cannot disagree.
  *
- * It scored distance before: the share of closes that landed within the
- * ribbon. That answered a question nobody asked. A line can sit inside its
- * ribbon the whole way and lose money the whole way, and a round that made
- * twenty-five percent could score twenty-four — printed, in the same sentence,
- * right next to the profit.
+ * Weighted, because a count of candles is a vote per minute and money is not
+ * democratic: forty-six percent of minutes can pay while the round profits,
+ * since the ones that paid were the big ones. True, and it reads as nonsense
+ * printed beside a gain. Weighted by what each minute moved, the figure passes
+ * a half exactly when the round makes money, so the two can never contradict.
+ *
+ * And it takes its direction from the position `settle` actually holds — one,
+ * for the whole round — not from the way the line happens to be going at that
+ * moment. The chart shades per segment and marks a buy and a sell at every
+ * turn, which says the line is a run of positions; the money says it is a
+ * single bet from entry to exit. Until those two agree, a figure printed next
+ * to the money has to follow the money.
+ *
+ * It scored distance before this: the share of closes landing inside the
+ * ribbon. A line can sit inside its ribbon the whole way and lose money the
+ * whole way, and a round that made twenty-five percent scored twenty-four.
  */
-export function accuracyOf(bars: Candle[], prices: number[], runBars: number): Accuracy {
-  if (bars.length === 0) return { paid: 0, flags: [], bias: 0 };
+export function accuracyOf(bars: Candle[], prices: number[], runBars: number, long: boolean): Accuracy {
+  if (bars.length === 0) return { right: 0, flags: [], bias: 0 };
+  const dir = long ? 1 : -1;
   let sum = 0;
+  let forYou = 0;
+  let against = 0;
   const flags = bars.map((bar, i) => {
-    const was = lineAt(prices, i / runBars);
-    const goes = lineAt(prices, (i + 1) / runBars);
-    sum += goes - bar.c;
-    return (goes >= was ? 1 : -1) * (bar.c - bar.o) >= 0;
+    sum += lineAt(prices, (i + 1) / runBars) - bar.c;
+    const made = dir * (bar.c - bar.o);
+    if (made >= 0) forYou += made;
+    else against -= made;
+    return made >= 0;
   });
-  return { paid: flags.filter(Boolean).length / flags.length, flags, bias: sum / bars.length };
+  const moved = forYou + against;
+  return { right: moved > 0 ? forYou / moved : 0, flags, bias: sum / bars.length };
 }
 
-/** Three words, by how much of the round paid. */
-export function verdictFor(paid: number): "Called it" | "Close" | "Off" {
-  if (paid >= 0.8) return "Called it";
-  if (paid >= 0.55) return "Close";
+/** Three words, by how much of the move went your way. Half is break-even. */
+export function verdictFor(right: number): "Called it" | "Close" | "Off" {
+  if (right >= 0.7) return "Called it";
+  if (right >= 0.5) return "Close";
   return "Off";
 }
 
 /**
  * The word for a round. Hitting where you aimed is a call whatever the path.
- * Otherwise how much of it paid decides, but a round that lost money overall
- * is never "Called it": the minutes were right and the ending was not, and the
- * word should not argue with the figure beside it.
+ * Otherwise how much of the move you called decides, and since that figure
+ * only passes a half when the round made money, the word can no longer argue
+ * with the figure printed beside it.
  */
-export function verdictWord(outcome: Outcome | "closed", paid: number, net: number): string {
+export function verdictWord(outcome: Outcome | "closed", right: number, net: number): string {
   if (outcome === "liquidated") return "Wiped out";
   if (outcome === "target") return "Called it";
-  const word = verdictFor(paid);
+  const word = verdictFor(right);
   return word === "Called it" && net < 0 ? "Close" : word;
 }
 

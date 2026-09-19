@@ -21,8 +21,8 @@ export type Result = {
   entry: number;
   exit: number;
   long: boolean;
-  /** Share of the round that made money. */
-  paid: number;
+  /** Share of the move that went your way. Over a half means it profited. */
+  right: number;
   flags: boolean[];
   /** Mean of line minus price: positive means you drew too high. */
   bias: number;
@@ -40,8 +40,8 @@ export const VERDICT: Record<Result["outcome"], string> = {
     Spoiler free and pastes into any chat, the way a Wordle grid does. */
 export function shareText(market: Market, result: Result): string {
   const glyphs = result.flags.map((f) => (f ? "▮" : "▯")).join("");
-  const word = verdictWord(result.outcome, result.paid, result.net);
-  return `skech · ${market.symbol} ${result.long ? "up" : "down"} · ${Math.round(result.paid * 100)}% paid\n${glyphs}\n${word}. ${signedUsd(result.net, 0)} on skech.trade`;
+  const word = verdictWord(result.outcome, result.right, result.net);
+  return `skech · ${market.symbol} ${result.long ? "up" : "down"} · right ${Math.round(result.right * 100)}% of the way\n${glyphs}\n${word}. ${signedUsd(result.net, 0)} on skech.trade`;
 }
 
 function ShareButton({ text }: { text: string }) {
@@ -189,16 +189,16 @@ export function SketchBar({
 
   if (phase === "settled" && result) {
     const won = result.net >= 0;
-    const word = verdictWord(result.outcome, result.paid, result.net);
-    const pct = Math.round(result.paid * 100);
+    const word = verdictWord(result.outcome, result.right, result.net);
+    const pct = Math.round(result.right * 100);
     const off = Math.abs(result.bias);
     const recent = sketches.filter((s) => s.accuracy !== undefined).slice(0, 8).reverse();
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         {sketch ? <SketchThumb className="h-10 w-[4.25rem] shrink-0" sketch={sketch} /> : null}
-        <span className={cn("shrink-0 font-semibold text-xl leading-none", pct >= 80 ? "text-up" : pct >= 55 ? "text-foreground" : "text-down")}>{word}</span>
+        <span className={cn("shrink-0 font-semibold text-xl leading-none", pct >= 70 ? "text-up" : pct >= 50 ? "text-foreground" : "text-down")}>{word}</span>
         <p className="mr-auto max-w-[36rem] text-muted-foreground">
-          <F>{pct}%</F> of the round paid, <F tone={won ? "text-up" : "text-down"}>{signedUsd(result.net)}</F>, {VERDICT[result.outcome].toLowerCase()}. You
+          You were right <F>{pct}%</F> of the way, <F tone={won ? "text-up" : "text-down"}>{signedUsd(result.net)}</F>, {VERDICT[result.outcome].toLowerCase()}. You
           drew {market.name} going {result.long ? "up" : "down"} from <F>${fmtPrice(result.entry)}</F>; it closed at <F>${fmtPrice(result.exit)}</F>
           {off >= 1 ? (
             <>
@@ -209,10 +209,10 @@ export function SketchBar({
         </p>
         {/* Your last rounds, as bars. A trend, not a coin flip. */}
         {recent.length > 1 ? (
-          <span aria-label="Your recent rounds" className="flex h-6 items-end gap-0.5" title="How much of each round paid, last rounds">
+          <span aria-label="Your recent rounds" className="flex h-6 items-end gap-0.5" title="How much of each move you called, last rounds">
             {recent.map((s) => (
               <span
-                className={cn("w-1.5 rounded-sm", (s.accuracy ?? 0) >= 0.8 ? "bg-success" : (s.accuracy ?? 0) >= 0.55 ? "bg-primary/60" : "bg-input")}
+                className={cn("w-1.5 rounded-sm", (s.accuracy ?? 0) >= 0.7 ? "bg-success" : (s.accuracy ?? 0) >= 0.5 ? "bg-primary/60" : "bg-input")}
                 key={s.id}
                 style={{ height: `${Math.max(15, (s.accuracy ?? 0) * 100)}%` }}
               />
