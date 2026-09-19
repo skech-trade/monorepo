@@ -263,8 +263,10 @@ export function SketchCanvas({
     setView((v) => ({ ...v, anchor: holdAnchor((v.anchor ?? elapsed) + step) }));
   };
   const follow = () => setView((v) => ({ ...v, anchor: v.anchor === null ? elapsed : null }));
-  /** Run the view forward, in candles. What the pen does at the right edge. */
+  /** Run the view forward, in candles. What the pen does as it draws. */
   const advance = (bars: number) => setView((v) => ({ ...v, anchor: (v.anchor ?? elapsed) + bars }));
+  /** Where the pen is held while it draws: the middle of the plot. */
+  const pivot = (plotL + plotR) / 2;
   const reset = () => setView({ zoom: 1, anchor: null });
   // Points can still be placed while it runs — ahead of the candles, never behind.
   const canDraw = phase === "live" || phase === "drawn" || phase === "running";
@@ -333,6 +335,20 @@ export function SketchCanvas({
     if (!active.current) return;
     const p = local(e);
     if (p) onMovePt(p);
+    /*
+      The pen leads and the chart follows.
+
+      Once a stroke passes the middle of the plot the view runs forward by
+      exactly as much, so the tip stays there and the canvas ahead of it never
+      runs out. You draw into the middle of the screen rather than into the
+      right-hand wall, and nothing has to be dragged to make room.
+
+      The point is recorded first, against the mapping the pointer was read
+      with. Time here is a place in the round, not a place on the screen, so
+      moving the view afterwards changes where the point is drawn and not what
+      it means.
+    */
+    if (phase === "drawing" && px > pivot) advance((px - pivot) / runStep);
     track(e);
   };
   const onUp = () => {
