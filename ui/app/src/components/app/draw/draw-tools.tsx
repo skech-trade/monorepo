@@ -1,30 +1,18 @@
 "use client";
 
-import {
-  ChevronDownIcon,
-  EraserIcon,
-  PenLineIcon,
-  ShapesIcon,
-  Undo2Icon,
-  WaypointsIcon,
-} from "lucide-react";
+import { ChevronDownIcon, EraserIcon, ShapesIcon, Undo2Icon, WaypointsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { smoothPath } from "@/lib/sketch";
+import { legPath } from "@/lib/sketch";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu";
 import { Separator } from "@/components/ui/separator";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
- * Two ways to put a line down, and two ways to take it back.
+ * One way to put a line down, and two ways to take it back.
  *
- * Points is a click per turn and is the default: every point is a handle you
- * can move or remove, before and while it plays out. Pen is a finger, and a
- * pen stroke settles into points on release so it edits the same way. Shapes
- * are three common calls, one press each.
+ * Points is a click per turn: every point is a handle you can move or remove,
+ * before and while it plays out. Shapes are eight common calls, one press each.
  */
-
-export type Tool = "points" | "pen";
 
 export type Preset =
   | "dip-rip"
@@ -67,7 +55,7 @@ function Thumb({ shape }: { shape: number[] }) {
       <svg aria-hidden="true" className="block size-full" preserveAspectRatio="none" viewBox={`0 0 ${W} ${H}`}>
         <line stroke="var(--muted-foreground)" strokeDasharray="3 4" strokeOpacity="0.6" x1="0" x2={W} y1={y(0)} y2={y(0)} />
         <circle cx={pts[0].x} cy={pts[0].y} fill="var(--muted-foreground)" r="3" />
-        <path d={smoothPath(pts)} fill="none" stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
+        <path d={legPath(pts)} fill="none" stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
         <circle cx={head.x} cy={head.y} fill="var(--brand)" r="4" />
       </svg>
     </span>
@@ -84,15 +72,11 @@ function Tip({ words, children }: { words: string; children: React.ReactElement 
 }
 
 export function DrawTools({
-  tool,
-  onTool,
   canUndo,
   onUndo,
   onClear,
   onPreset,
 }: {
-  tool: Tool;
-  onTool: (tool: Tool) => void;
   canUndo: boolean;
   onUndo: () => void;
   onClear: () => void;
@@ -100,27 +84,16 @@ export function DrawTools({
 }) {
   return (
     <div className="flex items-center gap-1">
-      <ToggleGroup
-        aria-label="Drawing tool"
-        onValueChange={(v) => {
-          const next = (v as Tool[])[0];
-          if (next) onTool(next);
-        }}
-        size="sm"
-        value={[tool]}
-        variant="outline"
-      >
-        <Tip words="Points: click to place, drag to move, double-click to remove">
-          <ToggleGroupItem aria-label="Points" value="points">
-            <WaypointsIcon />
-          </ToggleGroupItem>
-        </Tip>
-        <Tip words="Pen: drag to draw, it settles into points">
-          <ToggleGroupItem aria-label="Pen" value="pen">
-            <PenLineIcon />
-          </ToggleGroupItem>
-        </Tip>
-      </ToggleGroup>
+      {/* The one way to draw, shown rather than chosen. There was a pen beside
+          it — a stroke that settled into these same points on release — and it
+          only ever cost the line its corners on the way. A turn is a close and
+          an open, so a tool that rounds them off is a tool that changes the
+          trade. */}
+      <Tip words="Click to place a point, drag to move one, double-click to remove">
+        <span className="flex size-8 items-center justify-center rounded-md border text-muted-foreground [&>svg]:size-4">
+          <WaypointsIcon />
+        </span>
+      </Tip>
 
       <Separator className="mx-1 h-5" orientation="vertical" />
 

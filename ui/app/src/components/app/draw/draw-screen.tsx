@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toastManager } from "@/components/ui/toast";
 import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
-import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify, verdictWord } from "@/lib/sketch";
+import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, verdictWord } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
-import { DrawTools, type Preset, PRESETS, type Tool } from "./draw-tools";
+import { DrawTools, type Preset, PRESETS } from "./draw-tools";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
 import { type Result, SketchBar } from "./sketch-tray";
 import { seedSketches, type Sketch, SketchesSheet } from "./sketches";
@@ -81,7 +81,6 @@ export function DrawScreen({ market }: { market: Market }) {
   const [sketches, setSketches] = useState<Sketch[]>(() => seedSketches(market));
   const [listOpen, setListOpen] = useState(false);
   const [lastSketch, setLastSketch] = useState<Sketch | null>(null);
-  const [tool, setTool] = useState<Tool>("points");
   /** The point under the finger, while one is. */
   const dragIndex = useRef<number | null>(null);
 
@@ -251,7 +250,6 @@ export function DrawScreen({ market }: { market: Market }) {
     setEntry(price);
     setPts([{ t: 0, price }]);
   };
-  const shifted = (pt: Pt): Pt => ({ t: pt.t, price: pt.price + anchor.current });
   /** In today's prices, as the canvas hands them over. */
   const clampT = (t: number, index: number, list: Pt[]) => {
     const lo = (list[index - 1]?.t ?? 0) + 0.02;
@@ -273,7 +271,7 @@ export function DrawScreen({ market }: { market: Market }) {
   };
 
   const onDown = (pt: Pt) => {
-    if (tool === "points" && (phase === "drawn" || phase === "running") && pts.length > 1) {
+    if ((phase === "drawn" || phase === "running") && pts.length > 1) {
       // Another point, where you clicked, in time order. Ahead of now only.
       if (pt.t <= editableFrom) return;
       // While the line rides the price the stored shape is offset from today.
@@ -288,11 +286,8 @@ export function DrawScreen({ market }: { market: Market }) {
     }
     if (phase === "running") return;
     begin(pt);
-    if (tool === "points") {
-      setPts([{ t: 0, price }, { t: Math.max(pt.t, 0.03), price }]);
-      dragIndex.current = 1;
-      kept.current = 3;
-    }
+    setPts([{ t: 0, price }, { t: Math.max(pt.t, 0.03), price }]);
+    dragIndex.current = 1;
     setPhase("drawing");
   };
 
@@ -307,43 +302,12 @@ export function DrawScreen({ market }: { market: Market }) {
         const t = i === p.length - 1 && phase === "drawing" ? Math.max(pt.t, 0.03) : clampT(pt.t, i, p);
         return p.map((q, j) => (j === i ? { t, price: pt.price + offset } : q));
       });
-      return;
     }
-    if (tool !== "pen") return;
-    if (pt.t - lastT.current < 0.012) return;
-    lastT.current = pt.t;
-    kept.current += 1;
-    // Streamline: the line lags the finger a little, so a shaky hand draws a
-    // calm line. Only a little, though — at 0.55 each point moved barely half
-    // the way to the finger, which rounds the top off every peak before the
-    // line is even simplified. A sharp turn is usually the thing being drawn.
-    const target = shifted(pt);
-    setPts((p) => {
-      const last = p[p.length - 1];
-      const eased = last ? last.price + (target.price - last.price) * 0.85 : target.price;
-      return [...p, { t: target.t, price: eased }];
-    });
   };
 
   const onUp = () => {
     dragIndex.current = null;
     if (phase !== "drawing") return;
-    if (tool === "pen") {
-      // The stroke settles into the few points that shape it, so it edits like
-      // a point line. Two points is a line; fewer than three kept is a tap.
-      if (kept.current < 3) {
-        setPts([]);
-        setPhase("live");
-        return;
-      }
-      setPts((p) => simplify(p, band.hi - band.lo, entry));
-    }
-    const sh = shapeOf(pts, entry);
-    if (tool === "pen" && (!sh || sh.flat)) {
-      setPts([]);
-      setPhase("live");
-      return;
-    }
     setPhase("drawn");
   };
 
@@ -414,10 +378,14 @@ export function DrawScreen({ market }: { market: Market }) {
 
   return (
     <section aria-label="Draw" className="m-2 flex min-h-[24rem] flex-1 flex-col overflow-hidden rounded-2xl border bg-background">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+      {/* The tools sit with the market, on the left, rather than across the row
+          from it. They belong to the line you are about to draw, and the line
+          starts at the left of the chart — not in the far corner of the header,
+          a screen's width from anything they act on. */}
+      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
         <MarketHeader market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
         {phase === "live" || phase === "drawing" || phase === "drawn" ? (
-          <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onTool={setTool} onUndo={onUndo} tool={tool} />
+          <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
         ) : null}
       </div>
       <div className="min-h-0 flex-1 px-2 pt-2">
@@ -440,7 +408,6 @@ export function DrawScreen({ market }: { market: Market }) {
           run={run}
           runBars={runBars}
           shape={shape}
-          tool={tool}
           accuracy={accuracy}
           ghost={ghost}
           ribbon={ribbon}

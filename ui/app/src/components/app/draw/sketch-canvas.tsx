@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
-import { type Accuracy, lineAt, type Pt, type Shape, smoothPath } from "@/lib/sketch";
+import { type Accuracy, lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
 /**
@@ -118,7 +118,6 @@ export function SketchCanvas({
   editableFrom,
   headLabel,
   horizonMinutes,
-  tool,
   accuracy,
   ghost,
   ribbon,
@@ -148,7 +147,6 @@ export function SketchCanvas({
   headLabel?: string | null;
   /** How long the right edge is, in minutes. */
   horizonMinutes: number;
-  tool: "points" | "pen";
   /** Which arrived candles closed inside the ribbon. */
   accuracy: Accuracy | null;
   /** Your last line, faint, so you notice your habits. */
@@ -177,7 +175,8 @@ export function SketchCanvas({
 
   const step = (split - plotL) / Math.max(1, feed.length);
   const runStep = (plotR - split) / runBars;
-  const canDraw = phase === "live" || phase === "drawn" || (phase === "running" && tool === "points");
+  // Points can still be placed while it runs — ahead of the candles, never behind.
+  const canDraw = phase === "live" || phase === "drawn" || phase === "running";
 
   const local = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
@@ -287,7 +286,7 @@ export function SketchCanvas({
   const drawing = phase === "drawing";
   const hasLine = plotted.length > 1;
   const head = plotted.at(-1);
-  const hint = smoothPath(
+  const hint = legPath(
     HINT.map((f, i) => ({
       x: split + (i / (HINT.length - 1)) * (plotR - split),
       y: Math.min(plotB - 22, Math.max(plotT + 22, y(price) - f * (plotB - plotT))),
@@ -365,7 +364,7 @@ export function SketchCanvas({
           {/* Your last line, moved to today's price, so a habit shows. */}
           {ghost && ghost.length > 1 && phase === "live" ? (
             <path
-              d={smoothPath(ghost.map((pt) => ({ x: split + pt.t * (plotR - split), y: y(pt.price) })))}
+              d={legPath(ghost.map((pt) => ({ x: split + pt.t * (plotR - split), y: y(pt.price) })))}
               fill="none"
               stroke="var(--muted-foreground)"
               strokeDasharray="4 4"
@@ -381,7 +380,7 @@ export function SketchCanvas({
               candles arrive, green inside, grey out. */}
           {hasLine && !drawing && shape ? (
             <g>
-              <path d={smoothPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin="round" strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
+              <path d={legPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin="round" strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
               {accuracy?.flags.map((inside, i) => {
                 const cy = y(lineAt(shape.prices, (i + 1) / runBars));
                 return (
@@ -408,7 +407,7 @@ export function SketchCanvas({
                 <polyline fill="none" points={plotted.map((p) => `${p.x},${p.y}`).join(" ")} stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />
               ) : (
                 <path
-                  d={smoothPath(plotted)}
+                  d={legPath(plotted)}
                   fill="none"
                   stroke="var(--brand)"
                   strokeDasharray={phase === "settled" ? "5 4" : undefined}
@@ -451,7 +450,7 @@ export function SketchCanvas({
               </path>
               <circle cx={split} cy={y(price)} fill="var(--brand)" r="3.5" />
               <text fill="var(--muted-foreground)" fontSize="12" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={(split + plotR) / 2} y={plotB - 10}>
-                {tool === "points" ? "click to place your points" : "drag to draw your line"}
+                click to place your points
               </text>
             </g>
           ) : null}
@@ -478,23 +477,28 @@ export function SketchCanvas({
         </span>
       ) : null}
 
+      {/*
+        What it is worth, and only that.
+
+        A pill, like the one the line carries while you draw, because it is the
+        same kind of thing: a number attached to a place on the chart. It read
+        "−$0.08 inside" before — a running total with a verdict stapled to it on
+        whether the last candle landed in the ribbon. Two answers to two
+        different questions in one line, and only one of them is money. The
+        ribbon already says inside by colouring itself.
+      */}
       {phase === "running" && pnl !== null && run.length > 0 ? (
         <span
           className={cn(
-            "figures pointer-events-none absolute -translate-x-1/2 font-semibold text-xs [text-shadow:0_0_6px_var(--card),0_0_6px_var(--card)]",
-            Math.abs(pnl) < 0.005 ? "text-muted-foreground" : pnl > 0 ? "text-up" : "text-down",
+            "figures pointer-events-none absolute -translate-x-1/2 rounded-full px-2 py-0.5 font-semibold text-[11px] leading-4 text-white",
+            Math.abs(pnl) < 0.005 ? "bg-muted-foreground" : pnl > 0 ? "bg-success" : "bg-destructive",
           )}
           style={{
             left: Math.min(plotR - 56, Math.max(56, split + (run.length - 0.5) * runStep)),
-            top: Math.max(4, y(run[run.length - 1].h) - 22),
+            top: Math.max(4, y(run[run.length - 1].h) - 24),
           }}
         >
           {signedUsd(pnl)}
-          {accuracy && accuracy.flags.length > 0 ? (
-            <span className={cn("ml-1.5 font-normal", accuracy.flags[accuracy.flags.length - 1] ? "text-up" : "text-muted-foreground")}>
-              {accuracy.flags[accuracy.flags.length - 1] ? "inside" : "outside"}
-            </span>
-          ) : null}
         </span>
       ) : null}
     </div>

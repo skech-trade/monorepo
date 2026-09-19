@@ -440,19 +440,22 @@ export function extend(c: Candle, vol: number): Candle {
   return { ...c, c: close, h: Math.max(c.h, close), l: Math.min(c.l, close) };
 }
 
-/** Catmull-Rom through plotted points, as one cubic path. Reads as a hand. */
-export function smoothPath(pts: { x: number; y: number }[]): string {
+/**
+ * The plotted points, joined straight.
+ *
+ * It was a Catmull-Rom spline, which reads as a hand and lies about the trade.
+ * A position is a straight run from where it opens to where it closes; there is
+ * no curve to be in. Drawing one put the line somewhere other than where it
+ * would be traded — bulging past a turn it never reaches, easing out of one it
+ * leaves at once — and softened every corner, which is the one part of the
+ * picture that decides anything: a corner is a close and an open.
+ *
+ * Straight segments also say what the handles are for. Two of them and the bit
+ * between is a leg; that is the whole grammar.
+ */
+export function legPath(pts: { x: number; y: number }[]): string {
   if (pts.length === 0) return "";
-  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[i - 1] ?? pts[i];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[i + 2] ?? p2;
-    d +=
-      ` C ${(p1.x + (p2.x - p0.x) / 6).toFixed(1)} ${(p1.y + (p2.y - p0.y) / 6).toFixed(1)}` +
-      ` ${(p2.x - (p3.x - p1.x) / 6).toFixed(1)} ${(p2.y - (p3.y - p1.y) / 6).toFixed(1)}` +
-      ` ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
-  }
-  return d;
+  return pts
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+    .join(" ");
 }
