@@ -65,7 +65,7 @@ export function PlaceTicket({
   const long = shape?.long ?? true;
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div className={cn("flex items-center gap-1.5 sm:gap-2", className)}>
       {settings ? <DrawControls leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} /> : null}
 
       {phase === "drawn" && shape && quote ? (
@@ -105,7 +105,7 @@ export function PlaceTicket({
           <PopoverTrigger
             render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90" onClick={onPlace} />}
           >
-            Trade for ${usd(stake, 0)}
+            Trade<span className="hidden sm:inline">&nbsp;for ${usd(stake, 0)}</span>
           </PopoverTrigger>
           <PopoverPopup align="end" className="w-auto max-w-xs px-3 py-2">
             <p className="text-sm">

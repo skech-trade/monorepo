@@ -17,30 +17,35 @@ import { RoundsSheet, seedSketches, type Sketch } from "./sketches";
  * factor rolled once per sketch. Swap the feed and the rest stays.
  */
 
-const HISTORY = 46;
+const HISTORY = 90;
 /**
- * Candles a sketch starts with. On one-minute bars that is the horizon in
- * minutes — and it is a starting length, not a limit: drawing off the right
- * edge lengthens the round.
+ * A candle is a second, and a round is a minute of them.
+ *
+ * The bar was a minute and arrived every 500ms, which made the axis a work of
+ * fiction: "+24m" on a chart that finished in twelve seconds. A second a bar,
+ * arriving once a second, is the same clock the reader is on — and a minute is
+ * the trade this is for. It is a starting length, not a limit: drawing off the
+ * right edge lengthens the round.
  */
-const RUN_BARS = 24;
-/** The shortest a round can be, in candles. A line two minutes long is a coin toss, not a call. */
-const MIN_BARS = 3;
+const RUN_BARS = 60;
+/** The shortest a round can be, in candles. Five seconds is a coin toss, not a call. */
+const MIN_BARS = 5;
 
-/** How long a round this line makes: its last minute, never shorter than MIN_BARS. */
+/** How long a round this line makes: its last second, never shorter than MIN_BARS. */
 const barsFor = (pts: Pt[], horizon: number) => Math.max(MIN_BARS, Math.round((pts[pts.length - 1]?.t ?? 1) * horizon));
-/** As long as a sketch may get. An hour and a half is already a long wait. */
-const RUN_MAX = 96;
-const TICK_MS = 500;
-const SUB_MS = 250;
+/** As long as a sketch may get. Five minutes is already a long wait. */
+const RUN_MAX = 300;
+/** A bar a second, in real time, with the forming one moving twice a second. */
+const TICK_MS = 1000;
+const SUB_MS = 500;
 /**
  * How far a bar moves, as a fraction of the price.
  *
  * Sized to a real tape rather than to a chart that looks busy. Bitcoin's
  * annualised volatility is somewhere near fifty percent, which over a second is
  * about a hundredth of a percent — six dollars on a sixty-four thousand dollar
- * coin. A bar here is uniform on plus or minus `open * VOL`, so this puts a
- * typical move at six dollars and the largest at thirteen.
+ * coin. A bar is a second, and is uniform on plus or minus `open * VOL`, so
+ * this puts a typical second at six dollars and the largest at thirteen.
  *
  * It was 0.0016: a hundred dollars a second, or two and a half percent a
  * minute, which is a market having the worst day of its life, for ever. Every
@@ -519,8 +524,17 @@ export function DrawScreen({ market }: { market: Market }) {
         belong beside the chart they act on, not in the row that carries the
         wordmark and the account.
       */}
-      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
-        <MarketHeader market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
+      <div className="flex flex-wrap items-center gap-1.5 border-b px-2 py-2 sm:gap-2 sm:px-3">
+        <MarketHeader className="w-full sm:w-auto" market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
+        {/*
+          On a phone the tools stand with what they are for: one row holding
+          the rail, the size, the boost and the button, under a market line
+          that has shrunk to make space for it. Three stacked rows of chrome
+          above a chart is most of a small screen gone before anything is drawn.
+        */}
+        {phase === "live" || phase === "drawing" || phase === "drawn" ? (
+          <div className="sm:hidden"><DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} /></div>
+        ) : null}
         <PlaceTicket
           className="ml-auto"
           leverage={leverage}
@@ -541,7 +555,7 @@ export function DrawScreen({ market }: { market: Market }) {
       </div>
       <div className="flex min-h-0 flex-1 gap-2 px-2 pt-2">
         {phase === "live" || phase === "drawing" || phase === "drawn" ? (
-          <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
+          <div className="hidden sm:block"><DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} /></div>
         ) : null}
         <div className="min-w-0 flex-1">
         <SketchCanvas
@@ -561,7 +575,7 @@ export function DrawScreen({ market }: { market: Market }) {
             Only `drawn` fits the whole plan, which is the one moment you want
             to see all of it at once.
           */
-          horizonMinutes={phase === "drawn" ? runBars : viewBars}
+          horizonSeconds={phase === "drawn" ? runBars : viewBars}
           editableFrom={editableFrom}
           onDown={onDown}
           onGrab={onGrab}

@@ -138,14 +138,20 @@ export function MarketHeader({ market, className }: { market: Market; className?
         onClick={() => setPicking(true)}
         type="button"
       >
-        <TokenAvatar symbol={market.symbol} />
-        <span className="min-w-0">
-          <span className="flex items-center gap-1 font-medium leading-none">
+        {/*
+          Stacked and set large where there is room, and a single quiet line on
+          a phone. The price is a reading you glance at; on a small screen it
+          was the loudest thing above the chart and took a row of its own to be
+          it, pushing everything that does something further down.
+        */}
+        <TokenAvatar className="size-7 sm:size-9" symbol={market.symbol} />
+        <span className="flex min-w-0 items-baseline gap-2 sm:block">
+          <span className="flex items-center gap-1 font-medium text-sm leading-none sm:text-base">
             {market.name}
             <ChevronDownIcon className="size-3.5 text-muted-foreground" />
           </span>
-          <span className="mt-1 flex items-baseline gap-2">
-            <span className="figures font-semibold text-xl">${fmtPrice(market.price)}</span>
+          <span className="flex items-baseline gap-2 sm:mt-1">
+            <span className="figures font-semibold text-base sm:text-xl">${fmtPrice(market.price)}</span>
             <Pill tone={up ? "up" : "down"}>
               <span className="figures">{signedPct(market.changePct)}</span>
             </Pill>

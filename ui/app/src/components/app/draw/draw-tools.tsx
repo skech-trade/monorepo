@@ -4,7 +4,6 @@ import { EraserIcon, ShapesIcon, Undo2Icon, WaypointsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { legPath } from "@/lib/sketch";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu";
-import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
@@ -91,38 +90,45 @@ export function DrawTools({
       the whole height of the chart. In the header they sat a screen's width
       from the line, sharing a row with the price — which is a reading, not a
       control.
+
+      Down the side where there is a side to spare, and along the top where
+      there is not: on a phone a column of tools is a sixth of the width, taken
+      from the one thing the screen is for.
     */
-    <div className="flex shrink-0 flex-col items-center gap-1.5 self-start rounded-2xl border bg-card p-1.5 [&_svg]:size-5">
+    <div className="flex shrink-0 flex-row items-center gap-1 self-start rounded-2xl border bg-card p-1 sm:flex-col sm:gap-1.5 sm:p-1.5 [&_svg]:size-4 sm:[&_svg]:size-5">
       {/* The one way to draw, shown rather than chosen. There was a pen beside
           it — a stroke that settled into these same points on release — and it
           only ever cost the line its corners on the way. A turn is a close and
           an open, so a tool that rounds them off is a tool that changes the
           trade. */}
       <Tip words="Click to place a point, or drag to draw. Drag a point to move it, double-click to remove it.">
-        <span className="flex size-10 items-center justify-center rounded-xl bg-accent text-foreground">
+        <span className="flex size-8 items-center justify-center rounded-lg bg-accent text-foreground sm:size-10 sm:rounded-xl">
           <WaypointsIcon />
         </span>
       </Tip>
 
-      <Separator className="my-0.5 w-6" orientation="horizontal" />
+      {/* Turns with the rail. */}
+      <span aria-hidden="true" className="mx-0.5 h-6 w-px shrink-0 bg-border sm:mx-0 sm:my-0.5 sm:h-px sm:w-6" />
 
       <Tip words="Undo the last stroke">
-        <Button aria-label="Undo" className="size-10 rounded-xl" disabled={!canUndo} onClick={onUndo} variant="ghost">
+        <Button aria-label="Undo" className="size-8 rounded-lg sm:size-10 sm:rounded-xl" disabled={!canUndo} onClick={onUndo} variant="ghost">
           <Undo2Icon />
         </Button>
       </Tip>
       <Tip words="Clear the line">
-        <Button aria-label="Clear" className="size-10 rounded-xl" disabled={!canUndo} onClick={onClear} variant="ghost">
+        <Button aria-label="Clear" className="size-8 rounded-lg sm:size-10 sm:rounded-xl" disabled={!canUndo} onClick={onClear} variant="ghost">
           <EraserIcon />
         </Button>
       </Tip>
 
       <Menu>
-        <MenuTrigger render={<Button aria-label="Shapes" className="size-10 rounded-xl" variant="ghost" />}>
+        <MenuTrigger render={<Button aria-label="Shapes" className="size-8 rounded-lg sm:size-10 sm:rounded-xl" variant="ghost" />}>
           <ShapesIcon />
         </MenuTrigger>
-        <MenuPopup align="start" className="w-[40rem] p-2" side="right">
-          <div className="grid grid-cols-4 gap-1">
+        {/* Forty rem does not exist on a phone, and neither does the room to
+            the right of a rail that is sitting at the left edge of one. */}
+        <MenuPopup align="start" className="w-[min(40rem,calc(100vw-2rem))] p-2" side="bottom">
+          <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
             {PRESETS.map((p) => (
               <MenuItem className="h-auto flex-col items-stretch gap-2 rounded-xl p-2 [&>span:first-child]:aspect-[20/9]" key={p.value} onClick={() => onPreset(p.value)}>
                 <Thumb shape={p.shape} />

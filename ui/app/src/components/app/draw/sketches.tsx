@@ -285,8 +285,8 @@ export function SketchList({ sketches, market }: { sketches: Sketch[]; market: M
         <TableRow>
           <TableHead className="pl-3">Line</TableHead>
           <TableHead>Size</TableHead>
-          <TableHead>In at</TableHead>
-          <TableHead>Out at</TableHead>
+          <TableHead className="hidden sm:table-cell">In at</TableHead>
+          <TableHead className="hidden sm:table-cell">Out at</TableHead>
           <TableHead className="pr-3 text-right">Result</TableHead>
         </TableRow>
       </TableHeader>
@@ -299,8 +299,8 @@ export function SketchList({ sketches, market }: { sketches: Sketch[]; market: M
             <TableCell className="figures whitespace-nowrap">
               ${usd(s.stake, 0)} <span className="text-muted-foreground">at {s.leverage}×</span>
             </TableCell>
-            <TableCell className="figures whitespace-nowrap">${fmtPrice(s.entry)}</TableCell>
-            <TableCell className="figures whitespace-nowrap">
+            <TableCell className="hidden figures whitespace-nowrap sm:table-cell">${fmtPrice(s.entry)}</TableCell>
+            <TableCell className="hidden figures whitespace-nowrap sm:table-cell">
               {s.exit === undefined ? <span className="text-muted-foreground">open</span> : `$${fmtPrice(s.exit)}`}
             </TableCell>
             <TableCell className="whitespace-nowrap pr-3 text-right">
@@ -315,7 +315,18 @@ export function SketchList({ sketches, market }: { sketches: Sketch[]; market: M
       {settled.length > 0 ? (
         <TableFooter>
           <TableRow>
-            <TableCell className="pl-3 text-muted-foreground" colSpan={4}>
+            {/*
+              The same line twice, spanning whatever columns are showing.
+
+              colSpan is an attribute and cannot be a media query, and reading
+              the width in JavaScript would mean a hook that disagrees with the
+              server on the first paint. Two cells, each hidden at the width
+              the other is for, costs a line of markup and nothing else.
+            */}
+            <TableCell className="pl-3 text-muted-foreground sm:hidden" colSpan={2}>
+              {market.name} today, <span className="figures text-foreground">{won}</span> of <span className="figures text-foreground">{settled.length}</span> came good
+            </TableCell>
+            <TableCell className="hidden pl-3 text-muted-foreground sm:table-cell" colSpan={4}>
               {market.name} today, <span className="figures text-foreground">{won}</span> of <span className="figures text-foreground">{settled.length}</span> came good
             </TableCell>
             <TableCell className="pr-3 text-right">

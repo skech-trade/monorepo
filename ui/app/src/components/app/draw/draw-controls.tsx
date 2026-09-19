@@ -135,10 +135,12 @@ function AmountWheel({ value, onChange }: { value: number; onChange: (value: num
   );
 }
 
+/* The label goes on a phone and the figure stays: "$100" beside a wheel of
+   dollars needs no word, and the row it is in has four other things in it. */
 function Setting({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <span className="text-muted-foreground">{label}</span>
+      <span className="hidden text-muted-foreground sm:inline">{label}</span>
       <span className="figures">{value}</span>
     </>
   );
@@ -159,7 +161,7 @@ export function DrawControls({
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div className={cn("flex items-center gap-1.5 sm:gap-2", className)}>
       <Popover>
         <PopoverTrigger render={<Button variant="outline" />}>
           <Setting label="Size" value={`$${usd(stake, 0)}`} />

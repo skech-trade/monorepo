@@ -32,8 +32,63 @@ const TURN_GAP = 0.03;
 /** Under this total travel the drawing says nothing worth trading. */
 const FLAT = 0.0002;
 
-/** Taker fee per side, as on the landing. */
-export const FEE = 0.00045;
+/**
+ * What a venue charges, per side, as a fraction of the position's value.
+ *
+ * Read off the two we would plausibly route to, base tier, no staking and no
+ * referral, in September 2026:
+ *
+ *   Hyperliquid  perps tier 0: 0.045% taker, 0.015% maker. Seven volume tiers
+ *                down to 0.024% / 0.000% above $7B of 14-day volume, plus a
+ *                5-40% staking discount and a referral discount on the first
+ *                $25M.  hyperliquid.gitbook.io/hyperliquid-docs/trading/fees
+ *   Lighter      standard accounts: zero maker, zero taker, all markets. Only
+ *                its Premium tier for HFT pays anything, and that is 0.0040% /
+ *                0.0280%.  docs.lighter.xyz/trading/trading-fees
+ *
+ * A drawn line has to be in the market at a particular minute, so it crosses
+ * the spread: the taker rate is the one that applies, and it is charged on the
+ * way in and again on the way out of every leg.
+ *
+ * Hyperliquid's taker is the default because it is the expensive answer of the
+ * two, and a simulation that flatters the reader about costs is the one kind
+ * of lie this screen cannot afford. On Lighter standard this is simply zero,
+ * and every fee argument on this screen goes away with it.
+ */
+export const VENUES = {
+  hyperliquid: { taker: 0.00045, maker: 0.00015 },
+  lighter: { taker: 0, maker: 0 },
+  lighterPremium: { taker: 0.00028, maker: 0.00004 },
+} as const;
+
+/**
+ * The venue the figures on screen are quoted at.
+ *
+ * Lighter, whose standard accounts pay nothing either side. Which is the whole
+ * argument for routing there: at 50x a Hyperliquid round trip is 4.5% of a
+ * $100 stake and a leg has to travel $57.60 to break even, on a market that
+ * moves $6.40 a candle. Every turn was a losing trade before it was drawn.
+ */
+export const VENUE: keyof typeof VENUES = "lighter";
+
+/** Taker fee per side. Charged twice a leg: once in, once out. */
+export const FEE = VENUES[VENUE].taker;
+
+/**
+ * How long between asking for a fill and getting one, as a share of a candle.
+ *
+ * Lighter's standard accounts are delayed 300ms on a taker order by design —
+ * that delay is what lets them charge nothing, because flow that slow cannot
+ * pick off a market maker. Assume 500ms with our own hop on top of it. A
+ * candle here is a second, so half of one.
+ *
+ * It is not a cost. A market that is not trading against you specifically
+ * drifts both ways, and nobody front-runs a hand-drawn line. It is variance:
+ * every fill lands at the price half a second after the moment you meant, and
+ * on a tape moving six dollars a second that is about three and a half dollars
+ * either side of what you saw.
+ */
+export const LATENCY_BARS = 0.5;
 /** The venue closes a leg when equity falls to this fraction of notional. */
 const MAINT = 0.0125;
 
@@ -66,19 +121,53 @@ export function resample(pts: Pt[], entry: number): number[] {
  * Rising stretches are longs, falling stretches are shorts, a turn is a close
  * and an open. `TOL` keeps a shaky hand from buying and selling twenty times.
  */
-/** How far price must come back for a turn to be a turn, at this drawing's scale. */
-function turnTol(values: number[], ref: number): number {
+/**
+ * How far price must come back for a turn to be a turn.
+ *
+ * Two thresholds, and a turn has to clear both.
+ *
+ * The first is a share of the drawing's own height, so a wobble stays a wobble
+ * whatever the market is worth.
+ *
+ * The second is what the turn costs. Taking one means closing here and opening
+ * the other way, and that round trip is `2 × FEE` of the position's value — so
+ * the counter-move has to travel `2 × FEE × price` just to get back to level.
+ * At $64,000 that is $57.60, and it is the same figure at every leverage,
+ * because the fee and the profit scale together.
+ *
+ * Under it, a dip is not a trade. It is something you sit through, and a model
+ * that trades it anyway hands back a loss on a drawing that called the move:
+ * the same $200 climb makes $11.13 taken as one leg and loses $10.85 taken as
+ * six, and a typical four-candle leg moves $26 against a $57.60 bar. Every one
+ * of those turns was a guaranteed loser at the moment it was drawn.
+ */
+function turnTol(values: number[], ref: number, costs = false): number {
   let lo = values[0];
   let hi = values[0];
   for (const v of values) {
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
-  return Math.max((hi - lo) * REVERSAL, ref * 1e-5);
+  /*
+    The cost floor belongs to the legs and nowhere else.
+
+    Applied to the drawing as well it deleted the drawing. `simplify` drops a
+    point that has not moved far enough from the last one it kept, and with the
+    floor in place "far enough" was $57.60 — more than most lines are tall on a
+    market that moves $6.40 a candle. Every point failed the test, the line
+    came back as a single point, `shapeOf` refused it, and the screen lost its
+    line, its ticket and its whole bottom bar.
+
+    What you drew and what gets traded are two different questions. The shape
+    on screen is yours; which of its turns are worth a round trip is the
+    compiler's, and only that second question has a price attached.
+  */
+  const floor = costs ? ref * FEE * 2 : ref * 1e-5;
+  return Math.max((hi - lo) * REVERSAL, floor);
 }
 
 export function legsFrom(prices: number[]): Leg[] {
-  const tol = turnTol(prices, prices[0]);
+  const tol = turnTol(prices, prices[0], true);
   const legs: Leg[] = [];
   let start = 0;
   let extIdx = 0;
@@ -296,6 +385,18 @@ export function settle(
   if (last === 0) return { net: 0, done: null, exit: entry };
   /** The market price when this many candles of the round had arrived. */
   const priceAt = (i: number) => (i <= 0 ? entry : (bars[Math.min(last, i) - 1]?.c ?? entry));
+  /**
+   * Where an order actually fills: the price a latency later, not the one that
+   * was on screen when the leg turned. Between two candles it is read across
+   * the gap rather than snapped to one of them, because half a second is half
+   * a candle and rounding it to a whole one would double the delay or erase it.
+   */
+  const fillAt = (i: number) => {
+    const at = i + LATENCY_BARS;
+    const whole = Math.floor(at);
+    const part = at - whole;
+    return priceAt(whole) + (priceAt(whole + 1) - priceAt(whole)) * part;
+  };
   /** A sample index on the drawing, to a candle of the round. */
   const barOf = (sample: number) => Math.round((sample / (SAMPLES - 1)) * runBars);
 
@@ -306,7 +407,7 @@ export function settle(
     const from = barOf(leg.from);
     if (from >= last) break;
     const to = barOf(leg.to);
-    const open = priceAt(from);
+    const open = fillAt(from);
     const notional = equity * leverage;
     const q = notional / open;
     const liq = liquidationPrice(open, equity, leverage, leg.dir);
@@ -317,7 +418,7 @@ export function settle(
       if (leg.dir * (worst - liq) <= 0) return { net: -stake, done: "liquidated", exit: liq };
     }
 
-    const close = priceAt(Math.min(to, last));
+    const close = fillAt(Math.min(to, last));
     equity += leg.dir * q * (close - open) - FEE * notional * 2;
     exit = close;
     if (equity <= 0) return { net: -stake, done: "liquidated", exit: close };
@@ -431,8 +532,9 @@ export function simplify(
     going — the apex, the actual turn. The first point is the entry and the last
     is where the line was left, so neither is traded away for one.
 
-    The same threshold the legs use, so what is left on screen is exactly what
-    can become a position.
+    Sized to the drawing, not to what a trade costs. The legs answer a second
+    question — which of these turns is worth a round trip — and that one has a
+    price attached; this one does not.
   */
   const grip = turnTol(pts.map((p) => p.price), tolerance);
   const kept: Pt[] = [];
@@ -479,6 +581,17 @@ export function simplify(
     if (before !== 0 && after !== 0 && before !== after) turns.push(kept[i]);
   }
   if (kept.length > 1) turns.push(kept[kept.length - 1]);
+  /*
+    A line is at least two points.
+
+    Every pass here removes points, and a threshold set too high can take all
+    of them: one of these passes once reduced an entire drawing to a single
+    point, which `shapeOf` rejects, which left the screen with no line, no
+    ticket and no bottom bar and no way to tell why. Whatever the thresholds
+    decide, the first point and the last one are what the hand did, and there
+    is always a line between them.
+  */
+  if (turns.length < 2) return pts.length > 1 ? [pts[0], pts[pts.length - 1]] : pts;
   return turns;
 }
 
