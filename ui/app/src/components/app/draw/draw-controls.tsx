@@ -128,7 +128,25 @@ export function AmountWheel({
               data-near={Math.abs(i - index) === 1 ? "" : undefined}
               data-selected={i === index ? "" : undefined}
               key={amount}
-              onClick={i === index ? () => { setDraft(String(value)); setEditing(true); } : undefined}
+              /*
+                A row you can see is a row you can press.
+
+                Only the middle one did anything before, and that was to start
+                typing — so the "Off" at the top of an exit wheel looked like a
+                choice and was not one, and the only way to reach any value was
+                to drag the wheel onto it. Pressing a row now picks it and
+                glides it into the middle; pressing the middle one still opens
+                it for typing.
+              */
+              onClick={() => {
+                if (i === index) {
+                  setDraft(String(value));
+                  setEditing(true);
+                  return;
+                }
+                onChange(amount);
+                scrollToIndex(i, !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+              }}
             >
               {offAtZero && amount === 0 ? "Off" : `$${amount}`}
             </div>
