@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import { CheckIcon } from "lucide-react";
+import { Popover, PopoverClose, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { usd } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import { DRAW_STEPS, LeverageMeter } from "../leverage-meter";
@@ -96,6 +97,21 @@ export function AmountWheel({
   return (
     <div className={styles.wrap}>
       <span aria-hidden="true" className={styles.band} />
+      {/*
+        Done, beside the figure it is agreeing to.
+
+        The wheel applies as it turns, so there is nothing to submit — but
+        there was also nothing to press, and the only way out was to click the
+        chart, which is the drawing surface. A tick next to the value says
+        "that one" and shuts the panel, which is the sentence the gesture was
+        already making.
+      */}
+      <PopoverClose
+        aria-label="Done"
+        className="-translate-y-1/2 -right-10 absolute top-1/2 flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 [&_svg]:size-4"
+      >
+        <CheckIcon />
+      </PopoverClose>
       <div
         aria-label="How much you put in"
         aria-valuemax={max}

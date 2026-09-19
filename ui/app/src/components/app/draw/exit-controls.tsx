@@ -70,7 +70,7 @@ function Exit({
         render={
           <button
             className={cn(
-              "flex h-8 cursor-pointer items-center gap-2 rounded-full border px-3 text-sm transition-colors hover:bg-accent",
+              "flex h-8 cursor-pointer items-center gap-1.5 rounded-full border pr-2.5 pl-3 text-sm transition-colors hover:bg-accent",
               on && "bg-accent/40",
             )}
             // Pressing it while off turns it on at a figure worth adjusting,
@@ -98,7 +98,7 @@ function Exit({
             */}
             <span
               aria-label={`Turn off ${label.toLowerCase()}`}
-              className="-mr-1 flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground [&_svg]:size-3.5"
+              className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-background hover:text-foreground [&_svg]:size-3"
               onClick={(e) => {
                 e.stopPropagation();
                 onChange(null);

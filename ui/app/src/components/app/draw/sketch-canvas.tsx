@@ -330,6 +330,22 @@ export function SketchCanvas({
   };
 
   const onDown = (e: ReactPointerEvent) => {
+    /*
+      A press that is dismissing a panel is not a press on the chart.
+
+      The chart is the drawing surface, so the click that closed a popover
+      landed here and started a line — which made every one of those panels a
+      thing you could open and not get out of without drawing something. The
+      panel is closing on this same press; the chart sits it out.
+
+      Asked of the trigger rather than the panel. The panel stays in the
+      document after it shuts, so "is one present" is true for the rest of the
+      session once any has been opened — a guard that would have quietly
+      stopped the screen drawing at all. `aria-expanded` is the button's own
+      account of whether its thing is open, it is a contract rather than an
+      implementation detail, and it flips the instant the panel does.
+    */
+    if (typeof document !== "undefined" && document.querySelector('[aria-expanded="true"]')) return;
     const r = box.current?.getBoundingClientRect();
     if (!r) return;
     const px = e.clientX - r.left;
