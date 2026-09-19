@@ -102,13 +102,23 @@ export function AmountWheel({
 
         The wheel applies as it turns, so there is nothing to submit — but
         there was also nothing to press, and the only way out was to click the
-        chart, which is the drawing surface. A tick next to the value says
-        "that one" and shuts the panel, which is the sentence the gesture was
-        already making.
+        chart, which is the drawing surface. A tick says "that one" and shuts
+        the panel, which is the sentence the gesture was already making.
+
+        Inside the lit band rather than floating beside it: the band is the
+        selection, so the thing that agrees to the selection belongs in it. Sat
+        outside, it was a second object at the edge of a narrow panel with
+        nothing tying it to the figure it applied to.
       */}
       <PopoverClose
         aria-label="Done"
-        className="-translate-y-1/2 -right-10 absolute top-1/2 flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 [&_svg]:size-4"
+        className="-translate-y-1/2 absolute top-1/2 right-1.5 flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground [&_svg]:size-4"
+        // Mid-typing, it takes what is in the field first. Closing the panel
+        // pulls the input out of the document, and a value that was typed and
+        // never read back is the one thing a tick must not do.
+        onClick={() => {
+          if (editing) commit();
+        }}
       >
         <CheckIcon />
       </PopoverClose>
