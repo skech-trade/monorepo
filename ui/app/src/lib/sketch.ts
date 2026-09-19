@@ -118,18 +118,33 @@ export function resample(pts: Pt[], entry: number): number[] {
  * six, and a typical four-candle leg moves $26 against a $57.60 bar. Every one
  * of those turns was a guaranteed loser at the moment it was drawn.
  */
-function turnTol(values: number[], ref: number): number {
+function turnTol(values: number[], ref: number, costs = false): number {
   let lo = values[0];
   let hi = values[0];
   for (const v of values) {
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
-  return Math.max((hi - lo) * REVERSAL, ref * FEE * 2);
+  /*
+    The cost floor belongs to the legs and nowhere else.
+
+    Applied to the drawing as well it deleted the drawing. `simplify` drops a
+    point that has not moved far enough from the last one it kept, and with the
+    floor in place "far enough" was $57.60 — more than most lines are tall on a
+    market that moves $6.40 a candle. Every point failed the test, the line
+    came back as a single point, `shapeOf` refused it, and the screen lost its
+    line, its ticket and its whole bottom bar.
+
+    What you drew and what gets traded are two different questions. The shape
+    on screen is yours; which of its turns are worth a round trip is the
+    compiler's, and only that second question has a price attached.
+  */
+  const floor = costs ? ref * FEE * 2 : ref * 1e-5;
+  return Math.max((hi - lo) * REVERSAL, floor);
 }
 
 export function legsFrom(prices: number[]): Leg[] {
-  const tol = turnTol(prices, prices[0]);
+  const tol = turnTol(prices, prices[0], true);
   const legs: Leg[] = [];
   let start = 0;
   let extIdx = 0;
@@ -482,8 +497,9 @@ export function simplify(
     going — the apex, the actual turn. The first point is the entry and the last
     is where the line was left, so neither is traded away for one.
 
-    The same threshold the legs use, so what is left on screen is exactly what
-    can become a position.
+    Sized to the drawing, not to what a trade costs. The legs answer a second
+    question — which of these turns is worth a round trip — and that one has a
+    price attached; this one does not.
   */
   const grip = turnTol(pts.map((p) => p.price), tolerance);
   const kept: Pt[] = [];
@@ -530,6 +546,17 @@ export function simplify(
     if (before !== 0 && after !== 0 && before !== after) turns.push(kept[i]);
   }
   if (kept.length > 1) turns.push(kept[kept.length - 1]);
+  /*
+    A line is at least two points.
+
+    Every pass here removes points, and a threshold set too high can take all
+    of them: one of these passes once reduced an entire drawing to a single
+    point, which `shapeOf` rejects, which left the screen with no line, no
+    ticket and no bottom bar and no way to tell why. Whatever the thresholds
+    decide, the first point and the last one are what the hand did, and there
+    is always a line between them.
+  */
+  if (turns.length < 2) return pts.length > 1 ? [pts[0], pts[pts.length - 1]] : pts;
   return turns;
 }
 
