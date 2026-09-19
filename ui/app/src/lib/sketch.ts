@@ -182,14 +182,28 @@ export function quote(
   stake: number,
   leverage: number,
 ): Quote {
-  const notional = stake * leverage;
-  const move = (p: number) => Math.abs(p - entry) / entry;
-  const dir = shape.long ? 1 : -1;
+  /*
+    What the plan pays if the market traces it exactly — every leg of it.
+
+    It used to be the move to the single furthest point, which ignored every
+    turn in between and so priced a zigzag the same as a straight line to the
+    same height. Walking the legs prices what is actually traded, fees and all,
+    and that is the number that makes a zigzag look like what it is: eight
+    turns is eight round trips out of the same stake.
+  */
+  let equity = stake;
+  for (const leg of shape.legs) {
+    const open = shape.prices[leg.from];
+    const close = shape.prices[leg.to];
+    const notional = equity * leverage;
+    equity += leg.dir * (notional / open) * (close - open) - FEE * notional * 2;
+    if (equity <= 0) return { ifWorks: -stake, mostLose: stake, wipedAt: liquidationPrice(entry, stake, leverage, shape.long ? 1 : -1), notional: stake * leverage };
+  }
   return {
-    ifWorks: notional * move(shape.target) - FEE * notional * 2,
+    ifWorks: equity - stake,
     mostLose: stake,
-    wipedAt: liquidationPrice(entry, stake, leverage, dir),
-    notional,
+    wipedAt: liquidationPrice(entry, stake, leverage, shape.long ? 1 : -1),
+    notional: stake * leverage,
   };
 }
 
@@ -248,35 +262,70 @@ export function liquidationPrice(entry: number, stake: number, leverage: number,
   return dir > 0 ? (q * entry - room) / (q * (1 - MAINT)) : (q * entry + room) / (q * (1 + MAINT));
 }
 
+/**
+ * The line, traded leg by leg.
+ *
+ * Every turn you drew is a close and an open — that is what the chart has been
+ * claiming all along, with a Buy at each trough and a Sell at each peak. The
+ * money did not do it. It read the last point, decided the whole round was one
+ * long or one short, and held that from the first candle to the last, so a
+ * drawing that went up hard and then down hard was booked as a single bet in
+ * whichever direction happened to end higher. Every turn in between was
+ * decoration.
+ *
+ * Now each leg is its own position: in at the market price where the leg
+ * starts, out at the market price where it ends, sized off the equity standing
+ * at the time, and charged a round trip of its own. Which means a zigzag costs
+ * what a zigzag costs — eight turns is eight round trips, and at fifty times
+ * that is real money — and the chart and the ledger finally describe the same
+ * trade.
+ *
+ * Liquidation is checked inside each leg against that leg's own entry. Equity
+ * is carried across them and the whole thing stops at zero, because isolated
+ * margin cannot go below the stake.
+ */
 export function settle(
   bars: Candle[],
   shape: Shape,
   entry: number,
   stake: number,
   leverage: number,
+  runBars: number,
 ): Book {
-  const dir = shape.long ? 1 : -1;
-  const notional = stake * leverage;
-  const q = notional / entry;
-  const fees = FEE * notional * 2;
-  // Isolated margin: the stake is the whole of what is at risk.
-  const pnlAt = (px: number) => Math.max(-stake, dir * q * (px - entry) - fees);
-  const liq = liquidationPrice(entry, stake, leverage, dir);
+  const last = bars.length;
+  if (last === 0) return { net: 0, done: null, exit: entry };
+  /** The market price when this many candles of the round had arrived. */
+  const priceAt = (i: number) => (i <= 0 ? entry : (bars[Math.min(last, i) - 1]?.c ?? entry));
+  /** A sample index on the drawing, to a candle of the round. */
+  const barOf = (sample: number) => Math.round((sample / (SAMPLES - 1)) * runBars);
 
-  /*
-    One way out before the clock, and it is the margin.
+  let equity = stake;
+  let exit = priceAt(last);
 
-    It used to close at the top of your own drawing and at the bottom of it,
-    booking a profit you never asked to take and calling it your exit. Nobody
-    placed those orders. The line is a forecast; the position rides all of it.
-  */
-  for (const bar of bars) {
-    const worst = dir > 0 ? bar.l : bar.h;
-    if (dir * (worst - liq) <= 0) return { net: -stake, done: "liquidated", exit: liq };
+  for (const leg of shape.legs) {
+    const from = barOf(leg.from);
+    if (from >= last) break;
+    const to = barOf(leg.to);
+    const open = priceAt(from);
+    const notional = equity * leverage;
+    const q = notional / open;
+    const liq = liquidationPrice(open, equity, leverage, leg.dir);
+
+    for (let i = from; i < Math.min(to, last); i++) {
+      const bar = bars[i];
+      const worst = leg.dir > 0 ? bar.l : bar.h;
+      if (leg.dir * (worst - liq) <= 0) return { net: -stake, done: "liquidated", exit: liq };
+    }
+
+    const close = priceAt(Math.min(to, last));
+    equity += leg.dir * q * (close - open) - FEE * notional * 2;
+    exit = close;
+    if (equity <= 0) return { net: -stake, done: "liquidated", exit: close };
+    // Still inside this leg: it is marked, not closed, and nothing follows yet.
+    if (to >= last) break;
   }
 
-  const mark = bars.at(-1)?.c ?? entry;
-  return { net: pnlAt(mark), done: null, exit: mark };
+  return { net: Math.max(-stake, equity - stake), done: null, exit };
 }
 
 /**
@@ -480,26 +529,26 @@ export type Accuracy = {
  * printed beside a gain. Weighted by what each minute moved, the figure passes
  * a half exactly when the round makes money, so the two can never contradict.
  *
- * And it takes its direction from the position `settle` actually holds — one,
- * for the whole round — not from the way the line happens to be going at that
- * moment. The chart shades per segment and marks a buy and a sell at every
- * turn, which says the line is a run of positions; the money says it is a
- * single bet from entry to exit. Until those two agree, a figure printed next
- * to the money has to follow the money.
+ * Its direction comes from the way the line is going at that moment, which is
+ * the position `settle` actually holds there now that the line is traded leg by
+ * leg. The chart's shading, the buy and sell marks, the money and this figure
+ * all read the same trade at last; for a while the money held one position for
+ * the whole round and this had to follow it to avoid printing a contradiction.
  *
  * It scored distance before this: the share of closes landing inside the
  * ribbon. A line can sit inside its ribbon the whole way and lose money the
  * whole way, and a round that made twenty-five percent scored twenty-four.
  */
-export function accuracyOf(bars: Candle[], prices: number[], runBars: number, long: boolean): Accuracy {
+export function accuracyOf(bars: Candle[], prices: number[], runBars: number): Accuracy {
   if (bars.length === 0) return { right: 0, flags: [], bias: 0 };
-  const dir = long ? 1 : -1;
   let sum = 0;
   let forYou = 0;
   let against = 0;
   const flags = bars.map((bar, i) => {
-    sum += lineAt(prices, (i + 1) / runBars) - bar.c;
-    const made = dir * (bar.c - bar.o);
+    const was = lineAt(prices, i / runBars);
+    const goes = lineAt(prices, (i + 1) / runBars);
+    sum += goes - bar.c;
+    const made = (goes >= was ? 1 : -1) * (bar.c - bar.o);
     if (made >= 0) forYou += made;
     else against -= made;
     return made >= 0;

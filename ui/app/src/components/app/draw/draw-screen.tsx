@@ -137,7 +137,7 @@ export function DrawScreen({ market }: { market: Market }) {
   const traded = view;
   const shape = useMemo(() => shapeOf(traded, entryView), [traded, entryView]);
   const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage) : null), [shape, entryView, stake, leverage]);
-  const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage) : null), [run, shape, entry, stake, leverage]);
+  const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage, runBars) : null), [run, shape, entry, stake, leverage, runBars]);
   const ribbon = useMemo(() => ribbonFor(feed), [feed]);
   /** Your last line, moved to today's price. */
   const ghost = useMemo(
@@ -153,8 +153,8 @@ export function DrawScreen({ market }: { market: Market }) {
   const finish = useCallback((bars: Candle[], early: boolean) => {
     const { shape: sh, entry: en, stake: st, leverage: lev, runBars: rbars, traded: tr } = live.current;
     if (!sh) return;
-    const bk = settle(bars, sh, en, st, lev);
-    const acc = accuracyOf(bars, sh.prices, rbars, sh.long);
+    const bk = settle(bars, sh, en, st, lev, rbars);
+    const acc = accuracyOf(bars, sh.prices, rbars);
     const done: Outcome = bk.done ?? "time";
     const res: Result = {
       net: bk.net,
@@ -227,7 +227,7 @@ export function DrawScreen({ market }: { market: Market }) {
       const next = [...rn, bar];
       setRun(next);
       setBand((b) => easeBand(b, bandFor([...fd, ...next].slice(-HISTORY), bar.c, sh.prices)));
-      const bk = settle(next, sh, en, live.current.stake, live.current.leverage);
+      const bk = settle(next, sh, en, live.current.stake, live.current.leverage, live.current.runBars);
       if (bk.done !== null || next.length >= live.current.runBars) finish(next, false);
     }, TICK_MS);
     const sub = setInterval(() => {
