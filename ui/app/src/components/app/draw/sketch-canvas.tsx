@@ -471,6 +471,48 @@ export function SketchCanvas({
         </span>
       ) : null}
 
+      {/*
+        Where it bought and where it sold.
+
+        Every turn on this line is a close and an open, so a turn the candles
+        have already reached is a trade that has already happened. The word says
+        which: the line leaves a trough going up, so that is a buy; it leaves a
+        peak going down, so that is a sell. Above the peaks and below the
+        troughs, out of the line's way.
+
+        Only behind the candles. Ahead of them these are still intentions, and
+        the handles you can drag say so already.
+      */}
+      {(phase === "running" || phase === "settled") && pts.length > 1
+        ? plotted.map((p, i) => {
+            const next = pts[i + 1];
+            // Once it has settled the whole round is behind us, so every turn
+            // is a trade that happened. `editableFrom` is zero then — it means
+            // "nothing is editable", not "nothing has happened" — and reading
+            // it as the boundary hid every mark the moment the round ended.
+            const behind = phase === "settled" ? 1 : editableFrom;
+            if (!next || pts[i].t > behind) return null;
+            const buy = next.price > pts[i].price;
+            return (
+              <span
+                className={cn(
+                  // Bordered in its own colour and set in the same size as the
+                  // price tags. These mark the two moments on the chart that
+                  // actually cost money; a 10px grey chip made them the
+                  // quietest thing on it.
+                  "pointer-events-none absolute -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 font-semibold text-xs leading-4 shadow-xs/5",
+                  buy ? "border-up/40 text-up" : "border-down/40 text-down",
+                )}
+                // biome-ignore lint/suspicious/noArrayIndexKey: positional
+                key={i}
+                style={{ left: p.x, top: buy ? p.y + 12 : p.y - 32 }}
+              >
+                {buy ? "Buy" : "Sell"}
+              </span>
+            );
+          })
+        : null}
+
       {/* What the line is worth where the finger is. */}
       {head && headLabel && (phase === "drawing" || phase === "drawn") ? (
         <span
