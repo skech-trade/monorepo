@@ -519,8 +519,17 @@ export function DrawScreen({ market }: { market: Market }) {
         belong beside the chart they act on, not in the row that carries the
         wordmark and the account.
       */}
-      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
-        <MarketHeader market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
+      <div className="flex flex-wrap items-center gap-1.5 border-b px-2 py-2 sm:gap-2 sm:px-3">
+        <MarketHeader className="w-full sm:w-auto" market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
+        {/*
+          On a phone the tools stand with what they are for: one row holding
+          the rail, the size, the boost and the button, under a market line
+          that has shrunk to make space for it. Three stacked rows of chrome
+          above a chart is most of a small screen gone before anything is drawn.
+        */}
+        {phase === "live" || phase === "drawing" || phase === "drawn" ? (
+          <div className="sm:hidden"><DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} /></div>
+        ) : null}
         <PlaceTicket
           className="ml-auto"
           leverage={leverage}
@@ -541,7 +550,7 @@ export function DrawScreen({ market }: { market: Market }) {
       </div>
       <div className="flex min-h-0 flex-1 gap-2 px-2 pt-2">
         {phase === "live" || phase === "drawing" || phase === "drawn" ? (
-          <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
+          <div className="hidden sm:block"><DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} /></div>
         ) : null}
         <div className="min-w-0 flex-1">
         <SketchCanvas

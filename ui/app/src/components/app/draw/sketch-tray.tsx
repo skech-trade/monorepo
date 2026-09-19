@@ -81,9 +81,12 @@ export function SketchBar({
   if (phase === "live" || phase === "drawing") {
     return (
       <div className="flex flex-wrap items-center gap-3">
+        {/* The instruction survives on a phone; the reassurance after it takes
+            three lines of a small screen to say what the button already says
+            by not having been pressed. */}
         <p className="mr-auto text-muted-foreground">
-          <span className="font-medium text-foreground">Draw where you think {market.name} goes.</span> Drag across the right of the chart. Nothing&rsquo;s at
-          stake until you press the button.
+          <span className="font-medium text-foreground">Draw where you think {market.name} goes.</span>{" "}
+          <span className="hidden sm:inline">Drag across the right of the chart. Nothing&rsquo;s at stake until you press the button.</span>
         </p>
         {lines}
       </div>
