@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toastManager } from "@/components/ui/toast";
 import { type Candle, candlesFor, price as fmtPrice, type Market, usd } from "@/lib/market";
-import { accuracyOf, curveSample, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
+import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { PlaceTicket } from "./place-ticket";
 import { DrawTools, type Preset, PRESETS } from "./draw-tools";
@@ -96,7 +96,6 @@ export function DrawScreen({ market }: { market: Market }) {
   /** The point under the finger, while one is. */
   const dragIndex = useRef<number | null>(null);
   /** Curve between the points, or straight legs. The model follows it. */
-  const [smooth, setSmooth] = useState(false);
   /** Where the finger landed, for a tap that becomes a point. */
   const tapAt = useRef<Pt | null>(null);
   /**
@@ -134,8 +133,8 @@ export function DrawScreen({ market }: { market: Market }) {
     const shift = price - pts[0].price;
     return pts.map((p) => ({ ...p, price: p.price + shift }));
   }, [riding, pts, price]);
-  /** What the model reads: the handles, or the curve through them. */
-  const traded = useMemo(() => (smooth ? curveSample(view) : view), [smooth, view]);
+  /** What the model reads: the handles, riding the live price. */
+  const traded = view;
   const shape = useMemo(() => shapeOf(traded, entryView), [traded, entryView]);
   const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage) : null), [shape, entryView, stake, leverage]);
   const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage) : null), [run, shape, entry, stake, leverage]);
@@ -146,13 +145,13 @@ export function DrawScreen({ market }: { market: Market }) {
     [lastSketch, phase, price],
   );
 
-  const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, traded, smooth });
+  const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, traded });
   useEffect(() => {
-    live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, traded, smooth };
+    live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, traded };
   });
 
   const finish = useCallback((bars: Candle[], early: boolean) => {
-    const { shape: sh, entry: en, stake: st, leverage: lev, runBars: rbars, traded: tr, smooth: sm } = live.current;
+    const { shape: sh, entry: en, stake: st, leverage: lev, runBars: rbars, traded: tr } = live.current;
     if (!sh) return;
     const bk = settle(bars, sh, en, st, lev);
     const acc = accuracyOf(bars, sh.prices, rbars, sh.long);
@@ -188,7 +187,6 @@ export function DrawScreen({ market }: { market: Market }) {
       run: bars,
       runBars: rbars,
       curve: tr,
-      smooth: sm,
     });
     setSketches((list) => list.map((s) => (s.status === "running" ? settled(s) : s)));
     setLastSketch((s) => (s ? settled(s) : s));
@@ -546,7 +544,7 @@ export function DrawScreen({ market }: { market: Market }) {
       </div>
       <div className="flex min-h-0 flex-1 gap-2 px-2 pt-2">
         {phase === "live" || phase === "drawing" || phase === "drawn" ? (
-          <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onSmooth={setSmooth} onUndo={onUndo} smooth={smooth} />
+          <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
         ) : null}
         <div className="min-w-0 flex-1">
         <SketchCanvas
@@ -571,7 +569,6 @@ export function DrawScreen({ market }: { market: Market }) {
           ghost={ghost}
           paused={held && phase === "running"}
           ribbon={ribbon}
-          smooth={smooth}
         />
         </div>
       </div>

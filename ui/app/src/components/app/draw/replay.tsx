@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { type Candle, type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
-import { legPath, lineAt, type Pt, smoothPath, verdictWord } from "@/lib/sketch";
+import { legPath, lineAt, type Pt, verdictWord } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 import type { Sketch } from "./sketches";
 
@@ -82,7 +82,7 @@ export function ReplayChart({ sketch, play = 0, className }: { sketch: Sketch; p
   const { run, runBars, line, y, x, step } = layout(sketch, W, H, { t: 12, b: 18, l: 8, r: 8 });
   const shown = Math.round(frame * run.length);
   const plotted = line.map((p) => ({ x: x(p.t), y: y(p.price) }));
-  const path = sketch.smooth ? smoothPath(plotted) : legPath(plotted);
+  const path = legPath(plotted);
 
   return (
     <svg aria-label="The round, played back" className={cn("block w-full", className)} viewBox={`0 0 ${W} ${H}`}>
@@ -224,18 +224,7 @@ export function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market
   ctx.lineCap = "round";
   ctx.beginPath();
   const pts = line.map((p) => ({ x: X(p.t), y: Y(p.price) }));
-  if (sketch.smooth && pts.length > 2) {
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = pts[i - 1] ?? pts[i];
-      const p1 = pts[i];
-      const p2 = pts[i + 1];
-      const p3 = pts[i + 2] ?? p2;
-      ctx.bezierCurveTo(p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6, p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6, p2.x, p2.y);
-    }
-  } else {
-    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-  }
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
   ctx.stroke();
   ctx.setLineDash([]);
 

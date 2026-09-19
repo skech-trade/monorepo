@@ -7,7 +7,7 @@ import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type Candle, type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
-import { legPath, type Outcome, type Pt, smoothPath, verdictWord } from "@/lib/sketch";
+import { legPath, type Outcome, type Pt, verdictWord } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 import { exportPng, recordWebm, ReplayChart, shareOrSave } from "./replay";
 
@@ -33,7 +33,6 @@ export type Sketch = {
   right?: number;
   /** The line the model traded: the handles, or the curve through them. */
   curve?: Pt[];
-  smooth?: boolean;
 };
 
 export function SketchThumb({ sketch, className }: { sketch: Sketch; className?: string }) {
@@ -49,7 +48,7 @@ export function SketchThumb({ sketch, className }: { sketch: Sketch; className?:
   return (
     <svg aria-hidden="true" className={cn("rounded-md border bg-muted/40", className)} viewBox={`0 0 ${W} ${H}`}>
       <line stroke="var(--muted-foreground)" strokeDasharray="2 3" strokeOpacity="0.5" x1="0" x2={W} y1={y(sketch.entry)} y2={y(sketch.entry)} />
-      <path d={sketch.smooth ? smoothPath(pts) : legPath(pts)} fill="none" stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d={legPath(pts)} fill="none" stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
       {head ? <circle cx={head.x} cy={head.y} fill="var(--brand)" r="2.4" /> : null}
     </svg>
   );

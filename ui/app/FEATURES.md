@@ -27,10 +27,8 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - Points is the default: one click places a point, the line joins them. A
   click on the empty chart with no line down starts one from the live price
   and lands the point where you clicked; no drag needed. Pen drags a stroke
-  that settles into its few turning points on release. Smooth toggles a
-  Catmull-Rom curve through the same points, and the quote, ribbon and score
-  follow the curve. Undo, Clear. Shapes menu with eight calls drawn as
-  diagrams at the chart's scale.
+  that settles into its few turning points on release. Undo, Clear. Shapes
+  menu with eight calls drawn as diagrams at the chart's scale.
 - Every point is a handle once the line is down: drag to move (both axes,
   held between its neighbours in time), double-click to remove, click the
   empty future to insert one there. While a round plays out the points ahead

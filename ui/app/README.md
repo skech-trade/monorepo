@@ -37,9 +37,8 @@ src/components/app the screen: app-bar, market-header, account-card, desk,
 along its foot. Drag a line into the empty half, the bar reads it as where
 you're aiming and where you're out, quotes "if it gets there" and "the most
 you can lose" at the stake and leverage you pick, and one button draws it in.
-Points is the default tool: click to place, Smooth bends the line into a
-curve. Pen, Undo, Clear and a Shapes menu sit in a rail on the chart; every
-point is a handle. It plays out against a simulated feed and settles on the
+Points is the default tool: click to place. Pen, Undo, Clear and a Shapes
+menu sit in a rail on the chart; every point is a handle. It plays out against a simulated feed and settles on the
 rule it was quoted on, then the Rounds sheet opens with the round drawn back:
 Replay, Picture (PNG), Clip (WebM) and Show your call, all done in the
 browser. Every round is kept there. **Desk** is the terminal: chart with

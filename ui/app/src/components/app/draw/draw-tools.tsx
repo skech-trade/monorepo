@@ -1,11 +1,10 @@
 "use client";
 
-import { EraserIcon, ShapesIcon, SplineIcon, Undo2Icon, WaypointsIcon } from "lucide-react";
+import { EraserIcon, ShapesIcon, Undo2Icon, WaypointsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { legPath } from "@/lib/sketch";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu";
 import { Separator } from "@/components/ui/separator";
-import { Toggle } from "@/components/ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
@@ -77,16 +76,12 @@ export function DrawTools({
   onUndo,
   onClear,
   onPreset,
-  smooth,
-  onSmooth,
 }: {
   canUndo: boolean;
   onUndo: () => void;
   onClear: () => void;
   onPreset: (preset: Preset) => void;
   /** Curve between the points, or straight legs. */
-  smooth: boolean;
-  onSmooth: (smooth: boolean) => void;
 }) {
   return (
     /*
@@ -107,11 +102,6 @@ export function DrawTools({
         <span className="flex size-10 items-center justify-center rounded-xl bg-accent text-foreground">
           <WaypointsIcon />
         </span>
-      </Tip>
-      <Tip words={smooth ? "Curved between points. Press for straight legs." : "Straight between points. Press for a curve."}>
-        <Toggle aria-label="Curve the line" className="size-10 rounded-xl" onPressedChange={onSmooth} pressed={smooth}>
-          <SplineIcon />
-        </Toggle>
       </Tip>
 
       <Separator className="my-0.5 w-6" orientation="horizontal" />
