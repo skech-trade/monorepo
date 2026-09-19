@@ -10,7 +10,7 @@ const FEATURES = [
   {
     image: "leverage",
     title: "Boost up to 50×",
-    description: "Put in a little, trade like a lot. It cuts both ways \u2014 never more than you put in."
+    description: "Put in a little, trade like a lot.",
   },
   {
     image: "fees",
