@@ -84,7 +84,15 @@ export function PlaceTicket({
           reading "Size $100" and "Leverage 10x". Everything but the side and
           what the leverage turns the stake into was already on screen, twice.
         */
-        <Popover onOpenChange={setOpen} open={open}>
+        <>
+          {/* Somewhere to put it down and start over, next to the button that
+              commits it. Taken out when the header was being thinned and
+              missed at once: a line you have decided against needs an exit
+              that is not the eraser in the far rail. */}
+          <Button className="hidden md:inline-flex" onClick={onDrawAgain} variant="ghost">
+            Draw again
+          </Button>
+          <Popover onOpenChange={setOpen} open={open}>
           {/*
             Blue, whichever way the line goes.
 
@@ -101,15 +109,24 @@ export function PlaceTicket({
           </PopoverTrigger>
           <PopoverPopup align="end" className="w-auto max-w-xs px-3 py-2">
             <p className="text-sm">
+              {/*
+                No long, no short.
+
+                "Short Bitcoin" is the trade a desk would book, and it is the
+                wrong sentence on a screen whose whole claim is that you never
+                have to learn that vocabulary. What you did was say which way it
+                goes, so the ticket says it back in the words you said it in.
+              */}
               <span className="font-medium">
-                {long ? "Long" : "Short"} {market.name}
+                {market.name} going {long ? "up" : "down"}
               </span>
               <span className="text-muted-foreground">, trading like </span>
               <span className="figures">${usd(quote.notional, 0)}</span>
               <span className="text-muted-foreground">.</span>
             </p>
           </PopoverPopup>
-        </Popover>
+          </Popover>
+        </>
       ) : null}
 
       {/* Plainly what it does, like the button that opened it. "Take it off
