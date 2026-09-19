@@ -24,9 +24,13 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - Chart you draw on. History on the left, an empty half on the right, a "now"
   divider, a faint hint of the gesture, one line of instruction.
 - Live simulated feed, one candle a second, forming candle updates within it.
-- Points is the default: click to place a point, the curve joins them. Pen
-  drags a stroke that settles into its few turning points on release. Undo,
-  Clear. Shapes menu with three common calls drawn at the chart's scale.
+- Points is the default: one click places a point, the line joins them. A
+  click on the empty chart with no line down starts one from the live price
+  and lands the point where you clicked; no drag needed. Pen drags a stroke
+  that settles into its few turning points on release. Smooth toggles a
+  Catmull-Rom curve through the same points, and the quote, ribbon and score
+  follow the curve. Undo, Clear. Shapes menu with eight calls drawn as
+  diagrams at the chart's scale.
 - Every point is a handle once the line is down: drag to move (both axes,
   held between its neighbours in time), double-click to remove, click the
   empty future to insert one there. While a round plays out the points ahead
@@ -66,11 +70,18 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   "Take it off now".
 - Settled on the same rule as the quote, on the wick, adverse level first:
   called it / out where you drew it / time's up / taken off / wiped out.
-  Toast. Result card with the sketch as a picture, "Show your call" (share or
-  copy), "Draw another".
-- Your lines: every sketch as a thumbnail with side, stake at leverage, entry
-  price, P&L and status, in a side sheet opened from the bar. Two seeded lines
-  from earlier.
+  Toast. The Rounds sheet opens on the round just played: Round N, the verdict
+  word and the money as one line, a streak pill when two or more came good in
+  a row, then the round drawn back on a canvas (your line dashed, the candles
+  that arrived, the ribbon coloured by how it went).
+- Replay and export, all client side: Replay animates the candles back in,
+  Picture saves a PNG of the round, Clip records the replay to a WebM with the
+  MediaRecorder API, "Show your call" shares the spoiler-free text (Web Share
+  where it exists, clipboard otherwise). New trade clears the board.
+- Rounds keeps every sketch under the card: thumbnail, stake at leverage, in
+  and out prices, money and how much of the way was right. Click a row to put
+  it in the card. Two seeded rounds from earlier. Replaces both the settle
+  popup and the old Your lines sheet.
 - Layout: one full-width chart card. Market and tools above the plot, the bar
   below it. Nothing sits over the plot. Draw keeps its own stake and leverage,
   separate from the Desk ticket.

@@ -1,11 +1,15 @@
 "use client";
 
+import { CheckIcon, DownloadIcon, FilmIcon, PlayIcon, Share2Icon } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
-import { type Pt, legPath } from "@/lib/sketch";
+import { type Candle, type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
+import { legPath, type Outcome, type Pt, smoothPath, verdictWord } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
+import { exportPng, recordWebm, ReplayChart, shareOrSave } from "./replay";
 
 /** A sketch is a position you can look at. The list keeps the drawing. */
 export type Sketch = {
@@ -22,6 +26,14 @@ export type Sketch = {
   liquidated?: boolean;
   /** Share of the move that went your way. Over a half means it profited. */
   accuracy?: number;
+  /** The round, kept: what arrived, how long it was, how it ended. */
+  run?: Candle[];
+  runBars?: number;
+  outcome?: Outcome | "closed";
+  right?: number;
+  /** The line the model traded: the handles, or the curve through them. */
+  curve?: Pt[];
+  smooth?: boolean;
 };
 
 export function SketchThumb({ sketch, className }: { sketch: Sketch; className?: string }) {
@@ -37,9 +49,121 @@ export function SketchThumb({ sketch, className }: { sketch: Sketch; className?:
   return (
     <svg aria-hidden="true" className={cn("rounded-md border bg-muted/40", className)} viewBox={`0 0 ${W} ${H}`}>
       <line stroke="var(--muted-foreground)" strokeDasharray="2 3" strokeOpacity="0.5" x1="0" x2={W} y1={y(sketch.entry)} y2={y(sketch.entry)} />
-      <path d={legPath(pts)} fill="none" stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d={sketch.smooth ? smoothPath(pts) : legPath(pts)} fill="none" stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
       {head ? <circle cx={head.x} cy={head.y} fill="var(--brand)" r="2.4" /> : null}
     </svg>
+  );
+}
+
+/** Wins in a row, counting back from the latest settled round. */
+export function streakOf(sketches: Sketch[]): number {
+  let n = 0;
+  for (const s of sketches) {
+    if (s.status !== "settled") continue;
+    if (s.net >= 0) n += 1;
+    else break;
+  }
+  return n;
+}
+
+/**
+ * The latest round, as a card: the word, the money, a replay you can run
+ * again, and the picture or clip to send. This is where a round ends now,
+ * in the same place every earlier round is listed, rather than in a dialog
+ * over the chart.
+ */
+export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: Sketch; market: Market; round: number; streak: number; onNext?: () => void }) {
+  const [play, setPlay] = useState(1);
+  const [busy, setBusy] = useState<"png" | "webm" | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const won = sketch.net >= 0;
+  const right = sketch.right ?? sketch.accuracy ?? 0;
+  const pct = Math.round(right * 100);
+  const word = verdictWord(sketch.outcome ?? "time", right, sketch.net);
+  const tone = sketch.liquidated ? "text-down" : pct >= 70 ? "text-up" : pct >= 50 ? "text-foreground" : "text-down";
+  const text = `skech · round ${round} · ${market.symbol} ${sketch.long ? "up" : "down"} · ${word}, ${signedUsd(sketch.net, 0)} on $${usd(sketch.stake, 0)} · skech.trade`;
+
+  const send = async (kind: "png" | "webm") => {
+    setBusy(kind);
+    try {
+      const blob = kind === "png" ? await exportPng(sketch, market) : await recordWebm(sketch, market);
+      const how = await shareOrSave(blob, `skech-round-${round}.${kind}`, text);
+      setDone(how === "shared" ? "Shared" : "Saved");
+      setTimeout(() => setDone(null), 1800);
+    } catch {
+      // Dismissed, or the browser cannot record. Nothing to say.
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-muted-foreground text-xs">Round {round}</span>
+        <span className={cn("font-semibold text-2xl leading-none", tone)}>{word}</span>
+        <span className={cn("figures font-semibold text-2xl leading-none", won ? "text-up" : "text-down")}>{signedUsd(sketch.net)}</span>
+        <span className="text-muted-foreground text-xs">
+          on ${usd(sketch.stake, 0)} at {sketch.leverage}×
+        </span>
+        {streak >= 2 ? <span className="ml-auto rounded-full bg-success/12 px-2 py-0.5 font-medium text-up text-xs">{streak} in a row</span> : null}
+      </div>
+
+      <div className="overflow-hidden rounded-xl border bg-muted/30">
+        {sketch.run && sketch.run.length > 0 ? <ReplayChart play={play} sketch={sketch} /> : <SketchThumb className="h-40 w-full" sketch={sketch} />}
+      </div>
+
+      {/* Every minute, green where it paid. */}
+      {sketch.run && sketch.run.length > 0 ? (
+        <p className="text-muted-foreground text-xs">
+          Right <span className="figures text-foreground">{pct}%</span> of the way. In at <span className="figures text-foreground">${fmtPrice(sketch.entry)}</span>
+          {sketch.exit !== undefined ? (
+            <>
+              , out at <span className="figures text-foreground">${fmtPrice(sketch.exit)}</span>
+            </>
+          ) : null}
+          .
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={() => setPlay((n) => n + 1)} size="sm" variant="outline">
+          <PlayIcon />
+          Replay
+        </Button>
+        <Button disabled={busy !== null} loading={busy === "png"} onClick={() => send("png")} size="sm" variant="outline">
+          <DownloadIcon />
+          Picture
+        </Button>
+        <Button disabled={busy !== null} loading={busy === "webm"} onClick={() => send("webm")} size="sm" variant="outline">
+          <FilmIcon />
+          Clip
+        </Button>
+        <Button
+          onClick={async () => {
+            try {
+              if (typeof navigator.share === "function") await navigator.share({ text });
+              else {
+                await navigator.clipboard.writeText(text);
+                setDone("Copied");
+                setTimeout(() => setDone(null), 1800);
+              }
+            } catch {
+              // Dismissed.
+            }
+          }}
+          size="sm"
+        >
+          {done ? <CheckIcon /> : <Share2Icon />}
+          {done ?? "Show your call"}
+        </Button>
+        {onNext ? (
+          <Button className="ml-auto" onClick={onNext} size="sm" variant="ghost">
+            New trade
+          </Button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -118,15 +242,29 @@ export function SketchList({ sketches }: { sketches: Sketch[] }) {
   );
 }
 
-export function SketchesSheet({ open, onOpenChange, sketches, market }: { open: boolean; onOpenChange: (open: boolean) => void; sketches: Sketch[]; market: Market }) {
+export function RoundsSheet({
+  open,
+  onOpenChange,
+  sketches,
+  market,
+  onNext,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  sketches: Sketch[];
+  market: Market;
+  onNext?: () => void;
+}) {
   const total = sketches.reduce((sum, s) => sum + s.net, 0);
   const settled = sketches.filter((s) => s.status === "settled");
   const won = settled.filter((s) => s.net >= 0).length;
+  const latest = settled[0];
+  const streak = streakOf(sketches);
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetPopup className="sm:max-w-2xl" side="right" variant="inset">
         <SheetHeader>
-          <SheetTitle>Your lines</SheetTitle>
+          <SheetTitle>Rounds</SheetTitle>
           <SheetDescription>
             {market.name} today &middot; <span className={cn("figures", total >= 0 ? "text-up" : "text-down")}>{signedUsd(total)}</span>
             {settled.length > 0 ? (
@@ -137,9 +275,12 @@ export function SketchesSheet({ open, onOpenChange, sketches, market }: { open: 
             ) : null}
           </SheetDescription>
         </SheetHeader>
-        {/* Flush to the panel's edges, the way the desk's own tables sit: the
-            row is the unit and its hairline should reach both sides. */}
         <SheetPanel className="p-0">
+          {latest ? (
+            <div className="border-b">
+              <RoundCard market={market} onNext={onNext} round={settled.length} sketch={latest} streak={streak} />
+            </div>
+          ) : null}
           <SketchList sketches={sketches} />
         </SheetPanel>
       </SheetPopup>

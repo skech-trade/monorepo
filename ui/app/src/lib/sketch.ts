@@ -522,6 +522,56 @@ export function extend(c: Candle, vol: number): Candle {
  * Straight segments also say what the handles are for. Two of them and the bit
  * between is a leg; that is the whole grammar.
  */
+/**
+ * Catmull-Rom through the points, as one cubic path. A line drawn by hand
+ * reads as one movement; straight legs read as a plan. Both are offered.
+ */
+export function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length === 0) return "";
+  if (pts.length < 3) return legPath(pts);
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    d +=
+      ` C ${(p1.x + (p2.x - p0.x) / 6).toFixed(1)} ${(p1.y + (p2.y - p0.y) / 6).toFixed(1)}` +
+      ` ${(p2.x - (p3.x - p1.x) / 6).toFixed(1)} ${(p2.y - (p3.y - p1.y) / 6).toFixed(1)}` +
+      ` ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+
+/**
+ * The same curve, as points the model can trade: the Catmull-Rom spline
+ * through the handles, sampled `per` times between each pair. Time never
+ * goes backwards, so it is sampled on t and the price is interpolated.
+ */
+export function curveSample(pts: Pt[], per = 6): Pt[] {
+  if (pts.length < 3) return pts;
+  const out: Pt[] = [pts[0]];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    for (let k = 1; k <= per; k++) {
+      const u = k / per;
+      const u2 = u * u;
+      const u3 = u2 * u;
+      const price =
+        0.5 *
+        (2 * p1.price +
+          (-p0.price + p2.price) * u +
+          (2 * p0.price - 5 * p1.price + 4 * p2.price - p3.price) * u2 +
+          (-p0.price + 3 * p1.price - 3 * p2.price + p3.price) * u3);
+      out.push({ t: p1.t + (p2.t - p1.t) * u, price });
+    }
+  }
+  return out;
+}
+
 export function legPath(pts: { x: number; y: number }[]): string {
   if (pts.length === 0) return "";
   return pts

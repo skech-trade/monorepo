@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toastManager } from "@/components/ui/toast";
 import { type Candle, candlesFor, price as fmtPrice, type Market, usd } from "@/lib/market";
-import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
+import { accuracyOf, curveSample, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { PlaceTicket } from "./place-ticket";
-import { SettleDialog } from "./settle-dialog";
 import { DrawTools, type Preset, PRESETS } from "./draw-tools";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
 import { type Result, SketchBar } from "./sketch-tray";
-import { seedSketches, type Sketch, SketchesSheet } from "./sketches";
+import { RoundsSheet, seedSketches, type Sketch } from "./sketches";
 
 /**
  * Draw. The chart, the line you put on it, what the line is worth.
@@ -96,6 +95,10 @@ export function DrawScreen({ market }: { market: Market }) {
   const [lastSketch, setLastSketch] = useState<Sketch | null>(null);
   /** The point under the finger, while one is. */
   const dragIndex = useRef<number | null>(null);
+  /** Curve between the points, or straight legs. The model follows it. */
+  const [smooth, setSmooth] = useState(false);
+  /** Where the finger landed, for a tap that becomes a point. */
+  const tapAt = useRef<Pt | null>(null);
   /**
    * The pen is down on a running round, so the clock waits.
    *
@@ -131,7 +134,9 @@ export function DrawScreen({ market }: { market: Market }) {
     const shift = price - pts[0].price;
     return pts.map((p) => ({ ...p, price: p.price + shift }));
   }, [riding, pts, price]);
-  const shape = useMemo(() => shapeOf(view, entryView), [view, entryView]);
+  /** What the model reads: the handles, or the curve through them. */
+  const traded = useMemo(() => (smooth ? curveSample(view) : view), [smooth, view]);
+  const shape = useMemo(() => shapeOf(traded, entryView), [traded, entryView]);
   const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage) : null), [shape, entryView, stake, leverage]);
   const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage) : null), [run, shape, entry, stake, leverage]);
   const ribbon = useMemo(() => ribbonFor(feed), [feed]);
@@ -141,13 +146,13 @@ export function DrawScreen({ market }: { market: Market }) {
     [lastSketch, phase, price],
   );
 
-  const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon, runBars });
+  const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, traded, smooth });
   useEffect(() => {
-    live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon, runBars };
+    live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, traded, smooth };
   });
 
   const finish = useCallback((bars: Candle[], early: boolean) => {
-    const { shape: sh, entry: en, stake: st, leverage: lev, runBars: rbars } = live.current;
+    const { shape: sh, entry: en, stake: st, leverage: lev, runBars: rbars, traded: tr, smooth: sm } = live.current;
     if (!sh) return;
     const bk = settle(bars, sh, en, st, lev);
     const acc = accuracyOf(bars, sh.prices, rbars, sh.long);
@@ -169,12 +174,29 @@ export function DrawScreen({ market }: { market: Market }) {
       moment is the same sentence twice, in two places, one of which is where
       this app puts things you did not ask about.
     */
-    const settled = (s: Sketch): Sketch => ({ ...s, status: "settled", net: bk.net, exit: bk.exit, liquidated: done === "liquidated", accuracy: acc.right });
+    // The round is kept whole on its record: the candles that came, how long it
+    // was, the line the model traded. That is what replays and what exports.
+    const settled = (s: Sketch): Sketch => ({
+      ...s,
+      status: "settled",
+      net: bk.net,
+      exit: bk.exit,
+      liquidated: done === "liquidated",
+      accuracy: acc.right,
+      right: acc.right,
+      outcome: res.outcome,
+      run: bars,
+      runBars: rbars,
+      curve: tr,
+      smooth: sm,
+    });
     setSketches((list) => list.map((s) => (s.status === "running" ? settled(s) : s)));
     setLastSketch((s) => (s ? settled(s) : s));
     // The round stays on screen: dashed line, coloured ribbon, the gap. It
-    // folds into history when the next line starts.
+    // folds into history when the next line starts. And the rounds sheet
+    // opens on it, where every earlier round already is.
     setPhase("settled");
+    setListOpen(true);
   }, []);
 
   /** Put a finished round behind us before the next one. */
@@ -357,6 +379,9 @@ export function DrawScreen({ market }: { market: Market }) {
     }
     if (phase === "running") return;
     // Nothing drawn yet: this is a stroke, and the line follows the finger.
+    // If the finger lifts without moving, it was a click, and a click is a
+    // point: the line starts at now and ends where you clicked.
+    tapAt.current = pt;
     begin(pt);
     setPhase("drawing");
   };
@@ -403,11 +428,19 @@ export function DrawScreen({ market }: { market: Market }) {
     penDown.current = false;
     setHeld(false);
     if (drew) {
-      // A tap is not a line. Otherwise the stroke settles into the turns that
-      // shape it, so it edits as handles from here on.
+      // A tap is a point. The line runs from now to where you clicked, and
+      // the next click adds the next point. A stroke settles into the turns
+      // that shape it, so it edits as handles from here on either way.
       if (kept.current < 3) {
-        setPts([]);
-        setPhase("live");
+        const at = tapAt.current;
+        if (!at) {
+          setPts([]);
+          setPhase("live");
+          return;
+        }
+        const t = coverTo(Math.max(at.t, 0.03));
+        setPts([{ t: 0, price }, { t, price: at.price + anchor.current }]);
+        setPhase("drawn");
         return;
       }
       setPts((p) => simplify(p, band.hi - band.lo, entry));
@@ -484,18 +517,6 @@ export function DrawScreen({ market }: { market: Market }) {
 
   return (
     <section aria-label="Draw" className="m-2 flex min-h-[24rem] flex-1 flex-col overflow-hidden rounded-2xl border bg-background">
-      <SettleDialog
-        market={market}
-        onDrawAgain={() => {
-          fold();
-          setPhase("live");
-        }}
-        phase={phase}
-        result={result}
-        sketch={lastSketch}
-        stake={stake}
-      />
-
       {/*
         The market on the left, what it costs and the button hard right, on the
         chart's own header rather than the app bar. Size and leverage decide
@@ -525,7 +546,7 @@ export function DrawScreen({ market }: { market: Market }) {
       </div>
       <div className="flex min-h-0 flex-1 gap-2 px-2 pt-2">
         {phase === "live" || phase === "drawing" || phase === "drawn" ? (
-          <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
+          <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onSmooth={setSmooth} onUndo={onUndo} smooth={smooth} />
         ) : null}
         <div className="min-w-0 flex-1">
         <SketchCanvas
@@ -550,6 +571,7 @@ export function DrawScreen({ market }: { market: Market }) {
           ghost={ghost}
           paused={held && phase === "running"}
           ribbon={ribbon}
+          smooth={smooth}
         />
         </div>
       </div>
@@ -568,7 +590,17 @@ export function DrawScreen({ market }: { market: Market }) {
           sketches={shown}
         />
       </div>
-      <SketchesSheet market={market} onOpenChange={setListOpen} open={listOpen} sketches={shown} />
+      <RoundsSheet
+        market={market}
+        onNext={() => {
+          setListOpen(false);
+          fold();
+          setPhase("live");
+        }}
+        onOpenChange={setListOpen}
+        open={listOpen}
+        sketches={shown}
+      />
     </section>
   );
 }

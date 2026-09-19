@@ -11,7 +11,7 @@ import {
 import { ChevronLeftIcon, ChevronRightIcon, CrosshairIcon, RotateCcwIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
-import { lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
+import { lineAt, type Pt, type Shape, legPath, smoothPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
 /**
@@ -126,6 +126,7 @@ export function SketchCanvas({
   ghost,
   ribbon,
   paused,
+  smooth = false,
   className,
 }: {
   feed: Candle[];
@@ -161,6 +162,8 @@ export function SketchCanvas({
   ribbon: number;
   /** The clock is waiting on your hand. */
   paused?: boolean;
+  /** A curve through the points rather than straight legs. */
+  smooth?: boolean;
   className?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -421,6 +424,7 @@ export function SketchCanvas({
   }, [pushing]);
 
   const plotted = pts.map((pt) => ({ x: xOfT(pt.t), y: y(pt.price) }));
+  const linePath = smooth ? smoothPath : legPath;
   const ribbonPx = Math.min(36, (ribbon / span) * (plotB - plotT));
   const drawing = phase === "drawing";
   const hasLine = plotted.length > 1;
@@ -526,7 +530,7 @@ export function SketchCanvas({
           {/* Your last line, moved to today's price, so a habit shows. */}
           {ghost && ghost.length > 1 && phase === "live" ? (
             <path
-              d={legPath(ghost.map((pt) => ({ x: xOfT(pt.t), y: y(pt.price) })))}
+              d={linePath(ghost.map((pt) => ({ x: xOfT(pt.t), y: y(pt.price) })))}
               fill="none"
               stroke="var(--muted-foreground)"
               strokeDasharray="4 4"
@@ -551,7 +555,7 @@ export function SketchCanvas({
               {/* Mitred, like the line it wraps. Round joins put a dome on the outside
                   of every turn, which is the one place the band should come to a
                   point: a turn is where one position ends and the next begins. */}
-              <path d={legPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin="miter" strokeMiterlimit={2} strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
+              <path d={linePath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin={smooth ? "round" : "miter"} strokeMiterlimit={2} strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
               {/*
                 Coloured by what each candle made, not by whether it landed in
                 the ribbon.
@@ -594,12 +598,12 @@ export function SketchCanvas({
                 <polyline fill="none" points={plotted.map((p) => `${p.x},${p.y}`).join(" ")} stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="miter" strokeMiterlimit={2} strokeWidth="2.4" />
               ) : (
                 <path
-                  d={legPath(plotted)}
+                  d={linePath(plotted)}
                   fill="none"
                   stroke="var(--brand)"
                   strokeDasharray={phase === "settled" ? "5 4" : undefined}
                   strokeLinecap="round"
-                  strokeLinejoin="miter"
+                  strokeLinejoin={smooth ? "round" : "miter"}
                   strokeMiterlimit={2}
                   strokeOpacity={phase === "running" ? 0.7 : phase === "settled" ? 0.6 : 1}
                   strokeWidth="2.4"

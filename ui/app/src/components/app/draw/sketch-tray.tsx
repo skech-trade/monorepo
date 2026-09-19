@@ -76,7 +76,7 @@ export function SketchBar({
 }) {
   const lines = (
     <Button onClick={onOpenList} variant="outline">
-      Your lines <span className="figures text-muted-foreground">{openCount}</span>
+      Rounds <span className="figures text-muted-foreground">{openCount}</span>
     </Button>
   );
 
@@ -142,11 +142,11 @@ export function SketchBar({
       controls for starting again.
 
       What stays is the trend across rounds, which is about you rather than
-      about this round, and the way back to your lines.
+      about this round, and the way back to Rounds.
     */
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <span className="mr-auto text-muted-foreground">That one&rsquo;s done. Start a new trade when you&rsquo;re ready.</span>
+        <span className="mr-auto text-muted-foreground">That one&rsquo;s done. It&rsquo;s in Rounds, with the replay. Start a new trade when you&rsquo;re ready.</span>
         {/* Your last rounds, as bars. A trend, not a coin flip. */}
         {recent.length > 1 ? (
           <span aria-label="Your recent rounds" className="flex h-6 items-end gap-0.5" title="How much of each move you called, last rounds">
