@@ -102,7 +102,7 @@ export function SketchBar({
             what it costs — and that a point can still be moved. */}
         <p className="mr-auto max-w-[34rem] text-muted-foreground">
           if it gets to <F>${fmtPrice(shape.target)}</F>, after fees. Most you can lose <F tone="text-down">${usd(quote.mostLose, 0)}</F>, wiped out at{" "}
-          <F>${fmtPrice(quote.wipedAt)}</F>. Runs <F>{Math.round(runBars)}</F> minutes, as long as the line. Drag a point to change it.
+          <F>${fmtPrice(quote.wipedAt)}</F>. Runs <F>{Math.round(runBars)}</F> seconds, as long as the line. Drag a point to change it.
         </p>
         {lines}
       </div>

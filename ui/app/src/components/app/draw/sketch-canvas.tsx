@@ -121,7 +121,7 @@ export function SketchCanvas({
   onRemove,
   editableFrom,
   headLabel,
-  horizonMinutes,
+  horizonSeconds,
   ghost,
   ribbon,
   className,
@@ -147,10 +147,10 @@ export function SketchCanvas({
   /** What the line is worth where it ends, shown at the head while drawing. */
   headLabel?: string | null;
   /**
-   * How much future the right half shows, in minutes. Not the round's length:
+   * How much future the right half shows, in seconds. Not the round's length:
    * the round is free to grow past it and arrive as the chart scrolls.
    */
-  horizonMinutes: number;
+  horizonSeconds: number;
   /** Your last line, faint, so you notice your habits. */
   ghost: Pt[] | null;
   /** Half the ribbon's height, in price. */
@@ -202,7 +202,7 @@ export function SketchCanvas({
    * that arrives pushes the whole chart — the history, the run so far, your
    * line — one bar to the left, and a bar of fresh canvas appears on the right.
    * That canvas is the point of this: it is room to draw into, and drawing into
-   * it is how the round gets longer. The right half is always `horizonMinutes`
+   * it is how the round gets longer. The right half is always `horizonSeconds`
    * ahead of now, whatever length the round itself has grown to.
    *
    * It did not move before. The round's end sat on the right edge and stayed
@@ -215,7 +215,7 @@ export function SketchCanvas({
   // to: a round that never outgrew the window keeps the window's own scale, and
   // the picture does not lurch at the moment it finishes.
   const fit = phase === "settled" ? (runBars * (plotR - split)) / Math.max(1, split - plotL) : 0;
-  const VIEW = Math.max(1, horizonMinutes, fit);
+  const VIEW = Math.max(1, horizonSeconds, fit);
   const baseStep = (plotR - split) / VIEW;
   const runStep = baseStep * view.zoom;
   const elapsed = phase === "running" || phase === "settled" ? run.length : 0;
@@ -229,6 +229,18 @@ export function SketchCanvas({
   const tOfX = (x: number) => barOfX(x) / runBars;
   /** Where now actually is: the split, until you pan away from it. */
   const xNow = xOfBar(elapsed);
+  /*
+    A bar is a second, so the axis counts in seconds and only says minutes once
+    it would otherwise be reading "+124s". It said "+24m" on a round that
+    finished in twelve seconds, which is the sort of thing a reader notices and
+    then stops trusting the rest of the numbers.
+  */
+  const label = (bars: number) => {
+    const s = Math.round(bars);
+    if (Math.abs(s) < 90) return `${s > 0 ? "+" : ""}${s}s`;
+    const m = Math.round(s / 6) / 10;
+    return `${m > 0 ? "+" : ""}${m}m`;
+  };
   /** Held where there is something to see, as the reference clamps its own. */
   const holdAnchor = (a: number) => Math.min(Math.max(a, -feed.length), Math.max(runBars, elapsed) + VIEW);
 
@@ -538,7 +550,7 @@ export function SketchCanvas({
           {[0.2, 0.4, 0.6, 0.8, 1].map((f) => {
             const x = plotL + f * (plotR - plotL);
             if (Math.abs(x - xNow) < 34) return null;
-            const m = Math.round(barOfX(x) - elapsed);
+            const away = barOfX(x) - elapsed;
             return (
               <text
                 fill="var(--muted-foreground)"
@@ -549,7 +561,7 @@ export function SketchCanvas({
                 x={x}
                 y={plotB + 15}
               >
-                {m > 0 ? `+${m}m` : `${m}m`}
+                {label(away)}
               </text>
             );
           })}
@@ -746,7 +758,7 @@ export function SketchCanvas({
           className="figures pointer-events-none absolute -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 text-[11px] leading-4 shadow-xs/5"
           style={{ left: hover.x, top: plotB + 4 }}
         >
-          +{Math.round(barOfX(hover.x) - elapsed)}m
+          {label(barOfX(hover.x) - elapsed)}
         </span>
       ) : null}
 

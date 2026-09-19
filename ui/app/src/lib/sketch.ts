@@ -73,6 +73,22 @@ export const VENUE: keyof typeof VENUES = "lighter";
 
 /** Taker fee per side. Charged twice a leg: once in, once out. */
 export const FEE = VENUES[VENUE].taker;
+
+/**
+ * How long between asking for a fill and getting one, as a share of a candle.
+ *
+ * Lighter's standard accounts are delayed 300ms on a taker order by design —
+ * that delay is what lets them charge nothing, because flow that slow cannot
+ * pick off a market maker. Assume 500ms with our own hop on top of it. A
+ * candle here is a second, so half of one.
+ *
+ * It is not a cost. A market that is not trading against you specifically
+ * drifts both ways, and nobody front-runs a hand-drawn line. It is variance:
+ * every fill lands at the price half a second after the moment you meant, and
+ * on a tape moving six dollars a second that is about three and a half dollars
+ * either side of what you saw.
+ */
+export const LATENCY_BARS = 0.5;
 /** The venue closes a leg when equity falls to this fraction of notional. */
 const MAINT = 0.0125;
 
@@ -369,6 +385,18 @@ export function settle(
   if (last === 0) return { net: 0, done: null, exit: entry };
   /** The market price when this many candles of the round had arrived. */
   const priceAt = (i: number) => (i <= 0 ? entry : (bars[Math.min(last, i) - 1]?.c ?? entry));
+  /**
+   * Where an order actually fills: the price a latency later, not the one that
+   * was on screen when the leg turned. Between two candles it is read across
+   * the gap rather than snapped to one of them, because half a second is half
+   * a candle and rounding it to a whole one would double the delay or erase it.
+   */
+  const fillAt = (i: number) => {
+    const at = i + LATENCY_BARS;
+    const whole = Math.floor(at);
+    const part = at - whole;
+    return priceAt(whole) + (priceAt(whole + 1) - priceAt(whole)) * part;
+  };
   /** A sample index on the drawing, to a candle of the round. */
   const barOf = (sample: number) => Math.round((sample / (SAMPLES - 1)) * runBars);
 
@@ -379,7 +407,7 @@ export function settle(
     const from = barOf(leg.from);
     if (from >= last) break;
     const to = barOf(leg.to);
-    const open = priceAt(from);
+    const open = fillAt(from);
     const notional = equity * leverage;
     const q = notional / open;
     const liq = liquidationPrice(open, equity, leverage, leg.dir);
@@ -390,7 +418,7 @@ export function settle(
       if (leg.dir * (worst - liq) <= 0) return { net: -stake, done: "liquidated", exit: liq };
     }
 
-    const close = priceAt(Math.min(to, last));
+    const close = fillAt(Math.min(to, last));
     equity += leg.dir * q * (close - open) - FEE * notional * 2;
     exit = close;
     if (equity <= 0) return { net: -stake, done: "liquidated", exit: close };
