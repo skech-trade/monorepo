@@ -506,6 +506,19 @@ export function SketchCanvas({
             const behind = phase === "settled" ? 1 : editableFrom;
             if (!next || pts[i].t > behind) return null;
             const buy = next.price > pts[i].price;
+            /*
+              Only where the direction actually changes.
+
+              A bend in the middle of a rise is not a trade. Editing a handle
+              can leave two rising segments joined at a point — the compiler
+              reads that as one long, quite rightly, because nothing closes
+              there — but marking every point put a "Buy" on each of them, five
+              in a row up one hill, as though the position were being sold and
+              bought back at every kink. The first point is the entry; after
+              that a mark belongs only where the line turns round.
+            */
+            const prev = pts[i - 1];
+            if (prev && buy === pts[i].price > prev.price) return null;
             return (
               <span
                 className={cn(
