@@ -124,7 +124,6 @@ export function SketchCanvas({
   horizonMinutes,
   ghost,
   ribbon,
-  paused,
   className,
 }: {
   feed: Candle[];
@@ -156,8 +155,6 @@ export function SketchCanvas({
   ghost: Pt[] | null;
   /** Half the ribbon's height, in price. */
   ribbon: number;
-  /** The clock is waiting on your hand. */
-  paused?: boolean;
   className?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -188,13 +185,6 @@ export function SketchCanvas({
     leaves nothing stale on screen for a frame.
   */
   const [seenPhase, setSeenPhase] = useState(phase);
-  if (seenPhase !== phase) {
-    setSeenPhase(phase);
-    // Back to following on a fresh line, and again when one is finished: the
-    // pen may have run the view a long way ahead of now to make room, and the
-    // finished plan wants showing whole.
-    if (phase === "live" || phase === "drawn") setView({ zoom: 1, anchor: null });
-  }
 
   const plotL = PAD_L;
   const plotR = Math.max(plotL + 1, w - PAD_R);
@@ -267,6 +257,35 @@ export function SketchCanvas({
   const advance = (bars: number) => setView((v) => ({ ...v, anchor: (v.anchor ?? elapsed) + bars }));
   /** Where the pen is held while it draws: the middle of the plot. */
   const pivot = (plotL + plotR) / 2;
+
+  /*
+    The finished plan, framed.
+
+    Letting go used to hand the round back at its own scale, which put its last
+    point exactly on the right edge with nothing after it — the line looked cut
+    off rather than finished, and there was nowhere for the eye to land. It sits
+    across the middle sixty percent now: history still readable to the left, a
+    tenth of the plot as air on the right, and the whole of what you drew
+    between them.
+  */
+  const framePlan = () => {
+    const width = plotR - plotL;
+    const x0 = plotL + width * 0.3;
+    const step = (width * 0.6) / Math.max(1, runBars);
+    const base = (plotR - split) / Math.max(1, VIEW);
+    return { zoom: step / base, anchor: (split - x0) / step };
+  };
+
+  if (seenPhase !== phase) {
+    setSeenPhase(phase);
+    /*
+      A fresh line and a started round both want the live candle back on the
+      split. A finished one wants framing: the pen may have run the view a long
+      way ahead of now, and the plan is the thing to look at.
+    */
+    if (phase === "live" || phase === "running") setView({ zoom: 1, anchor: null });
+    else if (phase === "drawn") setView(framePlan());
+  }
   const reset = () => setView({ zoom: 1, anchor: null });
   // Points can still be placed while it runs — ahead of the candles, never behind.
   const canDraw = phase === "live" || phase === "drawn" || phase === "running";
@@ -275,8 +294,17 @@ export function SketchCanvas({
     const r = box.current?.getBoundingClientRect();
     if (!r) return null;
     const x = Math.min(plotR, Math.max(xNow, e.clientX - r.left));
-    const yy = Math.min(plotB, Math.max(plotT, e.clientY - r.top));
-    return { t: tOfX(x), price: priceAtY(yy) };
+    /*
+      Across, the pen is penned in: you cannot draw before now, and the right
+      edge is where the chart runs forward to make room.
+
+      Up and down it is not. Clamping the price to the band meant the top of
+      the plot was the highest call you were allowed to make — draw at the
+      ceiling and the line flattened along it, and the band never learned you
+      had wanted to go higher, because the clamp had already thrown that away.
+      The reading is taken wherever the hand is and the scale opens to meet it.
+    */
+    return { t: tOfX(x), price: priceAtY(e.clientY - r.top) };
   };
   /** Within this of the right edge counts as pushing against it. */
   const EDGE = 18;
@@ -710,13 +738,6 @@ export function SketchCanvas({
             <RotateCcwIcon />
           </Button>
         </div>
-      ) : null}
-
-      {/* A stopped chart looks broken unless it says why it stopped. */}
-      {paused ? (
-        <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 text-[11px] text-muted-foreground leading-4 shadow-xs/5" style={{ top: PAD_T + 4 }}>
-          the clock waits while you draw
-        </span>
       ) : null}
 
       {w > 0 ? stackTags(tags, h).map((t) => <Tag {...t} key={t.key} />) : null}
