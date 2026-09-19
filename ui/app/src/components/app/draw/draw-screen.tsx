@@ -111,24 +111,8 @@ export function DrawScreen({ market }: { market: Market }) {
   const [lastSketch, setLastSketch] = useState<Sketch | null>(null);
   /** The point under the finger, while one is. */
   const dragIndex = useRef<number | null>(null);
-  /** Curve between the points, or straight legs. The model follows it. */
   /** Where the finger landed, for a tap that becomes a point. */
   const tapAt = useRef<Pt | null>(null);
-  /**
-   * The pen is down on a running round, so the clock waits.
-   *
-   * Redrawing a live plan is not something you can do against a moving market:
-   * every candle that lands while you are mid-stroke moves the boundary you are
-   * drawing ahead of, and on a round this short that is the difference between
-   * adjusting a line and closing the position because you could not keep up.
-   * The reference offers this as a checkbox; here a round is twenty-four
-   * seconds long, so it is simply how it works.
-   *
-   * A ref for the clock, which reads it between renders, and state for the
-   * note on the chart, which only a render can show.
-   */
-  const penDown = useRef(false);
-  const [held, setHeld] = useState(false);
 
   const follow = useRef(0);
   const lastT = useRef(-1);
@@ -215,8 +199,6 @@ export function DrawScreen({ market }: { market: Market }) {
 
   /** Put a finished round behind us before the next one. */
   const fold = () => {
-    penDown.current = false;
-    setHeld(false);
     if (run.length) setFeed((f) => [...f, ...run].slice(-HISTORY));
     setRun([]);
     setPts([]);
@@ -232,7 +214,6 @@ export function DrawScreen({ market }: { market: Market }) {
       const { phase: ph, shape: sh, run: rn, feed: fd, entry: en } = live.current;
       const now = Date.now();
       if (ph === "settled") return;
-      if (ph === "running" && penDown.current) return;
       if (ph !== "running" || !sh) {
         const next = [...fd.slice(1), nextCandle(fd.at(-1)?.c ?? en, VOL, now)];
         const last = next.at(-1)?.c ?? en;
@@ -252,7 +233,6 @@ export function DrawScreen({ market }: { market: Market }) {
     const sub = setInterval(() => {
       const { phase: ph, run: rn } = live.current;
       if (ph === "settled") return;
-      if (ph === "running" && penDown.current) return;
       if (ph === "running" && rn.length) setRun((r) => (r.length ? [...r.slice(0, -1), extend(r[r.length - 1], VOL)] : r));
       else setFeed((f) => (f.length ? [...f.slice(0, -1), extend(f[f.length - 1], VOL)] : f));
     }, SUB_MS);
@@ -305,6 +285,25 @@ export function DrawScreen({ market }: { market: Market }) {
     return Math.min(1, t * k);
   }, []);
 
+  /**
+   * Open the scale to a price as it is drawn, rather than a tick later.
+   *
+   * `bandFor` already widens to hold the drawing, but it arrives on the clock
+   * and eases in at a eighth a tick — two or three seconds behind a hand. That
+   * is the whole of the ceiling: you reach the top of the plot, the line stops
+   * climbing because there is no more chart, and the scale catches up long
+   * after you have given up pushing. Stretched here, the room is there in the
+   * same frame the point is, and the easing settles the rest.
+   */
+  const stretchTo = (price: number) => {
+    setBand((b) => {
+      const pad = (b.hi - b.lo) * 0.12;
+      if (price > b.hi - pad) return { lo: b.lo, hi: price + pad };
+      if (price < b.lo + pad) return { lo: price - pad, hi: b.hi };
+      return b;
+    });
+  };
+
   /** Start a line at the live price. A finger lands wherever it lands; the
       gap is carried through the whole drawing. */
   const begin = (pt: Pt) => {
@@ -337,10 +336,6 @@ export function DrawScreen({ market }: { market: Market }) {
   };
 
   const onDown = (pt: Pt) => {
-    if (phase === "running") {
-      penDown.current = true;
-      setHeld(true);
-    }
     if ((phase === "drawn" || phase === "running") && pts.length > 1) {
       // Another point, where you clicked, in time order. Ahead of now only.
       if (pt.t <= editableFrom) return;
@@ -382,6 +377,7 @@ export function DrawScreen({ market }: { market: Market }) {
       // in by its neighbours however far right you drag it, so asking for more
       // minutes on its behalf would buy time nothing can use.
       const want = i === pts.length - 1 ? coverTo(pt.t) : pt.t;
+      stretchTo(pt.price + offset);
       setPts((p) => {
         if (!p[i]) return p;
         const t = i === p.length - 1 && phase === "drawing" ? Math.max(want, 0.03) : clampT(want, i, p);
@@ -401,6 +397,7 @@ export function DrawScreen({ market }: { market: Market }) {
     // Only a little: at much less than this every peak is rounded off before
     // the line is even simplified, and a sharp turn is usually the point.
     const target = { t, price: pt.price + anchor.current };
+    stretchTo(target.price);
     setPts((p) => {
       const last = p[p.length - 1];
       const eased = last ? last.price + (target.price - last.price) * 0.85 : target.price;
@@ -411,8 +408,6 @@ export function DrawScreen({ market }: { market: Market }) {
   const onUp = () => {
     const drew = dragIndex.current === null && phase === "drawing";
     dragIndex.current = null;
-    penDown.current = false;
-    setHeld(false);
     if (drew) {
       // A tap is a point. The line runs from now to where you clicked, and
       // the next click adds the next point. A stroke settles into the turns
@@ -581,7 +576,6 @@ export function DrawScreen({ market }: { market: Market }) {
           runBars={runBars}
           shape={shape}
           ghost={ghost}
-          paused={held && phase === "running"}
           ribbon={ribbon}
         />
         </div>
