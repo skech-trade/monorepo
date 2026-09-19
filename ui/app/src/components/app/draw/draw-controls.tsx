@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import { CheckIcon } from "lucide-react";
+import { Popover, PopoverClose, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { usd } from "@/lib/market";
 import { cn } from "@/lib/utils";
-import { DRAW_STEPS, LeverageMeter } from "../leverage-meter";
 import styles from "./amount-wheel.module.css";
 
 const STEP = 5;
@@ -26,6 +26,8 @@ export function AmountWheel({
   max = MAX,
   step = STEP,
   offAtZero = false,
+  format = (n: number) => `$${n}`,
+  label = "How much you put in",
 }: {
   value: number;
   onChange: (value: number) => void;
@@ -34,6 +36,10 @@ export function AmountWheel({
   step?: number;
   /** Show the bottom stop as "Off" rather than "$0". */
   offAtZero?: boolean;
+  /** How a figure reads on the wheel. Dollars unless told otherwise. */
+  format?: (n: number) => string;
+  /** What the wheel is for, for anyone listening rather than looking. */
+  label?: string;
 }) {
   const AMOUNTS = useMemo(
     () => Array.from({ length: Math.floor((max - min) / step) + 1 }, (_, i) => min + i * step),
@@ -97,7 +103,7 @@ export function AmountWheel({
     <div className={styles.wrap}>
       <span aria-hidden="true" className={styles.band} />
       <div
-        aria-label="How much you put in"
+        aria-label={label}
         aria-valuemax={max}
         aria-valuemin={min}
         aria-valuenow={value}
@@ -148,7 +154,7 @@ export function AmountWheel({
                 scrollToIndex(i, !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
               }}
             >
-              {offAtZero && amount === 0 ? "Off" : `$${amount}`}
+              {offAtZero && amount === 0 ? "Off" : format(amount)}
             </div>
           ))}
         </div>
@@ -159,9 +165,10 @@ export function AmountWheel({
           <span className="figures relative font-semibold text-xl">$</span>
           {/* biome-ignore lint/a11y/noAutofocus: the field exists because it was asked for */}
           <input
-            aria-label="How much you put in"
+            aria-label={label}
             autoFocus
             className="figures relative w-20 bg-transparent text-center font-semibold text-xl outline-none"
+            autoComplete="off"
             inputMode="decimal"
             onBlur={commit}
             onChange={(e) => setDraft(e.target.value.replace(/[^0-9.]/g, ""))}
@@ -169,10 +176,42 @@ export function AmountWheel({
               if (e.key === "Enter") commit();
               if (e.key === "Escape") setEditing(false);
             }}
+            type="text"
             value={draft}
           />
         </div>
       ) : null}
+      {/*
+        Done, beside the figure it is agreeing to.
+
+        The wheel applies as it turns, so there is nothing to submit — but
+        there was also nothing to press, and the only way out was to click the
+        chart, which is the drawing surface. A tick says "that one" and shuts
+        the panel, which is the sentence the gesture was already making.
+
+        Inside the lit band rather than floating beside it: the band is the
+        selection, so the thing that agrees to the selection belongs in it. Sat
+        outside, it was a second object at the edge of a narrow panel with
+        nothing tying it to the figure it applied to.
+
+        Last in the box and raised, because the panel that opens for typing is
+        laid over the whole wheel — so the tick was underneath it, and the one
+        moment you most want to press it was the one moment you could not. It
+        took a programmatic click in a test, which goes straight to the element
+        and never asks what is on top of it.
+      */}
+      <PopoverClose
+        aria-label="Done"
+        className="-translate-y-1/2 absolute top-1/2 right-1.5 z-10 flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground [&_svg]:size-4"
+        // Mid-typing, it takes what is in the field first. Closing the panel
+        // pulls the input out of the document, and a value that was typed and
+        // never read back is the one thing a tick must not do.
+        onClick={() => {
+          if (editing) commit();
+        }}
+      >
+        <CheckIcon />
+      </PopoverClose>
     </div>
   );
 }
@@ -220,7 +259,7 @@ export function DrawControls({
         <PopoverTrigger render={<Button variant="outline" />}>
           <Setting label="Boost" value={`${leverage}×`} />
         </PopoverTrigger>
-        <PopoverPopup align="start" className="w-80">
+        <PopoverPopup align="start" className="w-56">
           {/* Draw does not say leverage anywhere else, and the word is the
               single biggest piece of jargon left on this screen. */}
           <PopoverTitle>Set your boost</PopoverTitle>
@@ -228,7 +267,7 @@ export function DrawControls({
             Put in ${usd(stake, 0)}, trade like ${usd(stake * leverage, 0)}.
           </PopoverDescription>
           <div className="pt-4">
-            <LeverageMeter label="Boost" onChange={onLeverage} stake={stake} steps={DRAW_STEPS} value={leverage} />
+            <AmountWheel format={(n) => `${n}\u00d7`} label="Boost" max={50} min={1} onChange={onLeverage} step={1} value={leverage} />
           </div>
         </PopoverPopup>
       </Popover>
