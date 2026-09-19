@@ -43,12 +43,31 @@ const barsFor = (pts: Pt[], horizon: number) => Math.max(MIN_BARS, Math.round((p
 const RUN_GROWTH = 1.1;
 /** As long as a sketch may get. An hour and a half is already a long wait. */
 const RUN_MAX = 96;
-const TICK_MS = 1000;
-const SUB_MS = 80;
-const VOL = 0.0016;
+const TICK_MS = 500;
+const SUB_MS = 250;
+/**
+ * How far a bar moves, as a fraction of the price.
+ *
+ * Sized to a real tape rather than to a chart that looks busy. Bitcoin's
+ * annualised volatility is somewhere near fifty percent, which over a second is
+ * about a hundredth of a percent — six dollars on a sixty-four thousand dollar
+ * coin. A bar here is uniform on plus or minus `open * VOL`, so this puts a
+ * typical move at six dollars and the largest at thirteen.
+ *
+ * It was 0.0016: a hundred dollars a second, or two and a half percent a
+ * minute, which is a market having the worst day of its life, for ever. Every
+ * figure this screen is meant to teach you — what a drawn line is worth, what
+ * leverage does, how often you are right — was being read off a market nobody
+ * has ever traded.
+ */
+const VOL = 0.0002;
 
 function bandFor(candles: Candle[], center: number, extra: number[] = []): Band {
-  let reach = center * 0.012;
+  /* The floor on the vertical scale, and so on how tall a quiet market looks.
+     At 1.2% it was eight hundred dollars either side of a market that moves
+     six a second: a flat line down the middle of an empty chart. At this a
+     round's worth of drift fills the plot and a bar has a body you can see. */
+  let reach = center * 0.0006;
   for (const c of candles) reach = Math.max(reach, Math.abs(c.h - center), Math.abs(c.l - center));
   for (const p of extra) reach = Math.max(reach, Math.abs(p - center));
   const pad = reach * 1.2;
@@ -63,8 +82,12 @@ function easeBand(from: Band, to: Band): Band {
 export function DrawScreen({ market }: { market: Market }) {
   // Draw's own. The desk ticket's pay and leverage are a different field.
   const [stake, setStake] = useState(100);
-  const [leverage, setLeverage] = useState(10);
-  const seed = useMemo(() => candlesFor(market, "1m").slice(-HISTORY), [market]);
+  const [leverage, setLeverage] = useState(50);
+  /* History on the same process as the live feed. It came from the shared
+     one-minute generator, whose bars are a hundred dollars tall — beside a live
+     bar of six they set the vertical scale on their own and flattened
+     everything that mattered into a line across the middle. */
+  const seed = useMemo(() => candlesFor(market, "1m", HISTORY, VOL), [market]);
 
   const [phase, setPhase] = useState<Phase>("live");
   /**
