@@ -80,7 +80,7 @@ export function PlaceTicket({
 
           And it says one thing. It listed the stake, the leverage, the
           notional, the entry, the target, the floor, the worst case and the
-          best — beside a button reading "Draw it in for $100" and two more
+          best — beside a button reading "Trade for $100" and two more
           reading "Size $100" and "Leverage 10x". Everything but the side and
           what the leverage turns the stake into was already on screen, twice.
         */
@@ -94,7 +94,7 @@ export function PlaceTicket({
               />
             }
           >
-            Draw it in for ${usd(stake, 0)}
+            Trade for ${usd(stake, 0)}
           </PopoverTrigger>
           <PopoverPopup align="end" className="w-auto max-w-xs px-3 py-2">
             <p className="text-sm">

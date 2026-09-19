@@ -455,7 +455,7 @@ export function DrawScreen({ market }: { market: Market }) {
     setRun([]);
     setViewBars(barsRef.current);
     setPhase("running");
-    toastManager.add({ title: `Drawn in for $${usd(stake, 0)}`, description: `${market.name} going ${shape.long ? "up" : "down"} from $${fmtPrice(price)}. It's playing out now.` });
+    toastManager.add({ title: `Trading for $${usd(stake, 0)}`, description: `${market.name} going ${shape.long ? "up" : "down"} from $${fmtPrice(price)}. It's playing out now.` });
   };
 
   // Escape clears, Z or Backspace undoes. Only while the line is yours.
