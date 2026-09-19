@@ -66,7 +66,26 @@ export function resample(pts: Pt[], entry: number): number[] {
  * Rising stretches are longs, falling stretches are shorts, a turn is a close
  * and an open. `TOL` keeps a shaky hand from buying and selling twenty times.
  */
-/** How far price must come back for a turn to be a turn, at this drawing's scale. */
+/**
+ * How far price must come back for a turn to be a turn.
+ *
+ * Two thresholds, and a turn has to clear both.
+ *
+ * The first is a share of the drawing's own height, so a wobble stays a wobble
+ * whatever the market is worth.
+ *
+ * The second is what the turn costs. Taking one means closing here and opening
+ * the other way, and that round trip is `2 × FEE` of the position's value — so
+ * the counter-move has to travel `2 × FEE × price` just to get back to level.
+ * At $64,000 that is $57.60, and it is the same figure at every leverage,
+ * because the fee and the profit scale together.
+ *
+ * Under it, a dip is not a trade. It is something you sit through, and a model
+ * that trades it anyway hands back a loss on a drawing that called the move:
+ * the same $200 climb makes $11.13 taken as one leg and loses $10.85 taken as
+ * six, and a typical four-candle leg moves $26 against a $57.60 bar. Every one
+ * of those turns was a guaranteed loser at the moment it was drawn.
+ */
 function turnTol(values: number[], ref: number): number {
   let lo = values[0];
   let hi = values[0];
@@ -74,7 +93,7 @@ function turnTol(values: number[], ref: number): number {
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
-  return Math.max((hi - lo) * REVERSAL, ref * 1e-5);
+  return Math.max((hi - lo) * REVERSAL, ref * FEE * 2);
 }
 
 export function legsFrom(prices: number[]): Leg[] {
