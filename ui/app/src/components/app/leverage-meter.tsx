@@ -90,15 +90,25 @@ export function LeverageMeter({
         tabIndex={0}
       >
         <div className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-150" style={{ width: `${at(value)}%` }} />
-        {/* Where the notches actually fall. Close together at the low end,
-            because that is where the numbers are close together. */}
-        {steps.slice(0, -1).map((step) => (
+        {/*
+          A handle, because this is a thing you drag.
+
+          It was a row of dots along the track, which is a picture of a scale
+          and not a control: nothing about it said grab here, and the dots sat
+          at the steps rather than at the reading. The handle sits where the
+          fill ends, and the little shove of half its own width keeps it inside
+          the track at either end instead of hanging off.
+
+          Background rather than white, because the fill is near-black in the
+          light theme and near-white in the dark one, and only a handle that
+          flips with the page stays visible on both.
+        */}
+        <span aria-hidden="true" className="pointer-events-none absolute inset-x-3 inset-y-0">
           <span
-            className={cn("-translate-x-1/2 -translate-y-1/2 absolute top-1/2 size-1 rounded-full", step <= value ? "bg-primary-foreground/40" : "bg-muted-foreground/40")}
-            key={step}
-            style={{ left: `${at(step)}%` }}
+            className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 block size-6 rounded-full bg-background shadow-sm ring-1 ring-border"
+            style={{ left: `${at(value)}%` }}
           />
-        ))}
+        </span>
       </div>
       {/* The two ends of the scale, and what you have picked between them.
           A lone "$16,000" used to float at the right with nothing saying it

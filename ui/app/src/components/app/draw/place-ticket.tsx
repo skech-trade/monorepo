@@ -4,9 +4,10 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { type Market, usd } from "@/lib/market";
-import type { Quote, Shape } from "@/lib/sketch";
+import type { Exits, Quote, Shape } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 import { DrawControls } from "./draw-controls";
+import { ExitControls } from "./exit-controls";
 import type { Phase } from "./sketch-canvas";
 
 /**
@@ -26,8 +27,10 @@ export function PlaceTicket({
   quote,
   stake,
   leverage,
+  exits,
   onStake,
   onLeverage,
+  onExits,
   onPlace,
   onDrawAgain,
   onCloseNow,
@@ -39,8 +42,10 @@ export function PlaceTicket({
   quote: Quote | null;
   stake: number;
   leverage: number;
+  exits: Exits;
   onStake: (stake: number) => void;
   onLeverage: (leverage: number) => void;
+  onExits: (exits: Exits) => void;
   onPlace: () => void;
   onDrawAgain: () => void;
   onCloseNow: () => void;
@@ -66,7 +71,12 @@ export function PlaceTicket({
 
   return (
     <div className={cn("flex items-center gap-1.5 sm:gap-2", className)}>
-      {settings ? <DrawControls leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} /> : null}
+      {settings ? (
+        <>
+          <DrawControls leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} />
+          <ExitControls exits={exits} onExits={onExits} stake={stake} />
+        </>
+      ) : null}
 
       {phase === "drawn" && shape && quote ? (
         /*

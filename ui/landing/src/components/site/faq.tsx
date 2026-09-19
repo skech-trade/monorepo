@@ -11,31 +11,35 @@ import styles from "./story.module.css";
 const FAQS = [
   {
     q: "What does my drawing actually do?",
-    a: "Where the line starts is where you get in, and where it ends up decides whether you're long or short. The shape in between is the forecast — the whole of it counts, not just where you stopped drawing.",
+    a: "It says which way you think the price is going. Draw it going up and you win if it goes up. Draw it turning down and from that point you win if it falls. That is all it has to get right.",
+  },
+  {
+    q: "Do I have to guess the right price?",
+    a: "No. You are not picking a number or a range to land in. Draw up, and if it goes up you make money. The bigger the move, the more you make.",
   },
   {
     q: "What if the price doesn't follow my line?",
-    a: "It almost never will, and it doesn't need to. You're paid on where the price actually goes while you're in it, not on how close it came to the line you drew.",
+    a: "It won't, and that is fine. You get paid on which way the price actually went, not on how close it came to your line.",
   },
   {
     q: "What closes a trade?",
-    a: "The clock, your own hand, or the margin. A round runs for a set stretch and marks out at the end, you can take it off at any point before that, and if the price runs far enough against you at the leverage you chose, you're liquidated. There's no stop you didn't set and no target you didn't ask for.",
+    a: "The clock, you, or a limit you set. A round lasts about a minute. You can close it early whenever you like. And if it goes far enough against you, it closes on its own.",
   },
   {
-    q: "Can I change it after?",
-    a: "Yes. Every point ahead of the current candle is still yours to move while it plays out, and moving one updates the trade you already have rather than opening a second one. You pay one round trip either way, so redrawing is free.",
+    q: "Can I set a limit on what I lose?",
+    a: "Yes. You type the numbers: put in $100, close if I lose $50, close if I make $70. Both are optional, and you can never lose more than you put in.",
   },
   {
-    q: "What does the leverage do?",
-    a: "Both ends of it. At 50× a hundred dollars moves like five thousand, so a small move is worth having — and a move against you eats the margin that much faster. You can never lose more than you put in.",
+    q: "What is the boost?",
+    a: "It makes your money work harder. At 50\u00d7 your $100 moves like $5,000, so wins get bigger and so do losses. You still cannot lose more than you put in.",
   },
   {
     q: "Do you hold my money?",
-    a: "No. Nothing to install, no account to approve, and we never take custody of anything.",
+    a: "No. Nothing to install, no account to approve, and we never hold your funds.",
   },
   {
     q: "Why has nobody built this before?",
-    a: "Following a hand-drawn line means keeping up with the hand. Blockchains only recently got fast enough that the line you get is the line you meant.",
+    a: "Following a hand-drawn line means keeping up with the hand. Chains only got fast enough for that recently.",
   },
 ] as const;
 

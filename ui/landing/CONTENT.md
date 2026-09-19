@@ -315,43 +315,53 @@ type, one row.
 
 ### 5.7 FAQ
 
-Seven questions. The two that described a bracket are gone: the product has no
-stop you did not set and no target you did not ask for, and the page said
-otherwise for as long as it had one.
+Eight questions, rewritten against the thesis: **you only have to be right
+about the direction.** The price range does not matter and was never the
+claim — what a drawing says is "up from here, then down from there", and the
+height of it is neither a target nor a band you have to land inside.
+
+**Answers are short.** One to three plain sentences, under forty words, no
+construction the reader has to unpick. An answer that reads as writing is an
+answer that failed: someone is here because they do not know how this works,
+and a paragraph with a rhetorical turn in it is a second thing to decode on
+top of the first.
+
+Two further rules. "Leverage" is **boost** on every consumer surface. And the
+exits are **money you type, not levels you draw**: "put in $100, close it if I
+lose $50, close it if I make $70".
 
 > **What does my drawing actually do?**
-> Where the line starts is where you get in, and where it ends up decides
-> whether you're long or short. The shape in between is the forecast — the whole
-> of it counts, not just where you stopped drawing.
+> It says which way you think the price is going. Draw it going up and you win
+> if it goes up. Draw it turning down and from that point you win if it falls.
+> That is all it has to get right.
+>
+> **Do I have to guess the right price?**
+> No. You are not picking a number or a range to land in. Draw up, and if it
+> goes up you make money. The bigger the move, the more you make.
 >
 > **What if the price doesn't follow my line?**
-> It almost never will, and it doesn't need to. You're paid on where the price
-> actually goes while you're in it, not on how close it came to the line you
-> drew.
+> It won't, and that is fine. You get paid on which way the price actually
+> went, not on how close it came to your line.
 >
 > **What closes a trade?**
-> The clock, your own hand, or the margin. A round runs for a set stretch and
-> marks out at the end, you can take it off at any point before that, and if the
-> price runs far enough against you at the leverage you chose, you're
-> liquidated. There's no stop you didn't set and no target you didn't ask for.
+> The clock, you, or a limit you set. A round lasts about a minute. You can
+> close it early whenever you like. And if it goes far enough against you, it
+> closes on its own.
 >
-> **Can I change it after?**
-> Yes. Every point ahead of the current candle is still yours to move while it
-> plays out, and moving one updates the trade you already have rather than
-> opening a second one. You pay one round trip either way, so redrawing is free.
+> **Can I set a limit on what I lose?**
+> Yes. You type the numbers: put in $100, close if I lose $50, close if I make
+> $70. Both are optional, and you can never lose more than you put in.
 >
-> **What does the leverage do?**
-> Both ends of it. At 50x a hundred dollars moves like five thousand, so a small
-> move is worth having — and a move against you eats the margin that much
-> faster. You can never lose more than you put in.
+> **What is the boost?**
+> It makes your money work harder. At 50× your $100 moves like $5,000, so wins
+> get bigger and so do losses. You still cannot lose more than you put in.
 >
 > **Do you hold my money?**
-> No. Nothing to install, no account to approve, and we never take custody of
-> anything.
+> No. Nothing to install, no account to approve, and we never hold your funds.
 >
 > **Why has nobody built this before?**
-> Following a hand-drawn line means keeping up with the hand. Blockchains only
-> recently got fast enough that the line you get is the line you meant.
+> Following a hand-drawn line means keeping up with the hand. Chains only got
+> fast enough for that recently.
 
 ### 5.8 Close
 

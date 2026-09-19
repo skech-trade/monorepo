@@ -9,8 +9,8 @@ const FEATURES = [
   },
   {
     image: "leverage",
-    title: "Up to 50× leverage",
-    description: "Choose your exposure, from a little extra to up to 50×.",
+    title: "Boost up to 50×",
+    description: "Put in a little, trade like a lot.",
   },
   {
     image: "fees",
