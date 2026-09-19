@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { usd } from "@/lib/market";
@@ -11,10 +11,34 @@ import styles from "./amount-wheel.module.css";
 const STEP = 5;
 const MIN = 20;
 const MAX = 500;
-const AMOUNTS = Array.from({ length: (MAX - MIN) / STEP + 1 }, (_, i) => MIN + i * STEP);
-
-/** The stake, on a wheel. The middle row is also a field: click it to type. */
-function AmountWheel({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+/**
+ * A figure on a wheel. The middle row is also a field: click it to type.
+ *
+ * The stake picks one between $20 and $500; the two exits pick one from zero,
+ * where zero reads "Off", because a stop you have not set is not a stop of
+ * nothing. One control for all three, because it is the same gesture and
+ * nobody should have to learn a second one.
+ */
+export function AmountWheel({
+  value,
+  onChange,
+  min = MIN,
+  max = MAX,
+  step = STEP,
+  offAtZero = false,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Show the bottom stop as "Off" rather than "$0". */
+  offAtZero?: boolean;
+}) {
+  const AMOUNTS = useMemo(
+    () => Array.from({ length: Math.floor((max - min) / step) + 1 }, (_, i) => min + i * step),
+    [min, max, step],
+  );
   const wheel = useRef<HTMLDivElement>(null);
   const frame = useRef(0);
   const programmatic = useRef(false);
@@ -59,7 +83,7 @@ function AmountWheel({ value, onChange }: { value: number; onChange: (value: num
     setEditing(false);
     const typed = Number.parseFloat(draft);
     if (!Number.isFinite(typed)) return;
-    const clamped = Math.min(MAX, Math.max(MIN, Math.round(typed / STEP) * STEP));
+    const clamped = Math.min(max, Math.max(min, Math.round(typed / step) * step));
     onChange(clamped);
     scrollToIndex(AMOUNTS.indexOf(clamped));
   };
@@ -74,8 +98,8 @@ function AmountWheel({ value, onChange }: { value: number; onChange: (value: num
       <span aria-hidden="true" className={styles.band} />
       <div
         aria-label="How much you put in"
-        aria-valuemax={MAX}
-        aria-valuemin={MIN}
+        aria-valuemax={max}
+        aria-valuemin={min}
         aria-valuenow={value}
         aria-valuetext={`$${value}`}
         className={styles.wheel}
@@ -106,7 +130,7 @@ function AmountWheel({ value, onChange }: { value: number; onChange: (value: num
               key={amount}
               onClick={i === index ? () => { setDraft(String(value)); setEditing(true); } : undefined}
             >
-              ${amount}
+              {offAtZero && amount === 0 ? "Off" : `$${amount}`}
             </div>
           ))}
         </div>
@@ -137,7 +161,7 @@ function AmountWheel({ value, onChange }: { value: number; onChange: (value: num
 
 /* The label goes on a phone and the figure stays: "$100" beside a wheel of
    dollars needs no word, and the row it is in has four other things in it. */
-function Setting({ label, value }: { label: string; value: string }) {
+export function Setting({ label, value }: { label: string; value: string }) {
   return (
     <>
       <span className="hidden text-muted-foreground sm:inline">{label}</span>
