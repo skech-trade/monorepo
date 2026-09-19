@@ -317,34 +317,68 @@ export function simplify(
   }
 
   /*
-    And a handle has to mean something.
+    No flat segments.
 
-    A point that its neighbours barely move to and barely move away from is not
-    a turn and not the end of a leg — the price either side of it is the same
-    price as far as the compiler is concerned, so nothing opens there and
-    nothing closes. It is a handle that does nothing but sit in the way of the
-    one you meant to grab. Three of them across a near-level stretch is the same
-    straight line drawn in three pieces.
+    A stretch that ends at the price it started is not a position. It cannot be
+    a long and it cannot be a short, so drawing one puts a piece of line on the
+    chart that stands for nothing — and the place it shows up worst is the cap
+    on a peak: two handles level with each other, a little plateau where the
+    picture should come to a point and the trade turns around.
 
-    The same threshold the legs use, so what survives here is exactly what can
-    become a position. Ends are kept: they are the entry and where you stopped.
+    So a pair closer in price than a leg needs is one point. Which of the two
+    survives is whichever carries the move further the way it was already
+    going — the apex, the actual turn. The first point is the entry and the last
+    is where the line was left, so neither is traded away for one.
+
+    The same threshold the legs use, so what is left on screen is exactly what
+    can become a position.
   */
   const grip = tolerance * TOL;
   const kept: Pt[] = [];
   for (let i = 0; i < thinned.length; i++) {
     const p = thinned[i];
-    if (i === 0 || i === thinned.length - 1) {
+    const last = kept.at(-1);
+    if (!last || Math.abs(p.price - last.price) >= grip) {
       kept.push(p);
       continue;
     }
-    const before = kept.at(-1) as Pt;
-    const after = thinned[i + 1];
-    const dead =
-      Math.abs(p.price - before.price) < grip &&
-      Math.abs(after.price - p.price) < grip;
-    if (!dead) kept.push(p);
+    // The entry is where you get in. It does not move for a flat.
+    if (kept.length === 1) continue;
+    // The end is where you stopped drawing, so it wins the pair.
+    if (i === thinned.length - 1) {
+      kept[kept.length - 1] = p;
+      continue;
+    }
+    // Otherwise keep whichever of the two carries the move further the way it
+    // was already going: the pair is one turn and this is its apex.
+    const prev = kept.at(-2) as Pt;
+    const rising = last.price >= prev.price;
+    if (rising ? p.price > last.price : p.price < last.price) {
+      kept[kept.length - 1] = p;
+    }
   }
-  return kept;
+
+  /*
+    Only the turns.
+
+    Two rising segments in a row are one long. The handle between them is not a
+    close and not an open — it is a bend in the middle of a leg, and the line
+    trades exactly the same without it. Leaving it there says there are two
+    positions where there is one, which is the thing this whole screen is for
+    getting right.
+
+    So a point survives only if the line arrives going one way and leaves going
+    the other. What is left is a zigzag, alternating, one leg per segment: the
+    picture and the trade are finally the same object.
+  */
+  const turns: Pt[] = [kept[0]];
+  for (let i = 1; i < kept.length - 1; i++) {
+    const before = Math.sign(kept[i].price - (turns.at(-1) as Pt).price);
+    const after = Math.sign(kept[i + 1].price - kept[i].price);
+    if (before !== 0 && after !== 0 && before !== after) turns.push(kept[i]);
+  }
+  if (kept.length > 1) turns.push(kept[kept.length - 1]);
+  return turns;
 }
 
 /**

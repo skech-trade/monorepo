@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toastManager } from "@/components/ui/toast";
 import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
-import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, verdictWord } from "@/lib/sketch";
+import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify, verdictWord } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { DrawTools, type Preset, PRESETS } from "./draw-tools";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
@@ -285,9 +285,8 @@ export function DrawScreen({ market }: { market: Market }) {
       return;
     }
     if (phase === "running") return;
+    // Nothing drawn yet: this is a stroke, and the line follows the finger.
     begin(pt);
-    setPts([{ t: 0, price }, { t: Math.max(pt.t, 0.03), price }]);
-    dragIndex.current = 1;
     setPhase("drawing");
   };
 
@@ -302,11 +301,39 @@ export function DrawScreen({ market }: { market: Market }) {
         const t = i === p.length - 1 && phase === "drawing" ? Math.max(pt.t, 0.03) : clampT(pt.t, i, p);
         return p.map((q, j) => (j === i ? { t, price: pt.price + offset } : q));
       });
+      return;
     }
+    if (phase !== "drawing") return;
+    // The stroke itself. A point every hundredth or so of the round, which is
+    // finer than a bar and far finer than anything that can be traded — the
+    // shape is what is being captured, not the samples.
+    if (pt.t - lastT.current < 0.008) return;
+    lastT.current = pt.t;
+    kept.current += 1;
+    // The line lags the finger a little, so a shaky hand draws a calm one.
+    // Only a little: at much less than this every peak is rounded off before
+    // the line is even simplified, and a sharp turn is usually the point.
+    const target = { t: pt.t, price: pt.price + anchor.current };
+    setPts((p) => {
+      const last = p[p.length - 1];
+      const eased = last ? last.price + (target.price - last.price) * 0.85 : target.price;
+      return [...p, { t: target.t, price: eased }];
+    });
   };
 
   const onUp = () => {
+    const drew = dragIndex.current === null && phase === "drawing";
     dragIndex.current = null;
+    if (drew) {
+      // A tap is not a line. Otherwise the stroke settles into the turns that
+      // shape it, so it edits as handles from here on.
+      if (kept.current < 3) {
+        setPts([]);
+        setPhase("live");
+        return;
+      }
+      setPts((p) => simplify(p, band.hi - band.lo, entry));
+    }
     if (phase !== "drawing") return;
     setPhase("drawn");
   };
@@ -378,17 +405,14 @@ export function DrawScreen({ market }: { market: Market }) {
 
   return (
     <section aria-label="Draw" className="m-2 flex min-h-[24rem] flex-1 flex-col overflow-hidden rounded-2xl border bg-background">
-      {/* The tools sit with the market, on the left, rather than across the row
-          from it. They belong to the line you are about to draw, and the line
-          starts at the left of the chart — not in the far corner of the header,
-          a screen's width from anything they act on. */}
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
         <MarketHeader market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
+      </div>
+      <div className="flex min-h-0 flex-1 gap-2 px-2 pt-2">
         {phase === "live" || phase === "drawing" || phase === "drawn" ? (
           <DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
         ) : null}
-      </div>
-      <div className="min-h-0 flex-1 px-2 pt-2">
+        <div className="min-w-0 flex-1">
         <SketchCanvas
           band={band}
           feed={feed}
@@ -412,6 +436,7 @@ export function DrawScreen({ market }: { market: Market }) {
           ghost={ghost}
           ribbon={ribbon}
         />
+        </div>
       </div>
       {/* The bar takes its row; the plot above it is never covered. */}
       <div className="border-t px-3 py-3">

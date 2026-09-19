@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDownIcon, EraserIcon, ShapesIcon, Undo2Icon, WaypointsIcon } from "lucide-react";
+import { EraserIcon, ShapesIcon, Undo2Icon, WaypointsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { legPath } from "@/lib/sketch";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu";
@@ -83,19 +83,27 @@ export function DrawTools({
   onPreset: (preset: Preset) => void;
 }) {
   return (
-    <div className="flex items-center gap-1">
+    /*
+      A rail down the side of the chart, not a row across the header.
+
+      Tools belong beside the thing they act on, and the thing they act on is
+      the whole height of the chart. In the header they sat a screen's width
+      from the line, sharing a row with the price — which is a reading, not a
+      control.
+    */
+    <div className="flex shrink-0 flex-col items-center gap-1 self-start rounded-xl border bg-card p-1">
       {/* The one way to draw, shown rather than chosen. There was a pen beside
           it — a stroke that settled into these same points on release — and it
           only ever cost the line its corners on the way. A turn is a close and
           an open, so a tool that rounds them off is a tool that changes the
           trade. */}
-      <Tip words="Click to place a point, drag to move one, double-click to remove">
-        <span className="flex size-8 items-center justify-center rounded-md border text-muted-foreground [&>svg]:size-4">
+      <Tip words="Drag across the chart to draw. Then drag a point to move it, or double-click to remove it.">
+        <span className="flex size-8 items-center justify-center rounded-md bg-accent text-foreground [&>svg]:size-4">
           <WaypointsIcon />
         </span>
       </Tip>
 
-      <Separator className="mx-1 h-5" orientation="vertical" />
+      <Separator className="my-0.5 w-5" orientation="horizontal" />
 
       <Tip words="Undo the last stroke">
         <Button aria-label="Undo" disabled={!canUndo} onClick={onUndo} size="icon-sm" variant="ghost">
@@ -109,12 +117,10 @@ export function DrawTools({
       </Tip>
 
       <Menu>
-        <MenuTrigger render={<Button size="sm" variant="ghost" />}>
+        <MenuTrigger render={<Button aria-label="Shapes" size="icon-sm" variant="ghost" />}>
           <ShapesIcon />
-          Shapes
-          <ChevronDownIcon className="text-muted-foreground" />
         </MenuTrigger>
-        <MenuPopup align="end" className="w-[40rem] p-2">
+        <MenuPopup align="start" className="w-[40rem] p-2" side="right">
           <div className="grid grid-cols-4 gap-1">
             {PRESETS.map((p) => (
               <MenuItem className="h-auto flex-col items-stretch gap-2 rounded-xl p-2 [&>span:first-child]:aspect-[20/9]" key={p.value} onClick={() => onPreset(p.value)}>

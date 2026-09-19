@@ -380,7 +380,10 @@ export function SketchCanvas({
               candles arrive, green inside, grey out. */}
           {hasLine && !drawing && shape ? (
             <g>
-              <path d={legPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin="round" strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
+              {/* Mitred, like the line it wraps. Round joins put a dome on the outside
+                  of every turn, which is the one place the band should come to a
+                  point: a turn is where one position ends and the next begins. */}
+              <path d={legPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin="miter" strokeMiterlimit={2} strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
               {accuracy?.flags.map((inside, i) => {
                 const cy = y(lineAt(shape.prices, (i + 1) / runBars));
                 return (
@@ -404,7 +407,7 @@ export function SketchCanvas({
           {hasLine ? (
             <g>
               {drawing ? (
-                <polyline fill="none" points={plotted.map((p) => `${p.x},${p.y}`).join(" ")} stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" />
+                <polyline fill="none" points={plotted.map((p) => `${p.x},${p.y}`).join(" ")} stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="miter" strokeMiterlimit={2} strokeWidth="2.4" />
               ) : (
                 <path
                   d={legPath(plotted)}
@@ -412,7 +415,8 @@ export function SketchCanvas({
                   stroke="var(--brand)"
                   strokeDasharray={phase === "settled" ? "5 4" : undefined}
                   strokeLinecap="round"
-                  strokeLinejoin="round"
+                  strokeLinejoin="miter"
+                  strokeMiterlimit={2}
                   strokeOpacity={phase === "running" ? 0.7 : phase === "settled" ? 0.6 : 1}
                   strokeWidth="2.4"
                 />
