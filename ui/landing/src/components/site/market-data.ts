@@ -236,9 +236,9 @@ export const SCENARIOS: Scenario[] = [
     key: "breaks",
     title: "It breaks",
     caption:
-      "It goes the wrong way and keeps going. You're out at the line you drew, and nobody had to call you.",
+      "It goes the wrong way and keeps going. Nothing closes you for being wrong — you ride it to the end of the round, or take it off before that.",
     exit: ORDER.invalidation,
-    exitLabel: "Out at your line",
+    exitLabel: "Where it ended",
     bars: forecast(
       9152,
       shape([
