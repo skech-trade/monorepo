@@ -61,8 +61,15 @@ export const VENUES = {
   lighterPremium: { taker: 0.00028, maker: 0.00004 },
 } as const;
 
-/** The venue the figures on screen are quoted at. */
-export const VENUE: keyof typeof VENUES = "hyperliquid";
+/**
+ * The venue the figures on screen are quoted at.
+ *
+ * Lighter, whose standard accounts pay nothing either side. Which is the whole
+ * argument for routing there: at 50x a Hyperliquid round trip is 4.5% of a
+ * $100 stake and a leg has to travel $57.60 to break even, on a market that
+ * moves $6.40 a candle. Every turn was a losing trade before it was drawn.
+ */
+export const VENUE: keyof typeof VENUES = "lighter";
 
 /** Taker fee per side. Charged twice a leg: once in, once out. */
 export const FEE = VENUES[VENUE].taker;
