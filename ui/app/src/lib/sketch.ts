@@ -7,8 +7,19 @@ export type Leg = { from: number; to: number; dir: 1 | -1 };
 /** Samples of the drawn shape, evenly spaced across the window. */
 export const SAMPLES = 32;
 
-/** A reversal smaller than this fraction of entry is a wobble, not a turn. */
-const TOL = 0.0022;
+/** A move smaller than this fraction of entry is not a level worth marking. */
+const TOL = 0.0002;
+/**
+ * A reversal smaller than this share of the drawing's own height is a wobble.
+ *
+ * Of the drawing's height, not of the price. As a fraction of the price it came
+ * to $141 on a $64,000 Bitcoin — fine while a candle moved a hundred dollars,
+ * and fatal the moment one moves six: every reversal a hand could draw would be
+ * under the threshold, so every line would collapse to a single leg and the
+ * whole product with it. A drawing's own height is the only scale that is
+ * always the right one, whatever the market is doing.
+ */
+const REVERSAL = 0.08;
 /**
  * Two vertices closer than this share of the round are one turn.
  *
@@ -19,7 +30,7 @@ const TOL = 0.0022;
  */
 const TURN_GAP = 0.03;
 /** Under this total travel the drawing says nothing worth trading. */
-const FLAT = 0.004;
+const FLAT = 0.0002;
 
 /** Taker fee per side, as on the landing. */
 export const FEE = 0.00045;
@@ -55,8 +66,19 @@ export function resample(pts: Pt[], entry: number): number[] {
  * Rising stretches are longs, falling stretches are shorts, a turn is a close
  * and an open. `TOL` keeps a shaky hand from buying and selling twenty times.
  */
+/** How far price must come back for a turn to be a turn, at this drawing's scale. */
+function turnTol(values: number[], ref: number): number {
+  let lo = values[0];
+  let hi = values[0];
+  for (const v of values) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return Math.max((hi - lo) * REVERSAL, ref * 1e-5);
+}
+
 export function legsFrom(prices: number[]): Leg[] {
-  const tol = prices[0] * TOL;
+  const tol = turnTol(prices, prices[0]);
   const legs: Leg[] = [];
   let start = 0;
   let extIdx = 0;
@@ -333,7 +355,7 @@ export function simplify(
     The same threshold the legs use, so what is left on screen is exactly what
     can become a position.
   */
-  const grip = tolerance * TOL;
+  const grip = turnTol(pts.map((p) => p.price), tolerance);
   const kept: Pt[] = [];
   for (let i = 0; i < thinned.length; i++) {
     const p = thinned[i];

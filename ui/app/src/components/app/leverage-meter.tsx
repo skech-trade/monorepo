@@ -11,7 +11,10 @@ import { cn } from "@/lib/utils";
  */
 
 /** 1× to 15×, one notch each. Draw's range. */
-export const DRAW_STEPS = Array.from({ length: 15 }, (_, i) => i + 1);
+/* Up to 50, because that is what the venue gives you. On a market that moves
+   six dollars a second, ten times your money on a twenty-four second round is
+   a rounding error — the leverage is what makes a drawn line worth drawing. */
+export const DRAW_STEPS = [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50];
 /** Up to 100×, the notches a desk trader reaches for. */
 export const DESK_STEPS = [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50, 75, 100];
 

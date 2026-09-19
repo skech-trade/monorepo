@@ -158,13 +158,15 @@ export function candlesFor(
   market: Market,
   timeframe: Timeframe,
   count = 400,
+  /** Per-bar volatility, when the caller runs its own clock. Draw does. */
+  volOverride?: number,
 ): Candle[] {
   const rand = mulberry32(hash(market.address + timeframe));
   const span = SPAN[timeframe];
 
   // Longer bars carry more of a move. Roughly the square root of the span, in
   // units of the 1m bar, which is how volatility actually scales with horizon.
-  const vol = 0.0016 * Math.sqrt(span / SPAN["1m"]);
+  const vol = volOverride ?? 0.0016 * Math.sqrt(span / SPAN["1m"]);
 
   // Bars are laid out on a whole-bar grid ending at the most recent open, so
   // two timeframes of the same market line up rather than each starting at an
