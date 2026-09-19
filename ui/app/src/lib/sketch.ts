@@ -305,7 +305,17 @@ export function quote(
  * profit they never asked to take and calls it their exit. The only things that
  * end a position here are the clock and the margin.
  */
-export type Outcome = "time" | "liquidated";
+export type Outcome = "time" | "liquidated" | "stop" | "target";
+
+/**
+ * Where you have asked to be taken out, in dollars of the stake.
+ *
+ * Both in money, not in price. "Close it if I lose $50" is a sentence someone
+ * who has never traded can say and check; "stop at $63,412.80" is one they
+ * cannot, and it is the same instruction wearing a costume. Either may be
+ * null, which means the clock and the margin are the only ways out.
+ */
+export type Exits = { lose: number | null; gain: number | null };
 
 export type Book = {
   /** Realised or marked P&L, net of fees. Never below minus the stake. */
@@ -380,6 +390,7 @@ export function settle(
   stake: number,
   leverage: number,
   runBars: number,
+  exits: Exits = { lose: null, gain: null },
 ): Book {
   const last = bars.length;
   if (last === 0) return { net: 0, done: null, exit: entry };
@@ -412,10 +423,26 @@ export function settle(
     const q = notional / open;
     const liq = liquidationPrice(open, equity, leverage, leg.dir);
 
+    /*
+      Walked bar by bar, because an exit is a thing that happens during one.
+
+      The margin first — the venue does not wait its turn — and then the two
+      levels you set, tested against the worst and the best the bar reached
+      rather than where it closed. A stop that was touched was hit, whatever
+      the candle did afterwards.
+    */
+    const banked = equity - stake;
     for (let i = from; i < Math.min(to, last); i++) {
       const bar = bars[i];
       const worst = leg.dir > 0 ? bar.l : bar.h;
+      const best = leg.dir > 0 ? bar.h : bar.l;
       if (leg.dir * (worst - liq) <= 0) return { net: -stake, done: "liquidated", exit: liq };
+      if (exits.lose !== null && banked + leg.dir * q * (worst - open) <= -exits.lose) {
+        return { net: -exits.lose, done: "stop", exit: open + (leg.dir * (-exits.lose - banked)) / q };
+      }
+      if (exits.gain !== null && banked + leg.dir * q * (best - open) >= exits.gain) {
+        return { net: exits.gain, done: "target", exit: open + (leg.dir * (exits.gain - banked)) / q };
+      }
     }
 
     const close = fillAt(Math.min(to, last));

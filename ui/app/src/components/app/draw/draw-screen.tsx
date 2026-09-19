@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toastManager } from "@/components/ui/toast";
 import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
-import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
+import { accuracyOf, type Exits, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { PlaceTicket } from "./place-ticket";
 import { DrawTools, type Preset, PRESETS } from "./draw-tools";
@@ -76,6 +76,8 @@ export function DrawScreen({ market }: { market: Market }) {
   // Draw's own. The desk ticket's pay and leverage are a different field.
   const [stake, setStake] = useState(100);
   const [leverage, setLeverage] = useState(50);
+  /** Where to get out, in dollars. Both optional; empty means neither. */
+  const [exits, setExits] = useState<Exits>({ lose: null, gain: null });
   /* History on the same process as the live feed. It came from the shared
      one-minute generator, whose bars are a hundred dollars tall — beside a live
      bar of six they set the vertical scale on their own and flattened
@@ -150,9 +152,9 @@ export function DrawScreen({ market }: { market: Market }) {
     [lastSketch, phase, price],
   );
 
-  const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, traded });
+  const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, traded, exits });
   useEffect(() => {
-    live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, traded };
+    live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, traded, exits };
   });
 
   const finish = useCallback((bars: Candle[], early: boolean) => {
@@ -537,6 +539,7 @@ export function DrawScreen({ market }: { market: Market }) {
         ) : null}
         <PlaceTicket
           className="ml-auto"
+          exits={exits}
           leverage={leverage}
           market={market}
           onCloseNow={() => run.length && finish(run, true)}
@@ -544,6 +547,7 @@ export function DrawScreen({ market }: { market: Market }) {
             fold();
             setPhase("live");
           }}
+          onExits={setExits}
           onLeverage={setLeverage}
           onPlace={onPlace}
           onStake={setStake}

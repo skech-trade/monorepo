@@ -29,6 +29,8 @@ export const VERDICT: Record<Result["outcome"], string> = {
   time: "Ran its course",
   closed: "Taken off",
   liquidated: "Wiped out",
+  stop: "Stopped out",
+  target: "Took the profit",
 };
 
 /** One glyph per candle, filled where it paid, hollow where it did not.
