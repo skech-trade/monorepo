@@ -73,9 +73,14 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   a row, then the round drawn back on a canvas (your line dashed, the candles
   that arrived, the ribbon coloured by how it went).
 - Replay and export, all client side: Replay animates the candles back in,
-  Picture saves a PNG of the round, Clip records the replay to a WebM with the
-  MediaRecorder API, "Show your call" shares the spoiler-free text (Web Share
-  where it exists, clipboard otherwise). New trade clears the board.
+  Picture saves a PNG of the round (share sheet where the browser offers one,
+  a download otherwise). Clip records the replay off a canvas with the
+  MediaRecorder API, MP4 where the browser can write it and WebM otherwise,
+  the on-screen chart replaying alongside; the finished clip then plays in
+  the card with Save clip, Share and Back to the chart. The share sheet only
+  opens off a fresh click, which is why a clip is handed over in two steps.
+  A browser that cannot record says so in one line. "Show your call" shares
+  the spoiler-free text. New trade clears the board.
 - Rounds keeps every sketch under the card: thumbnail, stake at leverage, in
   and out prices, money and how much of the way was right. Click a row to put
   it in the card. Two seeded rounds from earlier. Replaces both the settle

@@ -272,44 +272,115 @@ export async function exportPng(sketch: Sketch, market: Market): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("no blob"))), "image/png"));
 }
 
-/** The round as a clip: the candles arrive over a few seconds. WebM, recorded from the canvas. */
-export async function recordWebm(sketch: Sketch, market: Market, seconds = 4): Promise<Blob> {
-  const { canvas, ctx } = card();
-  const stream = canvas.captureStream(30);
-  const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) ?? "video/webm";
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_000_000 });
-  const chunks: Blob[] = [];
-  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  const done = new Promise<Blob>((resolve) => {
-    rec.onstop = () => resolve(new Blob(chunks, { type: mime }));
-  });
-  rec.start();
-  const start = performance.now();
-  await new Promise<void>((resolve) => {
-    const tick = (now: number) => {
-      const f = Math.min(1, (now - start) / (seconds * 1000));
-      paintRound(ctx, sketch, market, f);
-      if (f < 1) requestAnimationFrame(tick);
-      else setTimeout(resolve, 700);
-    };
-    requestAnimationFrame(tick);
-  });
-  rec.stop();
-  return done;
+export type Clip = { blob: Blob; ext: "mp4" | "webm" };
+
+/** The container the browser can actually write. MP4 travels better; Safari has no WebM. */
+function clipMime(): { mime: string; ext: Clip["ext"] } | null {
+  if (typeof MediaRecorder === "undefined") return null;
+  const tries: { mime: string; ext: Clip["ext"] }[] = [
+    { mime: "video/mp4;codecs=avc1.42E01E", ext: "mp4" },
+    { mime: "video/mp4;codecs=avc1", ext: "mp4" },
+    { mime: "video/mp4", ext: "mp4" },
+    { mime: "video/webm;codecs=vp9", ext: "webm" },
+    { mime: "video/webm;codecs=vp8", ext: "webm" },
+    { mime: "video/webm", ext: "webm" },
+  ];
+  return tries.find((t) => MediaRecorder.isTypeSupported(t.mime)) ?? null;
 }
 
-/** Hand a file to the share sheet where there is one, else save it. */
-export async function shareOrSave(blob: Blob, filename: string, text: string): Promise<"shared" | "saved"> {
-  const file = new File([blob], filename, { type: blob.type });
-  if (typeof navigator.share === "function" && navigator.canShare?.({ files: [file] })) {
-    await navigator.share({ files: [file], text });
-    return "shared";
+/** True when this browser can record a clip at all. */
+export function canRecordClip(): boolean {
+  return typeof HTMLCanvasElement !== "undefined" && "captureStream" in HTMLCanvasElement.prototype && clipMime() !== null;
+}
+
+/**
+ * The round as a clip: the candles arrive over a few seconds, recorded off a
+ * canvas. The canvas sits in the document while it records, out of sight,
+ * because some browsers only hand frames to the stream for a canvas that is
+ * attached.
+ */
+export async function recordClip(sketch: Sketch, market: Market, seconds = 4): Promise<Clip> {
+  const picked = clipMime();
+  if (!picked || !("captureStream" in HTMLCanvasElement.prototype)) throw new Error("unsupported");
+  const { canvas, ctx } = card();
+  canvas.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none";
+  document.body.appendChild(canvas);
+  try {
+    paintRound(ctx, sketch, market, 0);
+    const stream = canvas.captureStream(30);
+    const rec = new MediaRecorder(stream, { mimeType: picked.mime, videoBitsPerSecond: 4_000_000 });
+    const chunks: Blob[] = [];
+    rec.ondataavailable = (e) => {
+      if (e.data.size) chunks.push(e.data);
+    };
+    const done = new Promise<Blob>((resolve, reject) => {
+      rec.onstop = () => resolve(new Blob(chunks, { type: picked.mime }));
+      rec.onerror = () => reject(new Error("recorder"));
+    });
+    rec.start(200);
+    const start = performance.now();
+    await new Promise<void>((resolve) => {
+      const tick = (now: number) => {
+        const f = Math.min(1, (now - start) / (seconds * 1000));
+        paintRound(ctx, sketch, market, f);
+        if (f < 1) requestAnimationFrame(tick);
+        else setTimeout(resolve, 900);
+      };
+      requestAnimationFrame(tick);
+    });
+    rec.stop();
+    for (const track of stream.getTracks()) track.stop();
+    const blob = await done;
+    if (blob.size === 0) throw new Error("empty");
+    return { blob, ext: picked.ext };
+  } finally {
+    canvas.remove();
   }
+}
+
+/** Save a file the way a download does. Needs no permission and no fresh click. */
+export function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 4000);
+}
+
+/** Whether the share sheet would take this file, right now, from this click. */
+export function canShareFile(blob: Blob, filename: string): boolean {
+  if (typeof navigator === "undefined" || typeof navigator.share !== "function" || typeof navigator.canShare !== "function") return false;
+  try {
+    return navigator.canShare({ files: [new File([blob], filename, { type: blob.type })] });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Hand a file to the share sheet where there is one, else save it. The share
+ * sheet only opens off a fresh click, so call this straight from one; anything
+ * that takes a while (a recording) has to finish first and be handed over on
+ * the next click.
+ */
+export async function shareOrSave(blob: Blob, filename: string, text: string): Promise<"shared" | "saved"> {
+  const fresh = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive ?? true;
+  if (fresh && canShareFile(blob, filename)) {
+    try {
+      await navigator.share({ files: [new File([blob], filename, { type: blob.type })], text });
+      return "shared";
+    } catch (e) {
+      // Closed the sheet: leave it. Anything else: fall through and save.
+      if ((e as DOMException).name === "AbortError") throw e;
+    }
+  }
+  saveBlob(blob, filename);
   return "saved";
 }

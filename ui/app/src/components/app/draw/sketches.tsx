@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckIcon, DownloadIcon, FilmIcon, PlayIcon, Share2Icon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { type Candle, type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
 import { legPath, type Outcome, type Pt, verdictWord } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
-import { exportPng, recordWebm, ReplayChart, shareOrSave } from "./replay";
+import { canRecordClip, canShareFile, type Clip, exportPng, recordClip, ReplayChart, saveBlob, shareOrSave } from "./replay";
 
 /** A sketch is a position you can look at. The list keeps the drawing. */
 export type Sketch = {
@@ -73,8 +73,16 @@ export function streakOf(sketches: Sketch[]): number {
  */
 export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: Sketch; market: Market; round: number; streak: number; onNext?: () => void }) {
   const [play, setPlay] = useState(1);
-  const [busy, setBusy] = useState<"png" | "webm" | null>(null);
+  const [busy, setBusy] = useState<"png" | "clip" | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  /** A recorded clip waits here for the click that saves or shares it. */
+  const [clip, setClip] = useState<(Clip & { url: string }) | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!clip) return;
+    const { url } = clip;
+    return () => URL.revokeObjectURL(url);
+  }, [clip]);
   const won = sketch.net >= 0;
   const right = sketch.right ?? sketch.accuracy ?? 0;
   const pct = Math.round(right * 100);
@@ -82,17 +90,60 @@ export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: S
   const tone = sketch.liquidated ? "text-down" : pct >= 70 ? "text-up" : pct >= 50 ? "text-foreground" : "text-down";
   const text = `skech · round ${round} · ${market.symbol} ${sketch.long ? "up" : "down"} · ${word}, ${signedUsd(sketch.net, 0)} on $${usd(sketch.stake, 0)} · skech.trade`;
 
-  const send = async (kind: "png" | "webm") => {
-    setBusy(kind);
+  const say = (word: string) => {
+    setDone(word);
+    setTimeout(() => setDone(null), 1800);
+  };
+
+  /** A picture is quick, so it goes straight to the share sheet or a download off this click. */
+  const picture = async () => {
+    setBusy("png");
+    setNote(null);
     try {
-      const blob = kind === "png" ? await exportPng(sketch, market) : await recordWebm(sketch, market);
-      const how = await shareOrSave(blob, `skech-round-${round}.${kind}`, text);
-      setDone(how === "shared" ? "Shared" : "Saved");
-      setTimeout(() => setDone(null), 1800);
-    } catch {
-      // Dismissed, or the browser cannot record. Nothing to say.
+      const blob = await exportPng(sketch, market);
+      say((await shareOrSave(blob, `skech-round-${round}.png`, text)) === "shared" ? "Shared" : "Saved");
+    } catch (e) {
+      if ((e as DOMException).name !== "AbortError") setNote("Couldn't make the picture here.");
     } finally {
       setBusy(null);
+    }
+  };
+
+  /** A clip takes a few seconds. Record first, watch it, then save or share on the next click. */
+  const record = async () => {
+    if (!canRecordClip()) {
+      setNote("This browser can't record video. Picture works.");
+      return;
+    }
+    setBusy("clip");
+    setNote(null);
+    setPlay((n) => n + 1);
+    try {
+      const made = await recordClip(sketch, market);
+      setClip({ ...made, url: URL.createObjectURL(made.blob) });
+    } catch {
+      setNote("The recording didn't take. Try once more, or save a picture.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const clipName = clip ? `skech-round-${round}.${clip.ext}` : "";
+  const shareClip = async () => {
+    if (!clip) return;
+    try {
+      if (canShareFile(clip.blob, clipName)) {
+        await navigator.share({ files: [new File([clip.blob], clipName, { type: clip.blob.type })], text });
+        say("Shared");
+      } else {
+        saveBlob(clip.blob, clipName);
+        say("Saved");
+      }
+    } catch (e) {
+      if ((e as DOMException).name !== "AbortError") {
+        saveBlob(clip.blob, clipName);
+        say("Saved");
+      }
     }
   };
 
@@ -109,7 +160,14 @@ export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: S
       </div>
 
       <div className="overflow-hidden rounded-xl border bg-muted/30">
-        {sketch.run && sketch.run.length > 0 ? <ReplayChart play={play} sketch={sketch} /> : <SketchThumb className="h-40 w-full" sketch={sketch} />}
+        {clip ? (
+          // biome-ignore lint/a11y/useMediaCaption: a silent clip of the chart above
+          <video autoPlay className="block aspect-[1200/630] w-full bg-[#0e0e0e]" controls loop muted playsInline src={clip.url} />
+        ) : sketch.run && sketch.run.length > 0 ? (
+          <ReplayChart play={play} sketch={sketch} />
+        ) : (
+          <SketchThumb className="h-40 w-full" sketch={sketch} />
+        )}
       </div>
 
       {/* Every minute, green where it paid. */}
@@ -125,16 +183,48 @@ export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: S
         </p>
       ) : null}
 
+      {note ? <p className="text-muted-foreground text-xs">{note}</p> : null}
+
+      {clip ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-muted-foreground text-xs">Your clip, {clip.ext === "mp4" ? "MP4" : "WebM"}.</span>
+          <Button onClick={() => saveBlob(clip.blob, clipName)} size="sm">
+            <DownloadIcon />
+            Save clip
+          </Button>
+          {canShareFile(clip.blob, clipName) ? (
+            <Button onClick={shareClip} size="sm" variant="outline">
+              {done ? <CheckIcon /> : <Share2Icon />}
+              {done ?? "Share"}
+            </Button>
+          ) : null}
+          <Button
+            onClick={() => {
+              URL.revokeObjectURL(clip.url);
+              setClip(null);
+            }}
+            size="sm"
+            variant="ghost"
+          >
+            Back to the chart
+          </Button>
+          {onNext ? (
+            <Button className="ml-auto" onClick={onNext} size="sm" variant="ghost">
+              New trade
+            </Button>
+          ) : null}
+        </div>
+      ) : (
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={() => setPlay((n) => n + 1)} size="sm" variant="outline">
+        <Button disabled={busy === "clip"} onClick={() => setPlay((n) => n + 1)} size="sm" variant="outline">
           <PlayIcon />
           Replay
         </Button>
-        <Button disabled={busy !== null} loading={busy === "png"} onClick={() => send("png")} size="sm" variant="outline">
+        <Button disabled={busy !== null} loading={busy === "png"} onClick={picture} size="sm" variant="outline">
           <DownloadIcon />
           Picture
         </Button>
-        <Button disabled={busy !== null} loading={busy === "webm"} onClick={() => send("webm")} size="sm" variant="outline">
+        <Button disabled={busy !== null} loading={busy === "clip"} onClick={record} size="sm" variant="outline">
           <FilmIcon />
           Clip
         </Button>
@@ -162,6 +252,7 @@ export function RoundCard({ sketch, market, round, streak, onNext }: { sketch: S
           </Button>
         ) : null}
       </div>
+      )}
     </div>
   );
 }
