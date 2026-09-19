@@ -4,18 +4,22 @@ import { usd } from "@/lib/market";
 import { cn } from "@/lib/utils";
 
 /**
- * How hard, as a meter you can set. One notch per step, and under the lit
- * run what the multiple does to the money: "$100, 12×, $1,200", with the
- * ceiling at the far end. The lit run never takes less than half the track,
- * so the figures under it always have room.
+ * How hard, as a meter you can set. One notch per step, every notch the same
+ * width, the scale written at each end and what you have picked between them.
+ *
+ * The lit run used to be stretched to half the track however few notches were
+ * lit, so the figures under it would have room. That bought the room by lying
+ * about the reading: at 10× of 50 the first six notches sat visibly wider than
+ * the last six, and a meter whose divisions are uneven is not a meter. The
+ * figures went under the track instead, where there is room for them anyway.
  */
 
-/** 1× to 15×, one notch each. Draw's range. */
-export const DRAW_STEPS = Array.from({ length: 15 }, (_, i) => i + 1);
+/* Up to 50, because that is what the venue gives you. On a market that moves
+   six dollars a second, ten times your money on a twenty-four second round is
+   a rounding error — the leverage is what makes a drawn line worth drawing. */
+export const DRAW_STEPS = [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50];
 /** Up to 100×, the notches a desk trader reaches for. */
 export const DESK_STEPS = [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50, 75, 100];
-
-const MIN_LIT = 0.5;
 
 /** The step nearest a value, so a preset off the notches still lights one. */
 export function nearestStep(steps: number[], value: number): number {
@@ -27,63 +31,85 @@ export function LeverageMeter({
   value,
   stake,
   onChange,
+  label = "Leverage",
   className,
 }: {
   steps: number[];
   value: number;
   stake: number;
   onChange: (value: number) => void;
+  /** What this multiple is called on this screen. */
+  label?: string;
   className?: string;
 }) {
   const n = steps.length;
   const idx = steps.indexOf(nearestStep(steps, value));
-  const lit = idx + 1;
-  const unlit = n - lit;
-  const litRun = Math.max(lit / n, MIN_LIT);
-  const columns = unlit === 0 ? `repeat(${n}, 1fr)` : `repeat(${lit}, ${litRun / lit}fr) repeat(${unlit}, ${(1 - litRun) / unlit}fr)`;
   const max = steps[n - 1];
+  /*
+    Filled in proportion to the multiple, not to the notch.
+
+    One notch per step lit six of twelve at 10x of 50 — half the track for a
+    fifth of the leverage, because the steps are not evenly spaced and the bar
+    was counting them rather than measuring them. A meter that reads "half" at
+    a fifth is worse than no meter. The fill is value/max, the notches are
+    ticks sitting at their own place along it, and 10x of 50 looks like 10x of
+    50.
+  */
+  const at = (v: number) => (v / max) * 100;
+
+  const pick = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const want = ((e.clientX - r.left) / Math.max(1, r.width)) * max;
+    onChange(nearestStep(steps, want));
+  };
 
   return (
     <div className={cn("flex w-full flex-col", className)}>
+      {/* biome-ignore lint/a11y/useSemanticElements: a slider with its own ticks */}
       <div
-        aria-label="Leverage"
+        aria-label={label}
         aria-valuemax={max}
         aria-valuemin={steps[0]}
         aria-valuenow={value}
         aria-valuetext={`${value} times`}
-        className="grid h-3 gap-1 rounded-full focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4"
+        className="relative h-3 w-full cursor-pointer touch-none rounded-full bg-input focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4"
         onKeyDown={(e) => {
           const by = e.key === "ArrowUp" || e.key === "ArrowRight" ? 1 : e.key === "ArrowDown" || e.key === "ArrowLeft" ? -1 : 0;
           if (by === 0) return;
           e.preventDefault();
           onChange(steps[Math.min(n - 1, Math.max(0, idx + by))]);
         }}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          pick(e);
+        }}
+        onPointerMove={(e) => {
+          if (e.buttons === 1) pick(e);
+        }}
         role="slider"
-        style={{ gridTemplateColumns: columns }}
         tabIndex={0}
       >
-        {steps.map((s, i) => (
-          <button
-            aria-label={`${s} times`}
-            className={cn("h-full cursor-pointer rounded-full transition-colors", i < lit ? "bg-primary" : "bg-input hover:bg-primary/30")}
-            key={s}
-            onClick={() => onChange(s)}
-            tabIndex={-1}
-            type="button"
+        <div className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-150" style={{ width: `${at(value)}%` }} />
+        {/* Where the notches actually fall. Close together at the low end,
+            because that is where the numbers are close together. */}
+        {steps.slice(0, -1).map((step) => (
+          <span
+            className={cn("-translate-x-1/2 -translate-y-1/2 absolute top-1/2 size-1 rounded-full", step <= value ? "bg-primary-foreground/40" : "bg-muted-foreground/40")}
+            key={step}
+            style={{ left: `${at(step)}%` }}
           />
         ))}
       </div>
-      <div className="mt-2.5 flex items-baseline gap-3 text-xs">
-        <div className="flex min-w-0 items-baseline gap-2" style={{ width: `calc(${(litRun - 0.5 / n) * 100}% + 1.6rem)` }}>
-          <span className="figures shrink-0 text-muted-foreground">${usd(stake, 0)}</span>
-          <span aria-hidden="true" className="flex min-w-0 flex-1 items-center gap-1 self-center text-muted-foreground/60">
-            <span className="h-px min-w-0 flex-1 bg-current" />
-            <span className="figures shrink-0 font-medium text-[11px] text-foreground leading-none">{value}×</span>
-            <span className="h-px min-w-0 flex-1 bg-current" />
-          </span>
-          <span className="figures shrink-0 font-semibold text-foreground text-sm">${usd(stake * value, 0)}</span>
-        </div>
-        {value < max ? <span className="figures ml-auto shrink-0 text-muted-foreground">${usd(stake * max, 0)}</span> : null}
+      {/* The two ends of the scale, and what you have picked between them.
+          A lone "$16,000" used to float at the right with nothing saying it
+          was the ceiling at full leverage. */}
+      <div className="mt-2.5 flex items-baseline justify-between gap-2 text-muted-foreground text-xs">
+        {/* An end that is where you are standing says it twice. */}
+        <span className="figures shrink-0">{value === steps[0] ? "" : `${steps[0]}\u00d7`}</span>
+        <span className="figures min-w-0 truncate font-medium text-foreground">
+          {value}&times; <span className="text-muted-foreground">&middot;</span> ${usd(stake * value, 0)}
+        </span>
+        <span className="figures shrink-0">{value === max ? "" : `${max}\u00d7`}</span>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toastManager } from "@/components/ui/toast";
-import { type Candle, candlesFor, price as fmtPrice, type Market, usd } from "@/lib/market";
+import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
 import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { PlaceTicket } from "./place-ticket";
@@ -29,26 +29,33 @@ const MIN_BARS = 3;
 
 /** How long a round this line makes: its last minute, never shorter than MIN_BARS. */
 const barsFor = (pts: Pt[], horizon: number) => Math.max(MIN_BARS, Math.round((pts[pts.length - 1]?.t ?? 1) * horizon));
-/**
- * How fast the round lengthens while the pen is held at the edge, per second.
- *
- * A tenth, and it compounds, so the longer you hold the more room arrives — but
- * gently: a second of holding turns twenty-four candles into twenty-six.
- *
- * It grew in chunks before, on every pointer move. Two things were wrong with
- * that. Holding the pen still produced no moves at all, so the canvas stopped
- * opening exactly when you were asking it to; and each chunk was half the round
- * arriving at once, which threw the whole picture sideways under your hand.
- */
-const RUN_GROWTH = 1.1;
 /** As long as a sketch may get. An hour and a half is already a long wait. */
 const RUN_MAX = 96;
-const TICK_MS = 1000;
-const SUB_MS = 80;
-const VOL = 0.0016;
+const TICK_MS = 500;
+const SUB_MS = 250;
+/**
+ * How far a bar moves, as a fraction of the price.
+ *
+ * Sized to a real tape rather than to a chart that looks busy. Bitcoin's
+ * annualised volatility is somewhere near fifty percent, which over a second is
+ * about a hundredth of a percent — six dollars on a sixty-four thousand dollar
+ * coin. A bar here is uniform on plus or minus `open * VOL`, so this puts a
+ * typical move at six dollars and the largest at thirteen.
+ *
+ * It was 0.0016: a hundred dollars a second, or two and a half percent a
+ * minute, which is a market having the worst day of its life, for ever. Every
+ * figure this screen is meant to teach you — what a drawn line is worth, what
+ * leverage does, how often you are right — was being read off a market nobody
+ * has ever traded.
+ */
+const VOL = 0.0002;
 
 function bandFor(candles: Candle[], center: number, extra: number[] = []): Band {
-  let reach = center * 0.012;
+  /* The floor on the vertical scale, and so on how tall a quiet market looks.
+     At 1.2% it was eight hundred dollars either side of a market that moves
+     six a second: a flat line down the middle of an empty chart. At this a
+     round's worth of drift fills the plot and a bar has a body you can see. */
+  let reach = center * 0.0006;
   for (const c of candles) reach = Math.max(reach, Math.abs(c.h - center), Math.abs(c.l - center));
   for (const p of extra) reach = Math.max(reach, Math.abs(p - center));
   const pad = reach * 1.2;
@@ -63,8 +70,12 @@ function easeBand(from: Band, to: Band): Band {
 export function DrawScreen({ market }: { market: Market }) {
   // Draw's own. The desk ticket's pay and leverage are a different field.
   const [stake, setStake] = useState(100);
-  const [leverage, setLeverage] = useState(10);
-  const seed = useMemo(() => candlesFor(market, "1m").slice(-HISTORY), [market]);
+  const [leverage, setLeverage] = useState(50);
+  /* History on the same process as the live feed. It came from the shared
+     one-minute generator, whose bars are a hundred dollars tall — beside a live
+     bar of six they set the vertical scale on their own and flattened
+     everything that mattered into a line across the middle. */
+  const seed = useMemo(() => candlesFor(market, "1m", HISTORY, VOL), [market]);
 
   const [phase, setPhase] = useState<Phase>("live");
   /**
@@ -100,24 +111,8 @@ export function DrawScreen({ market }: { market: Market }) {
   const [lastSketch, setLastSketch] = useState<Sketch | null>(null);
   /** The point under the finger, while one is. */
   const dragIndex = useRef<number | null>(null);
-  /** Curve between the points, or straight legs. The model follows it. */
   /** Where the finger landed, for a tap that becomes a point. */
   const tapAt = useRef<Pt | null>(null);
-  /**
-   * The pen is down on a running round, so the clock waits.
-   *
-   * Redrawing a live plan is not something you can do against a moving market:
-   * every candle that lands while you are mid-stroke moves the boundary you are
-   * drawing ahead of, and on a round this short that is the difference between
-   * adjusting a line and closing the position because you could not keep up.
-   * The reference offers this as a checkbox; here a round is twenty-four
-   * seconds long, so it is simply how it works.
-   *
-   * A ref for the clock, which reads it between renders, and state for the
-   * note on the chart, which only a render can show.
-   */
-  const penDown = useRef(false);
-  const [held, setHeld] = useState(false);
 
   const follow = useRef(0);
   const lastT = useRef(-1);
@@ -142,7 +137,7 @@ export function DrawScreen({ market }: { market: Market }) {
   const traded = view;
   const shape = useMemo(() => shapeOf(traded, entryView), [traded, entryView]);
   const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage) : null), [shape, entryView, stake, leverage]);
-  const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage) : null), [run, shape, entry, stake, leverage]);
+  const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage, runBars) : null), [run, shape, entry, stake, leverage, runBars]);
   const ribbon = useMemo(() => ribbonFor(feed), [feed]);
   /** Your last line, moved to today's price. */
   const ghost = useMemo(
@@ -158,8 +153,8 @@ export function DrawScreen({ market }: { market: Market }) {
   const finish = useCallback((bars: Candle[], early: boolean) => {
     const { shape: sh, entry: en, stake: st, leverage: lev, runBars: rbars, traded: tr } = live.current;
     if (!sh) return;
-    const bk = settle(bars, sh, en, st, lev);
-    const acc = accuracyOf(bars, sh.prices, rbars, sh.long);
+    const bk = settle(bars, sh, en, st, lev, rbars);
+    const acc = accuracyOf(bars, sh.prices, rbars);
     const done: Outcome = bk.done ?? "time";
     const res: Result = {
       net: bk.net,
@@ -204,8 +199,6 @@ export function DrawScreen({ market }: { market: Market }) {
 
   /** Put a finished round behind us before the next one. */
   const fold = () => {
-    penDown.current = false;
-    setHeld(false);
     if (run.length) setFeed((f) => [...f, ...run].slice(-HISTORY));
     setRun([]);
     setPts([]);
@@ -221,7 +214,6 @@ export function DrawScreen({ market }: { market: Market }) {
       const { phase: ph, shape: sh, run: rn, feed: fd, entry: en } = live.current;
       const now = Date.now();
       if (ph === "settled") return;
-      if (ph === "running" && penDown.current) return;
       if (ph !== "running" || !sh) {
         const next = [...fd.slice(1), nextCandle(fd.at(-1)?.c ?? en, VOL, now)];
         const last = next.at(-1)?.c ?? en;
@@ -235,13 +227,12 @@ export function DrawScreen({ market }: { market: Market }) {
       const next = [...rn, bar];
       setRun(next);
       setBand((b) => easeBand(b, bandFor([...fd, ...next].slice(-HISTORY), bar.c, sh.prices)));
-      const bk = settle(next, sh, en, live.current.stake, live.current.leverage);
+      const bk = settle(next, sh, en, live.current.stake, live.current.leverage, live.current.runBars);
       if (bk.done !== null || next.length >= live.current.runBars) finish(next, false);
     }, TICK_MS);
     const sub = setInterval(() => {
       const { phase: ph, run: rn } = live.current;
       if (ph === "settled") return;
-      if (ph === "running" && penDown.current) return;
       if (ph === "running" && rn.length) setRun((r) => (r.length ? [...r.slice(0, -1), extend(r[r.length - 1], VOL)] : r));
       else setFeed((f) => (f.length ? [...f.slice(0, -1), extend(f[f.length - 1], VOL)] : f));
     }, SUB_MS);
@@ -254,62 +245,26 @@ export function DrawScreen({ market }: { market: Market }) {
   /** Points at or before this time have already happened. */
   const editableFrom = phase === "running" ? run.length / runBars + 0.01 : 0;
 
-  /**
-   * The line runs off the end, so the end moves.
-   *
-   * Everything on this chart is positioned as a fraction of the round, so
-   * lengthening it is one division: the points keep the minute they were drawn
-   * at and simply sit a smaller fraction of the way along. The drawing slides
-   * left and fresh canvas appears on the right, which is what "let me draw
-   * further" has to mean when the right edge was the round ending rather than
-   * the screen running out.
-   *
-   * Not while it is running. The round has started; its length is settled.
-   */
-  const lengthen = useCallback((seconds: number) => {
-    const { phase: ph } = live.current;
-    if (ph === "running" || ph === "settled") return;
-    /*
-      Read from a ref, not from state.
+  /*
+    The round no longer grows on a timer.
 
-      This runs twenty times a second and each step is computed from the last,
-      so it cannot wait for a render to tell it where it got to. The rescale
-      used to live inside the state updater, which React is free to run twice —
-      and that halved the drawing's width in one step instead of nudging it.
-    */
-    // Kept as a fraction of a candle, so growth is continuous rather than a
-    // stutter of whole bars. Only the axis labels ever round it.
-    const bars = barsRef.current;
-    const next = Math.min(RUN_MAX, bars * RUN_GROWTH ** seconds);
-    if (next <= bars) return;
-    const k = bars / next;
-    barsRef.current = next;
-    setRunBars(next);
-    setPts((p) => p.map((pt) => ({ ...pt, t: pt.t * k })));
-    /**
-     * And the pen's own mark moves with them.
-     *
-     * The pen only lays a point down once it has travelled a little since the
-     * last one, and it remembers where that was. Stretch the round without
-     * moving that memory and it sits in the future for ever: every later point
-     * looks like no progress at all, so the line stops dead at the edge and
-     * nothing you do will draw again. This is the whole of "I am not able to
-     * draw" — the canvas opened and the pen had already been told it was at the
-     * end of it.
-     */
-    lastT.current *= k;
-  }, []);
+    Holding the pen at the right edge used to stretch the round and keep the
+    whole of it in frame, so the line shrank away from the edge you were
+    pressing against — running to stand still. The chart runs forward under the
+    pen instead, and `coverTo` lengthens the round to cover whatever gets drawn
+    out there. The view moving and the trade getting longer are one gesture.
+  */
 
   /**
    * Make the round long enough to hold a point at this time.
    *
-   * Once the chart scrolls, the right edge is a fixed distance ahead of now
-   * rather than the end of the round, so a point put down out there lands past
-   * t = 1 — past the last minute the round has. Clamping it back is the wrong
-   * answer twice over: it silently drops the part of the line you just drew,
-   * and it leaves you trapped in a round you have outgrown with nothing to do
-   * but close the position. So the round becomes that long instead. Drawing
-   * further is trading for longer; they are the same gesture.
+   * The chart runs forward while the pen holds the right edge, so a point put
+   * down out there lands past t = 1 — past the last minute the round has.
+   * Clamping it back is the wrong answer twice over: it silently drops the part
+   * of the line you just drew, and it leaves you trapped in a round you have
+   * outgrown with nothing to do but close the position. So the round becomes
+   * that long instead. Drawing further is trading for longer; they are the same
+   * gesture.
    *
    * Growing by exactly the factor asked for lands the line's end precisely on
    * the edge, so holding the pen there settles rather than running away.
@@ -325,10 +280,29 @@ export function DrawScreen({ market }: { market: Market }) {
     barsRef.current = next;
     setRunBars(next);
     setPts((p) => p.map((pt) => ({ ...pt, t: pt.t * k })));
-    // And the pen's own memory of where it got to, as in `lengthen`.
+    // And the pen's own memory of where it got to.
     lastT.current *= k;
     return Math.min(1, t * k);
   }, []);
+
+  /**
+   * Open the scale to a price as it is drawn, rather than a tick later.
+   *
+   * `bandFor` already widens to hold the drawing, but it arrives on the clock
+   * and eases in at a eighth a tick — two or three seconds behind a hand. That
+   * is the whole of the ceiling: you reach the top of the plot, the line stops
+   * climbing because there is no more chart, and the scale catches up long
+   * after you have given up pushing. Stretched here, the room is there in the
+   * same frame the point is, and the easing settles the rest.
+   */
+  const stretchTo = (price: number) => {
+    setBand((b) => {
+      const pad = (b.hi - b.lo) * 0.12;
+      if (price > b.hi - pad) return { lo: b.lo, hi: price + pad };
+      if (price < b.lo + pad) return { lo: price - pad, hi: b.hi };
+      return b;
+    });
+  };
 
   /** Start a line at the live price. A finger lands wherever it lands; the
       gap is carried through the whole drawing. */
@@ -362,10 +336,6 @@ export function DrawScreen({ market }: { market: Market }) {
   };
 
   const onDown = (pt: Pt) => {
-    if (phase === "running") {
-      penDown.current = true;
-      setHeld(true);
-    }
     if ((phase === "drawn" || phase === "running") && pts.length > 1) {
       // Another point, where you clicked, in time order. Ahead of now only.
       if (pt.t <= editableFrom) return;
@@ -407,6 +377,7 @@ export function DrawScreen({ market }: { market: Market }) {
       // in by its neighbours however far right you drag it, so asking for more
       // minutes on its behalf would buy time nothing can use.
       const want = i === pts.length - 1 ? coverTo(pt.t) : pt.t;
+      stretchTo(pt.price + offset);
       setPts((p) => {
         if (!p[i]) return p;
         const t = i === p.length - 1 && phase === "drawing" ? Math.max(want, 0.03) : clampT(want, i, p);
@@ -426,6 +397,7 @@ export function DrawScreen({ market }: { market: Market }) {
     // Only a little: at much less than this every peak is rounded off before
     // the line is even simplified, and a sharp turn is usually the point.
     const target = { t, price: pt.price + anchor.current };
+    stretchTo(target.price);
     setPts((p) => {
       const last = p[p.length - 1];
       const eased = last ? last.price + (target.price - last.price) * 0.85 : target.price;
@@ -436,8 +408,6 @@ export function DrawScreen({ market }: { market: Market }) {
   const onUp = () => {
     const drew = dragIndex.current === null && phase === "drawing";
     dragIndex.current = null;
-    penDown.current = false;
-    setHeld(false);
     if (drew) {
       // A tap is a point. The line runs from now to where you clicked, and
       // the next click adds the next point. A stroke settles into the turns
@@ -530,7 +500,10 @@ export function DrawScreen({ market }: { market: Market }) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const headLabel = shape && quote ? `+$${usd(quote.ifWorks, 0)} if it gets here` : null;
+  /* Signed, because net of fees this goes negative: at fifty times a hundred
+     dollars they are $4.50, and a line that only reaches for four dollars is a
+     trade that costs money to be right about. It read "+$-4" before. */
+  const headLabel = shape && quote ? `${signedUsd(quote.ifWorks, 0)} if it gets here` : null;
 
   const shown = useMemo(
     () => (phase === "running" && book ? sketches.map((s) => (s.status === "running" ? { ...s, net: book.net } : s)) : sketches),
@@ -575,10 +548,22 @@ export function DrawScreen({ market }: { market: Market }) {
           band={band}
           feed={feed}
           headLabel={headLabel}
-          horizonMinutes={phase === "running" || phase === "settled" ? viewBars : runBars}
+          /*
+            A fixed window everywhere except the moment you finish.
+
+            It tracked the round's own length while drawing, and the round grows
+            as you draw — so every candle the round gained made the bars
+            narrower, which made the same hand movement worth more candles,
+            which grew the round again. A stroke across the screen ran the
+            horizon to its ninety-six candle ceiling. Held still, the bars keep
+            their width and the chart follows the hand at the speed of the hand.
+
+            Only `drawn` fits the whole plan, which is the one moment you want
+            to see all of it at once.
+          */
+          horizonMinutes={phase === "drawn" ? runBars : viewBars}
           editableFrom={editableFrom}
           onDown={onDown}
-          onExtend={lengthen}
           onGrab={onGrab}
           onMove={onMove}
           onRemove={onRemove}
@@ -591,7 +576,6 @@ export function DrawScreen({ market }: { market: Market }) {
           runBars={runBars}
           shape={shape}
           ghost={ghost}
-          paused={held && phase === "running"}
           ribbon={ribbon}
         />
         </div>

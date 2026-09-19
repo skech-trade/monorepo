@@ -7,8 +7,19 @@ export type Leg = { from: number; to: number; dir: 1 | -1 };
 /** Samples of the drawn shape, evenly spaced across the window. */
 export const SAMPLES = 32;
 
-/** A reversal smaller than this fraction of entry is a wobble, not a turn. */
-const TOL = 0.0022;
+/** A move smaller than this fraction of entry is not a level worth marking. */
+const TOL = 0.0002;
+/**
+ * A reversal smaller than this share of the drawing's own height is a wobble.
+ *
+ * Of the drawing's height, not of the price. As a fraction of the price it came
+ * to $141 on a $64,000 Bitcoin — fine while a candle moved a hundred dollars,
+ * and fatal the moment one moves six: every reversal a hand could draw would be
+ * under the threshold, so every line would collapse to a single leg and the
+ * whole product with it. A drawing's own height is the only scale that is
+ * always the right one, whatever the market is doing.
+ */
+const REVERSAL = 0.08;
 /**
  * Two vertices closer than this share of the round are one turn.
  *
@@ -19,7 +30,7 @@ const TOL = 0.0022;
  */
 const TURN_GAP = 0.03;
 /** Under this total travel the drawing says nothing worth trading. */
-const FLAT = 0.004;
+const FLAT = 0.0002;
 
 /** Taker fee per side, as on the landing. */
 export const FEE = 0.00045;
@@ -55,8 +66,19 @@ export function resample(pts: Pt[], entry: number): number[] {
  * Rising stretches are longs, falling stretches are shorts, a turn is a close
  * and an open. `TOL` keeps a shaky hand from buying and selling twenty times.
  */
+/** How far price must come back for a turn to be a turn, at this drawing's scale. */
+function turnTol(values: number[], ref: number): number {
+  let lo = values[0];
+  let hi = values[0];
+  for (const v of values) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return Math.max((hi - lo) * REVERSAL, ref * 1e-5);
+}
+
 export function legsFrom(prices: number[]): Leg[] {
-  const tol = prices[0] * TOL;
+  const tol = turnTol(prices, prices[0]);
   const legs: Leg[] = [];
   let start = 0;
   let extIdx = 0;
@@ -146,8 +168,13 @@ export type Quote = {
  * The two dollar figures, and the price behind the second.
  *
  * Every number is in dollars at the stake the reader chose, never a multiple
- * or a percentage. `mostLose` is the loss at the floor they drew, or the whole
- * stake if the line never dips below where they got in.
+ * or a percentage. `mostLose` is the stake, because the stake is what isolated
+ * margin puts at risk — it used to be the loss at the low point of the drawing,
+ * which was only ever true if the venue closed you there, and it does not.
+ *
+ * `ifWorks` is net of both fees. At fifty times a hundred dollars they come to
+ * four fifty, which is most of what a short round makes; quoting the gross
+ * would be quoting a number nobody receives.
  */
 export function quote(
   shape: Shape,
@@ -155,20 +182,41 @@ export function quote(
   stake: number,
   leverage: number,
 ): Quote {
-  const notional = stake * leverage;
-  const move = (p: number) => Math.abs(p - entry) / entry;
-  const ifWorks = notional * move(shape.target);
-  const atFloor = shape.floor === null ? stake : notional * move(shape.floor);
-  const dir = shape.long ? 1 : -1;
+  /*
+    What the plan pays if the market traces it exactly — every leg of it.
+
+    It used to be the move to the single furthest point, which ignored every
+    turn in between and so priced a zigzag the same as a straight line to the
+    same height. Walking the legs prices what is actually traded, fees and all,
+    and that is the number that makes a zigzag look like what it is: eight
+    turns is eight round trips out of the same stake.
+  */
+  let equity = stake;
+  for (const leg of shape.legs) {
+    const open = shape.prices[leg.from];
+    const close = shape.prices[leg.to];
+    const notional = equity * leverage;
+    equity += leg.dir * (notional / open) * (close - open) - FEE * notional * 2;
+    if (equity <= 0) return { ifWorks: -stake, mostLose: stake, wipedAt: liquidationPrice(entry, stake, leverage, shape.long ? 1 : -1), notional: stake * leverage };
+  }
   return {
-    ifWorks,
-    mostLose: Math.min(stake, atFloor),
-    wipedAt: entry * (1 - dir * (1 / leverage - MAINT)),
-    notional,
+    ifWorks: equity - stake,
+    mostLose: stake,
+    wipedAt: liquidationPrice(entry, stake, leverage, shape.long ? 1 : -1),
+    notional: stake * leverage,
   };
 }
 
-export type Outcome = "target" | "floor" | "time" | "liquidated";
+/**
+ * How a position ended. Two ways, and neither is a level you did not set.
+ *
+ * It used to close at `target` — the high point of your own drawing — and at
+ * `floor`, its low. Nobody placed those orders. A drawn line is a forecast, not
+ * a bracket, and taking someone out at the top of their own sketch books a
+ * profit they never asked to take and calls it their exit. The only things that
+ * end a position here are the clock and the margin.
+ */
+export type Outcome = "time" | "liquidated";
 
 export type Book = {
   /** Realised or marked P&L, net of fees. Never below minus the stake. */
@@ -192,39 +240,92 @@ export type Book = {
  * Recomputed from scratch on every tick so there is one place money is
  * decided. Fees come off both fills.
  */
+/**
+ * Where isolated margin gives out, as a venue works it out.
+ *
+ * Equity is the stake, less the fee taken on the way in, plus what the position
+ * has made; the venue closes you when that falls to the maintenance margin it
+ * holds against the position's value at the mark. Solving the two for price:
+ *
+ *   long   P = (q·entry − stake + fee) / (q · (1 − mmr))
+ *   short  P = (q·entry + stake − fee) / (q · (1 + mmr))
+ *
+ * The old line was `entry * (1 − dir * (1/leverage − MAINT))`, which lands
+ * within a few dollars at fifty times and drifts at low leverage, because it
+ * treats maintenance as a flat haircut on entry rather than a claim against
+ * the mark. Close enough to look right, which is the worst kind of wrong in a
+ * number that decides whether someone loses everything.
+ */
+export function liquidationPrice(entry: number, stake: number, leverage: number, dir: 1 | -1): number {
+  const q = (stake * leverage) / entry;
+  const room = stake - FEE * stake * leverage;
+  return dir > 0 ? (q * entry - room) / (q * (1 - MAINT)) : (q * entry + room) / (q * (1 + MAINT));
+}
+
+/**
+ * The line, traded leg by leg.
+ *
+ * Every turn you drew is a close and an open — that is what the chart has been
+ * claiming all along, with a Buy at each trough and a Sell at each peak. The
+ * money did not do it. It read the last point, decided the whole round was one
+ * long or one short, and held that from the first candle to the last, so a
+ * drawing that went up hard and then down hard was booked as a single bet in
+ * whichever direction happened to end higher. Every turn in between was
+ * decoration.
+ *
+ * Now each leg is its own position: in at the market price where the leg
+ * starts, out at the market price where it ends, sized off the equity standing
+ * at the time, and charged a round trip of its own. Which means a zigzag costs
+ * what a zigzag costs — eight turns is eight round trips, and at fifty times
+ * that is real money — and the chart and the ledger finally describe the same
+ * trade.
+ *
+ * Liquidation is checked inside each leg against that leg's own entry. Equity
+ * is carried across them and the whole thing stops at zero, because isolated
+ * margin cannot go below the stake.
+ */
 export function settle(
   bars: Candle[],
   shape: Shape,
   entry: number,
   stake: number,
   leverage: number,
+  runBars: number,
 ): Book {
-  const dir = shape.long ? 1 : -1;
-  const notional = stake * leverage;
-  const q = notional / entry;
-  const fees = FEE * notional * 2;
-  // Losses stop at the stake, whatever the level rule says.
-  const cap = (n: number) => Math.max(-stake, n);
-  const pnlAt = (px: number) => cap(dir * q * (px - entry) - fees);
-  // Where the venue would close it on its own, if the line never dips.
-  const liq = entry * (1 - dir * (1 / leverage - MAINT));
+  const last = bars.length;
+  if (last === 0) return { net: 0, done: null, exit: entry };
+  /** The market price when this many candles of the round had arrived. */
+  const priceAt = (i: number) => (i <= 0 ? entry : (bars[Math.min(last, i) - 1]?.c ?? entry));
+  /** A sample index on the drawing, to a candle of the round. */
+  const barOf = (sample: number) => Math.round((sample / (SAMPLES - 1)) * runBars);
 
-  for (const bar of bars) {
-    const worst = dir > 0 ? bar.l : bar.h;
-    const best = dir > 0 ? bar.h : bar.l;
-    if (dir * (worst - liq) <= 0) {
-      return { net: -stake, done: "liquidated", exit: liq };
+  let equity = stake;
+  let exit = priceAt(last);
+
+  for (const leg of shape.legs) {
+    const from = barOf(leg.from);
+    if (from >= last) break;
+    const to = barOf(leg.to);
+    const open = priceAt(from);
+    const notional = equity * leverage;
+    const q = notional / open;
+    const liq = liquidationPrice(open, equity, leverage, leg.dir);
+
+    for (let i = from; i < Math.min(to, last); i++) {
+      const bar = bars[i];
+      const worst = leg.dir > 0 ? bar.l : bar.h;
+      if (leg.dir * (worst - liq) <= 0) return { net: -stake, done: "liquidated", exit: liq };
     }
-    if (shape.floor !== null && dir * (worst - shape.floor) <= 0) {
-      return { net: pnlAt(shape.floor), done: "floor", exit: shape.floor };
-    }
-    if (dir * (best - shape.target) >= 0) {
-      return { net: pnlAt(shape.target), done: "target", exit: shape.target };
-    }
+
+    const close = priceAt(Math.min(to, last));
+    equity += leg.dir * q * (close - open) - FEE * notional * 2;
+    exit = close;
+    if (equity <= 0) return { net: -stake, done: "liquidated", exit: close };
+    // Still inside this leg: it is marked, not closed, and nothing follows yet.
+    if (to >= last) break;
   }
 
-  const mark = bars.at(-1)?.c ?? entry;
-  return { net: pnlAt(mark), done: null, exit: mark };
+  return { net: Math.max(-stake, equity - stake), done: null, exit };
 }
 
 /**
@@ -333,7 +434,7 @@ export function simplify(
     The same threshold the legs use, so what is left on screen is exactly what
     can become a position.
   */
-  const grip = tolerance * TOL;
+  const grip = turnTol(pts.map((p) => p.price), tolerance);
   const kept: Pt[] = [];
   for (let i = 0; i < thinned.length; i++) {
     const p = thinned[i];
@@ -428,26 +529,26 @@ export type Accuracy = {
  * printed beside a gain. Weighted by what each minute moved, the figure passes
  * a half exactly when the round makes money, so the two can never contradict.
  *
- * And it takes its direction from the position `settle` actually holds — one,
- * for the whole round — not from the way the line happens to be going at that
- * moment. The chart shades per segment and marks a buy and a sell at every
- * turn, which says the line is a run of positions; the money says it is a
- * single bet from entry to exit. Until those two agree, a figure printed next
- * to the money has to follow the money.
+ * Its direction comes from the way the line is going at that moment, which is
+ * the position `settle` actually holds there now that the line is traded leg by
+ * leg. The chart's shading, the buy and sell marks, the money and this figure
+ * all read the same trade at last; for a while the money held one position for
+ * the whole round and this had to follow it to avoid printing a contradiction.
  *
  * It scored distance before this: the share of closes landing inside the
  * ribbon. A line can sit inside its ribbon the whole way and lose money the
  * whole way, and a round that made twenty-five percent scored twenty-four.
  */
-export function accuracyOf(bars: Candle[], prices: number[], runBars: number, long: boolean): Accuracy {
+export function accuracyOf(bars: Candle[], prices: number[], runBars: number): Accuracy {
   if (bars.length === 0) return { right: 0, flags: [], bias: 0 };
-  const dir = long ? 1 : -1;
   let sum = 0;
   let forYou = 0;
   let against = 0;
   const flags = bars.map((bar, i) => {
-    sum += lineAt(prices, (i + 1) / runBars) - bar.c;
-    const made = dir * (bar.c - bar.o);
+    const was = lineAt(prices, i / runBars);
+    const goes = lineAt(prices, (i + 1) / runBars);
+    sum += goes - bar.c;
+    const made = (goes >= was ? 1 : -1) * (bar.c - bar.o);
     if (made >= 0) forYou += made;
     else against -= made;
     return made >= 0;
@@ -471,9 +572,6 @@ export function verdictFor(right: number): "Called it" | "Close" | "Off" {
  */
 export function verdictWord(outcome: Outcome | "closed", right: number, net: number): string {
   if (outcome === "liquidated") return "Wiped out";
-  // Getting there and still losing money happens when the move was smaller
-  // than the fees. "Called it" next to red reads as a lie, so it is "Close".
-  if (outcome === "target") return net < 0 ? "Close" : "Called it";
   const word = verdictFor(right);
   return word === "Called it" && net < 0 ? "Close" : word;
 }
@@ -492,7 +590,24 @@ export function nextCandle(
   toward: number | null = null,
   follow = 0,
 ): Candle {
-  const pull = toward === null ? 0 : (toward - open) * follow;
+  /*
+    The lean toward the line, bounded by what a bar can actually move.
+
+    `follow` is rolled negative about a fifth of the time, and a negative
+    proportional pull is not a market walking away — it is compound interest on
+    the gap. Each bar multiplied the distance from the line by 1 + |follow|, so
+    over twenty-four bars a twelve percent lean became sixteen times the gap and
+    over ninety-six it became fifty thousand times: a market that leaves the
+    solar system rather than one that disagrees with you.
+
+    Capped at a couple of bars' worth of move, it is a drift either way. The cap
+    almost never binds on a positive follow, where the gap closes and the pull
+    shrinks with it; it binds constantly on a negative one, which is exactly
+    where it is needed.
+  */
+  const lean = toward === null ? 0 : (toward - open) * follow;
+  const most = open * vol * 2;
+  const pull = Math.min(most, Math.max(-most, lean));
   const close = open + pull + open * vol * (Math.random() - 0.5) * 2;
   const wick = open * vol * (0.3 + Math.random() * 0.8);
   return {
