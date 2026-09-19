@@ -20,7 +20,7 @@ export type Sketch = {
   net: number;
   exit?: number;
   liquidated?: boolean;
-  /** Share of the way the price stayed inside the ribbon. */
+  /** Share of the round that made money. */
   accuracy?: number;
 };
 
@@ -65,7 +65,7 @@ function SketchRow({ sketch }: { sketch: Sketch }) {
             : sketch.liquidated
               ? "wiped out"
               : sketch.accuracy !== undefined
-                ? `${Math.round(sketch.accuracy * 100)}% inside`
+                ? `${Math.round(sketch.accuracy * 100)}% paid`
                 : won
                   ? "called it"
                   : "missed"}

@@ -402,42 +402,58 @@ export function lineAt(prices: number[], u: number): number {
 }
 
 export type Accuracy = {
-  /** Share of arrived candles that closed inside the ribbon, 0 to 1. */
-  inside: number;
-  /** One flag per candle, in order. */
+  /** Share of arrived candles that made money, 0 to 1. */
+  paid: number;
+  /** One flag per candle, in order: did that minute pay. */
   flags: boolean[];
   /** Mean of line minus close: positive means you drew too high. */
   bias: number;
 };
 
-export function accuracyOf(bars: Candle[], prices: number[], width: number, runBars: number): Accuracy {
-  if (bars.length === 0) return { inside: 0, flags: [], bias: 0 };
+/**
+ * How the round went, candle by candle — by what each one made, not by how
+ * near it landed.
+ *
+ * The direction the line is going at that moment is the position you are in,
+ * the candle's own move is what the market did, and the two multiplied is
+ * whether that minute paid. That is exactly the test the chart shades with, so
+ * the figure in the copy and the colours under the line cannot disagree.
+ *
+ * It scored distance before: the share of closes that landed within the
+ * ribbon. That answered a question nobody asked. A line can sit inside its
+ * ribbon the whole way and lose money the whole way, and a round that made
+ * twenty-five percent could score twenty-four — printed, in the same sentence,
+ * right next to the profit.
+ */
+export function accuracyOf(bars: Candle[], prices: number[], runBars: number): Accuracy {
+  if (bars.length === 0) return { paid: 0, flags: [], bias: 0 };
   let sum = 0;
   const flags = bars.map((bar, i) => {
-    const want = lineAt(prices, (i + 1) / runBars);
-    sum += want - bar.c;
-    return Math.abs(bar.c - want) <= width;
+    const was = lineAt(prices, i / runBars);
+    const goes = lineAt(prices, (i + 1) / runBars);
+    sum += goes - bar.c;
+    return (goes >= was ? 1 : -1) * (bar.c - bar.o) >= 0;
   });
-  return { inside: flags.filter(Boolean).length / flags.length, flags, bias: sum / bars.length };
+  return { paid: flags.filter(Boolean).length / flags.length, flags, bias: sum / bars.length };
 }
 
-/** Three words, by how much of the way the price stayed inside. */
-export function verdictFor(inside: number): "Called it" | "Close" | "Off" {
-  if (inside >= 0.8) return "Called it";
-  if (inside >= 0.55) return "Close";
+/** Three words, by how much of the round paid. */
+export function verdictFor(paid: number): "Called it" | "Close" | "Off" {
+  if (paid >= 0.8) return "Called it";
+  if (paid >= 0.55) return "Close";
   return "Off";
 }
 
 /**
  * The word for a round. Hitting where you aimed is a call whatever the path.
- * Otherwise the ribbon decides, but a round that lost money is never "Called
- * it": the path was right and the ending was not, and the word should not
- * argue with the figure beside it.
+ * Otherwise how much of it paid decides, but a round that lost money overall
+ * is never "Called it": the minutes were right and the ending was not, and the
+ * word should not argue with the figure beside it.
  */
-export function verdictWord(outcome: Outcome | "closed", inside: number, net: number): string {
+export function verdictWord(outcome: Outcome | "closed", paid: number, net: number): string {
   if (outcome === "liquidated") return "Wiped out";
   if (outcome === "target") return "Called it";
-  const word = verdictFor(inside);
+  const word = verdictFor(paid);
   return word === "Called it" && net < 0 ? "Close" : word;
 }
 

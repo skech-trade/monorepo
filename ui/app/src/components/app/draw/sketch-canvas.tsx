@@ -8,6 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { ChevronLeftIcon, ChevronRightIcon, CrosshairIcon, RotateCcwIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
 import { lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
@@ -24,7 +26,8 @@ const PAD_T = 16;
 const PAD_B = 24;
 const PAD_L = 8;
 const PAD_R = 8;
-const HISTORY_SHARE = 0.54;
+/** Where now sits across the plot. Half and half, as asked. */
+const HISTORY_SHARE = 0.5;
 /** The hint, as fractions of plot height above (+) or below (-) the price. */
 const HINT = [0, 0.02, -0.02, -0.07, -0.12, -0.14, -0.1, -0.03, 0.05, 0.13, 0.2, 0.26] as const;
 
@@ -120,6 +123,7 @@ export function SketchCanvas({
   horizonMinutes,
   ghost,
   ribbon,
+  paused,
   className,
 }: {
   feed: Candle[];
@@ -144,12 +148,17 @@ export function SketchCanvas({
   editableFrom: number;
   /** What the line is worth where it ends, shown at the head while drawing. */
   headLabel?: string | null;
-  /** How long the right edge is, in minutes. */
+  /**
+   * How much future the right half shows, in minutes. Not the round's length:
+   * the round is free to grow past it and arrive as the chart scrolls.
+   */
   horizonMinutes: number;
   /** Your last line, faint, so you notice your habits. */
   ghost: Pt[] | null;
   /** Half the ribbon's height, in price. */
   ribbon: number;
+  /** The clock is waiting on your hand. */
+  paused?: boolean;
   className?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -160,6 +169,30 @@ export function SketchCanvas({
   /** Held against the right edge, so the round should be opening up. */
   const [pushing, setPushing] = useState(false);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
+  /**
+   * How the chart is being looked at. Display only: zoom and pan move the eye,
+   * never the orders. `anchor` is the candle held on the split, and null means
+   * hold the live one — which is all that following is.
+   */
+  const [view, setView] = useState<{ zoom: number; anchor: number | null }>({ zoom: 1, anchor: null });
+  /** The view being dragged, from where it was grabbed. */
+  const pan = useRef<{ x: number; anchor: number; moved: boolean } | null>(null);
+  /*
+    A new line starts on a fresh view.
+
+    Pan and zoom belong to the round they were looking at. An anchor is a
+    candle number, and the next round's candles start again at zero — so a view
+    parked eighty candles into a finished round puts the new one somewhere off
+    the left of the screen, and you get an empty chart with an axis reading
+    +113m and no way to tell what went wrong. Adjusting state during render is
+    the documented way to reset on a changing prop, and unlike an effect it
+    leaves nothing stale on screen for a frame.
+  */
+  const [seenPhase, setSeenPhase] = useState(phase);
+  if (seenPhase !== phase) {
+    setSeenPhase(phase);
+    if (phase === "live") setView({ zoom: 1, anchor: null });
+  }
 
   const plotL = PAD_L;
   const plotR = Math.max(plotL + 1, w - PAD_R);
@@ -170,17 +203,74 @@ export function SketchCanvas({
   const y = useCallback((p: number) => plotT + ((band.hi - p) / span) * (plotB - plotT), [band.hi, span, plotT, plotB]);
   const priceAtY = (yy: number) => band.hi - ((yy - plotT) / (plotB - plotT)) * span;
 
-  const step = (split - plotL) / Math.max(1, feed.length);
-  const runStep = (plotR - split) / runBars;
+  /**
+   * The picture slides left as the round runs.
+   *
+   * Bars are a fixed width and "now" is pinned to the split, so every candle
+   * that arrives pushes the whole chart — the history, the run so far, your
+   * line — one bar to the left, and a bar of fresh canvas appears on the right.
+   * That canvas is the point of this: it is room to draw into, and drawing into
+   * it is how the round gets longer. The right half is always `horizonMinutes`
+   * ahead of now, whatever length the round itself has grown to.
+   *
+   * It did not move before. The round's end sat on the right edge and stayed
+   * there while the candles walked up to it, so the future you could still
+   * trade shrank to nothing and the only way out of a line you had outgrown was
+   * to close the position.
+   */
+  // Settled, the round is over and all of it is behind now, so widen the bars
+  // just enough that its first candle clears the left edge. Only when it has
+  // to: a round that never outgrew the window keeps the window's own scale, and
+  // the picture does not lurch at the moment it finishes.
+  const fit = phase === "settled" ? (runBars * (plotR - split)) / Math.max(1, split - plotL) : 0;
+  const VIEW = Math.max(1, horizonMinutes, fit);
+  const baseStep = (plotR - split) / VIEW;
+  const runStep = baseStep * view.zoom;
+  const elapsed = phase === "running" || phase === "settled" ? run.length : 0;
+  const following = view.anchor === null;
+  /** The candle held on the split. Following, that is always the live one. */
+  const anchor = view.anchor ?? elapsed;
+  /** Candles since the round's first, to a place on the chart, and back. */
+  const xOfBar = (bars: number) => split + (bars - anchor) * runStep;
+  const barOfX = (x: number) => anchor + (x - split) / runStep;
+  const xOfT = (t: number) => xOfBar(t * runBars);
+  const tOfX = (x: number) => barOfX(x) / runBars;
+  /** Where now actually is: the split, until you pan away from it. */
+  const xNow = xOfBar(elapsed);
+  /** Held where there is something to see, as the reference clamps its own. */
+  const holdAnchor = (a: number) => Math.min(Math.max(a, -feed.length), Math.max(runBars, elapsed) + VIEW);
+
+  /*
+    Zoom and pan, as the reference has them — and with its rule, which is worth
+    keeping verbatim: they change the view only, orders never move. The factor
+    is on the span, so a bigger number is further out.
+  */
+  const zoomTime = (spanFactor: number, px?: number) => {
+    setView((v) => {
+      const z = Math.min(8, Math.max(0.15, v.zoom / spanFactor));
+      // Held about the place under the pointer — but only when the view is
+      // yours. Following re-centres on the next candle regardless, so pinning
+      // it to the cursor as well would just fight itself.
+      if (v.anchor === null || px === undefined) return { ...v, zoom: z };
+      const here = v.anchor + (px - split) / (baseStep * v.zoom);
+      return { zoom: z, anchor: holdAnchor(here - (px - split) / (baseStep * z)) };
+    });
+  };
+  const panTime = (dir: number) => {
+    const step = ((plotR - plotL) / runStep) * 0.25 * dir;
+    setView((v) => ({ ...v, anchor: holdAnchor((v.anchor ?? elapsed) + step) }));
+  };
+  const follow = () => setView((v) => ({ ...v, anchor: v.anchor === null ? elapsed : null }));
+  const reset = () => setView({ zoom: 1, anchor: null });
   // Points can still be placed while it runs — ahead of the candles, never behind.
   const canDraw = phase === "live" || phase === "drawn" || phase === "running";
 
   const local = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
     if (!r) return null;
-    const x = Math.min(plotR, Math.max(split, e.clientX - r.left));
+    const x = Math.min(plotR, Math.max(xNow, e.clientX - r.left));
     const yy = Math.min(plotB, Math.max(plotT, e.clientY - r.top));
-    return { t: (x - split) / (plotR - split), price: priceAtY(yy) };
+    return { t: tOfX(x), price: priceAtY(yy) };
   };
   /** Within this of the right edge counts as pushing against it. */
   const EDGE = 18;
@@ -192,7 +282,22 @@ export function SketchCanvas({
   };
 
   const onDown = (e: ReactPointerEvent) => {
-    if (!canDraw) return;
+    const r = box.current?.getBoundingClientRect();
+    if (!r) return;
+    const px = e.clientX - r.left;
+    /*
+      One surface, two gestures, divided where now is.
+
+      The past is for looking at, so dragging it moves the view; the future is
+      for drawing in, so dragging that draws. Nobody has to find a tool for it,
+      and there is no mode to be in the wrong one of.
+    */
+    if (!canDraw || px < xNow) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      pan.current = { x: px, anchor, moved: false };
+      setHover(null);
+      return;
+    }
     const p = local(e);
     if (!p) return;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -202,10 +307,22 @@ export function SketchCanvas({
   };
   const onMove = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
-    if (r && canDraw) {
-      const x = e.clientX - r.left;
+    if (!r) return;
+    const px = e.clientX - r.left;
+    const grabbed = pan.current;
+    if (grabbed) {
+      // Following stops when you actually drag, not when you touch. A click on
+      // the past is a click on the past; unfollowing there meant one stray tap
+      // quietly detached the chart from the market and left it behind.
+      const dx = px - grabbed.x;
+      if (!grabbed.moved && Math.abs(dx) < 3) return;
+      grabbed.moved = true;
+      setView((v) => ({ ...v, anchor: holdAnchor(grabbed.anchor - dx / runStep) }));
+      return;
+    }
+    if (canDraw) {
       const yy = e.clientY - r.top;
-      setHover(x >= split && x <= plotR && yy >= plotT && yy <= plotB ? { x, y: yy } : null);
+      setHover(px >= xNow && px <= plotR && yy >= plotT && yy <= plotB ? { x: px, y: yy } : null);
     }
     if (!active.current) return;
     const p = local(e);
@@ -213,6 +330,10 @@ export function SketchCanvas({
     track(e);
   };
   const onUp = () => {
+    if (pan.current) {
+      pan.current = null;
+      return;
+    }
     if (!active.current) return;
     active.current = false;
     setPushing(false);
@@ -236,11 +357,29 @@ export function SketchCanvas({
     return () => el.removeEventListener("touchmove", block);
   }, []);
 
+  /* Scroll to zoom time, as the reference does — attached by hand because it
+     has to call preventDefault, and React's own wheel listener is passive. */
+  const wheel = useRef(zoomTime);
+  useEffect(() => {
+    wheel.current = zoomTime;
+  });
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.deltaY) return;
+      e.preventDefault();
+      wheel.current(e.deltaY > 0 ? 1.25 : 1 / 1.25, e.clientX - el.getBoundingClientRect().left);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
   /* The handlers as of this render, for the loop below to call. It is started
      once per push and must not be torn down every time the round grows. */
-  const now = useRef({ extend: onExtend, move: onMovePt, price: priceAtY });
+  const now = useRef({ extend: onExtend, move: onMovePt, price: priceAtY, edgeT: 1 });
   useEffect(() => {
-    now.current = { extend: onExtend, move: onMovePt, price: priceAtY };
+    now.current = { extend: onExtend, move: onMovePt, price: priceAtY, edgeT: tOfX(plotR) };
   });
 
   /**
@@ -269,23 +408,24 @@ export function SketchCanvas({
       const here = at.current;
       if (!here) return;
       now.current.extend?.(seconds);
-      // Reach for the end of the round. The pen lays a point down once enough
-      // fresh canvas has arrived under it, so holding here draws rather than
-      // stretching one segment.
-      now.current.move({ t: 1, price: now.current.price(here.y) });
+      // Reach for the right edge, which once the chart is scrolling is past
+      // the end of the round — and asking for a point out there is what makes
+      // the round longer. The pen lays a point down once enough fresh canvas
+      // has arrived under it, so holding here draws rather than stretching one
+      // segment.
+      now.current.move({ t: now.current.edgeT, price: now.current.price(here.y) });
     }, 50);
     return () => clearInterval(id);
   }, [pushing]);
 
-  const plotted = pts.map((pt) => ({ x: split + pt.t * (plotR - split), y: y(pt.price) }));
+  const plotted = pts.map((pt) => ({ x: xOfT(pt.t), y: y(pt.price) }));
   const ribbonPx = Math.min(36, (ribbon / span) * (plotB - plotT));
-  const progress = run.length / runBars;
   const drawing = phase === "drawing";
   const hasLine = plotted.length > 1;
   const head = plotted.at(-1);
   const hint = legPath(
     HINT.map((f, i) => ({
-      x: split + (i / (HINT.length - 1)) * (plotR - split),
+      x: xNow + (i / (HINT.length - 1)) * (plotR - xNow),
       y: Math.min(plotB - 22, Math.max(plotT + 22, y(price) - f * (plotB - plotT))),
     })),
   );
@@ -324,25 +464,38 @@ export function SketchCanvas({
               <path d="M16 0 H0 V16" fill="none" stroke="var(--border)" strokeWidth="1" />
             </pattern>
           </defs>
-          <rect fill="url(#sk-grid)" height={plotB - plotT} width={plotR - split} x={split} y={plotT} />
-          <line stroke="var(--muted-foreground)" strokeDasharray="2 5" strokeOpacity="0.5" x1={split} x2={split} y1={plotT} y2={plotB} />
-          <text fill="var(--muted-foreground)" fontSize="11" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={split} y={plotB + 15}>
-            now
-          </text>
-          {/* The right edge in minutes, so the half you draw into has a length. */}
-          {[0.25, 0.5, 0.75, 1].map((f) => (
-            <text
-              fill="var(--muted-foreground)"
-              fontSize="11"
-              key={f}
-              style={{ fontFamily: "var(--font-sans)" }}
-              textAnchor={f === 1 ? "end" : "middle"}
-              x={split + f * (plotR - split)}
-              y={plotB + 15}
-            >
-              +{Math.round(f * horizonMinutes)}m
-            </text>
-          ))}
+          <rect fill="url(#sk-grid)" height={plotB - plotT} width={Math.max(0, plotR - Math.max(plotL, xNow))} x={Math.max(plotL, xNow)} y={plotT} />
+          {xNow > plotL && xNow < plotR ? (
+            <>
+              <line stroke="var(--muted-foreground)" strokeDasharray="2 5" strokeOpacity="0.5" x1={xNow} x2={xNow} y1={plotT} y2={plotB} />
+              <text fill="var(--muted-foreground)" fontSize="11" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={xNow} y={plotB + 15}>
+                now
+              </text>
+            </>
+          ) : null}
+          {/* Minutes from now, read off the axis itself rather than assumed, so
+              they stay true however far you have zoomed or panned — and laid
+              across the whole plot rather than the half ahead of now, because
+              panning back into the history used to take now off the screen and
+              the entire axis with it. Behind now they simply read negative. */}
+          {[0.2, 0.4, 0.6, 0.8, 1].map((f) => {
+            const x = plotL + f * (plotR - plotL);
+            if (Math.abs(x - xNow) < 34) return null;
+            const m = Math.round(barOfX(x) - elapsed);
+            return (
+              <text
+                fill="var(--muted-foreground)"
+                fontSize="11"
+                key={f}
+                style={{ fontFamily: "var(--font-sans)" }}
+                textAnchor={f === 1 ? "end" : "middle"}
+                x={x}
+                y={plotB + 15}
+              >
+                {m > 0 ? `+${m}m` : `${m}m`}
+              </text>
+            );
+          })}
 
           {/* Crosshair over the half you draw into, so a level is a level. */}
           {hover && !drawing ? (
@@ -353,15 +506,15 @@ export function SketchCanvas({
           ) : null}
           <line stroke="var(--muted-foreground)" strokeDasharray="3 4" strokeOpacity="0.5" x1={plotL} x2={plotR} y1={y(price)} y2={y(price)} />
 
-          {/* How far the round has run, in the chart's own units. */}
+          {/* How far the round has run — behind now, because now has moved. */}
           {run.length > 0 ? (
-            <line stroke="var(--brand)" strokeWidth="2" x1={split} x2={split + progress * (plotR - split)} y1={plotB + 1} y2={plotB + 1} />
+            <line stroke="var(--brand)" strokeWidth="2" x1={Math.max(plotL, xOfT(0))} x2={Math.min(plotR, xNow)} y1={plotB + 1} y2={plotB + 1} />
           ) : null}
 
           {/* Your last line, moved to today's price, so a habit shows. */}
           {ghost && ghost.length > 1 && phase === "live" ? (
             <path
-              d={legPath(ghost.map((pt) => ({ x: split + pt.t * (plotR - split), y: y(pt.price) })))}
+              d={legPath(ghost.map((pt) => ({ x: xOfT(pt.t), y: y(pt.price) })))}
               fill="none"
               stroke="var(--muted-foreground)"
               strokeDasharray="4 4"
@@ -370,8 +523,14 @@ export function SketchCanvas({
             />
           ) : null}
 
-          <CandleMarks bars={feed} body={Math.max(2, step * 0.6)} dim={hasLine} x={(i) => plotL + i * step + step / 2} y={y} />
-          <CandleMarks bars={run} body={Math.max(2, runStep * 0.6)} x={(i) => split + i * runStep + runStep / 2} y={y} />
+          {/* One axis for both. History used to be squeezed to fit the left
+              half at its own bar width, which is fine while nothing moves and
+              impossible once it scrolls: the run's candles cross the split and
+              have to land among bars the same size as themselves. So history is
+              laid out in the same units, running back from the round's start,
+              and falls off the left edge as the round goes on. */}
+          <CandleMarks bars={feed} body={Math.max(2, runStep * 0.6)} dim={hasLine} x={(i) => xOfBar(i - feed.length + 0.5)} y={y} />
+          <CandleMarks bars={run} body={Math.max(2, runStep * 0.6)} x={(i) => xOfBar(i + 0.5)} y={y} />
 
           {/* The ribbon: stay inside it and the candle counts. Coloured as
               candles arrive, green inside, grey out. */}
@@ -409,7 +568,7 @@ export function SketchCanvas({
                     fillOpacity={0.26}
                     style={phase === "settled" ? { animationDelay: `${i * 35}ms` } : undefined}
                     width={runStep}
-                    x={split + i * runStep}
+                    x={xOfBar(i)}
                     y={y(goes) - Math.max(2, ribbonPx)}
                   />
                 );
@@ -465,22 +624,79 @@ export function SketchCanvas({
               <path d={hint} fill="none" stroke="var(--brand)" strokeDasharray="3 8" strokeLinecap="round" strokeOpacity="0.35" strokeWidth="2">
                 <animate attributeName="stroke-dashoffset" dur="1.4s" from="0" repeatCount="indefinite" to="-22" />
               </path>
-              <circle cx={split} cy={y(price)} fill="var(--brand)" r="3.5" />
-              <text fill="var(--muted-foreground)" fontSize="12" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={(split + plotR) / 2} y={plotB - 10}>
+              <circle cx={xNow} cy={y(price)} fill="var(--brand)" r="3.5" />
+              <text fill="var(--muted-foreground)" fontSize="12" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={(xNow + plotR) / 2} y={plotB - 10}>
                 click to place your points
               </text>
             </g>
           ) : null}
+          {/* The past, as a surface you can take hold of. Transparent rather
+              than absent, so it hit-tests and can carry the cursor; the svg's
+              own handlers still see every event. */}
+          {xNow > plotL ? (
+            <rect
+              className="cursor-grab active:cursor-grabbing"
+              fill="transparent"
+              height={plotB - plotT}
+              width={Math.min(plotR, xNow) - plotL}
+              x={plotL}
+              y={plotT}
+            />
+          ) : null}
         </svg>
       ) : null}
 
+      {/*
+        The eye, not the order book.
+
+        Zoom and pan are display only — nothing here moves a position, and the
+        chart says so by leaving the line exactly where it was. Following is a
+        toggle rather than a mode you fall out of silently: drag the past and it
+        turns itself off, press it and now comes back to the middle.
+      */}
+      {w > 0 ? (
+        <div className="absolute right-2 bottom-7 flex items-center gap-0.5 rounded-xl border bg-card/85 p-0.5 backdrop-blur-sm [&_svg]:size-3.5">
+          <Button aria-label="Pan earlier" className="size-7 rounded-lg" onClick={() => panTime(-1)} variant="ghost">
+            <ChevronLeftIcon />
+          </Button>
+          <Button aria-label="Zoom out" className="size-7 rounded-lg" onClick={() => zoomTime(1.5)} variant="ghost">
+            <ZoomOutIcon />
+          </Button>
+          <Button aria-label="Zoom in" className="size-7 rounded-lg" onClick={() => zoomTime(1 / 1.5)} variant="ghost">
+            <ZoomInIcon />
+          </Button>
+          <Button aria-label="Pan later" className="size-7 rounded-lg" onClick={() => panTime(1)} variant="ghost">
+            <ChevronRightIcon />
+          </Button>
+          <Button
+            aria-label="Follow now"
+            aria-pressed={following}
+            className={cn("size-7 rounded-lg", following && "bg-accent text-foreground")}
+            onClick={follow}
+            variant="ghost"
+          >
+            <CrosshairIcon />
+          </Button>
+          <Button aria-label="Reset the view" className="size-7 rounded-lg" disabled={following && view.zoom === 1} onClick={reset} variant="ghost">
+            <RotateCcwIcon />
+          </Button>
+        </div>
+      ) : null}
+
+      {/* A stopped chart looks broken unless it says why it stopped. */}
+      {paused ? (
+        <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 text-[11px] text-muted-foreground leading-4 shadow-xs/5" style={{ top: PAD_T + 4 }}>
+          the clock waits while you draw
+        </span>
+      ) : null}
+
       {w > 0 ? stackTags(tags, h).map((t) => <Tag {...t} key={t.key} />) : null}
-      {crosshair && hover.x > split + 28 && hover.x < plotR - 44 ? (
+      {crosshair && hover.x > xNow + 28 && hover.x < plotR - 44 ? (
         <span
           className="figures pointer-events-none absolute -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 text-[11px] leading-4 shadow-xs/5"
           style={{ left: hover.x, top: plotB + 4 }}
         >
-          +{Math.round(((hover.x - split) / (plotR - split)) * horizonMinutes)}m
+          +{Math.round(barOfX(hover.x) - elapsed)}m
         </span>
       ) : null}
 
@@ -569,7 +785,7 @@ export function SketchCanvas({
             Math.abs(pnl) < 0.005 ? "text-muted-foreground" : pnl > 0 ? "text-up" : "text-down",
           )}
           style={{
-            left: Math.min(plotR - 56, Math.max(56, split + (run.length - 0.5) * runStep)),
+            left: Math.min(plotR - 56, Math.max(56, xOfBar(run.length - 0.5))),
             top: Math.max(4, y(run[run.length - 1].h) - 24),
           }}
         >
