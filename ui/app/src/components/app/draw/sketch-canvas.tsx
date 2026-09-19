@@ -48,7 +48,7 @@ function useSize(ref: React.RefObject<HTMLElement | null>) {
   return size;
 }
 
-type TagSpec = { key: string; price: number; y: number; label?: string; tone?: "default" | "up" | "down" };
+type TagSpec = { key: string; price: number; y: number; label?: string; tone?: "default" | "up" | "down" | "probe" };
 
 /** Tags closer than a tag's height are pushed apart down the axis. */
 function stackTags(tags: TagSpec[], h: number): TagSpec[] {
@@ -71,6 +71,8 @@ function Tag({ price, y, tone = "default", label }: TagSpec) {
       className={cn(
         "figures pointer-events-none absolute right-1 flex -translate-y-1/2 items-baseline gap-1 rounded-full px-2 py-0.5 text-[11px] leading-4",
         tone === "default" && "border bg-popover text-foreground shadow-xs/5",
+        // Where the cursor is, not where anything happened. Quieter than a level.
+        tone === "probe" && "bg-muted text-muted-foreground",
         tone === "up" && "bg-success text-white",
         tone === "down" && "bg-destructive text-white",
       )}
@@ -442,8 +444,18 @@ export function SketchCanvas({
     line.
   */
   const tags: TagSpec[] = [{ key: "now", price, y: y(price) }];
-  const crosshair = hover && !drawing;
-  if (crosshair) tags.push({ key: "hover", price: priceAtY(hover.y), y: hover.y });
+  /*
+    The crosshair, unless it is standing on the price.
+
+    Two dashed rules a few pixels apart, each with a plate reading a price
+    within a few dollars of the other, is one line as far as a reader is
+    concerned — and they will spend a moment working out which is which every
+    time. Near the live price the crosshair has nothing to add, so it gets out
+    of the way and the price keeps its own rule.
+  */
+  const onPrice = !!hover && Math.abs(hover.y - y(price)) < 14;
+  const crosshair = hover && !drawing && !onPrice;
+  if (crosshair) tags.push({ key: "hover", price: priceAtY(hover.y), y: hover.y, tone: "probe" });
 
   return (
     <div className={cn("relative h-full w-full touch-none select-none overflow-hidden", canDraw && "cursor-crosshair", className)} ref={box}>
@@ -498,7 +510,7 @@ export function SketchCanvas({
           })}
 
           {/* Crosshair over the half you draw into, so a level is a level. */}
-          {hover && !drawing ? (
+          {crosshair ? (
             <g pointerEvents="none">
               <line stroke="var(--muted-foreground)" strokeDasharray="2 3" strokeOpacity="0.6" x1={plotL} x2={plotR} y1={hover.y} y2={hover.y} />
               <line stroke="var(--muted-foreground)" strokeDasharray="2 3" strokeOpacity="0.6" x1={hover.x} x2={hover.x} y1={plotT} y2={plotB} />

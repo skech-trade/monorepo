@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toastManager } from "@/components/ui/toast";
-import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
-import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify, verdictWord } from "@/lib/sketch";
+import { type Candle, candlesFor, price as fmtPrice, type Market, usd } from "@/lib/market";
+import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
+import { PlaceTicket } from "./place-ticket";
+import { SettleDialog } from "./settle-dialog";
 import { DrawTools, type Preset, PRESETS } from "./draw-tools";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
 import { type Result, SketchBar } from "./sketch-tray";
@@ -161,25 +163,12 @@ export function DrawScreen({ market }: { market: Market }) {
       bias: acc.bias,
     };
     setResult(res);
-    const word = verdictWord(done, acc.right, bk.net);
     /*
-      The money first, and in the terms the stake was set in.
-
-      It led with "24% inside your ribbon" beside a round that returned twenty
-      five percent — two numbers a reader will try to reconcile and cannot,
-      because one was scoring how near the line came and the other was scoring
-      the trade.
-
-      Both figures here are the trade, and they are weighted the same way, so
-      one can never make the other look like a lie: what it made on what you
-      put up, and how much of the move you called getting there.
+      No toast. The round's result is the dialog that opens over the chart, and
+      a notification repeating it word for word in the corner at the same
+      moment is the same sentence twice, in two places, one of which is where
+      this app puts things you did not ask about.
     */
-    const back = st > 0 ? bk.net / st : 0;
-    toastManager.add({
-      title: word,
-      description: `${signedUsd(bk.net)} on $${usd(st, 0)} — ${back >= 0 ? "up" : "down"} ${Math.abs(Math.round(back * 100))}%. You were right ${Math.round(acc.right * 100)}% of the way.`,
-      type: bk.net >= 0 ? "success" : "error",
-    });
     const settled = (s: Sketch): Sketch => ({ ...s, status: "settled", net: bk.net, exit: bk.exit, liquidated: done === "liquidated", accuracy: acc.right });
     setSketches((list) => list.map((s) => (s.status === "running" ? settled(s) : s)));
     setLastSketch((s) => (s ? settled(s) : s));
@@ -495,8 +484,44 @@ export function DrawScreen({ market }: { market: Market }) {
 
   return (
     <section aria-label="Draw" className="m-2 flex min-h-[24rem] flex-1 flex-col overflow-hidden rounded-2xl border bg-background">
+      <SettleDialog
+        market={market}
+        onDrawAgain={() => {
+          fold();
+          setPhase("live");
+        }}
+        phase={phase}
+        result={result}
+        sketch={lastSketch}
+        stake={stake}
+      />
+
+      {/*
+        The market on the left, what it costs and the button hard right, on the
+        chart's own header rather than the app bar. Size and leverage decide
+        what a press costs, so they belong beside the press — and all three
+        belong beside the chart they act on, not in the row that carries the
+        wordmark and the account.
+      */}
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
         <MarketHeader market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
+        <PlaceTicket
+          className="ml-auto"
+          leverage={leverage}
+          market={market}
+          onCloseNow={() => run.length && finish(run, true)}
+          onDrawAgain={() => {
+            fold();
+            setPhase("live");
+          }}
+          onLeverage={setLeverage}
+          onPlace={onPlace}
+          onStake={setStake}
+          phase={phase}
+          quote={quote}
+          shape={shape}
+          stake={stake}
+        />
       </div>
       <div className="flex min-h-0 flex-1 gap-2 px-2 pt-2">
         {phase === "live" || phase === "drawing" || phase === "drawn" ? (
@@ -531,30 +556,16 @@ export function DrawScreen({ market }: { market: Market }) {
       {/* The bar takes its row; the plot above it is never covered. */}
       <div className="border-t px-3 py-3">
         <SketchBar
-          entry={entryView}
-          leverage={leverage}
           market={market}
-          onCloseNow={() => run.length && finish(run, true)}
-          onDrawAgain={() => {
-            fold();
-            setPhase("live");
-          }}
-          onLeverage={setLeverage}
           onOpenList={() => setListOpen(true)}
-          onPlace={onPlace}
-          onStake={setStake}
           openCount={sketches.length}
           phase={phase}
-          pnl={book?.net ?? null}
-          price={price}
           quote={quote}
           result={result}
           runCount={run.length}
           runBars={runBars}
           shape={shape}
-          sketch={lastSketch}
           sketches={shown}
-          stake={stake}
         />
       </div>
       <SketchesSheet market={market} onOpenChange={setListOpen} open={listOpen} sketches={shown} />
