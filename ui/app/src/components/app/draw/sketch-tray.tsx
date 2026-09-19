@@ -146,7 +146,7 @@ export function SketchBar({
     */
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <span className="mr-auto text-muted-foreground">That one&rsquo;s done. Draw another when you&rsquo;re ready.</span>
+        <span className="mr-auto text-muted-foreground">That one&rsquo;s done. Start a new trade when you&rsquo;re ready.</span>
         {/* Your last rounds, as bars. A trend, not a coin flip. */}
         {recent.length > 1 ? (
           <span aria-label="Your recent rounds" className="flex h-6 items-end gap-0.5" title="How much of each move you called, last rounds">

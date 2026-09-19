@@ -120,7 +120,7 @@ export function SettleDialog({
               />
             }
           >
-            Draw another
+            New trade
           </DialogClose>
           <Button
             onClick={async () => {

@@ -58,7 +58,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
 
           The top right is where the screen keeps the thing you press: size,
           leverage, the button that opens a position and the button that closes
-          one. A notification landing there covered "Take it off now" for as
+          one. A notification landing there covered "Close trade" for as
           long as it stayed up — so the app told you it had opened a trade by
           standing in front of the only control that ends it.
         */}

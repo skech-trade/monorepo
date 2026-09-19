@@ -112,15 +112,21 @@ export function PlaceTicket({
         </Popover>
       ) : null}
 
+      {/* Plainly what it does, like the button that opened it. "Take it off
+          now" is how a desk talks about a position; this is the control that
+          ends a trade, so it says so. */}
       {phase === "running" ? (
         <Button onClick={onCloseNow} variant="outline">
-          Take it off now
+          Close trade
         </Button>
       ) : null}
 
+      {/* The same slot as "Close trade", so it says the same kind of thing:
+          what pressing it gets you, in the words the rest of the screen uses
+          for trades. */}
       {phase === "settled" ? (
         <Button onClick={onDrawAgain} variant="outline">
-          Draw another
+          New trade
         </Button>
       ) : null}
     </div>
