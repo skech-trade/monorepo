@@ -26,9 +26,7 @@ export type Result = {
 };
 
 export const VERDICT: Record<Result["outcome"], string> = {
-  target: "It got there",
-  floor: "Out where you drew it",
-  time: "Time's up",
+  time: "Ran its course",
   closed: "Taken off",
   liquidated: "Wiped out",
 };
@@ -100,8 +98,8 @@ export function SketchBar({
             header now, twice over. What is left is what the line is worth and
             what it costs — and that a point can still be moved. */}
         <p className="mr-auto max-w-[34rem] text-muted-foreground">
-          if it gets to <F>${fmtPrice(shape.target)}</F>. Most you can lose <F tone="text-down">${usd(quote.mostLose, 0)}</F>
-          {shape.floor === null ? null : <>, out at <F>${fmtPrice(shape.floor)}</F></>}. Drag a point to change it.
+          if it gets to <F>${fmtPrice(shape.target)}</F>, after fees. Most you can lose <F tone="text-down">${usd(quote.mostLose, 0)}</F>, wiped out at{" "}
+          <F>${fmtPrice(quote.wipedAt)}</F>. Drag a point to change it.
         </p>
         {lines}
       </div>

@@ -25,18 +25,6 @@ const HISTORY = 46;
  * edge lengthens the round.
  */
 const RUN_BARS = 24;
-/**
- * How fast the round lengthens while the pen is held at the edge, per second.
- *
- * A tenth, and it compounds, so the longer you hold the more room arrives — but
- * gently: a second of holding turns twenty-four candles into twenty-six.
- *
- * It grew in chunks before, on every pointer move. Two things were wrong with
- * that. Holding the pen still produced no moves at all, so the canvas stopped
- * opening exactly when you were asking it to; and each chunk was half the round
- * arriving at once, which threw the whole picture sideways under your hand.
- */
-const RUN_GROWTH = 1.1;
 /** As long as a sketch may get. An hour and a half is already a long wait. */
 const RUN_MAX = 96;
 const TICK_MS = 500;
@@ -252,62 +240,26 @@ export function DrawScreen({ market }: { market: Market }) {
   /** Points at or before this time have already happened. */
   const editableFrom = phase === "running" ? run.length / runBars + 0.01 : 0;
 
-  /**
-   * The line runs off the end, so the end moves.
-   *
-   * Everything on this chart is positioned as a fraction of the round, so
-   * lengthening it is one division: the points keep the minute they were drawn
-   * at and simply sit a smaller fraction of the way along. The drawing slides
-   * left and fresh canvas appears on the right, which is what "let me draw
-   * further" has to mean when the right edge was the round ending rather than
-   * the screen running out.
-   *
-   * Not while it is running. The round has started; its length is settled.
-   */
-  const lengthen = useCallback((seconds: number) => {
-    const { phase: ph } = live.current;
-    if (ph === "running" || ph === "settled") return;
-    /*
-      Read from a ref, not from state.
+  /*
+    The round no longer grows on a timer.
 
-      This runs twenty times a second and each step is computed from the last,
-      so it cannot wait for a render to tell it where it got to. The rescale
-      used to live inside the state updater, which React is free to run twice —
-      and that halved the drawing's width in one step instead of nudging it.
-    */
-    // Kept as a fraction of a candle, so growth is continuous rather than a
-    // stutter of whole bars. Only the axis labels ever round it.
-    const bars = barsRef.current;
-    const next = Math.min(RUN_MAX, bars * RUN_GROWTH ** seconds);
-    if (next <= bars) return;
-    const k = bars / next;
-    barsRef.current = next;
-    setRunBars(next);
-    setPts((p) => p.map((pt) => ({ ...pt, t: pt.t * k })));
-    /**
-     * And the pen's own mark moves with them.
-     *
-     * The pen only lays a point down once it has travelled a little since the
-     * last one, and it remembers where that was. Stretch the round without
-     * moving that memory and it sits in the future for ever: every later point
-     * looks like no progress at all, so the line stops dead at the edge and
-     * nothing you do will draw again. This is the whole of "I am not able to
-     * draw" — the canvas opened and the pen had already been told it was at the
-     * end of it.
-     */
-    lastT.current *= k;
-  }, []);
+    Holding the pen at the right edge used to stretch the round and keep the
+    whole of it in frame, so the line shrank away from the edge you were
+    pressing against — running to stand still. The chart runs forward under the
+    pen instead, and `coverTo` lengthens the round to cover whatever gets drawn
+    out there. The view moving and the trade getting longer are one gesture.
+  */
 
   /**
    * Make the round long enough to hold a point at this time.
    *
-   * Once the chart scrolls, the right edge is a fixed distance ahead of now
-   * rather than the end of the round, so a point put down out there lands past
-   * t = 1 — past the last minute the round has. Clamping it back is the wrong
-   * answer twice over: it silently drops the part of the line you just drew,
-   * and it leaves you trapped in a round you have outgrown with nothing to do
-   * but close the position. So the round becomes that long instead. Drawing
-   * further is trading for longer; they are the same gesture.
+   * The chart runs forward while the pen holds the right edge, so a point put
+   * down out there lands past t = 1 — past the last minute the round has.
+   * Clamping it back is the wrong answer twice over: it silently drops the part
+   * of the line you just drew, and it leaves you trapped in a round you have
+   * outgrown with nothing to do but close the position. So the round becomes
+   * that long instead. Drawing further is trading for longer; they are the same
+   * gesture.
    *
    * Growing by exactly the factor asked for lands the line's end precisely on
    * the edge, so holding the pen there settles rather than running away.
@@ -323,7 +275,7 @@ export function DrawScreen({ market }: { market: Market }) {
     barsRef.current = next;
     setRunBars(next);
     setPts((p) => p.map((pt) => ({ ...pt, t: pt.t * k })));
-    // And the pen's own memory of where it got to, as in `lengthen`.
+    // And the pen's own memory of where it got to.
     lastT.current *= k;
     return Math.min(1, t * k);
   }, []);
@@ -558,7 +510,6 @@ export function DrawScreen({ market }: { market: Market }) {
           horizonMinutes={phase === "running" || phase === "settled" ? viewBars : runBars}
           editableFrom={editableFrom}
           onDown={onDown}
-          onExtend={lengthen}
           onGrab={onGrab}
           onMove={onMove}
           onRemove={onRemove}
