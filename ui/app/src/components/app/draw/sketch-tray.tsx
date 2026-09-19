@@ -1,14 +1,11 @@
 "use client";
 
-import { CheckIcon, Share2Icon } from "lucide-react";
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
 import { type Outcome, type Quote, type Shape, verdictWord } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
-import { DrawControls } from "./draw-controls";
 import type { Phase } from "./sketch-canvas";
-import { type Sketch, SketchThumb } from "./sketches";
+import type { Sketch } from "./sketches";
 
 /**
  * The bar along the foot of the chart. One line, four faces: invite, quote,
@@ -44,30 +41,6 @@ export function shareText(market: Market, result: Result): string {
   return `skech · ${market.symbol} ${result.long ? "up" : "down"} · right ${Math.round(result.right * 100)}% of the way\n${glyphs}\n${word}. ${signedUsd(result.net, 0)} on skech.trade`;
 }
 
-function ShareButton({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <Button
-      onClick={async () => {
-        try {
-          if (typeof navigator.share === "function") {
-            await navigator.share({ text });
-            return;
-          }
-          await navigator.clipboard.writeText(text);
-          setDone(true);
-          setTimeout(() => setDone(false), 1600);
-        } catch {
-          // Dismissed or blocked.
-        }
-      }}
-    >
-      {done ? <CheckIcon /> : <Share2Icon />}
-      {done ? "Copied" : "Show your call"}
-    </Button>
-  );
-}
-
 /** A figure inside a sentence. */
 function F({ children, tone }: { children: React.ReactNode; tone?: string }) {
   return <span className={cn("figures text-foreground", tone)}>{children}</span>;
@@ -82,48 +55,25 @@ export function SketchBar({
   market,
   phase,
   shape,
-  entry,
-  price,
   quote,
-  stake,
-  leverage,
-  onStake,
-  onLeverage,
-  pnl,
   result,
-  sketch,
   openCount,
   runCount,
   runBars,
   sketches,
-  onPlace,
-  onDrawAgain,
-  onCloseNow,
   onOpenList,
 }: {
   market: Market;
   phase: Phase;
   shape: Shape | null;
-  entry: number;
-  price: number;
   quote: Quote | null;
-  stake: number;
-  leverage: number;
-  onStake: (stake: number) => void;
-  onLeverage: (leverage: number) => void;
-  pnl: number | null;
   result: Result | null;
-  sketch: Sketch | null;
   openCount: number;
   runCount: number;
   runBars: number;
   sketches: Sketch[];
-  onPlace: () => void;
-  onDrawAgain: () => void;
-  onCloseNow: () => void;
   onOpenList: () => void;
 }) {
-  const controls = <DrawControls leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} />;
   const lines = (
     <Button onClick={onOpenList} variant="outline">
       Your lines <span className="figures text-muted-foreground">{openCount}</span>
@@ -137,7 +87,6 @@ export function SketchBar({
           <span className="font-medium text-foreground">Draw where you think {market.name} goes.</span> Drag across the right of the chart. Nothing&rsquo;s at
           stake until you press the button.
         </p>
-        {controls}
         {lines}
       </div>
     );
@@ -147,66 +96,57 @@ export function SketchBar({
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Lead tone="text-up">+${usd(quote.ifWorks, 0)}</Lead>
+        {/* The stake, the leverage and what they multiply to are all in the
+            header now, twice over. What is left is what the line is worth and
+            what it costs — and that a point can still be moved. */}
         <p className="mr-auto max-w-[34rem] text-muted-foreground">
           if it gets to <F>${fmtPrice(shape.target)}</F>. Most you can lose <F tone="text-down">${usd(quote.mostLose, 0)}</F>
-          {shape.floor === null ? <> (the line never turns back)</> : <>, out at <F>${fmtPrice(shape.floor)}</F></>}. <F>${usd(stake, 0)}</F> trades like{" "}
-          <F>${usd(quote.notional, 0)}</F>. Drag a point to change it.
+          {shape.floor === null ? null : <>, out at <F>${fmtPrice(shape.floor)}</F></>}. Drag a point to change it.
         </p>
-        {controls}
-        <Button onClick={onDrawAgain} variant="ghost">
-          Draw again
-        </Button>
-        <Button
-          className={shape.long ? "border-success bg-success text-white shadow-success/24 hover:bg-success/90" : ""}
-          onClick={onPlace}
-          variant={shape.long ? "default" : "destructive"}
-        >
-          Draw it in for ${usd(stake, 0)}
-        </Button>
+        {lines}
       </div>
     );
   }
 
   if (phase === "running" && shape) {
-    const live = pnl ?? 0;
+    /*
+      While it plays out, almost nothing.
+
+      This read the whole position back at you — the running total, the entry,
+      the live price, the target, the most you could lose — in a paragraph, at
+      the one moment you are watching the chart and not the text. Every figure
+      in it was already on the plot: the total rides a pill beside the candles,
+      the entry and the target are ruled across it, and the handles ahead of
+      now say for themselves that they can still be moved.
+
+      What is left is the one thing the chart does not say: how far through it
+      is, and how to get out.
+    */
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <Lead tone={Math.abs(live) < 0.005 ? undefined : live > 0 ? "text-up" : "text-down"}>{signedUsd(live)}</Lead>
-        <p className="mr-auto max-w-[34rem] text-muted-foreground">
-          right now. In at <F>${fmtPrice(entry)}</F>, now <F>${fmtPrice(price)}</F>, aiming for <F>${fmtPrice(shape.target)}</F>. Most you can lose{" "}
-          <F tone="text-down">${usd(quote?.mostLose ?? stake, 0)}</F>. The points ahead of now are still yours to move.
-        </p>
-        <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+        <span className="mr-auto flex items-center gap-1.5 text-muted-foreground">
           <span className="size-1.5 animate-pulse rounded-full bg-info" />
-          Candle <F>{runCount}</F> of <F>{runBars}</F>
+          Candle <F>{runCount}</F> of <F>{Math.round(runBars)}</F>
         </span>
-        <Button onClick={onCloseNow} variant="outline">
-          Take it off now
-        </Button>
+        {lines}
       </div>
     );
   }
 
   if (phase === "settled" && result) {
-    const won = result.net >= 0;
-    const word = verdictWord(result.outcome, result.right, result.net);
-    const pct = Math.round(result.right * 100);
-    const off = Math.abs(result.bias);
     const recent = sketches.filter((s) => s.accuracy !== undefined).slice(0, 8).reverse();
+    /*
+      The result is not here any more; it is the dialog that opens over the
+      chart when the round ends. A finish is the one moment nothing else is
+      going on, and it was being read out sideways in a row shared with the
+      controls for starting again.
+
+      What stays is the trend across rounds, which is about you rather than
+      about this round, and the way back to your lines.
+    */
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        {sketch ? <SketchThumb className="h-10 w-[4.25rem] shrink-0" sketch={sketch} /> : null}
-        <span className={cn("shrink-0 font-semibold text-xl leading-none", pct >= 70 ? "text-up" : pct >= 50 ? "text-foreground" : "text-down")}>{word}</span>
-        <p className="mr-auto max-w-[36rem] text-muted-foreground">
-          You were right <F>{pct}%</F> of the way, <F tone={won ? "text-up" : "text-down"}>{signedUsd(result.net)}</F>, {VERDICT[result.outcome].toLowerCase()}. You
-          drew {market.name} going {result.long ? "up" : "down"} from <F>${fmtPrice(result.entry)}</F>; it closed at <F>${fmtPrice(result.exit)}</F>
-          {off >= 1 ? (
-            <>
-              , too {result.bias > 0 ? "high" : "low"} by <F>${usd(off, 0)}</F> on average
-            </>
-          ) : null}
-          .
-        </p>
+        <span className="mr-auto text-muted-foreground">That one&rsquo;s done. Start a new trade when you&rsquo;re ready.</span>
         {/* Your last rounds, as bars. A trend, not a coin flip. */}
         {recent.length > 1 ? (
           <span aria-label="Your recent rounds" className="flex h-6 items-end gap-0.5" title="How much of each move you called, last rounds">
@@ -220,10 +160,6 @@ export function SketchBar({
           </span>
         ) : null}
         {lines}
-        <ShareButton text={shareText(market, result)} />
-        <Button onClick={onDrawAgain} variant="outline">
-          Draw another
-        </Button>
       </div>
     );
   }

@@ -2,10 +2,10 @@
 
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
 import { type Pt, legPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
-import { Pill } from "../controls";
 
 /** A sketch is a position you can look at. The list keeps the drawing. */
 export type Sketch = {
@@ -35,7 +35,7 @@ export function SketchThumb({ sketch, className }: { sketch: Sketch; className?:
   const pts = sketch.pts.map((p) => ({ x: 6 + p.t * (W - 12), y: y(p.price) }));
   const head = pts.at(-1);
   return (
-    <svg aria-hidden="true" className={cn("rounded-xl border bg-muted/50", className)} viewBox={`0 0 ${W} ${H}`}>
+    <svg aria-hidden="true" className={cn("rounded-md border bg-muted/40", className)} viewBox={`0 0 ${W} ${H}`}>
       <line stroke="var(--muted-foreground)" strokeDasharray="2 3" strokeOpacity="0.5" x1="0" x2={W} y1={y(sketch.entry)} y2={y(sketch.entry)} />
       <path d={legPath(pts)} fill="none" stroke="var(--brand)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
       {head ? <circle cx={head.x} cy={head.y} fill="var(--brand)" r="2.4" /> : null}
@@ -43,38 +43,34 @@ export function SketchThumb({ sketch, className }: { sketch: Sketch; className?:
   );
 }
 
-function SketchRow({ sketch }: { sketch: Sketch }) {
-  const won = sketch.net >= 0;
-  return (
-    <li className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-accent">
-      <SketchThumb className="h-10 w-[4.25rem] shrink-0" sketch={sketch} />
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2">
-          <Pill tone={sketch.long ? "up" : "down"}>{sketch.long ? "Up" : "Down"}</Pill>
-          <span className="figures">
-            ${usd(sketch.stake, 0)} <span className="text-muted-foreground">at {sketch.leverage}×</span>
-          </span>
-        </p>
-        <p className="figures mt-0.5 truncate text-muted-foreground text-xs">from ${fmtPrice(sketch.entry)}</p>
-      </div>
-      <div className="text-right">
-        <p className={cn("figures font-medium", won ? "text-up" : "text-down")}>{signedUsd(sketch.net)}</p>
-        <p className="text-muted-foreground text-xs">
-          {sketch.status === "running"
-            ? "playing out"
-            : sketch.liquidated
-              ? "wiped out"
-              : sketch.accuracy !== undefined
-                ? `right ${Math.round(sketch.accuracy * 100)}%`
-                : won
-                  ? "called it"
-                  : "missed"}
-        </p>
-      </div>
-    </li>
-  );
+/** What became of a line, in as few words as it takes. */
+function Outcome({ sketch }: { sketch: Sketch }) {
+  if (sketch.status === "running") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+        <span className="size-1.5 animate-pulse rounded-full bg-info" />
+        playing out
+      </span>
+    );
+  }
+  if (sketch.liquidated) return <span className="text-warning-foreground">wiped out</span>;
+  if (sketch.accuracy === undefined) return <span className="text-muted-foreground">{sketch.net >= 0 ? "called it" : "missed"}</span>;
+  return <span className="figures text-muted-foreground">right {Math.round(sketch.accuracy * 100)}%</span>;
 }
 
+/**
+ * The same table the desk keeps its positions in.
+ *
+ * A line is a position, so it is listed like one: a row per line, columns that
+ * line up, figures right-aligned in the tabular face, the seams hairlines. It
+ * was a stack of free-floating cards with the numbers stacked two-deep inside
+ * each — nothing to read down, nothing to compare, and a column of air beneath.
+ *
+ * No side column. The drawing in the first cell is the side: a line that ends
+ * above where it started is up, and you can see that faster than you can read
+ * the word for it. A pill saying so as well was the same fact twice, in the
+ * widest possible form, in a list whose whole point is the shapes.
+ */
 export function SketchList({ sketches }: { sketches: Sketch[] }) {
   if (sketches.length === 0) {
     return (
@@ -86,26 +82,64 @@ export function SketchList({ sketches }: { sketches: Sketch[] }) {
     );
   }
   return (
-    <ul className="flex flex-col">
-      {sketches.map((s) => (
-        <SketchRow key={s.id} sketch={s} />
-      ))}
-    </ul>
+    <Table className="text-xs">
+      <TableHeader>
+        <TableRow>
+          <TableHead className="pl-3">Line</TableHead>
+          <TableHead>Size</TableHead>
+          <TableHead>In at</TableHead>
+          <TableHead>Out at</TableHead>
+          <TableHead className="pr-3 text-right">Result</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {sketches.map((s) => (
+          <TableRow key={s.id}>
+            <TableCell className="pl-3">
+              <SketchThumb className="h-7 w-12 shrink-0" sketch={s} />
+            </TableCell>
+            <TableCell className="figures whitespace-nowrap">
+              ${usd(s.stake, 0)} <span className="text-muted-foreground">at {s.leverage}×</span>
+            </TableCell>
+            <TableCell className="figures whitespace-nowrap">${fmtPrice(s.entry)}</TableCell>
+            <TableCell className="figures whitespace-nowrap">
+              {s.exit === undefined ? <span className="text-muted-foreground">&mdash;</span> : `$${fmtPrice(s.exit)}`}
+            </TableCell>
+            <TableCell className="whitespace-nowrap pr-3 text-right">
+              <span className={cn("figures font-medium", s.net >= 0 ? "text-up" : "text-down")}>{signedUsd(s.net)}</span>
+              <span className="ml-2">
+                <Outcome sketch={s} />
+              </span>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
 export function SketchesSheet({ open, onOpenChange, sketches, market }: { open: boolean; onOpenChange: (open: boolean) => void; sketches: Sketch[]; market: Market }) {
   const total = sketches.reduce((sum, s) => sum + s.net, 0);
+  const settled = sketches.filter((s) => s.status === "settled");
+  const won = settled.filter((s) => s.net >= 0).length;
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetPopup side="right" variant="inset">
+      <SheetPopup className="sm:max-w-2xl" side="right" variant="inset">
         <SheetHeader>
           <SheetTitle>Your lines</SheetTitle>
           <SheetDescription>
-            {market.name} today: <span className={cn("figures", total >= 0 ? "text-up" : "text-down")}>{signedUsd(total)}</span>
+            {market.name} today &middot; <span className={cn("figures", total >= 0 ? "text-up" : "text-down")}>{signedUsd(total)}</span>
+            {settled.length > 0 ? (
+              <>
+                {" "}
+                &middot; <span className="figures">{won}</span> of <span className="figures">{settled.length}</span> came good
+              </>
+            ) : null}
           </SheetDescription>
         </SheetHeader>
-        <SheetPanel className="px-4 pb-4">
+        {/* Flush to the panel's edges, the way the desk's own tables sit: the
+            row is the unit and its hairline should reach both sides. */}
+        <SheetPanel className="p-0">
           <SketchList sketches={sketches} />
         </SheetPanel>
       </SheetPopup>

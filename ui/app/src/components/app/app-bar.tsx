@@ -2,8 +2,6 @@
 
 import {
   ArrowDownToLineIcon,
-  LayoutPanelLeftIcon,
-  PenLineIcon,
   ArrowUpFromLineIcon,
   GiftIcon,
   HistoryIcon,
@@ -28,8 +26,6 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu";
 import { type Account, usd } from "@/lib/market";
-import type { Mode } from "@/lib/mode";
-import { Segmented } from "./controls";
 import { Wordmark } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -39,14 +35,10 @@ const AVATAR = `https://api.dicebear.com/9.x/shapes/svg?seed=${HANDLE}&backgroun
 
 export function AppBar({
   account,
-  mode,
-  onMode,
   blurred,
   onBlurred,
 }: {
   account: Account;
-  mode: Mode;
-  onMode: (mode: Mode) => void;
   blurred: boolean;
   onBlurred: (blurred: boolean) => void;
 }) {
@@ -86,16 +78,6 @@ export function AppBar({
           <ArrowDownToLineIcon />
           Deposit
         </Button>
-
-        <Segmented
-          label="Draw or Desk"
-          onChange={onMode}
-          options={[
-            { value: "draw", label: (<><PenLineIcon />Draw</>) },
-            { value: "desk", label: (<><LayoutPanelLeftIcon />Desk</>) },
-          ]}
-          value={mode}
-        />
 
         <ThemeToggle />
 
