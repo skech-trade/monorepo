@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toastManager } from "@/components/ui/toast";
-import { type Candle, candlesFor, price as fmtPrice, type Market, usd } from "@/lib/market";
+import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
 import { accuracyOf, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { PlaceTicket } from "./place-ticket";
@@ -505,7 +505,10 @@ export function DrawScreen({ market }: { market: Market }) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const headLabel = shape && quote ? `+$${usd(quote.ifWorks, 0)} if it gets here` : null;
+  /* Signed, because net of fees this goes negative: at fifty times a hundred
+     dollars they are $4.50, and a line that only reaches for four dollars is a
+     trade that costs money to be right about. It read "+$-4" before. */
+  const headLabel = shape && quote ? `${signedUsd(quote.ifWorks, 0)} if it gets here` : null;
 
   const shown = useMemo(
     () => (phase === "running" && book ? sketches.map((s) => (s.status === "running" ? { ...s, net: book.net } : s)) : sketches),
@@ -550,7 +553,20 @@ export function DrawScreen({ market }: { market: Market }) {
           band={band}
           feed={feed}
           headLabel={headLabel}
-          horizonMinutes={phase === "running" || phase === "settled" ? viewBars : runBars}
+          /*
+            A fixed window everywhere except the moment you finish.
+
+            It tracked the round's own length while drawing, and the round grows
+            as you draw — so every candle the round gained made the bars
+            narrower, which made the same hand movement worth more candles,
+            which grew the round again. A stroke across the screen ran the
+            horizon to its ninety-six candle ceiling. Held still, the bars keep
+            their width and the chart follows the hand at the speed of the hand.
+
+            Only `drawn` fits the whole plan, which is the one moment you want
+            to see all of it at once.
+          */
+          horizonMinutes={phase === "drawn" ? runBars : viewBars}
           editableFrom={editableFrom}
           onDown={onDown}
           onGrab={onGrab}

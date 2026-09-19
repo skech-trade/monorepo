@@ -93,7 +93,7 @@ export function SketchBar({
   if (phase === "drawn" && shape && quote) {
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <Lead tone="text-up">+${usd(quote.ifWorks, 0)}</Lead>
+        <Lead tone={quote.ifWorks >= 0 ? "text-up" : "text-down"}>{signedUsd(quote.ifWorks, 0)}</Lead>
         {/* The stake, the leverage and what they multiply to are all in the
             header now, twice over. What is left is what the line is worth and
             what it costs — and that a point can still be moved. */}

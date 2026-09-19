@@ -282,12 +282,12 @@ export function SketchCanvas({
   /** Within this of the right edge counts as pushing against it. */
   const EDGE = 18;
   /** Candles a second the view runs forward while the pen holds the edge. */
-  const PAN_BARS = 12;
+  const PAN_BARS = 6;
   const track = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
     if (!r) return;
     at.current = { x: e.clientX - r.left, y: e.clientY - r.top };
-    setPushing(active.current && at.current.x >= plotR - EDGE);
+    setPushing(active.current && phase === "drawing" && at.current.x > pivot);
   };
 
   const onDown = (e: ReactPointerEvent) => {
@@ -336,20 +336,6 @@ export function SketchCanvas({
     if (!active.current) return;
     const p = local(e);
     if (p) onMovePt(p);
-    /*
-      The pen leads and the chart follows.
-
-      Once a stroke passes the middle of the plot the view runs forward by
-      exactly as much, so the tip stays there and the canvas ahead of it never
-      runs out. You draw into the middle of the screen rather than into the
-      right-hand wall, and nothing has to be dragged to make room.
-
-      The point is recorded first, against the mapping the pointer was read
-      with. Time here is a place in the round, not a place on the screen, so
-      moving the view afterwards changes where the point is drawn and not what
-      it means.
-    */
-    if (phase === "drawing" && px > pivot) advance((px - pivot) / runStep);
     track(e);
   };
   const onUp = () => {
@@ -400,9 +386,9 @@ export function SketchCanvas({
 
   /* The handlers as of this render, for the loop below to call. It is started
      once per push and must not be torn down every time the round grows. */
-  const now = useRef({ advance, move: onMovePt, price: priceAtY, edgeT: 1 });
+  const now = useRef({ advance, move: onMovePt, price: priceAtY, edgeT: 1, step: 1, pivot: 0, right: 0 });
   useEffect(() => {
-    now.current = { advance, move: onMovePt, price: priceAtY, edgeT: tOfX(plotR) };
+    now.current = { advance, move: onMovePt, price: priceAtY, edgeT: tOfX(plotR), step: runStep, pivot, right: plotR };
   });
 
   /**
@@ -431,19 +417,23 @@ export function SketchCanvas({
       const here = at.current;
       if (!here) return;
       /*
-        Hold the pen at the edge and the chart runs forward under it.
+        The pen leads and the chart follows, on a clock and at a capped speed.
 
-        Half a screen a second, which is fast enough to feel like the market
-        coming to meet you rather than a scrollbar. The round grows to cover
-        whatever gets drawn out there, so the two are the same gesture: the
-        view moves, the pen keeps writing, and the trade gets longer.
-
-        It used to stretch the round instead and keep the whole of it in
-        frame, which meant the line shrank away from the edge you were
-        pressing against — running to stand still.
+        Past the middle of the plot the view runs forward to bring the tip back
+        to it, but never faster than PAN_BARS candles a second. It used to do
+        this from the move handler, by the whole overshoot, every event: several
+        pointer moves land between two renders, each one reads a tip that has
+        not been brought back yet, and each adds the full correction again. Ten
+        moves across a third of the screen ran the view a hundred and ten
+        candles forward and took the round to its ceiling. A clock cannot
+        compound — it advances by elapsed time, whatever the browser does with
+        the events.
       */
-      now.current.advance(seconds * PAN_BARS);
-      now.current.move({ t: now.current.edgeT, price: now.current.price(here.y) });
+      const over = (here.x - now.current.pivot) / now.current.step;
+      if (over > 0) now.current.advance(Math.min(over, seconds * PAN_BARS));
+      // Held right against the edge, keep laying points down: that is someone
+      // asking for more room rather than drawing a flat line.
+      if (here.x >= now.current.right - EDGE) now.current.move({ t: now.current.edgeT, price: now.current.price(here.y) });
     }, 50);
     return () => clearInterval(id);
   }, [pushing]);

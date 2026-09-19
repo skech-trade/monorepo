@@ -315,20 +315,35 @@ type, one row.
 
 ### 5.7 FAQ
 
-All five current answers get rewritten. Same questions, no vocabulary.
+Seven questions. The two that described a bracket are gone: the product has no
+stop you did not set and no target you did not ask for, and the page said
+otherwise for as long as it had one.
 
 > **What does my drawing actually do?**
-> Where the line starts is where you get in. Where it ends is where you're
-> aiming. The lowest point it dips through is where you'll be out if it goes the
-> other way. You pick how much. The drawing picks the rest.
+> Where the line starts is where you get in, and where it ends up decides
+> whether you're long or short. The shape in between is the forecast — the whole
+> of it counts, not just where you stopped drawing.
 >
 > **What if the price doesn't follow my line?**
-> It almost never will exactly, and it doesn't need to. The line says where
-> you're aiming and where you'd give up. You're out at one or the other.
+> It almost never will, and it doesn't need to. You're paid on where the price
+> actually goes while you're in it, not on how close it came to the line you
+> drew.
+>
+> **What closes a trade?**
+> The clock, your own hand, or the margin. A round runs for a set stretch and
+> marks out at the end, you can take it off at any point before that, and if the
+> price runs far enough against you at the leverage you chose, you're
+> liquidated. There's no stop you didn't set and no target you didn't ask for.
 >
 > **Can I change it after?**
-> Yes — draw over it. It updates what you've got rather than starting a second
-> one, and it costs nothing.
+> Yes. Every point ahead of the current candle is still yours to move while it
+> plays out, and moving one updates the trade you already have rather than
+> opening a second one. You pay one round trip either way, so redrawing is free.
+>
+> **What does the leverage do?**
+> Both ends of it. At 50x a hundred dollars moves like five thousand, so a small
+> move is worth having — and a move against you eats the margin that much
+> faster. You can never lose more than you put in.
 >
 > **Do you hold my money?**
 > No. Nothing to install, no account to approve, and we never take custody of
@@ -403,15 +418,11 @@ to defend every line here to a regulator.
 - The close carries a plain-language capital warning.
 - We do not use the word "bet" in body copy, and we do not use gambling
   framing, despite it being the most natural consumer vocabulary here.
-- Before implementation: **confirm whether losses can exceed deposit in our
-  model.** The current disclaimer says "and then some". If that is true, §5.4's
-  "the most you can lose" framing is wrong and needs rewording. If it is false,
-  the current disclaimer is wrong. One of the two is a bug. (Open, §9)
-
----
-
-## 8. How we'll know it worked
-
+- **Answered: losses cannot exceed the deposit.** `settle` caps at minus the
+  stake, which is what isolated margin does, and liquidation closes the position
+  before it can go further. "And then some" was never true of our model; §5.4's
+  "the most you can lose" framing is correct and the close's disclaimer stands
+  as written.
 - Zero terms from the §4 banned list appear in rendered copy. Greppable, so it
   can be a CI check.
 - A reader who has never traded can say what the product does after four
