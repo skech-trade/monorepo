@@ -11,23 +11,27 @@ import styles from "./story.module.css";
 const FAQS = [
   {
     q: "What does my drawing actually do?",
-    a: "Where the line starts is where you get in, and where it ends up decides whether you're long or short. The shape in between is the forecast — the whole of it counts, not just where you stopped drawing.",
+    a: "It says which way you think the price goes. Where the line starts is where you get in, and each turn in it is a change of mind — up from here, then down from there. Nothing else about the shape is a promise: the height of it is not a target and the dips are not levels. You only have to be right about the direction.",
+  },
+  {
+    q: "Do I have to guess the right price?",
+    a: "No, and that is the whole point. You are not picking a number or a band the price has to land inside. If you drew up and it goes up, you make money — a little if it moves a little, a lot if it moves a lot. Being right by more pays more; being right at all is what it takes.",
   },
   {
     q: "What if the price doesn't follow my line?",
-    a: "It almost never will, and it doesn't need to. You're paid on where the price actually goes while you're in it, not on how close it came to the line you drew.",
+    a: "It almost never will, and it doesn't need to. You're paid on where the price actually goes while you're in it, not on how closely it traced what you drew.",
   },
   {
     q: "What closes a trade?",
-    a: "The clock, your own hand, or the margin. A round runs for a set stretch and marks out at the end, you can take it off at any point before that, and if the price runs far enough against you at the leverage you chose, you're liquidated. There's no stop you didn't set and no target you didn't ask for.",
+    a: "The clock, your own hand, the levels you set, or the margin. A round runs about a minute and marks out at the end; you can take it off whenever you like; you can say up front to close it if you lose or make a set amount; and if the price runs far enough against you, it closes itself. Nothing closes at a level you didn't ask for.",
   },
   {
-    q: "Can I change it after?",
-    a: "Yes. Every point ahead of the current candle is still yours to move while it plays out, and moving one updates the trade you already have rather than opening a second one. You pay one round trip either way, so redrawing is free.",
+    q: "Can I set a limit on what I lose?",
+    a: "Yes, in money. \u201cPut in $100, close it if I lose $50, close it if I make $70\u201d \u2014 those are the two numbers, and you type them rather than draw them. Both are optional, and you can never lose more than you put in either way.",
   },
   {
-    q: "What does the leverage do?",
-    a: "Both ends of it. At 50× a hundred dollars moves like five thousand, so a small move is worth having — and a move against you eats the margin that much faster. You can never lose more than you put in.",
+    q: "What is the boost?",
+    a: "How hard your money works. At 50\u00d7 a hundred dollars moves like five thousand, so a small move is worth having \u2014 and a move against you runs out that much faster. It cuts both ways, it is the fastest way to lose what you put in, and you can never lose more than that.",
   },
   {
     q: "Do you hold my money?",

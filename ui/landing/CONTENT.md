@@ -315,35 +315,51 @@ type, one row.
 
 ### 5.7 FAQ
 
-Seven questions. The two that described a bracket are gone: the product has no
-stop you did not set and no target you did not ask for, and the page said
-otherwise for as long as it had one.
+Eight questions, rewritten against the thesis: **you only have to be right
+about the direction.** The price range does not matter and was never the
+claim — what a drawing says is "up from here, then down from there", and the
+height of it is neither a target nor a band you have to land inside. Being
+right by more pays more; being right at all is what it takes.
+
+Two further changes. "Leverage" is **boost** everywhere on the consumer
+surface, always paired with the fact that it cuts both ways — the audience has
+not traded before and the word is the largest piece of jargon left. And the
+two exits are stated as **money you type, not levels you draw**: "put in $100,
+close it if I lose $50, close it if I make $70".
 
 > **What does my drawing actually do?**
-> Where the line starts is where you get in, and where it ends up decides
-> whether you're long or short. The shape in between is the forecast — the whole
-> of it counts, not just where you stopped drawing.
+> It says which way you think the price goes. Where the line starts is where
+> you get in, and each turn in it is a change of mind — up from here, then down
+> from there. Nothing else about the shape is a promise: the height of it is
+> not a target and the dips are not levels. You only have to be right about the
+> direction.
+>
+> **Do I have to guess the right price?**
+> No, and that is the whole point. You are not picking a number or a band the
+> price has to land inside. If you drew up and it goes up, you make money — a
+> little if it moves a little, a lot if it moves a lot.
 >
 > **What if the price doesn't follow my line?**
 > It almost never will, and it doesn't need to. You're paid on where the price
-> actually goes while you're in it, not on how close it came to the line you
-> drew.
+> actually goes while you're in it, not on how closely it traced what you drew.
 >
 > **What closes a trade?**
-> The clock, your own hand, or the margin. A round runs for a set stretch and
-> marks out at the end, you can take it off at any point before that, and if the
-> price runs far enough against you at the leverage you chose, you're
-> liquidated. There's no stop you didn't set and no target you didn't ask for.
+> The clock, your own hand, the levels you set, or the margin. A round runs
+> about a minute and marks out at the end; you can take it off whenever you
+> like; you can say up front to close it if you lose or make a set amount; and
+> if the price runs far enough against you, it closes itself. Nothing closes at
+> a level you didn't ask for.
 >
-> **Can I change it after?**
-> Yes. Every point ahead of the current candle is still yours to move while it
-> plays out, and moving one updates the trade you already have rather than
-> opening a second one. You pay one round trip either way, so redrawing is free.
+> **Can I set a limit on what I lose?**
+> Yes, in money. "Put in $100, close it if I lose $50, close it if I make $70"
+> — those are the two numbers, and you type them rather than draw them. Both
+> are optional, and you can never lose more than you put in either way.
 >
-> **What does the leverage do?**
-> Both ends of it. At 50x a hundred dollars moves like five thousand, so a small
-> move is worth having — and a move against you eats the margin that much
-> faster. You can never lose more than you put in.
+> **What is the boost?**
+> How hard your money works. At 50× a hundred dollars moves like five thousand,
+> so a small move is worth having — and a move against you runs out that much
+> faster. It cuts both ways, it is the fastest way to lose what you put in, and
+> you can never lose more than that.
 >
 > **Do you hold my money?**
 > No. Nothing to install, no account to approve, and we never take custody of

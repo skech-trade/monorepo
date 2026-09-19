@@ -16,13 +16,13 @@ const STEPS: {
     visual: <AmountWheel />,
   },
   {
-    title: "Set leverage",
-    caption: "Put in $100, trade like $1,000.",
+    title: "Set your boost",
+    caption: "Put in $100, trade like $1,000. It cuts both ways.",
     visual: <Leverage />,
   },
   {
     title: "Draw it",
-    caption: "Draw where you think the price goes.",
+    caption: "Up or down. You only have to be right about the direction.",
     visual: <DrawnLine />,
   },
 ];
@@ -193,7 +193,7 @@ export function HowItWorks() {
       id="how-it-works"
       titleId="how-title"
       title="Nothing to learn."
-      lead="Size, leverage, one line. That's it."
+      lead="Size, boost, one line. That's it."
       scene="steps"
       overview
     >
