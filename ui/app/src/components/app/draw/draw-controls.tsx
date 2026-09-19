@@ -174,15 +174,17 @@ export function DrawControls({
       </Popover>
       <Popover>
         <PopoverTrigger render={<Button variant="outline" />}>
-          <Setting label="Leverage" value={`${leverage}×`} />
+          <Setting label="Boost" value={`${leverage}×`} />
         </PopoverTrigger>
         <PopoverPopup align="start" className="w-80">
-          <PopoverTitle>Set leverage</PopoverTitle>
+          {/* Draw does not say leverage anywhere else, and the word is the
+              single biggest piece of jargon left on this screen. */}
+          <PopoverTitle>Set your boost</PopoverTitle>
           <PopoverDescription>
             Put in ${usd(stake, 0)}, trade like ${usd(stake * leverage, 0)}.
           </PopoverDescription>
           <div className="pt-4">
-            <LeverageMeter onChange={onLeverage} stake={stake} steps={DRAW_STEPS} value={leverage} />
+            <LeverageMeter label="Boost" onChange={onLeverage} stake={stake} steps={DRAW_STEPS} value={leverage} />
           </div>
         </PopoverPopup>
       </Popover>

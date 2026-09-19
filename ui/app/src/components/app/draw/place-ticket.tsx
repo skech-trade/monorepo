@@ -62,6 +62,7 @@ export function PlaceTicket({
   }
 
   const settings = phase === "live" || phase === "drawing" || phase === "drawn";
+  const long = shape?.long ?? true;
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
@@ -108,19 +109,14 @@ export function PlaceTicket({
           </PopoverTrigger>
           <PopoverPopup align="end" className="w-auto max-w-xs px-3 py-2">
             <p className="text-sm">
-              {/*
-                No side at all — not "short", and not "going down" either.
-
-                Which way the line points is not what a reader is deciding here.
-                They drew it; they know. What this trade turns on is whether the
-                drawing is right, and that reads the same in both directions, so
-                naming a direction on the way in only invites the thought that
-                one of them is the safe one. The one thing not already on screen
-                is what the leverage turns the stake into.
-              */}
-              <span className="text-muted-foreground">Trading like </span>
-              <span className="figures font-medium">${usd(quote.notional, 0)}</span>
-              <span className="text-muted-foreground"> of {market.name}.</span>
+              {/* Where the line ends up is the call, and the call is the thing
+                  worth reading back before you commit to it. */}
+              <span className="font-medium">
+                {market.name} {long ? "long" : "short"}
+              </span>
+              <span className="text-muted-foreground">, trading like </span>
+              <span className="figures">${usd(quote.notional, 0)}</span>
+              <span className="text-muted-foreground">.</span>
             </p>
           </PopoverPopup>
           </Popover>

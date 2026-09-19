@@ -31,46 +31,72 @@ export function LeverageMeter({
   value,
   stake,
   onChange,
+  label = "Leverage",
   className,
 }: {
   steps: number[];
   value: number;
   stake: number;
   onChange: (value: number) => void;
+  /** What this multiple is called on this screen. */
+  label?: string;
   className?: string;
 }) {
   const n = steps.length;
   const idx = steps.indexOf(nearestStep(steps, value));
-  const lit = idx + 1;
   const max = steps[n - 1];
+  /*
+    Filled in proportion to the multiple, not to the notch.
+
+    One notch per step lit six of twelve at 10x of 50 — half the track for a
+    fifth of the leverage, because the steps are not evenly spaced and the bar
+    was counting them rather than measuring them. A meter that reads "half" at
+    a fifth is worse than no meter. The fill is value/max, the notches are
+    ticks sitting at their own place along it, and 10x of 50 looks like 10x of
+    50.
+  */
+  const at = (v: number) => (v / max) * 100;
+
+  const pick = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const want = ((e.clientX - r.left) / Math.max(1, r.width)) * max;
+    onChange(nearestStep(steps, want));
+  };
 
   return (
     <div className={cn("flex w-full flex-col", className)}>
+      {/* biome-ignore lint/a11y/useSemanticElements: a slider with its own ticks */}
       <div
-        aria-label="Leverage"
+        aria-label={label}
         aria-valuemax={max}
         aria-valuemin={steps[0]}
         aria-valuenow={value}
         aria-valuetext={`${value} times`}
-        className="grid h-3 gap-1 rounded-full focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4"
+        className="relative h-3 w-full cursor-pointer touch-none rounded-full bg-input focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-4"
         onKeyDown={(e) => {
           const by = e.key === "ArrowUp" || e.key === "ArrowRight" ? 1 : e.key === "ArrowDown" || e.key === "ArrowLeft" ? -1 : 0;
           if (by === 0) return;
           e.preventDefault();
           onChange(steps[Math.min(n - 1, Math.max(0, idx + by))]);
         }}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          pick(e);
+        }}
+        onPointerMove={(e) => {
+          if (e.buttons === 1) pick(e);
+        }}
         role="slider"
-        style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}
         tabIndex={0}
       >
-        {steps.map((s, i) => (
-          <button
-            aria-label={`${s} times`}
-            className={cn("h-full cursor-pointer rounded-full transition-colors", i < lit ? "bg-primary" : "bg-input hover:bg-primary/30")}
-            key={s}
-            onClick={() => onChange(s)}
-            tabIndex={-1}
-            type="button"
+        <div className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-150" style={{ width: `${at(value)}%` }} />
+        {/* Where the notches actually fall. Close together at the low end,
+            because that is where the numbers are close together. */}
+        {steps.slice(0, -1).map((step) => (
+          <span
+            className={cn("-translate-x-1/2 -translate-y-1/2 absolute top-1/2 size-1 rounded-full", step <= value ? "bg-primary-foreground/40" : "bg-muted-foreground/40")}
+            key={step}
+            style={{ left: `${at(step)}%` }}
           />
         ))}
       </div>
