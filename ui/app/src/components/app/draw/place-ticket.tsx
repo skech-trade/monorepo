@@ -68,69 +68,81 @@ export function PlaceTicket({
 
   const settings = phase === "live" || phase === "drawing" || phase === "drawn";
   const long = shape?.long ?? true;
+  /** There is a line, and it is finished. Until then the button is dim. */
+  const ready = phase === "drawn" && shape !== null && quote !== null;
+  /*
+    One flex item, not two.
+
+    "Trade" and the rest were separate children of a button whose own layout
+    puts a gap between its children, and the non-breaking space between them
+    added a second one on top: "Trade   for $100", with a hole in it.
+  */
+  const label = (
+    <span>
+      Trade<span className="hidden sm:inline"> for ${usd(stake, 0)}</span>
+    </span>
+  );
 
   return (
     <div className={cn("flex items-center gap-1.5 sm:gap-2", className)}>
+      {/* When it ends, then what it costs, then the press. The two exits come
+          first because they are the ones you leave alone most rounds. */}
       {settings ? (
         <>
-          <DrawControls leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} />
           <ExitControls exits={exits} onExits={onExits} stake={stake} />
+          <DrawControls leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} />
         </>
       ) : null}
 
-      {phase === "drawn" && shape && quote ? (
-        /*
-          One button, and it trades.
+      {/* A line you have decided against needs an exit that is not the eraser
+          in the far rail. Present and dim before there is one, like the button
+          beside it, so the row does not rearrange itself mid-decision. */}
+      {settings ? (
+        <Button className="hidden md:inline-flex" disabled={!ready} onClick={onDrawAgain} variant="ghost">
+          Draw again
+        </Button>
+      ) : null}
 
-          It was two: a green button that opened a ticket, and a green button
-          inside the ticket that sent it — so the first press, the one that
-          looked exactly like the thing to press, only dismissed something. The
-          button does the trade now, first press, and the popup beside it holds
-          nothing to click.
+      {/*
+        The button is always there, and dim until there is a line to send.
 
-          And it says one thing. It listed the stake, the leverage, the
-          notional, the entry, the target, the floor, the worst case and the
-          best — beside a button reading "Trade for $100" and two more
-          reading "Size $100" and "Leverage 10x". Everything but the side and
-          what the leverage turns the stake into was already on screen, twice.
-        */
-        <>
-          {/* Somewhere to put it down and start over, next to the button that
-              commits it. Taken out when the header was being thinned and
-              missed at once: a line you have decided against needs an exit
-              that is not the eraser in the far rail. */}
-          <Button className="hidden md:inline-flex" onClick={onDrawAgain} variant="ghost">
-            Draw again
-          </Button>
+        It appeared only once something had been drawn, so the row rearranged
+        itself under the reader's hand at the exact moment they were deciding
+        something — and until then nothing on screen said what the drawing was
+        for. Present and disabled says both: here is what happens next, and it
+        is not available yet.
+
+        One button, and it trades. It was two: a green button that opened a
+        ticket and a green button inside the ticket that sent it, so the first
+        press, the one that looked exactly like the thing to press, only
+        dismissed something. Blue rather than green or red, because those two
+        mean money up and money down everywhere else here and a control is not
+        a figure. The popup beside it holds nothing to click and says the one
+        thing not already on the row: which way you are facing, and what the
+        boost turns the stake into.
+      */}
+      {settings ? (
+        ready ? (
           <Popover onOpenChange={setOpen} open={open}>
-          {/*
-            Blue, whichever way the line goes.
-
-            It was green for a long and red for a short, which reads as a
-            verdict on the trade rather than a thing to press — and the two
-            colours this app uses for money going up and money going down do
-            not belong on a control. Blue says "this is the action"; the popup
-            beside it says which way you are facing.
-          */}
-          <PopoverTrigger
-            render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90" onClick={onPlace} />}
-          >
-            Trade<span className="hidden sm:inline">&nbsp;for ${usd(stake, 0)}</span>
-          </PopoverTrigger>
-          <PopoverPopup align="end" className="w-auto max-w-xs px-3 py-2">
-            <p className="text-sm">
-              {/* Where the line ends up is the call, and the call is the thing
-                  worth reading back before you commit to it. */}
-              <span className="font-medium">
-                {market.name} {long ? "long" : "short"}
-              </span>
-              <span className="text-muted-foreground">, trading like </span>
-              <span className="figures">${usd(quote.notional, 0)}</span>
-              <span className="text-muted-foreground">.</span>
-            </p>
-          </PopoverPopup>
+            <PopoverTrigger render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90" onClick={onPlace} />}>
+              {label}
+            </PopoverTrigger>
+            <PopoverPopup align="end" className="w-auto max-w-xs px-3 py-2">
+              <p className="text-sm">
+                <span className="font-medium">
+                  {market.name} {long ? "long" : "short"}
+                </span>
+                <span className="text-muted-foreground">, trading like </span>
+                <span className="figures">${usd(quote.notional, 0)}</span>
+                <span className="text-muted-foreground">.</span>
+              </p>
+            </PopoverPopup>
           </Popover>
-        </>
+        ) : (
+          <Button className="border-info bg-info text-white shadow-info/24" disabled>
+            {label}
+          </Button>
+        )
       ) : null}
 
       {/* Plainly what it does, like the button that opened it. "Take it off
