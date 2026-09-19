@@ -471,7 +471,9 @@ export function verdictFor(right: number): "Called it" | "Close" | "Off" {
  */
 export function verdictWord(outcome: Outcome | "closed", right: number, net: number): string {
   if (outcome === "liquidated") return "Wiped out";
-  if (outcome === "target") return "Called it";
+  // Getting there and still losing money happens when the move was smaller
+  // than the fees. "Called it" next to red reads as a lie, so it is "Close".
+  if (outcome === "target") return net < 0 ? "Close" : "Called it";
   const word = verdictFor(right);
   return word === "Called it" && net < 0 ? "Close" : word;
 }

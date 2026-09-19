@@ -28,9 +28,9 @@ import {
 import { type Account, usd } from "@/lib/market";
 import { Wordmark } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
+import { HANDLE } from "@/lib/user";
 
 /** Mock, like the balance. DiceBear's "shapes" set is CC0: abstract, no face. */
-const HANDLE = "vivek";
 const AVATAR = `https://api.dicebear.com/9.x/shapes/svg?seed=${HANDLE}&backgroundColor=0a0a0a&shape1Color=3b82f6,10b981&shape2Color=f5f5f5&shape3Color=ef4444,f59e0b`;
 
 export function AppBar({

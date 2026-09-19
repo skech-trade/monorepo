@@ -24,6 +24,11 @@ const HISTORY = 46;
  * edge lengthens the round.
  */
 const RUN_BARS = 24;
+/** The shortest a round can be, in candles. A line two minutes long is a coin toss, not a call. */
+const MIN_BARS = 3;
+
+/** How long a round this line makes: its last minute, never shorter than MIN_BARS. */
+const barsFor = (pts: Pt[], horizon: number) => Math.max(MIN_BARS, Math.round((pts[pts.length - 1]?.t ?? 1) * horizon));
 /**
  * How fast the round lengthens while the pen is held at the edge, per second.
  *
@@ -368,6 +373,14 @@ export function DrawScreen({ market }: { market: Market }) {
       const offset = phase === "drawn" ? pts[0].price - price : 0;
       const t = coverTo(pt.t);
       setPts((p) => {
+        // A click on the minute a point already sits in takes hold of that
+        // point. Adding a second one there would draw a vertical leg, which
+        // is a move in no time and trades as nothing.
+        const near = p.findIndex((q) => Math.abs(q.t - t) < 0.015);
+        if (near > 0) {
+          dragIndex.current = near;
+          return p.map((q, j) => (j === near ? { t: q.t, price: pt.price + offset } : q));
+        }
         const i = p.findIndex((q) => q.t > t);
         const index = i === -1 ? p.length : i;
         dragIndex.current = index;
@@ -476,15 +489,26 @@ export function DrawScreen({ market }: { market: Market }) {
 
   const onPlace = () => {
     if (!shape) return;
-    const moved = view;
+    // The round is as long as the line. A line that stops at ten minutes is
+    // a ten minute call, so the clock stops where the drawing does, and the
+    // points are rescaled so the line spans the whole round.
+    const end = view[view.length - 1]?.t ?? 1;
+    const horizon = barsRef.current;
+    const bars = barsFor(view, horizon);
+    const moved = end > 0 ? view.map((p) => ({ ...p, t: Math.min(1, p.t / end) })) : view;
     setPts(moved);
+    setRunBars(bars);
+    barsRef.current = bars;
     setEntry(price);
     follow.current = -0.12 + Math.random() * 0.62;
     const sketch: Sketch = { id: `sk-${Date.now()}`, long: shape.long, stake, leverage, entry: price, pts: moved, placedAt: Date.now(), status: "running", net: 0 };
     setLastSketch(sketch);
     setSketches((list) => [sketch, ...list]);
     setRun([]);
-    setViewBars(barsRef.current);
+    // The window stays where it was while you drew. A short round ends part
+    // way across it; zooming in to fit would yank the picture the moment you
+    // press the button.
+    setViewBars(horizon);
     setPhase("running");
     toastManager.add({ title: `Trading for $${usd(stake, 0)}`, description: `${market.name} going ${shape.long ? "up" : "down"} from $${fmtPrice(price)}. It's playing out now.` });
   };
@@ -582,7 +606,7 @@ export function DrawScreen({ market }: { market: Market }) {
           quote={quote}
           result={result}
           runCount={run.length}
-          runBars={runBars}
+          runBars={phase === "drawn" ? barsFor(view, runBars) : runBars}
           shape={shape}
           sketches={shown}
         />

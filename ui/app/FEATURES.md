@@ -68,19 +68,45 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   "Take it off now".
 - Settled on the same rule as the quote, on the wick, adverse level first:
   called it / out where you drew it / time's up / taken off / wiped out.
-  Toast. The Rounds sheet opens on the round just played: Round N, the verdict
-  word and the money as one line, a streak pill when two or more came good in
-  a row, then the round drawn back on a canvas (your line dashed, the candles
-  that arrived, the ribbon coloured by how it went).
+  Toast. The Rounds sheet opens on the round just played. The sheet's one
+  line of summary is a sentence ("2 of 4 came good today. Up $5.59 on
+  Bitcoin."). The card leads with the money as the one figure and says the
+  rest in a sentence beside it: the verdict word, "You drew Bitcoin down,
+  $100 at 10×", what happened (got where the line said, hit the floor first,
+  stayed with the line N% of the way, taken off early, ran the other way and
+  took the stake), "Two in a row" when it applies, and the round number. No
+  eyebrow, no pill, no dot-separated meta. Then the round drawn back (your
+  line dashed, the candles that arrived, the ribbon coloured by how it went).
+- "Called it" is never shown next to a loss. Getting to the target with a
+  move smaller than the fees reads "Close".
+- The round is as long as the line. Placing a trade sets the clock to the
+  line's last minute (never under three) and rescales the points to span it,
+  so a nine minute line is a nine minute call and the chart, the replay and
+  the card all end where the drawing does. The bar says "Runs 9 minutes, as
+  long as the line" before you place it. Drawing off the right edge while it
+  runs still lengthens it.
+- The card, 1280 by 720, painted from the theme as it is on screen (light or
+  dark, the page's own fonts, the real mark): the chart is the whole card,
+  the time axis fits what was drawn and what came, the line is a solid pen
+  stroke in the brand blue, candles arrive against it. At the foot: the money
+  as the one figure, then one sentence in the third person ("vivek drew
+  Bitcoin up, $100 at 10×. It got where the line said."), and "Draw yours at
+  skech.trade" on the right. Nothing else. In a clip the line draws itself
+  first, the candles arrive, the money lands, over five seconds.
 - Replay and export, all client side: Replay animates the candles back in,
-  Picture saves a PNG of the round (share sheet where the browser offers one,
-  a download otherwise). Clip records the replay off a canvas with the
+  Picture saves a PNG of the card (share sheet where the browser offers one,
+  a download otherwise). Clip records the card off a canvas with the
   MediaRecorder API, MP4 where the browser can write it and WebM otherwise,
   the on-screen chart replaying alongside; the finished clip then plays in
-  the card with Save clip, Share and Back to the chart. The share sheet only
-  opens off a fresh click, which is why a clip is handed over in two steps.
-  A browser that cannot record says so in one line. "Show your call" shares
-  the spoiler-free text. New trade clears the board.
+  the card with Post on X, Save clip, Share and Back to the chart. The share
+  sheet only opens off a fresh click, which is why a clip is handed over in
+  two steps. A browser that cannot record says so in one line.
+- Post on X, with no app key: X takes no file from a page, so the compose
+  window opens prefilled with the words (first person, spoiler free) and the
+  picture goes on the clipboard in the same click, to paste in. With a clip
+  held, the clip is saved instead and the note says to drag it in. The tab
+  opens first, inside the click, or the browser blocks it. New trade clears
+  the board.
 - Rounds keeps every sketch under the card: thumbnail, stake at leverage, in
   and out prices, money and how much of the way was right. Click a row to put
   it in the card. Two seeded rounds from earlier. Replaces both the settle
