@@ -4,21 +4,22 @@ import { usd } from "@/lib/market";
 import { cn } from "@/lib/utils";
 
 /**
- * How hard, as a meter you can set. One notch per step, and under the lit
- * run what the multiple does to the money: "$100, 12×, $1,200", with the
- * ceiling at the far end. The lit run never takes less than half the track,
- * so the figures under it always have room.
+ * How hard, as a meter you can set. One notch per step, every notch the same
+ * width, the scale written at each end and what you have picked between them.
+ *
+ * The lit run used to be stretched to half the track however few notches were
+ * lit, so the figures under it would have room. That bought the room by lying
+ * about the reading: at 10× of 50 the first six notches sat visibly wider than
+ * the last six, and a meter whose divisions are uneven is not a meter. The
+ * figures went under the track instead, where there is room for them anyway.
  */
 
-/** 1× to 15×, one notch each. Draw's range. */
 /* Up to 50, because that is what the venue gives you. On a market that moves
    six dollars a second, ten times your money on a twenty-four second round is
    a rounding error — the leverage is what makes a drawn line worth drawing. */
 export const DRAW_STEPS = [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50];
 /** Up to 100×, the notches a desk trader reaches for. */
 export const DESK_STEPS = [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50, 75, 100];
-
-const MIN_LIT = 0.5;
 
 /** The step nearest a value, so a preset off the notches still lights one. */
 export function nearestStep(steps: number[], value: number): number {
@@ -41,9 +42,6 @@ export function LeverageMeter({
   const n = steps.length;
   const idx = steps.indexOf(nearestStep(steps, value));
   const lit = idx + 1;
-  const unlit = n - lit;
-  const litRun = Math.max(lit / n, MIN_LIT);
-  const columns = unlit === 0 ? `repeat(${n}, 1fr)` : `repeat(${lit}, ${litRun / lit}fr) repeat(${unlit}, ${(1 - litRun) / unlit}fr)`;
   const max = steps[n - 1];
 
   return (
@@ -62,7 +60,7 @@ export function LeverageMeter({
           onChange(steps[Math.min(n - 1, Math.max(0, idx + by))]);
         }}
         role="slider"
-        style={{ gridTemplateColumns: columns }}
+        style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}
         tabIndex={0}
       >
         {steps.map((s, i) => (
@@ -76,17 +74,16 @@ export function LeverageMeter({
           />
         ))}
       </div>
-      <div className="mt-2.5 flex items-baseline gap-3 text-xs">
-        <div className="flex min-w-0 items-baseline gap-2" style={{ width: `calc(${(litRun - 0.5 / n) * 100}% + 1.6rem)` }}>
-          <span className="figures shrink-0 text-muted-foreground">${usd(stake, 0)}</span>
-          <span aria-hidden="true" className="flex min-w-0 flex-1 items-center gap-1 self-center text-muted-foreground/60">
-            <span className="h-px min-w-0 flex-1 bg-current" />
-            <span className="figures shrink-0 font-medium text-[11px] text-foreground leading-none">{value}×</span>
-            <span className="h-px min-w-0 flex-1 bg-current" />
-          </span>
-          <span className="figures shrink-0 font-semibold text-foreground text-sm">${usd(stake * value, 0)}</span>
-        </div>
-        {value < max ? <span className="figures ml-auto shrink-0 text-muted-foreground">${usd(stake * max, 0)}</span> : null}
+      {/* The two ends of the scale, and what you have picked between them.
+          A lone "$16,000" used to float at the right with nothing saying it
+          was the ceiling at full leverage. */}
+      <div className="mt-2.5 flex items-baseline justify-between gap-2 text-muted-foreground text-xs">
+        {/* An end that is where you are standing says it twice. */}
+        <span className="figures shrink-0">{value === steps[0] ? "" : `${steps[0]}\u00d7`}</span>
+        <span className="figures min-w-0 truncate font-medium text-foreground">
+          {value}&times; <span className="text-muted-foreground">&middot;</span> ${usd(stake * value, 0)}
+        </span>
+        <span className="figures shrink-0">{value === max ? "" : `${max}\u00d7`}</span>
       </div>
     </div>
   );

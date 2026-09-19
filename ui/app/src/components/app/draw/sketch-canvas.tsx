@@ -119,7 +119,6 @@ export function SketchCanvas({
   onUp: onUpPt,
   onGrab,
   onRemove,
-  onExtend,
   editableFrom,
   headLabel,
   horizonMinutes,
@@ -144,8 +143,6 @@ export function SketchCanvas({
   onGrab: (index: number) => void;
   /** A point double-clicked away. */
   onRemove: (index: number) => void;
-  /** Held at the right edge: lengthen the round by this many seconds of growth. */
-  onExtend?: (seconds: number) => void;
   /** Points at or before this time are fixed: they have already happened. */
   editableFrom: number;
   /** What the line is worth where it ends, shown at the head while drawing. */
@@ -194,7 +191,10 @@ export function SketchCanvas({
   const [seenPhase, setSeenPhase] = useState(phase);
   if (seenPhase !== phase) {
     setSeenPhase(phase);
-    if (phase === "live") setView({ zoom: 1, anchor: null });
+    // Back to following on a fresh line, and again when one is finished: the
+    // pen may have run the view a long way ahead of now to make room, and the
+    // finished plan wants showing whole.
+    if (phase === "live" || phase === "drawn") setView({ zoom: 1, anchor: null });
   }
 
   const plotL = PAD_L;
@@ -264,6 +264,8 @@ export function SketchCanvas({
     setView((v) => ({ ...v, anchor: holdAnchor((v.anchor ?? elapsed) + step) }));
   };
   const follow = () => setView((v) => ({ ...v, anchor: v.anchor === null ? elapsed : null }));
+  /** Run the view forward, in candles. What the pen does at the right edge. */
+  const advance = (bars: number) => setView((v) => ({ ...v, anchor: (v.anchor ?? elapsed) + bars }));
   const reset = () => setView({ zoom: 1, anchor: null });
   // Points can still be placed while it runs — ahead of the candles, never behind.
   const canDraw = phase === "live" || phase === "drawn" || phase === "running";
@@ -277,11 +279,13 @@ export function SketchCanvas({
   };
   /** Within this of the right edge counts as pushing against it. */
   const EDGE = 18;
+  /** Candles a second the view runs forward while the pen holds the edge. */
+  const PAN_BARS = 12;
   const track = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
     if (!r) return;
     at.current = { x: e.clientX - r.left, y: e.clientY - r.top };
-    setPushing(active.current && !!onExtend && at.current.x >= plotR - EDGE);
+    setPushing(active.current && at.current.x >= plotR - EDGE);
   };
 
   const onDown = (e: ReactPointerEvent) => {
@@ -380,9 +384,9 @@ export function SketchCanvas({
 
   /* The handlers as of this render, for the loop below to call. It is started
      once per push and must not be torn down every time the round grows. */
-  const now = useRef({ extend: onExtend, move: onMovePt, price: priceAtY, edgeT: 1 });
+  const now = useRef({ advance, move: onMovePt, price: priceAtY, edgeT: 1 });
   useEffect(() => {
-    now.current = { extend: onExtend, move: onMovePt, price: priceAtY, edgeT: tOfX(plotR) };
+    now.current = { advance, move: onMovePt, price: priceAtY, edgeT: tOfX(plotR) };
   });
 
   /**
@@ -410,12 +414,19 @@ export function SketchCanvas({
       last = t;
       const here = at.current;
       if (!here) return;
-      now.current.extend?.(seconds);
-      // Reach for the right edge, which once the chart is scrolling is past
-      // the end of the round — and asking for a point out there is what makes
-      // the round longer. The pen lays a point down once enough fresh canvas
-      // has arrived under it, so holding here draws rather than stretching one
-      // segment.
+      /*
+        Hold the pen at the edge and the chart runs forward under it.
+
+        Half a screen a second, which is fast enough to feel like the market
+        coming to meet you rather than a scrollbar. The round grows to cover
+        whatever gets drawn out there, so the two are the same gesture: the
+        view moves, the pen keeps writing, and the trade gets longer.
+
+        It used to stretch the round instead and keep the whole of it in
+        frame, which meant the line shrank away from the edge you were
+        pressing against — running to stand still.
+      */
+      now.current.advance(seconds * PAN_BARS);
       now.current.move({ t: now.current.edgeT, price: now.current.price(here.y) });
     }, 50);
     return () => clearInterval(id);

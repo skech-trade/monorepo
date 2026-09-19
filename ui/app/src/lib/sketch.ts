@@ -168,8 +168,13 @@ export type Quote = {
  * The two dollar figures, and the price behind the second.
  *
  * Every number is in dollars at the stake the reader chose, never a multiple
- * or a percentage. `mostLose` is the loss at the floor they drew, or the whole
- * stake if the line never dips below where they got in.
+ * or a percentage. `mostLose` is the stake, because the stake is what isolated
+ * margin puts at risk — it used to be the loss at the low point of the drawing,
+ * which was only ever true if the venue closed you there, and it does not.
+ *
+ * `ifWorks` is net of both fees. At fifty times a hundred dollars they come to
+ * four fifty, which is most of what a short round makes; quoting the gross
+ * would be quoting a number nobody receives.
  */
 export function quote(
   shape: Shape,
@@ -179,18 +184,25 @@ export function quote(
 ): Quote {
   const notional = stake * leverage;
   const move = (p: number) => Math.abs(p - entry) / entry;
-  const ifWorks = notional * move(shape.target);
-  const atFloor = shape.floor === null ? stake : notional * move(shape.floor);
   const dir = shape.long ? 1 : -1;
   return {
-    ifWorks,
-    mostLose: Math.min(stake, atFloor),
-    wipedAt: entry * (1 - dir * (1 / leverage - MAINT)),
+    ifWorks: notional * move(shape.target) - FEE * notional * 2,
+    mostLose: stake,
+    wipedAt: liquidationPrice(entry, stake, leverage, dir),
     notional,
   };
 }
 
-export type Outcome = "target" | "floor" | "time" | "liquidated";
+/**
+ * How a position ended. Two ways, and neither is a level you did not set.
+ *
+ * It used to close at `target` — the high point of your own drawing — and at
+ * `floor`, its low. Nobody placed those orders. A drawn line is a forecast, not
+ * a bracket, and taking someone out at the top of their own sketch books a
+ * profit they never asked to take and calls it their exit. The only things that
+ * end a position here are the clock and the margin.
+ */
+export type Outcome = "time" | "liquidated";
 
 export type Book = {
   /** Realised or marked P&L, net of fees. Never below minus the stake. */
@@ -214,6 +226,28 @@ export type Book = {
  * Recomputed from scratch on every tick so there is one place money is
  * decided. Fees come off both fills.
  */
+/**
+ * Where isolated margin gives out, as a venue works it out.
+ *
+ * Equity is the stake, less the fee taken on the way in, plus what the position
+ * has made; the venue closes you when that falls to the maintenance margin it
+ * holds against the position's value at the mark. Solving the two for price:
+ *
+ *   long   P = (q·entry − stake + fee) / (q · (1 − mmr))
+ *   short  P = (q·entry + stake − fee) / (q · (1 + mmr))
+ *
+ * The old line was `entry * (1 − dir * (1/leverage − MAINT))`, which lands
+ * within a few dollars at fifty times and drifts at low leverage, because it
+ * treats maintenance as a flat haircut on entry rather than a claim against
+ * the mark. Close enough to look right, which is the worst kind of wrong in a
+ * number that decides whether someone loses everything.
+ */
+export function liquidationPrice(entry: number, stake: number, leverage: number, dir: 1 | -1): number {
+  const q = (stake * leverage) / entry;
+  const room = stake - FEE * stake * leverage;
+  return dir > 0 ? (q * entry - room) / (q * (1 - MAINT)) : (q * entry + room) / (q * (1 + MAINT));
+}
+
 export function settle(
   bars: Candle[],
   shape: Shape,
@@ -225,24 +259,20 @@ export function settle(
   const notional = stake * leverage;
   const q = notional / entry;
   const fees = FEE * notional * 2;
-  // Losses stop at the stake, whatever the level rule says.
-  const cap = (n: number) => Math.max(-stake, n);
-  const pnlAt = (px: number) => cap(dir * q * (px - entry) - fees);
-  // Where the venue would close it on its own, if the line never dips.
-  const liq = entry * (1 - dir * (1 / leverage - MAINT));
+  // Isolated margin: the stake is the whole of what is at risk.
+  const pnlAt = (px: number) => Math.max(-stake, dir * q * (px - entry) - fees);
+  const liq = liquidationPrice(entry, stake, leverage, dir);
 
+  /*
+    One way out before the clock, and it is the margin.
+
+    It used to close at the top of your own drawing and at the bottom of it,
+    booking a profit you never asked to take and calling it your exit. Nobody
+    placed those orders. The line is a forecast; the position rides all of it.
+  */
   for (const bar of bars) {
     const worst = dir > 0 ? bar.l : bar.h;
-    const best = dir > 0 ? bar.h : bar.l;
-    if (dir * (worst - liq) <= 0) {
-      return { net: -stake, done: "liquidated", exit: liq };
-    }
-    if (shape.floor !== null && dir * (worst - shape.floor) <= 0) {
-      return { net: pnlAt(shape.floor), done: "floor", exit: shape.floor };
-    }
-    if (dir * (best - shape.target) >= 0) {
-      return { net: pnlAt(shape.target), done: "target", exit: shape.target };
-    }
+    if (dir * (worst - liq) <= 0) return { net: -stake, done: "liquidated", exit: liq };
   }
 
   const mark = bars.at(-1)?.c ?? entry;
@@ -493,9 +523,6 @@ export function verdictFor(right: number): "Called it" | "Close" | "Off" {
  */
 export function verdictWord(outcome: Outcome | "closed", right: number, net: number): string {
   if (outcome === "liquidated") return "Wiped out";
-  // Getting there and still losing money happens when the move was smaller
-  // than the fees. "Called it" next to red reads as a lie, so it is "Close".
-  if (outcome === "target") return net < 0 ? "Close" : "Called it";
   const word = verdictFor(right);
   return word === "Called it" && net < 0 ? "Close" : word;
 }
