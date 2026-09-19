@@ -78,11 +78,9 @@ const WORDS = ["", "one", "two", "three", "four", "five", "six", "seven", "eight
 /** The clause after "put $470 on Bitcoin going down at 10×": what the market did about it. */
 function happened(sketch: Sketch): Seg[] {
   const pct = { text: `${Math.round((sketch.right ?? sketch.accuracy ?? 0) * 100)}%`, mono: true };
+  // No "target" and no "floor": nothing takes you out at a level you did not
+  // place. What is left is the clock, your own hand, and the margin.
   switch (sketch.outcome) {
-    case "target":
-      return sketch.net >= 0 ? [{ text: " and it went exactly there" }] : [{ text: " and it got there, just not far enough to cover the fees" }];
-    case "floor":
-      return [{ text: " and it hit the floor first" }];
     case "liquidated":
       return [{ text: " and it ran the other way" }];
     case "closed":
@@ -112,12 +110,13 @@ export function cardStory(sketch: Sketch, market: Market, streak = 0): Seg[] {
 
 /** What goes in the post. First person, since you are the one posting it. */
 export function postText(sketch: Sketch, market: Market, streak = 0): string {
-  const opener = sketch.outcome === "target" && sketch.net >= 0 ? "Called it. " : sketch.outcome === "liquidated" ? "Wiped out. " : "";
+  const opener = sketch.outcome === "liquidated" ? "Wiped out. " : sketch.net >= 0 ? "Called it. " : "";
   const body = cardStory(sketch, market, streak)
     .map((s) => s.text)
     .join("")
     .replace(`${HANDLE} put`, "Put");
-  return `${opener}${body} ${signedUsd(sketch.net)} on skech.\n\nskech.trade`;
+  // The link is the mention. "on skech" in front of skech.trade said it twice.
+  return `${opener}${body} ${signedUsd(sketch.net)}.\n\nskech.trade`;
 }
 
 /** X's compose window, prefilled. Text only: X takes no file by link, so the picture rides the clipboard. */
@@ -275,18 +274,20 @@ export function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market
   ctx.font = `400 22px ${look.sans}`;
   const tag = "Draw yours at skech.trade";
   const tagW = ctx.measureText(tag).width;
-  const storyLines = wrap(ctx, story, 24, look, W - 2 * M - tagW - 48);
+  const storyLines = wrap(ctx, story, 24, look, W - 2 * M - tagW - 88);
   const storyH = storyLines.length * 32;
   const footTop = H - M - storyH - 96;
 
-  // The mark and the name, top left. Nothing else up there.
-  if (look.mark) ctx.drawImage(look.mark, M, M - 6, 36, 30);
-  ctx.fillStyle = p.fg;
-  ctx.font = `600 30px ${look.sans}`;
-  ctx.fillText("skech", M + (look.mark ? 48 : 0), M + 18);
+  /*
+    Nothing in the top corners.
 
-  // The chart, the width of the card.
-  const box = { x: M, y: M + 64, w: W - 2 * M, h: footTop - (M + 64) - 24 };
+    The mark and the name sat top left, which is exactly where X puts the Edit
+    chip on a video it is about to post — and its close button takes the other
+    corner. Whatever we draw up there gets covered by the one app this clip is
+    made for. It rides with the tag along the foot instead, where no compose
+    window has ever put a control, and the chart takes the room back.
+  */
+  const box = { x: M, y: M, w: W - 2 * M, h: footTop - M - 24 };
   const { run, runBars, line, y, x, step } = layout(sketch, box.w, box.h, { t: 16, b: 16, l: 0, r: 24 });
   const X = (t: number) => box.x + x(t);
   const Y = (v: number) => box.y + y(v);
@@ -377,6 +378,7 @@ export function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market
   ctx.font = `400 22px ${look.sans}`;
   ctx.textAlign = "right";
   ctx.fillText(tag, W - M, H - M);
+  if (look.mark) ctx.drawImage(look.mark, W - M - tagW - 40, H - M - 21, 26, 22);
   ctx.textAlign = "left";
 }
 
