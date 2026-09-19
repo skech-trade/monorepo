@@ -85,14 +85,17 @@ export function PlaceTicket({
           what the leverage turns the stake into was already on screen, twice.
         */
         <Popover onOpenChange={setOpen} open={open}>
+          {/*
+            Blue, whichever way the line goes.
+
+            It was green for a long and red for a short, which reads as a
+            verdict on the trade rather than a thing to press — and the two
+            colours this app uses for money going up and money going down do
+            not belong on a control. Blue says "this is the action"; the popup
+            beside it says which way you are facing.
+          */}
           <PopoverTrigger
-            render={
-              <Button
-                className={long ? "border-success bg-success text-white shadow-success/24 hover:bg-success/90" : ""}
-                onClick={onPlace}
-                variant={long ? "default" : "destructive"}
-              />
-            }
+            render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90" onClick={onPlace} />}
           >
             Trade for ${usd(stake, 0)}
           </PopoverTrigger>
