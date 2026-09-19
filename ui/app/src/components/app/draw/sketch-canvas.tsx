@@ -494,8 +494,11 @@ export function SketchCanvas({
       {phase === "running" && pnl !== null && run.length > 0 ? (
         <span
           className={cn(
-            "figures pointer-events-none absolute -translate-x-1/2 rounded-full px-2 py-0.5 font-semibold text-[11px] leading-4 text-white",
-            Math.abs(pnl) < 0.005 ? "bg-muted-foreground" : pnl > 0 ? "bg-success" : "bg-destructive",
+            // The same plate the price tags wear — a dark fill and a hairline —
+            // so the figure is what carries the colour. A solid green lozenge
+            // shouted the sign twice and drowned the number doing it.
+            "figures pointer-events-none absolute -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 font-semibold text-[11px] leading-4 shadow-xs/5",
+            Math.abs(pnl) < 0.005 ? "text-muted-foreground" : pnl > 0 ? "text-up" : "text-down",
           )}
           style={{
             left: Math.min(plotR - 56, Math.max(56, split + (run.length - 0.5) * runStep)),
