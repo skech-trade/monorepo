@@ -91,33 +91,33 @@ export function DrawTools({
       from the line, sharing a row with the price — which is a reading, not a
       control.
     */
-    <div className="flex shrink-0 flex-col items-center gap-1 self-start rounded-xl border bg-card p-1">
+    <div className="flex shrink-0 flex-col items-center gap-1.5 self-start rounded-2xl border bg-card p-1.5 [&_svg]:size-5">
       {/* The one way to draw, shown rather than chosen. There was a pen beside
           it — a stroke that settled into these same points on release — and it
           only ever cost the line its corners on the way. A turn is a close and
           an open, so a tool that rounds them off is a tool that changes the
           trade. */}
       <Tip words="Drag across the chart to draw. Then drag a point to move it, or double-click to remove it.">
-        <span className="flex size-8 items-center justify-center rounded-md bg-accent text-foreground [&>svg]:size-4">
+        <span className="flex size-10 items-center justify-center rounded-xl bg-accent text-foreground">
           <WaypointsIcon />
         </span>
       </Tip>
 
-      <Separator className="my-0.5 w-5" orientation="horizontal" />
+      <Separator className="my-0.5 w-6" orientation="horizontal" />
 
       <Tip words="Undo the last stroke">
-        <Button aria-label="Undo" disabled={!canUndo} onClick={onUndo} size="icon-sm" variant="ghost">
+        <Button aria-label="Undo" className="size-10 rounded-xl" disabled={!canUndo} onClick={onUndo} variant="ghost">
           <Undo2Icon />
         </Button>
       </Tip>
       <Tip words="Clear the line">
-        <Button aria-label="Clear" disabled={!canUndo} onClick={onClear} size="icon-sm" variant="ghost">
+        <Button aria-label="Clear" className="size-10 rounded-xl" disabled={!canUndo} onClick={onClear} variant="ghost">
           <EraserIcon />
         </Button>
       </Tip>
 
       <Menu>
-        <MenuTrigger render={<Button aria-label="Shapes" size="icon-sm" variant="ghost" />}>
+        <MenuTrigger render={<Button aria-label="Shapes" className="size-10 rounded-xl" variant="ghost" />}>
           <ShapesIcon />
         </MenuTrigger>
         <MenuPopup align="start" className="w-[40rem] p-2" side="right">

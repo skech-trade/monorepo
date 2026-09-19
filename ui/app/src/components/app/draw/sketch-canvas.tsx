@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
-import { type Accuracy, lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
+import { lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
 /**
@@ -118,7 +118,6 @@ export function SketchCanvas({
   editableFrom,
   headLabel,
   horizonMinutes,
-  accuracy,
   ghost,
   ribbon,
   className,
@@ -147,8 +146,6 @@ export function SketchCanvas({
   headLabel?: string | null;
   /** How long the right edge is, in minutes. */
   horizonMinutes: number;
-  /** Which arrived candles closed inside the ribbon. */
-  accuracy: Accuracy | null;
   /** Your last line, faint, so you notice your habits. */
   ghost: Pt[] | null;
   /** Half the ribbon's height, in price. */
@@ -384,20 +381,36 @@ export function SketchCanvas({
                   of every turn, which is the one place the band should come to a
                   point: a turn is where one position ends and the next begins. */}
               <path d={legPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin="miter" strokeMiterlimit={2} strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
-              {accuracy?.flags.map((inside, i) => {
-                const cy = y(lineAt(shape.prices, (i + 1) / runBars));
+              {/*
+                Coloured by what each candle made, not by whether it landed in
+                the ribbon.
+
+                Inside is not the same as right. Hold a short while the price
+                edges up and the candle can sit well inside the band — the shape
+                was close — while the position loses money the whole way. Green
+                there said you were doing well at the moment you were not, which
+                is the worst thing a colour on this chart can do.
+
+                So: the direction the line is going at that moment is the
+                position you are in, the candle's own move is what the market
+                did, and the two multiplied is whether that minute paid.
+              */}
+              {run.map((candle, i) => {
+                const was = lineAt(shape.prices, i / runBars);
+                const goes = lineAt(shape.prices, (i + 1) / runBars);
+                const made = (goes >= was ? 1 : -1) * (candle.c - candle.o);
                 return (
                   <rect
                     className={phase === "settled" ? "sk-in" : undefined}
-                    fill={inside ? "var(--success)" : "var(--muted-foreground)"}
+                    fill={made >= 0 ? "var(--success)" : "var(--destructive)"}
                     height={Math.max(4, ribbonPx * 2)}
                     // biome-ignore lint/suspicious/noArrayIndexKey: positional
                     key={i}
-                    fillOpacity={inside ? 0.3 : 0.16}
+                    fillOpacity={0.26}
                     style={phase === "settled" ? { animationDelay: `${i * 35}ms` } : undefined}
                     width={runStep}
                     x={split + i * runStep}
-                    y={cy - Math.max(2, ribbonPx)}
+                    y={y(goes) - Math.max(2, ribbonPx)}
                   />
                 );
               })}

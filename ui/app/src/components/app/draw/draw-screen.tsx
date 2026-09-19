@@ -107,7 +107,6 @@ export function DrawScreen({ market }: { market: Market }) {
   const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage) : null), [shape, entryView, stake, leverage]);
   const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage) : null), [run, shape, entry, stake, leverage]);
   const ribbon = useMemo(() => ribbonFor(feed), [feed]);
-  const accuracy = useMemo(() => (shape && run.length > 0 ? accuracyOf(run, shape.prices, ribbon, runBars) : null), [run, runBars, shape, ribbon]);
   /** Your last line, moved to today's price. */
   const ghost = useMemo(
     () => (lastSketch && phase === "live" ? lastSketch.pts.map((p) => ({ t: p.t, price: p.price + (price - lastSketch.entry) })) : null),
@@ -432,7 +431,6 @@ export function DrawScreen({ market }: { market: Market }) {
           run={run}
           runBars={runBars}
           shape={shape}
-          accuracy={accuracy}
           ghost={ghost}
           ribbon={ribbon}
         />
