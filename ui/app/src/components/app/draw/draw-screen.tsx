@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFeed } from "@/lib/feed";
 import { useSettings } from "@/lib/settings";
 import { type Candle, candlesFor, type Market, signedUsd } from "@/lib/market";
 import { accuracyOf, type Exits, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
@@ -59,6 +60,14 @@ export function DrawScreen({ market }: { market: Market }) {
   /** Where to get out, in dollars. Both optional; empty means neither. */
   const [exits, setExits] = useState<Exits>({ lose: null, gain: null });
   /* History from the same process as the live feed, so its bars are the same height as the live ones. */
+  /*
+    Real Bitcoin where there is a feed to reach, the simulation otherwise.
+
+    `services/feed` holds one socket to Lighter and builds a bar a second from
+    the trade stream. With NEXT_PUBLIC_FEED_URL unset nothing changes: the
+    walk below runs, which is what every screenshot and test still uses.
+  */
+  const stream = useFeed(HISTORY + RUN_MAX);
   const seed = useMemo(() => candlesFor(market, "1m", HISTORY, VOL), [market]);
 
   const [phase, setPhase] = useState<Phase>("live");
@@ -86,6 +95,11 @@ export function DrawScreen({ market }: { market: Market }) {
   const dragIndex = useRef<number | null>(null);
   /** Where the finger landed, for a tap that becomes a point. */
   const tapAt = useRef<Pt | null>(null);
+
+  /** Whether bars come from the market. Read by the loop, which must not re-make itself. */
+  const fromMarket = useRef(false);
+  /** Where a bar goes when it arrives, whoever made it. */
+  const arriving = useRef<(bar: Candle) => void>(() => undefined);
 
   const follow = useRef(0);
   const lastT = useRef(-1);
@@ -119,8 +133,10 @@ export function DrawScreen({ market }: { market: Market }) {
   );
 
   const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, exits });
+  const onMarket = Boolean(stream?.connected && stream.bars.length > 0);
   useEffect(() => {
     live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, exits };
+    fromMarket.current = onMarket;
   });
 
   const finish = useCallback((bars: Candle[], early: boolean) => {
@@ -155,29 +171,37 @@ export function DrawScreen({ market }: { market: Market }) {
        to return here, which meant the market never moved and a round placed
        with that preference on never ran at all. What is decorative, the
        marching hint and the settled ribbon fading in, is CSS and stops. */
-    const tick = setInterval(() => {
+    // A bar the market actually printed, or one the walk invented. Everything
+    // after this line is the same either way.
+    const arrive = (bar: Candle) => {
       const { phase: ph, shape: sh, run: rn, feed: fd, entry: en } = live.current;
-      const now = Date.now();
       if (ph === "settled") return;
       if (ph !== "running" || !sh) {
-        const next = [...fd.slice(1), nextCandle(fd.at(-1)?.c ?? en, VOL, now)];
-        const last = next.at(-1)?.c ?? en;
+        const next = [...fd.slice(1), bar];
         setFeed(next);
-        setBand((b) => easeBand(b, bandFor(next, last, sh ? sh.prices : [])));
+        setBand((b) => easeBand(b, bandFor(next, bar.c, sh ? sh.prices : [])));
         return;
       }
-      const open = rn.at(-1)?.c ?? en;
-      const along = sh.prices[Math.min(SAMPLES - 1, Math.round(((rn.length + 1) / live.current.runBars) * (SAMPLES - 1)))];
-      const bar = nextCandle(open, VOL, now, along, follow.current);
       const next = [...rn, bar];
       setRun(next);
       setBand((b) => easeBand(b, bandFor([...fd, ...next].slice(-HISTORY), bar.c, sh.prices)));
       const bk = settle(next, sh, en, live.current.stake, live.current.leverage, live.current.runBars, live.current.exits);
       if (bk.done !== null || next.length >= live.current.runBars) finish(next, false);
+    };
+    arriving.current = arrive;
+    // With a feed the bars come from the market, so there is nothing to invent.
+    if (fromMarket.current) return () => undefined;
+
+    const tick = setInterval(() => {
+      const { phase: ph, shape: sh, run: rn, feed: fd, entry: en } = live.current;
+      if (ph === "settled") return;
+      const open = ph === "running" && sh ? (rn.at(-1)?.c ?? en) : (fd.at(-1)?.c ?? en);
+      const along = ph === "running" && sh ? sh.prices[Math.min(SAMPLES - 1, Math.round(((rn.length + 1) / live.current.runBars) * (SAMPLES - 1)))] : null;
+      arrive(nextCandle(open, VOL, Date.now(), along, along === null ? 0 : follow.current));
     }, TICK_MS);
     const sub = setInterval(() => {
       const { phase: ph, run: rn } = live.current;
-      if (ph === "settled") return;
+      if (ph === "settled" || fromMarket.current) return;
       if (ph === "running" && rn.length) setRun((r) => (r.length ? [...r.slice(0, -1), extend(r[r.length - 1], VOL)] : r));
       else setFeed((f) => (f.length ? [...f.slice(0, -1), extend(f[f.length - 1], VOL)] : f));
     }, SUB_MS);
@@ -186,6 +210,33 @@ export function DrawScreen({ market }: { market: Market }) {
       clearInterval(sub);
     };
   }, [finish]);
+
+  /*
+    The market's own bars, handed to the same loop the walk feeds.
+
+    Keyed on the newest second, so each bar goes through once. The first one
+    that arrives also replaces the seeded history, because a chart of invented
+    candles with real ones landing on the end is two markets in one picture.
+  */
+  const seededFromMarket = useRef(false);
+  const lastSecond = useRef(0);
+  const latest = stream?.latest ?? null;
+  useEffect(() => {
+    if (!latest || !stream) return;
+    if (!seededFromMarket.current) {
+      seededFromMarket.current = true;
+      const history = stream.bars.slice(-HISTORY);
+      setFeed(history);
+      const price = history.at(-1)?.c ?? latest.c;
+      setEntry(price);
+      setBand(bandFor(history, price));
+      lastSecond.current = latest.t;
+      return;
+    }
+    if (latest.t <= lastSecond.current) return;
+    lastSecond.current = latest.t;
+    arriving.current(latest);
+  }, [latest, stream]);
 
   /** Points at or before this time have already happened. */
   const editableFrom = phase === "running" ? run.length / runBars + 0.01 : 0;
@@ -432,7 +483,16 @@ export function DrawScreen({ market }: { market: Market }) {
     <section aria-label="Draw" className="m-2 flex min-h-[24rem] flex-1 flex-col overflow-hidden rounded-2xl border bg-background">
       {/* Market on the left; exits, size, boost and the button hard right, on the chart's own header. */}
       <div className="flex flex-wrap items-center gap-1.5 border-b px-2 py-2 sm:gap-2 sm:px-3">
-        <MarketHeader className="w-full sm:w-auto" market={{ ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }} />
+        {/* The day comes from the venue when there is one; the mock's own
+            figures are about a price that is no longer on the screen. */}
+        <MarketHeader
+          className="w-full sm:w-auto"
+          market={
+            stream?.stats
+              ? { ...market, price, change: (price * stream.stats.changePct) / 100, changePct: stream.stats.changePct, high24h: stream.stats.high, low24h: stream.stats.low, volume24h: stream.stats.volume }
+              : { ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }
+          }
+        />
         {/* On a phone the rail sits in the header row, under the market line. */}
         {phase === "live" || phase === "drawing" || phase === "drawn" ? (
           <div className="sm:hidden"><DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} /></div>
