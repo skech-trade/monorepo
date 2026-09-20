@@ -11,7 +11,17 @@ import { CHAINS, Deposits, NATIVE, SEND_TO } from "./deposit";
 import { Lighter } from "./lighter";
 
 const PORT = Number(process.env.PORT ?? 3230);
-const LIGHTER = process.env.LIGHTER_BASE_URL ?? "https://mainnet.zklighter.elliot.ai";
+/*
+  Its own variable, deliberately not the trader's.
+
+  LIGHTER_BASE_URL points the trader at testnet, which is right: it signs
+  orders and should not touch real money until a round has been through
+  testnet end to end. This service hands out a deposit address, and a testnet
+  address shown as "send USDC here" is real money sent somewhere it can never
+  be recovered from. The two must not share a switch.
+*/
+const LIGHTER = process.env.LIGHTER_API_URL ?? "https://mainnet.zklighter.elliot.ai";
+const NETWORK = LIGHTER.includes("testnet") ? "testnet" : "mainnet";
 const venue = new Lighter(LIGHTER);
 const deposits = new Deposits(LIGHTER);
 
@@ -36,7 +46,7 @@ Bun.serve({
     if (url.pathname === "/health") {
       let db = "not configured";
       if (hasDb && sql) db = await sql`SELECT 1`.then(() => "ok").catch((e) => `down: ${(e as Error).message.slice(0, 80)}`);
-      return json({ ok: true, db });
+      return json({ ok: true, db, venue: LIGHTER, network: NETWORK });
     }
 
     /*
@@ -87,7 +97,12 @@ Bun.serve({
       if (!at) return json({ error: "address required" }, 400);
       const intent = await deposits.intentAddress(at).catch(() => null);
       if (!intent) return json({ error: "venue unreachable" }, 502);
-      return json({ address: intent, chains: SEND_TO, asset: "USDC", minimum: 5 });
+      /*
+        The network goes with the address, always. Everything about a deposit
+        address looks the same on either network and only one of them is
+        somewhere real money survives.
+      */
+      return json({ address: intent, chains: SEND_TO, asset: "USDC", minimum: 5, network: NETWORK });
     }
 
     /** Where money can come from. The app does not need to know these. */

@@ -29,7 +29,14 @@ export const NATIVE = "0x0000000000000000000000000000000000000000";
 /** A chain a plain USDC transfer to the deposit address is watched on. */
 export type SendTo = { id: number; name: string };
 
-export type DepositAddress = { address: string; chains: SendTo[]; asset: string; minimum: number };
+export type DepositAddress = {
+  address: string;
+  chains: SendTo[];
+  asset: string;
+  minimum: number;
+  /** Which Lighter this address belongs to. Real money only survives on one of them. */
+  network: "mainnet" | "testnet";
+};
 
 /**
  * The one address that credits this wallet's Lighter account. Unchanging, so

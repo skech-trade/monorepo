@@ -76,3 +76,40 @@ address and the Ethereum contract both work without one.
   cannot, a new user's first deposit has to go another way.
 - Whether Coinbase CDP's `signMessage` verifies against Lighter's key
   registration.
+
+## The deposit address, and which network it is on
+
+`createIntentAddress` with `is_external_deposit=true` gives **one address per
+wallet**. Confirmed by asking for it several ways:
+
+- the same address on Base, Arbitrum and Avalanche
+- the same address for $10, $25 and $100
+- the same address with and without the external flag
+
+So it is a function of the wallet alone. USDC arriving on it is credited to
+that wallet's Lighter account and makes the account if there is none, which is
+what removes the need to fund anything first.
+
+Without `is_external_deposit` the call refuses an amount of zero: "amount
+should be greater than 0 for user wallet deposit". With it, zero is right,
+because the amount is whatever turns up.
+
+**The two networks hand out addresses that look identical.** A testnet
+address shown as "send USDC here" loses real money for good. So the API reads
+`LIGHTER_API_URL`, deliberately not the `LIGHTER_BASE_URL` that points the
+trader at testnet, it returns the network with every address, and the app
+refuses to dress a testnet address up as somewhere to send anything.
+
+## The USDC contracts, checked on chain
+
+Each answered `symbol()` as USDC on its own live node, so these are Circle's
+native issues and not bridged lookalikes.
+
+| Chain | Contract |
+|---|---|
+| Base | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+| Arbitrum | `0xaf88d065e77c8cC2239327C5EDb3A432268e5831` |
+| Optimism | `0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85` |
+| Polygon | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` |
+| Avalanche | `0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E` |
+| Ethereum | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` |

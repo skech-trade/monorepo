@@ -18,7 +18,7 @@ import { ChainMark, UsdcMark } from "./marks";
  * wallet and then bridge out of it, which is two moves and a balance sitting
  * in a place that is neither their own wallet nor their position.
  */
-export function DepositAddress({ address, chains, minimum }: { address: string; chains: readonly SendTo[]; minimum: number }) {
+export function DepositAddress({ address, chains, minimum, network }: { address: string; chains: readonly SendTo[]; minimum: number; network: "mainnet" | "testnet" }) {
   const [qr, setQr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -43,6 +43,23 @@ export function DepositAddress({ address, chains, minimum }: { address: string; 
       // No clipboard. The address is on screen to read.
     }
   };
+
+  /*
+    A testnet address looks exactly like a mainnet one, and only one of them
+    is somewhere real money survives. So it is said first, in red, and the
+    address is not dressed up as somewhere to send anything.
+  */
+  if (network === "testnet") {
+    return (
+      <div className="flex flex-col gap-2 rounded-xl border border-down/40 bg-destructive/6 p-3">
+        <p className="font-medium text-down text-sm">This is a testnet address.</p>
+        <p className="text-muted-foreground text-xs leading-snug">
+          Real USDC sent here is gone and cannot be recovered. Point the API at mainnet before showing anybody this screen.
+        </p>
+        <p className="break-all font-mono text-[11px] text-muted-foreground leading-snug">{address}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -77,7 +94,8 @@ export function DepositAddress({ address, chains, minimum }: { address: string; 
       </div>
 
       <p className="text-muted-foreground text-xs leading-snug">
-        At least ${minimum}. Anything else, or any other chain, will not arrive and cannot be recovered.
+        At least ${minimum}, and it has to be Circle&rsquo;s own USDC on one of those three chains. Any other token, any other chain, or a bridged
+        lookalike will not arrive and cannot be recovered.
       </p>
     </div>
   );

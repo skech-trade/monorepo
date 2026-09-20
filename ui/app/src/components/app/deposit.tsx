@@ -116,7 +116,7 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
         <SheetPanel className="flex flex-col gap-4">
           {deposit && !bridging ? (
             <>
-              <DepositAddress address={deposit.address} chains={deposit.chains} minimum={deposit.minimum} />
+              <DepositAddress address={deposit.address} chains={deposit.chains} minimum={deposit.minimum} network={deposit.network} />
               <Button className="w-full" onClick={() => setBridging(true)} variant="outline">
                 Or send from this wallet
               </Button>
