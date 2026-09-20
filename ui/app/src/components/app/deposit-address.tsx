@@ -66,7 +66,15 @@ export function DepositAddress({ address, chains, minimum, network }: { address:
         {qr ? <img alt="" className="size-24 shrink-0" src={qr} /> : <div className="size-24 shrink-0 animate-pulse rounded bg-black/5" />}
         <div className="min-w-0 flex-1">
           <p className="break-all font-mono text-[11px] text-black leading-snug">{address}</p>
-          <Button className="mt-2" onClick={() => void copy()} size="xs" variant="outline">
+          {/* The card is white whatever the theme, so this button cannot take
+              its colours from the theme: in dark mode it came out white on
+              white and read as missing. */}
+          <Button
+            className="mt-2 border-black/15 bg-white text-black hover:border-black/25 hover:bg-black/5"
+            onClick={() => void copy()}
+            size="xs"
+            variant="outline"
+          >
             {copied ? <CheckIcon /> : <CopyIcon />}
             {copied ? "Copied" : "Copy address"}
           </Button>

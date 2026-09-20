@@ -41,10 +41,14 @@ fetches, not something to diff.
 | Variable | Default |
 |---|---|
 | `PORT` | `3220` |
-| `LIGHTER_BASE_URL` | `https://testnet.zklighter.elliot.ai` |
-| `LIGHTER_CHAIN_ID` | `300` |
-| `LIGHTER_MARKET_ID` | `4096` |
-| `LIGHTER_ACCOUNT_INDEX`, `LIGHTER_API_KEY_INDEX`, `LIGHTER_PRIVATE_KEY` | required |
+| `SKECH_NETWORK` | `testnet`, which also picks the venue, chain and market |
+| `LIGHTER_ACCOUNT_INDEX`, `LIGHTER_API_KEY_INDEX`, `LIGHTER_PRIVATE_KEY` | required, used on testnet |
+| `LIGHTER_MAINNET_*` | the same three, used when the switch says mainnet |
+
+The network picks the credential as well as the venue. A mainnet order signed
+with a testnet account index is not a small mistake, and the trader used to
+read its own URL, so `SKECH_NETWORK=mainnet` moved the app and left the thing
+that signs on testnet.
 
 ## Not built yet
 

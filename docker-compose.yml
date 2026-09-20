@@ -26,8 +26,8 @@ services:
     build: { context: ./services/api }
     ports: ["3230:3230"]
     environment:
+      SKECH_NETWORK: ${SKECH_NETWORK:-testnet}
       DATABASE_URL: ${DATABASE_URL:-postgres://skech:skech@db:5432/skech}
-      LIGHTER_API_URL: ${LIGHTER_API_URL:-https://mainnet.zklighter.elliot.ai}
       ALLOW_ORIGIN: ${ALLOW_ORIGIN:-*}
     depends_on:
       db: { condition: service_healthy }
@@ -50,11 +50,14 @@ services:
     # variable here and belongs in a secrets manager in production, decrypted
     # inside this process and nowhere else.
     environment:
-      LIGHTER_BASE_URL: ${LIGHTER_BASE_URL:-https://testnet.zklighter.elliot.ai}
-      LIGHTER_CHAIN_ID: ${LIGHTER_CHAIN_ID:-300}
-      LIGHTER_MARKET_ID: ${LIGHTER_MARKET_ID:-4096}
+      # One switch, here too. It picks the venue, the chain, the market and
+      # which of the two key sets below gets used.
+      SKECH_NETWORK: ${SKECH_NETWORK:-testnet}
       LIGHTER_ACCOUNT_INDEX: ${LIGHTER_ACCOUNT_INDEX}
       LIGHTER_API_KEY_INDEX: ${LIGHTER_API_KEY_INDEX}
       LIGHTER_PRIVATE_KEY: ${LIGHTER_PRIVATE_KEY}
+      LIGHTER_MAINNET_ACCOUNT_INDEX: ${LIGHTER_MAINNET_ACCOUNT_INDEX}
+      LIGHTER_MAINNET_API_KEY_INDEX: ${LIGHTER_MAINNET_API_KEY_INDEX}
+      LIGHTER_MAINNET_PRIVATE_KEY: ${LIGHTER_MAINNET_PRIVATE_KEY}
     depends_on: [feed]
     restart: unless-stopped

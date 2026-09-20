@@ -75,9 +75,24 @@ the wallet is the wallet and the chain decides what it holds.
 
 ## Going to mainnet
 
-Set `SKECH_NETWORK=mainnet`. That switches the venue, the market (1 rather
-than 4096), the minimum size (0.00007 BTC rather than 0.0002), the balances
-and the deposit path all at once, which is the point of it being one
-variable. The mainnet account is 748619 and holds about $9.58.
+Set `SKECH_NETWORK=mainnet` and `NEXT_PUBLIC_SKECH_NETWORK=mainnet` in
+`.env.local`, then restart the API and the app. That one switch moves the
+venue, the market (1 rather than 4096), the minimum size (0.00007 BTC rather
+than 0.0002), the balances, the deposit path and, since the trader reads it
+too, which key signs. The badge disappears, and the absence is the message.
+
+Restarting matters. `NEXT_PUBLIC_` names are baked in at build, so the app has
+to come up again, and the services read this file through `--env-file` in
+their dev scripts rather than inheriting it from a shell.
+
+Measured on the switch, with the app and the API restarted:
+
+| | |
+|---|---|
+| Health | `network: mainnet`, venue `mainnet.zklighter.elliot.ai` |
+| Balance | account 748619, $9.576963 |
+| Deposit address | `0x18aE44be3718033222424e3c5561148911734794`, Base, Arbitrum, Avalanche, $5 minimum |
+| Faucet | `no faucet on mainnet`, 409 |
+| Badge | gone |
 
 Do it after a full round has been through testnet, not before.

@@ -12,13 +12,11 @@
  */
 
 import { Lighter } from "./lighter";
+import { ACCOUNT, API_KEY_INDEX, BASE, CHAIN_ID, MARKET_ID, NETWORK, PRIVATE_KEY } from "./network";
 import { Trader } from "./round";
 import { Signer } from "./signer";
 
 const PORT = Number(process.env.PORT ?? 3220);
-const BASE = process.env.LIGHTER_BASE_URL ?? "https://testnet.zklighter.elliot.ai";
-const MARKET_ID = Number(process.env.LIGHTER_MARKET_ID ?? 4096);
-const ACCOUNT = Number(process.env.LIGHTER_ACCOUNT_INDEX ?? 0);
 
 const venue = new Lighter(BASE);
 let trader: Trader | null = null;
@@ -27,10 +25,10 @@ let signerError: string | null = null;
 try {
   const signer = Signer.open({
     url: BASE,
-    privateKey: process.env.LIGHTER_PRIVATE_KEY ?? "",
-    chainId: Number(process.env.LIGHTER_CHAIN_ID ?? 300),
+    privateKey: PRIVATE_KEY,
+    chainId: CHAIN_ID,
     accountIndex: ACCOUNT,
-    apiKeyIndex: Number(process.env.LIGHTER_API_KEY_INDEX ?? 4),
+    apiKeyIndex: API_KEY_INDEX,
   });
   trader = new Trader(venue, signer, ACCOUNT);
 } catch (e) {
@@ -51,6 +49,7 @@ Bun.serve({
       return json({
         ok: trader !== null && market !== null,
         signer: trader ? "ready" : (signerError ?? "not configured"),
+        network: NETWORK,
         venue: BASE,
         account: ACCOUNT,
         market: market ? { id: market.id, symbol: market.symbol, last: market.last } : null,

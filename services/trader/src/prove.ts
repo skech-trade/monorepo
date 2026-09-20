@@ -1,21 +1,15 @@
 /** A full round against the venue, signed from TypeScript. Run by hand, not in CI. */
 import { Lighter } from "./lighter";
+import { ACCOUNT, API_KEY_INDEX, BASE, CHAIN_ID, MARKET_ID, NETWORK, PRIVATE_KEY } from "./network";
 import { Trader } from "./round";
 import { Signer } from "./signer";
 
-const base = process.env.LIGHTER_BASE_URL!;
-const venue = new Lighter(base);
-const accountIndex = Number(process.env.LIGHTER_ACCOUNT_INDEX!);
-const signer = Signer.open({
-  url: base,
-  privateKey: process.env.LIGHTER_PRIVATE_KEY!,
-  chainId: Number(process.env.LIGHTER_CHAIN_ID ?? 300),
-  accountIndex,
-  apiKeyIndex: Number(process.env.LIGHTER_API_KEY_INDEX!),
-});
-console.log("signer: key accepted");
+const venue = new Lighter(BASE);
+const accountIndex = ACCOUNT;
+const signer = Signer.open({ url: BASE, privateKey: PRIVATE_KEY, chainId: CHAIN_ID, accountIndex, apiKeyIndex: API_KEY_INDEX });
+console.log(`signer: key accepted, on ${NETWORK}, account ${accountIndex}`);
 
-const market = await venue.market(Number(process.env.LIGHTER_MARKET_ID ?? 4096));
+const market = await venue.market(MARKET_ID);
 console.log(`market ${market.id} ${market.symbol}  last ${market.last}  min ${market.minBase} BTC / $${market.minQuote}`);
 
 const trader = new Trader(venue, signer, accountIndex);
