@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Drawer, DrawerClose, DrawerPopup, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import type { Exits } from "@/lib/sketch";
+import { Segmented } from "../controls";
 import { ChartSettings, PlotSettings } from "../settings";
+import { setDark, useDark } from "../theme-toggle";
 import { ExitPanel } from "./exit-controls";
 import { PRESETS, type Preset, Thumb } from "./draw-tools";
 
@@ -44,13 +46,14 @@ export function PhoneTools({
   className?: string;
 }) {
   const set = Number(exits.lose !== null) + Number(exits.gain !== null);
+  const dark = useDark();
 
   return (
     <Drawer>
       <DrawerTrigger asChild>
         {/* Square when it holds only the icon, so it is not a wide pill with
             the icon adrift in it. It grows only when there is a count to show. */}
-        <Button aria-label="Tools and settings" className={cn("size-13 shrink-0 rounded-full", set > 0 && "w-auto gap-1.5 px-3", className)} size="icon" variant="outline">
+        <Button aria-label="Tools and settings" className={cn("size-10 shrink-0 rounded-full border bg-card/85 backdrop-blur-sm", set > 0 && "w-auto gap-1 px-2.5", className)} size="icon" variant="outline">
           <SlidersHorizontalIcon />
           {set > 0 ? <span className="figures text-muted-foreground text-xs">{set}</span> : null}
         </Button>
@@ -107,6 +110,21 @@ export function PhoneTools({
           <SettingsIcon className="mr-1.5 inline size-4 align-[-0.15em]" />
           Chart
         </DrawerTitle>
+        {/* Light or dark lives here now: the app bar on a phone holds the
+            logo, the market and the way in, with no room for a fourth. */}
+        <div className="flex items-center justify-between gap-4 py-2">
+          <p className="text-sm">Theme</p>
+          <Segmented
+            label="Light or dark"
+            onChange={(next) => setDark(next === "dark")}
+            options={[
+              { value: "light", label: "Light" },
+              { value: "dark", label: "Dark" },
+            ]}
+            size="sm"
+            value={dark ? "dark" : "light"}
+          />
+        </div>
         <ChartSettings />
         <h3 className="pt-3 pb-1 font-medium text-muted-foreground text-xs">On the drawing</h3>
         <PlotSettings />

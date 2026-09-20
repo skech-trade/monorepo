@@ -27,7 +27,7 @@ export function setDark(next: boolean) {
   }
 }
 
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const dark = useDark();
   const words = dark ? "Switch to light" : "Switch to dark";
   return (
@@ -36,6 +36,7 @@ export function ThemeToggle() {
         render={
           <Button
             aria-label={words}
+            className={className}
             onClick={() => setDark(!dark)}
             size="icon"
             variant="outline"

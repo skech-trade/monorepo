@@ -239,10 +239,17 @@ export function DrawControls({
         <PopoverTrigger render={<Button className="max-sm:order-3 max-sm:h-13 max-sm:flex-1" variant="outline" />}>
           <Setting label="Size" value={`$${usd(stake, 0)}`} />
         </PopoverTrigger>
-        <PopoverPopup align="start" className="w-56">
-          <PopoverTitle>Pick your size</PopoverTitle>
-          <PopoverDescription>How much you put in.</PopoverDescription>
-          <div className="pt-4">
+        <PopoverPopup align="start" className="w-56 max-sm:w-44">
+          {/* One word on a phone. The wheel under it is a column of dollar
+              figures with one lit: there is nothing left to explain, and a
+              title and a sentence over it is a panel twice the height doing
+              the same job. */}
+          <PopoverTitle>
+            <span className="sm:hidden">Size</span>
+            <span className="max-sm:hidden">Pick your size</span>
+          </PopoverTitle>
+          <PopoverDescription className="max-sm:hidden">How much you put in.</PopoverDescription>
+          <div className="pt-3 sm:pt-4">
             <AmountWheel onChange={onStake} value={stake} />
           </div>
         </PopoverPopup>
@@ -251,17 +258,20 @@ export function DrawControls({
         <PopoverTrigger render={<Button className="max-sm:order-1 max-sm:h-13 max-sm:flex-1" variant="outline" />}>
           <Setting label="Boost" value={`${leverage}×`} />
         </PopoverTrigger>
-        <PopoverPopup align="start" className="w-56">
+        <PopoverPopup align="start" className="w-56 max-sm:w-44">
           {/* Draw does not say leverage anywhere else, and the word is the
               single biggest piece of jargon left on this screen. */}
-          <PopoverTitle>Set your boost</PopoverTitle>
+          <PopoverTitle>
+            <span className="sm:hidden">Boost</span>
+            <span className="max-sm:hidden">Set your boost</span>
+          </PopoverTitle>
           {/* Two short facts beat one long sentence: what it trades like,
               and what takes it. The second is the one that costs money. */}
-          <PopoverDescription>
+          <PopoverDescription className="max-sm:hidden">
             Trades like <span className="figures text-foreground">${usd(stake * leverage, 0)}</span>. Gone at{" "}
             <span className="figures text-down">{(wipeoutMove(leverage) * 100).toFixed(wipeoutMove(leverage) < 0.02 ? 2 : 1)}%</span> against you.
           </PopoverDescription>
-          <div className="pt-4">
+          <div className="pt-3 sm:pt-4">
             <AmountWheel format={(n) => `${n}\u00d7`} label="Boost" max={50} min={1} onChange={onLeverage} step={1} value={leverage} />
           </div>
         </PopoverPopup>

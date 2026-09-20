@@ -24,7 +24,7 @@ import { RoundsSheet, seedSketches, type Sketch } from "./sketches";
  * candle a second, pulled toward the line by a factor rolled once per sketch.
  */
 
-const HISTORY = 90;
+export const HISTORY = 90;
 /** A candle is a second and a round starts at a minute of them. Drawing off the right edge lengthens it. */
 const RUN_BARS = 60;
 /** The shortest a round can be, in candles. Five seconds is a coin toss, not a call. */
@@ -33,7 +33,7 @@ const MIN_BARS = 5;
 /** How long a round this line makes: its last second, never shorter than MIN_BARS. */
 const barsFor = (pts: Pt[], horizon: number) => Math.max(MIN_BARS, Math.round((pts[pts.length - 1]?.t ?? 1) * horizon));
 /** As long as a sketch may get. Five minutes is already a long wait. */
-const RUN_MAX = 300;
+export const RUN_MAX = 300;
 /** A bar a second, in real time, with the forming one moving twice a second. */
 const TICK_MS = 1000;
 const SUB_MS = 500;
@@ -57,7 +57,7 @@ function easeBand(from: Band, to: Band): Band {
   return { lo: from.lo + (to.lo - from.lo) * k, hi: from.hi + (to.hi - from.hi) * k };
 }
 
-export function DrawScreen({ market }: { market: Market }) {
+export function DrawScreen({ market, stream }: { market: Market; stream: ReturnType<typeof useFeed> }) {
   // Draw's own. The desk ticket's pay and leverage are a different field.
   /* What you put in last. A round that resets to the default every time makes
      you set the same two figures before every line you draw. */
@@ -74,7 +74,9 @@ export function DrawScreen({ market }: { market: Market }) {
     the trade stream. With NEXT_PUBLIC_FEED_URL unset nothing changes: the
     walk below runs, which is what every screenshot and test still uses.
   */
-  const stream = useFeed(HISTORY + RUN_MAX);
+  /* `stream` arrives from Terminal, which holds the one socket: the app bar
+     shows the same live price on a phone, and two connections to one market
+     saying the same thing is one too many. */
   const seed = useMemo(() => candlesFor(market, "1m", HISTORY, VOL), [market]);
 
   const [phase, setPhase] = useState<Phase>("live");
@@ -610,19 +612,20 @@ export function DrawScreen({ market }: { market: Market }) {
     its own above the chart.
   */
   const shelf = phone ? (
-    /* Bottom left: the same dead half of the chart as the zoom column above,
-       and the corner nearest the thumb that will press them. */
-    <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex flex-col gap-1.5 [&>*]:pointer-events-auto">
+    /* Bottom left, under the zoom column and matching it: same circle, same
+       size, same card behind it. Two big ones below four small ones read as
+       a different thing bolted on. */
+    <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex w-13 flex-col items-center gap-1.5 [&>*]:pointer-events-auto">
       <Button
         aria-label={`Rounds, ${sketches.length}`}
-        className="relative size-13 shrink-0 rounded-full"
+        className="relative size-10 shrink-0 rounded-full border bg-card/85 backdrop-blur-sm"
         onClick={() => setListOpen(true)}
         size="icon"
         variant="outline"
       >
         <HistoryIcon />
         {sketches.length > 0 ? (
-          <span className="figures -top-1 -right-1 absolute flex size-4 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
+          <span className="figures -top-1 -right-1 absolute flex size-4 items-center justify-center rounded-full border bg-card text-[10px] text-muted-foreground">
             {sketches.length}
           </span>
         ) : null}
@@ -693,7 +696,8 @@ export function DrawScreen({ market }: { market: Market }) {
         {/* The day comes from the venue when there is one; the mock's own
             figures are about a price that is no longer on the screen. */}
         <MarketHeader
-          className="w-full sm:w-auto"
+          /* In the app bar on a phone, so this one is the desk's. */
+          className="max-sm:hidden sm:w-auto"
           market={
             stream?.stats
               ? { ...market, price, change: (price * stream.stats.changePct) / 100, changePct: stream.stats.changePct, high24h: stream.stats.high, low24h: stream.stats.low, volume24h: stream.stats.volume }

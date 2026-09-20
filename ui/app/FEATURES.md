@@ -40,8 +40,16 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   and a thumb is about a centimetre, which is why every phone platform asks
   for 44 and why the trading apps people already use look oversized on a
   laptop. Ours were 36, made for a mouse.
-- The header is one row: the market and its price. It fills the width at
-  390px, which is why nothing else was put in it.
+- The market sits in the app bar on a phone, where the search field is on a
+  desk, and the row it used to have is gone. That row was a band of chrome
+  above a chart that wants every pixel; the chart now runs from the bar to the
+  footer. The name gives way to the price when it is tight, because the mark
+  already says which market. The logo loses its word and light or dark moves
+  into the tools drawer, so the bar holds four things and fits.
+- One socket for the page. The bar and the chart show the same live price, so
+  the stream is held once, by the screen above both of them.
+- "Testnet" is "Test" on a phone and never absent. Being on testnet without
+  knowing it is worse on the screen somebody carries than the one they sit at.
 - Edge to edge: bar, content, footer, the shape a phone app has. The margin,
   border and rounded corners are how a panel sits on a desk among other
   panels; on a phone there is nothing to sit among, and the inset only took

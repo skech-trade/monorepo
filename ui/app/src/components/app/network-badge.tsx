@@ -12,10 +12,14 @@ export function NetworkBadge() {
   if (process.env.NEXT_PUBLIC_SKECH_NETWORK === "mainnet") return null;
   return (
     <span
-      className="hidden shrink-0 rounded-full border border-warning-foreground/32 bg-warning/12 px-2 py-0.5 font-medium text-[11px] text-warning-foreground sm:inline-flex"
+      className="inline-flex shrink-0 rounded-full border border-warning-foreground/32 bg-warning/12 px-2 py-0.5 font-medium text-[11px] text-warning-foreground"
       title="Orders are signed and settled for real, with money that is not."
     >
-      Testnet
+      {/* Shorter on a phone, never gone. Being on testnet without knowing it
+          is worse on the screen somebody carries than on the one they sit at,
+          and the bar there has no room for the longer word. */}
+      <span className="sm:hidden">Test</span>
+      <span className="max-sm:hidden">Testnet</span>
     </span>
   );
 }

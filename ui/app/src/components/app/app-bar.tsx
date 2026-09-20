@@ -24,8 +24,9 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu";
-import { type Account, signedUsd, usd } from "@/lib/market";
+import { type Account, type Market, signedUsd, usd } from "@/lib/market";
 import { Wordmark } from "./logo";
+import { MarketHeader } from "./market-header";
 import { ThemeToggle } from "./theme-toggle";
 import { useSettings } from "@/lib/settings";
 import { SettingsSheet } from "./settings";
@@ -43,7 +44,7 @@ import { SignInButton } from "./sign-in";
 /** Mock, like the balance. DiceBear's "shapes" set is CC0: abstract, no face. */
 const AVATAR = `https://api.dicebear.com/9.x/shapes/svg?seed=${HANDLE}&backgroundColor=0a0a0a&shape1Color=3b82f6,10b981&shape2Color=f5f5f5&shape3Color=ef4444,f59e0b`;
 
-export function AppBar({ account }: { account: Account }) {
+export function AppBar({ account, market }: { account: Account; market?: Market }) {
   const [{ blurred }, set] = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const me = useAccount();
@@ -88,6 +89,15 @@ export function AppBar({ account }: { account: Account }) {
         <Wordmark />
       </Link>
 
+      {/*
+        The market itself, on a phone.
+
+        It had a row of its own under the bar, which on a screen this size is
+        a band of chrome above a chart that wants every pixel. Up here it sits
+        where the search field does on a desk, and the row below it is gone.
+      */}
+      {market ? <MarketHeader className="min-w-0 flex-1 sm:hidden" market={market} /> : null}
+
       {/* Inert: one market. The field says so rather than looking broken. */}
       <InputGroup className="mx-auto hidden w-full max-w-md md:flex">
         <InputGroupAddon>
@@ -121,7 +131,9 @@ export function AppBar({ account }: { account: Account }) {
           </Button>
         )}
 
-        <ThemeToggle />
+        {/* Light or dark moves into the tools drawer on a phone: the bar holds
+            the logo, the market and the way in, and nothing else fits. */}
+        <ThemeToggle className="max-sm:hidden" />
 
         {anonymous ? <SignInButton /> : null}
         {anonymous ? null : (

@@ -145,19 +145,25 @@ export function MarketHeader({ market, className }: { market: Market; className?
         aria-haspopup="dialog"
         /* A button on a phone, where it sits in a row of them; a plain
            heading on a desk, where it is the title of the panel. */
-        className="flex min-w-0 items-center gap-2 rounded-full border px-3 text-left max-sm:h-13 max-sm:w-full sm:-m-1.5 sm:gap-3 sm:rounded-lg sm:border-0 sm:p-1.5 sm:hover:bg-accent"
+        className="flex min-w-0 items-center gap-2 rounded-full border px-3 text-left max-sm:h-11 sm:-m-1.5 sm:gap-3 sm:rounded-lg sm:border-0 sm:p-1.5 sm:hover:bg-accent"
         onClick={() => setPicking(true)}
         type="button"
       >
         {/* Stacked and large where there is room; one quiet line on a phone. */}
-        <TokenAvatar className="size-7 sm:size-9" symbol={market.symbol} />
+        <TokenAvatar className="size-6 sm:size-9" symbol={market.symbol} />
+        {/* Everything here can shrink. In the app bar on a phone this sits
+            between the logo and the way in, and a price that refuses to give
+            ground pushes both off the screen. */}
         <span className="flex min-w-0 items-baseline gap-2 sm:block">
-          <span className="flex items-center gap-1 font-medium text-sm leading-none sm:text-base">
-            {market.name}
-            <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+          <span className="flex min-w-0 items-center gap-1 font-medium text-sm leading-none sm:text-base">
+            {/* The mark says which market on a phone, and the price is the
+                number somebody is here for, so the name gives up the room
+                rather than both of them ending in an ellipsis. */}
+            <span className="truncate max-sm:hidden">{market.name}</span>
+            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
           </span>
-          <span className="flex items-baseline gap-2 sm:mt-1">
-            <span className="figures font-semibold text-base sm:text-xl">${fmtPrice(market.price)}</span>
+          <span className="flex min-w-0 items-baseline gap-2 sm:mt-1">
+            <span className="figures truncate font-semibold text-base sm:text-xl">${fmtPrice(market.price)}</span>
             {/* The day's move is the first thing to go when the row has to
                 hold the controls as well. The price is the number a round is
                 judged against; this one is context. */}
