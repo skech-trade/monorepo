@@ -30,8 +30,15 @@ export const MAINNET: Market = {
 
 export const TESTNET: Market = { ...MAINNET, id: 4096, minBase: 0.0002 };
 
-/** Which one the app is quoting. Testnet until a round has been through it end to end. */
-export const MARKET: Market = process.env.NEXT_PUBLIC_LIGHTER_NET === "mainnet" ? MAINNET : TESTNET;
+/*
+  Which one the app is quoting, from the same name as everything else.
+
+  This read `NEXT_PUBLIC_LIGHTER_NET`, which nothing ever set, so the switch
+  to mainnet moved the venue, the balances, the deposit address and the badge
+  and left the browser quoting market 4096 with testnet's larger minimum. Two
+  names for one switch is how that happens.
+*/
+export const MARKET: Market = process.env.NEXT_PUBLIC_SKECH_NETWORK === "mainnet" ? MAINNET : TESTNET;
 
 /**
  * Standard accounts pay nothing, either side.
