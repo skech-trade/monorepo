@@ -4,7 +4,7 @@ import { useExportEvmAccount } from "@coinbase/cdp-hooks";
 import { CheckIcon, CopyIcon, KeyRoundIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { shortAddress } from "./auth";
+import { CopyAddress, useCopy } from "./copy";
 
 /**
  * Getting out of the skech wallet.
@@ -25,7 +25,7 @@ export function WalletOut({ address }: { address: string }) {
   const [key, setKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy(key, 1800);
 
   const reveal = async () => {
     setBusy(true);
@@ -40,22 +40,12 @@ export function WalletOut({ address }: { address: string }) {
     }
   };
 
-  const copy = async () => {
-    if (!key) return;
-    try {
-      await navigator.clipboard.writeText(key);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      // No clipboard. It is on screen.
-    }
-  };
-
   return (
     <div className="flex flex-col gap-2">
+      <CopyAddress address={address} className="self-start text-muted-foreground text-xs" />
       <p className="text-muted-foreground text-xs leading-snug">
-        Your wallet is <span className="figures text-foreground">{shortAddress(address)}</span>. Anything sent here by mistake is still yours: take the key into
-        any wallet and it is all reachable, on every chain.
+        Made for you the moment you signed in, and nobody else holds it. Anything sent here by mistake is still yours: take the key into any wallet and it
+        is all reachable, on every chain.
       </p>
 
       {key ? (

@@ -8,14 +8,15 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - `/` and `/app` redirect to the one listed market. Any other address is a 404.
 - App bar: wordmark, market search (inert, one market, says so), cash chip
   with "Deposit", Draw / Desk switch, account menu (deposit, withdraw,
-  transfers, profile, blur balances, settings, rewards, support, disconnect).
+  privacy, settings, support, sign out).
 - Privacy blurs every figure on the screen, for reading it in company.
 - Light and dark, from the toggle in the bar or the Settings sheet. An inline
   script applies the stored theme and palette before the first paint.
 
-- Nothing on the screen pretends to work. Deposit, Withdraw, Transfers,
-  Rewards, Support, Disconnect, the desk's submit and the positions row
-  buttons all say "Not live yet" and what is missing.
+- Nothing on the screen pretends to work. Withdraw, Support, the desk's
+  submit and the positions row buttons all say "Not live yet" and what is
+  missing. Rewards and Transfers were words with nothing behind them and no
+  plan, so they are gone rather than apologising for themselves.
 
 ## Signing in
 
@@ -25,12 +26,18 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   contract wallet cannot sign one off chain.
 - Signed out, the corner holds one thing: Sign in. No avatar, no Deposit, no
   menu of things that would need an account.
-- Signed in, the menu greets you by name, shows the wallet address under it,
-  and Disconnect becomes Sign out and works. Both lines truncate: a name runs
-  to 24 characters and an address to 42.
+- Signed in, the menu greets you by name and the address under it is a button
+  that copies, turning into a tick. With no name it reads "Your wallet", which
+  is honest and stops the address being printed twice.
+- The balance line is four words: "$10,000.00 on Lighter", or "Nothing on
+  Lighter yet". It used to be a sentence about what to do next, which is what
+  the Deposit item directly under it is for.
 - The name is asked once, the first time somebody arrives without one, and
   skipping is an answer that sticks. It used to greet you with your own wallet
   address, and ask again on every visit.
+- That same prompt says signing in made you a wallet, and names it. Nobody
+  agreed to a wallet and nobody was told, and the address in the corner should
+  not be the first anyone hears of it. Settings says it too, above the key.
 - Coinbase's button opens Coinbase's modal: an email field, then Continue
   with phone, Google or Apple. The one-time codes and the recovery are theirs
   to get right, and this is the screen where getting it wrong locks someone
@@ -60,6 +67,14 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   this is for: its recipient is an account index, so a wallet that has never
   deposited has nothing to put there, and a made-up one still quotes, at
   $3.62 of relayer gas against $0.02.
+- On testnet there is nothing to deposit into, so the sheet is one button that
+  says "Get $10,000" and a copy of your address. Lighter's faucet takes an
+  address and nothing else, so the app asks on your behalf rather than sending
+  you off to connect a wallet that cannot connect to anything. The account
+  appears about eight seconds later and the header picks it up.
+- Measured: a random address with no account, one press, $10,000.00 in the
+  header. The faucet refuses above $100 of portfolio value, and says so in its
+  own words.
 
 ## Settings
 

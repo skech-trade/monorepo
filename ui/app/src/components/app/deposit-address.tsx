@@ -4,6 +4,7 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useCopy } from "./copy";
 import type { SendTo } from "@/lib/deposit";
 import { ChainMark, UsdcMark } from "./marks";
 
@@ -20,7 +21,7 @@ import { ChainMark, UsdcMark } from "./marks";
  */
 export function DepositAddress({ address, chains, minimum, network }: { address: string; chains: readonly SendTo[]; minimum: number; network: "mainnet" | "testnet" }) {
   const [qr, setQr] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy(address);
 
   useEffect(() => {
     let live = true;
@@ -33,16 +34,6 @@ export function DepositAddress({ address, chains, minimum, network }: { address:
       live = false;
     };
   }, [address]);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      // No clipboard. The address is on screen to read.
-    }
-  };
 
   /*
     A testnet address looks exactly like a mainnet one, and only one of them

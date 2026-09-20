@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { usd } from "@/lib/market";
-import { type Chain, type DepositQuote, type NoDeposits, useDepositAddress, useDepositChains, useDepositQuote } from "@/lib/deposit";
+import { askFaucet, type Chain, type DepositQuote, type NoDeposits, useDepositAddress, useDepositChains, useDepositQuote } from "@/lib/deposit";
 import { cn } from "@/lib/utils";
+import { CopyAddress } from "./copy";
 import { DepositAddress } from "./deposit-address";
 import { ChainMark, TokenMark } from "./marks";
 
@@ -55,6 +56,47 @@ function Line({ quote, busy, typed, ready }: { quote: DepositQuote | null; busy:
       ) : null}
       {quote.seconds > 0 ? `, in about ${quote.seconds} second${quote.seconds === 1 ? "" : "s"}` : ", more or less at once"}.
     </p>
+  );
+}
+
+/**
+ * Testnet, where there is nothing to deposit into.
+ *
+ * The old version pointed at Lighter's own site and said to connect a wallet
+ * there. That does not work here: the wallet we make is embedded, with no
+ * extension and no WalletConnect, so there is nothing to connect with. The
+ * faucet turns out to take a plain address, so the button does it, and the
+ * screen is a button rather than three paragraphs about testnet.
+ */
+function Testnet({ address, onDone }: { address: string | null; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const [worked, setWorked] = useState(false);
+
+  const ask = async () => {
+    if (!address) return;
+    setBusy(true);
+    setSaid(null);
+    const out = await askFaucet(address);
+    setBusy(false);
+    setWorked(out.ok);
+    setSaid(out.ok ? "On the way. It lands in a few seconds." : out.reason);
+    /* The venue takes eight seconds or so to show a brand new account, and
+       sometimes longer. Asking three times beats asking once and looking
+       broken, and the balance polls on its own after that anyway. */
+    if (out.ok) for (const ms of [6000, 12000, 20000]) setTimeout(onDone, ms);
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button disabled={!address || busy} loading={busy} onClick={() => void ask()}>
+          Get $10,000
+        </Button>
+        {address ? <CopyAddress address={address} className="text-muted-foreground text-xs" /> : null}
+      </div>
+      {said ? <p className={cn("text-xs leading-snug", worked ? "text-up" : "text-muted-foreground")}>{said}</p> : null}
+    </div>
   );
 }
 
@@ -112,19 +154,11 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetPopup className="sm:max-w-sm" side="right" variant="inset">
         <SheetHeader>
-          <SheetTitle>Add money</SheetTitle>
-          <SheetDescription>Whatever you are holding, wherever it is. It lands as collateral on Lighter.</SheetDescription>
+          <SheetTitle>{off ? "Test money" : "Add money"}</SheetTitle>
+          <SheetDescription>{off ? "Free on testnet. One press and Lighter funds your account." : "Whatever you are holding, wherever it is. It lands as collateral on Lighter."}</SheetDescription>
         </SheetHeader>
         <SheetPanel className="flex flex-col gap-4">
-          {off ? (
-            <div className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3">
-              <p className="font-medium text-sm">Nothing to deposit into on testnet.</p>
-              <p className="text-muted-foreground text-xs leading-snug">
-                {off.reason} Ask Lighter for test funds, then come back and draw. Everything else on this screen is the real thing:
-                the orders are signed and settled exactly as they will be.
-              </p>
-            </div>
-          ) : null}
+          {off ? <Testnet address={address} onDone={onDone} /> : null}
           {deposit && !bridging ? (
             <>
               <DepositAddress address={deposit.address} chains={deposit.chains} minimum={deposit.minimum} network={deposit.network} />

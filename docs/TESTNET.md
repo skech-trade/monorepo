@@ -21,6 +21,7 @@ and the absence is the message.
 | Orders | really placed, really matched, really filled |
 | Positions and P&L | the venue's own numbers |
 | Balances | account 378, about 10,000 test USDC |
+| Test funds | one press, from Lighter's own faucet |
 | Liquidation | the venue does it, at its own maintenance margin |
 
 A round through the trader has been run end to end: opened 0.0002 BTC at
@@ -39,10 +40,35 @@ That means a testnet round is judged against mainnet prices while it fills at
 testnet prices. The two track each other closely, but they are not the same
 number, so do not read a testnet P&L as a prediction of a real one.
 
-**Deposits do not exist.** `createIntentAddress` answers "internal server
-error" on testnet, because testnet money comes from Lighter's faucet rather
-than from Circle. The deposit sheet says so instead of showing an address that
-cannot work, and `/deposit/quote` refuses.
+**Deposits do not exist, and do not need to.** `createIntentAddress` answers
+"internal server error" on testnet, because testnet money comes from Lighter's
+faucet rather than from Circle. The faucet turns out to be one unauthenticated
+GET:
+
+```bash
+curl "https://testnet.zklighter.elliot.ai/api/v1/faucet?l1_address=0x..."
+# {"code":200,"message":"ok"}
+```
+
+No wallet to connect, no signature, no captcha. It hands out 10,000 test USDC
+and makes the Lighter account if there is not one, which takes about eight
+seconds to show up. Proved from nothing: a random address with no account went
+from `account not found` to account 382 holding `10000.000000`.
+
+It refuses once the account is worth $100 or more:
+
+```json
+{"code":23201,"message":"You can request more funds when your total portfolio value is below 100 USD"}
+```
+
+That is the rate limit, and a good one: anybody who has lost it all can always
+come back for more.
+
+So the app calls it rather than sending anybody to Lighter's own site. That
+matters more than it sounds: the wallet we make people is an embedded one,
+with no browser extension and no WalletConnect, so "go to Lighter and connect
+your wallet" is a wall for exactly the people testnet is for. `POST /faucet`
+on our API does it, and the deposit sheet on testnet is a single button.
 
 **Signing in is the same either way.** Coinbase wallets are not per-network;
 the wallet is the wallet and the chain decides what it holds.

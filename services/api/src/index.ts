@@ -8,6 +8,7 @@
 
 import { hasDb, migrate, rename, sql, userFor } from "./db";
 import { CHAINS, Deposits, NATIVE, SEND_TO } from "./deposit";
+import { CAN_FAUCET, FAUCET_AMOUNT, askFaucet } from "./faucet";
 import { CAN_DEPOSIT, LIGHTER, NETWORK } from "./network";
 import { Lighter } from "./lighter";
 
@@ -88,7 +89,7 @@ Bun.serve({
       if (!at) return json({ error: "address required" }, 400);
       // No address at all rather than one that cannot work: testnet money
       // comes from a faucet, and its endpoint errors anyway.
-      if (!CAN_DEPOSIT) return json({ network: NETWORK, canDeposit: false, reason: "Testnet money comes from Lighter's faucet, not from a deposit." });
+      if (!CAN_DEPOSIT) return json({ network: NETWORK, canDeposit: false, canFaucet: CAN_FAUCET, amount: FAUCET_AMOUNT, reason: "Testnet money comes from Lighter's faucet, not from a deposit." });
       const intent = await deposits.intentAddress(at).catch(() => null);
       if (!intent) return json({ error: "venue unreachable" }, 502);
       /*
@@ -97,6 +98,22 @@ Bun.serve({
         somewhere real money survives.
       */
       return json({ address: intent, chains: SEND_TO, asset: "USDC", minimum: 5, network: NETWORK });
+    }
+
+    /*
+      Test money, on testnet, in one press.
+
+      Lighter's faucet is an open GET that funds the address and makes the
+      account, so the app does not have to send anybody to another site to
+      connect a wallet it cannot connect.
+    */
+    if (url.pathname === "/faucet" && req.method === "POST") {
+      if (!CAN_FAUCET) return json({ error: "no faucet on mainnet" }, 409);
+      const body = (await req.json().catch(() => ({}))) as { address?: string };
+      const at = address(body.address ?? null);
+      if (!at) return json({ error: "address required" }, 400);
+      const out = await askFaucet(at);
+      return json(out, out.ok ? 200 : 409);
     }
 
     /** Where money can come from. The app does not need to know these. */

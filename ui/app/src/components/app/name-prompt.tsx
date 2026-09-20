@@ -4,16 +4,18 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { shortAddress } from "./auth";
 
 /**
- * What to call you.
+ * What to call you, and what just happened to you.
  *
- * A wallet address is not a name. "Hola, 0x3e32…0136" is the app admitting it
- * does not know who you are, and it is the first thing you read after signing
- * in. Asked once, on the first visit after signing in, and skippable: nothing
- * downstream needs it, so refusing costs nothing.
+ * Two things belong in the first thing somebody reads after signing in. One:
+ * a wallet address is not a name, so it asks for one, once, and a skip counts
+ * as an answer. Two: signing in made them a wallet, which nobody agreed to
+ * and nobody was told. Saying it here costs a line and means the address in
+ * the corner is not a surprise.
  */
-export function NamePrompt({ open, onOpenChange, onSave }: { open: boolean; onOpenChange: (open: boolean) => void; onSave: (name: string) => Promise<string | null> }) {
+export function NamePrompt({ address, open, onOpenChange, onSave }: { address: string | null; open: boolean; onOpenChange: (open: boolean) => void; onSave: (name: string) => Promise<string | null> }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -51,6 +53,12 @@ export function NamePrompt({ open, onOpenChange, onSave }: { open: boolean; onOp
             value={name}
           />
           {problem ? <p className="pt-2 text-down text-xs">{problem}</p> : null}
+          {address ? (
+            <p className="pt-3 text-muted-foreground text-xs leading-snug">
+              Signing in made you a wallet, <span className="figures text-foreground">{shortAddress(address)}</span>. It is yours and nobody else holds it. The
+              key is in Settings whenever you want it.
+            </p>
+          ) : null}
         </DialogPanel>
         <DialogFooter>
           <Button onClick={() => onOpenChange(false)} variant="ghost">

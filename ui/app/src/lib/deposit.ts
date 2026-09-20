@@ -30,7 +30,16 @@ export const NATIVE = "0x0000000000000000000000000000000000000000";
 export type SendTo = { id: number; name: string };
 
 /** What comes back when there is nowhere to deposit, which is testnet. */
-export type NoDeposits = { canDeposit: false; network: "testnet"; reason: string };
+export type NoDeposits = { canDeposit: false; network: "testnet"; reason: string; canFaucet?: boolean; amount?: number };
+
+export async function askFaucet(address: string): Promise<{ ok: true; amount: number } | { ok: false; reason: string }> {
+  if (!URL_API) return { ok: false, reason: "No API configured, so there is nothing to ask." };
+  const res = await fetch(`${URL_API}/faucet`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address }) }).catch(() => null);
+  if (!res) return { ok: false, reason: "The faucet did not answer. Try again in a moment." };
+  const body = (await res.json().catch(() => null)) as { ok?: boolean; amount?: number; reason?: string; error?: string } | null;
+  if (res.ok && body?.ok) return { ok: true, amount: body.amount ?? 0 };
+  return { ok: false, reason: body?.reason ?? body?.error ?? "The faucet turned that down." };
+}
 
 export type DepositAddress = {
   canDeposit?: true;

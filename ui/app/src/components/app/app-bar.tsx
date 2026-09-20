@@ -3,8 +3,6 @@
 import {
   ArrowDownToLineIcon,
   ArrowUpFromLineIcon,
-  GiftIcon,
-  HistoryIcon,
   LifeBuoyIcon,
   LogOutIcon,
   SearchIcon,
@@ -35,7 +33,8 @@ import { announceSoon } from "./soon";
 import { HANDLE } from "@/lib/user";
 import { markAsked, useProfile } from "@/lib/profile";
 import { cn } from "@/lib/utils";
-import { hasAuth, shortAddress, useAccount } from "./auth";
+import { hasAuth, useAccount } from "./auth";
+import { CopyAddress } from "./copy";
 import { DepositSheet } from "./deposit";
 import { NamePrompt } from "./name-prompt";
 import { NetworkBadge } from "./network-badge";
@@ -129,40 +128,43 @@ export function AppBar({ account }: { account: Account }) {
               </AvatarFallback>
             </Avatar>
           </MenuTrigger>
-          <MenuPopup align="end" className="min-w-60">
+          <MenuPopup align="end" className="w-64">
             <div className="flex items-center gap-3 px-2 py-2">
               <Avatar className="size-10">
                 <AvatarImage alt="" src={AVATAR} />
                 <AvatarFallback>{name.slice(0, 2)}</AvatarFallback>
               </Avatar>
-              {/* min-w-0 and truncate on both lines: a name is up to 24
-                  characters and an address is 42, and neither may widen the
-                  menu or spill out of it. */}
+              {/* The address appeared twice when nobody had set a name: once
+                  as the greeting and again under it. Now the greeting either
+                  has a name or steps out of the way. min-w-0 and truncate on
+                  both lines, because a name runs to 24 characters and an
+                  address to 42. */}
               <div className="min-w-0 flex-1 leading-tight">
-                <p className="truncate font-medium">Hola, {name}</p>
-                <p className="truncate text-muted-foreground text-xs">
-                  {me.address ? <span className="figures">{shortAddress(me.address)}</span> : <span className="figures">${usd(cash)}</span>}
-                </p>
+                <p className="truncate font-medium">{me.address && !profile.name ? "Your wallet" : `Hola, ${name}`}</p>
+                {me.address ? (
+                  <CopyAddress address={me.address} className="text-muted-foreground text-xs" />
+                ) : (
+                  <p className="figures truncate text-muted-foreground text-xs">${usd(cash)}</p>
+                )}
               </div>
             </div>
             {perp ? (
               <>
                 <MenuSeparator />
-                {/* One sentence, not a label over a figure. A stack of
-                    captioned numbers in a menu reads as a form. */}
+                {/* Short enough not to grow the menu. What to do about it is
+                    the next line down, so the sentence does not have to say. */}
                 <p className="px-2 py-2 text-muted-foreground text-xs">
                   {funded ? (
                     <>
                       <span className="figures text-foreground">${usd(perp.collateral)}</span> on Lighter
                       {perp.positions > 0 ? (
                         <>
-                          , <span className={cn("figures", perp.unrealised >= 0 ? "text-up" : "text-down")}>{signedUsd(perp.unrealised)}</span> on {perp.positions} open
+                          , <span className={cn("figures", perp.unrealised >= 0 ? "text-up" : "text-down")}>{signedUsd(perp.unrealised)}</span> open
                         </>
                       ) : null}
-                      .
                     </>
                   ) : (
-                    "Nothing on Lighter yet. Add some and you can draw for real."
+                    "Nothing on Lighter yet"
                   )}
                 </p>
               </>
@@ -177,10 +179,6 @@ export function AppBar({ account }: { account: Account }) {
                 <ArrowUpFromLineIcon />
                 Withdraw
               </MenuItem>
-              <MenuItem onClick={() => announceSoon("There is nothing to show until money moves.")}>
-                <HistoryIcon />
-                Transfers
-              </MenuItem>
             </MenuGroup>
             <MenuSeparator />
             <MenuCheckboxItem checked={blurred} onCheckedChange={(next) => set({ blurred: next })}>
@@ -189,10 +187,6 @@ export function AppBar({ account }: { account: Account }) {
             <MenuItem onClick={() => setSettingsOpen(true)}>
               <SettingsIcon />
               Settings
-            </MenuItem>
-            <MenuItem onClick={() => announceSoon("Rewards are not built yet.")}>
-              <GiftIcon />
-              Rewards
             </MenuItem>
             <MenuItem onClick={() => announceSoon("Support is not built yet.")}>
               <LifeBuoyIcon />
@@ -210,8 +204,7 @@ export function AppBar({ account }: { account: Account }) {
     </header>
     <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen} />
     <DepositSheet address={me.address} onDone={profile.refresh} onOpenChange={setDepositing} open={depositing} />
-    <NamePrompt
-      onOpenChange={(next) => {
+    <NamePrompt address={me.address} onOpenChange={(next) => {
         // Closing without saving is still an answer. Remember it, or the
         // prompt greets them again on the next visit.
         if (!next && me.address) markAsked(me.address);

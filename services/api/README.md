@@ -17,6 +17,10 @@ curl 'localhost:3230/balance?address=0x…'
 | `/me?address=` | the user for a wallet, made on first sight |
 | `POST /me/name` | what they want to be called |
 | `/balance?address=` | what the wallet holds on Lighter |
+| `/deposit/address?address=` | the one address that credits their account, mainnet only |
+| `/deposit/chains` | where money can come from |
+| `/deposit/quote?…` | what a bridge would cost and what would land |
+| `POST /faucet` | 10,000 test USDC, testnet only |
 
 ## The database
 
@@ -47,3 +51,18 @@ with, `unrealised` is what anything open has made, and `equity` is the sum,
 which is what a reader means by "my balance". A wallet that has never
 deposited has no account at all, and that answers as `accountIndex: null`
 rather than as a zero that looks like a loss.
+
+## The faucet
+
+Testnet only, and it exists because the wallet people get here is an embedded
+one. It has no browser extension and speaks no WalletConnect, so the usual
+advice, open Lighter and connect your wallet, is a wall rather than a step.
+
+Lighter's faucet takes an address and nothing else, so the service asks on the
+reader's behalf and the app is one button. It makes the Lighter account if
+there is not one, and the account shows up about eight seconds later. It
+refuses above $100 of portfolio value, which is the rate limit and means
+anybody who has lost it all can come back.
+
+On mainnet the route answers 409. There is no faucet, and the deposit address
+is the way in.
