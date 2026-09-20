@@ -30,6 +30,10 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   button. The rail of five tools that had a line to itself is one button that
   opens a drawer from the bottom, holding undo, clear, the exits, the eight
   shapes and the chart settings.
+- The stop loss and take profit open out in the drawer: a switch, and the
+  wheel under it once it is on. As chips they hid the wheel in a popover, and
+  a popover inside a drawer portals itself outside the drawer, so the first
+  touch on the wheel read as a press outside and shut the whole thing.
 - Panels come up from the bottom rather than in from the side. Rounds, the
   market picker, Settings and Add money all do it, because a side panel covers
   a phone anyway and puts its close button in the corner furthest from a

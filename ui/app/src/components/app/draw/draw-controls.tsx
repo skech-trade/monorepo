@@ -25,6 +25,7 @@ export function AmountWheel({
   offAtZero = false,
   format = (n: number) => `$${n}`,
   label = "How much you put in",
+  inPopover = true,
 }: {
   value: number;
   onChange: (value: number) => void;
@@ -33,6 +34,14 @@ export function AmountWheel({
   step?: number;
   /** Show the bottom stop as "Off" rather than "$0". */
   offAtZero?: boolean;
+  /**
+   * Whether a popover is closing around this.
+   *
+   * The tick in the corner is a `PopoverClose`, and Base UI throws if one is
+   * rendered with no popover above it. In the phone drawer the wheel sits on
+   * the panel itself with nothing to close, so there is nothing to show.
+   */
+  inPopover?: boolean;
   /** How a figure reads on the wheel. Dollars unless told otherwise. */
   format?: (n: number) => string;
   /** What the wheel is for, for anyone listening rather than looking. */
@@ -173,6 +182,7 @@ export function AmountWheel({
         Done sits inside the lit band, raised above the typing overlay, and commits a half-typed
         figure first.
       */}
+      {inPopover ? (
       <PopoverClose
         aria-label="Done"
         className="-translate-y-1/2 absolute top-1/2 right-1.5 z-10 flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground [&_svg]:size-4"
@@ -185,6 +195,7 @@ export function AmountWheel({
       >
         <CheckIcon />
       </PopoverClose>
+      ) : null}
     </div>
   );
 }

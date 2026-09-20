@@ -109,6 +109,56 @@ function Exit({
   );
 }
 
+/**
+ * The same two, opened out for a drawer.
+ *
+ * The chip version hides its wheel in a popover, and a popover inside a
+ * drawer portals itself outside the drawer, so the first touch on the wheel
+ * read as a press outside and shut the whole thing. Nothing to edit with.
+ *
+ * A drawer has the room the chip did not, so the wheel simply sits under its
+ * switch. `data-vaul-no-drag` keeps a drag on the wheel from dragging the
+ * drawer closed underneath it.
+ */
+export function ExitPanel({ exits, stake, onExits }: { exits: Exits; stake: number; onExits: (exits: Exits) => void }) {
+  const rows = [
+    { side: "lose" as const, label: "Stop loss", value: exits.lose, set: (v: number | null) => onExits({ ...exits, lose: v }), hint: "Close it if you are down this much." },
+    { side: "gain" as const, label: "Take profit", value: exits.gain, set: (v: number | null) => onExits({ ...exits, gain: v }), hint: "Close it if you are up this much." },
+  ];
+
+  return (
+    <div className="flex flex-col gap-2">
+      {rows.map((r) => (
+        <div className="rounded-xl border p-3" key={r.side}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm">{r.label}</p>
+              <p className="text-muted-foreground text-xs leading-snug">{r.hint}</p>
+            </div>
+            <Switch
+              aria-label={r.label}
+              checked={r.value !== null}
+              onCheckedChange={(on) => r.set(on ? opening(stake, r.side) : null)}
+            />
+          </div>
+          {r.value !== null ? (
+            <div className="pt-3" data-vaul-no-drag>
+              <AmountWheel
+                inPopover={false}
+                max={r.side === "lose" ? stake : ceiling(stake)}
+                min={0}
+                offAtZero
+                onChange={(next) => r.set(next === 0 ? null : next)}
+                value={r.value}
+              />
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** The two of them, wherever they are shown: a row here, a drawer on a phone. */
 export function ExitRows({ exits, stake, onExits }: { exits: Exits; stake: number; onExits: (exits: Exits) => void }) {
   return (

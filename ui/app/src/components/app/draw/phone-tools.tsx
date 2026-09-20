@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Drawer, DrawerClose, DrawerPopup, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import type { Exits } from "@/lib/sketch";
 import { ChartSettings, PlotSettings } from "../settings";
-import { ExitRows } from "./exit-controls";
+import { ExitPanel } from "./exit-controls";
 import { PRESETS, type Preset, Thumb } from "./draw-tools";
 
 /**
@@ -75,10 +75,8 @@ export function PhoneTools({
             </div>
 
             <DrawerTitle>Where to get out</DrawerTitle>
-            {/* Side by side at their own width. Stacked, each pill stretched
-                the width of the drawer with a switch adrift at one end. */}
-            <div className="flex flex-wrap gap-2 pb-4">
-              <ExitRows exits={exits} onExits={onExits} stake={stake} />
+            <div className="pb-4">
+              <ExitPanel exits={exits} onExits={onExits} stake={stake} />
             </div>
 
             <DrawerTitle>
