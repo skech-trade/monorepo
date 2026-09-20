@@ -1,0 +1,161 @@
+import { describe, expect, test } from "bun:test";
+import type { Candle } from "./market";
+import { type Pt, quote, settle, shapeOf } from "./sketch";
+import { liquidationPrice, MARGIN, MARKET, roundSize, tradeable } from "./venue";
+
+/**
+ * The file that decides money, pinned by the properties that have to hold
+ * whatever the model becomes. Not snapshots of today's figures: the model is
+ * going to change to one net position per round, and a snapshot would only
+ * record the old answer.
+ */
+
+const ENTRY = 64_000;
+
+/** A line from the entry through these prices, evenly spaced across the round. */
+const line = (...prices: number[]): Pt[] => [{ t: 0, price: ENTRY }, ...prices.map((price, i) => ({ t: (i + 1) / prices.length, price }))];
+
+/** Candles that walk straight from `from` to `to` over `n` of them, with no wick. */
+function walk(from: number, to: number, n: number): Candle[] {
+  const out: Candle[] = [];
+  for (let i = 0; i < n; i++) {
+    const o = from + ((to - from) * i) / n;
+    const c = from + ((to - from) * (i + 1)) / n;
+    out.push({ t: i, o, c, h: Math.max(o, c), l: Math.min(o, c), v: 1 });
+  }
+  return out;
+}
+
+describe("a loss never exceeds the stake", () => {
+  for (const leverage of [1, 5, 20, 50]) {
+    test(`at ${leverage}x, however far it runs the wrong way`, () => {
+      const shape = shapeOf(line(ENTRY * 1.02), ENTRY);
+      expect(shape).not.toBeNull();
+      // Straight down, hard: ten percent against a long.
+      const book = settle(walk(ENTRY, ENTRY * 0.9, 60), shape as never, ENTRY, 100, leverage, 60);
+      expect(book.net).toBeGreaterThanOrEqual(-100);
+    });
+  }
+});
+
+describe("the quote agrees with the settlement", () => {
+  test("when the market traces the line exactly", () => {
+    const pts = line(ENTRY * 1.004);
+    const shape = shapeOf(pts, ENTRY);
+    expect(shape).not.toBeNull();
+    const q = quote(shape as never, ENTRY, 100, 10);
+    const book = settle(walk(ENTRY, ENTRY * 1.004, 60), shape as never, ENTRY, 100, 10, 60);
+    // Fills land half a candle late, so they are close rather than equal.
+    expect(Math.abs(book.net - q.ifWorks)).toBeLessThan(Math.abs(q.ifWorks) * 0.2 + 0.5);
+  });
+
+  test("a stop you set becomes the most you can lose", () => {
+    const shape = shapeOf(line(ENTRY * 1.01), ENTRY);
+    expect(quote(shape as never, ENTRY, 100, 50, { lose: 25, gain: null }).mostLose).toBe(25);
+    // And it never claims a stop protects more than the stake does.
+    expect(quote(shape as never, ENTRY, 100, 50, { lose: 500, gain: null }).mostLose).toBe(100);
+  });
+
+  test("a target you set caps what it says you can make", () => {
+    const shape = shapeOf(line(ENTRY * 1.05), ENTRY);
+    const open = quote(shape as never, ENTRY, 100, 50).ifWorks;
+    expect(quote(shape as never, ENTRY, 100, 50, { lose: null, gain: 10 }).ifWorks).toBe(10);
+    expect(open).toBeGreaterThan(10);
+  });
+
+  test("and the most you can lose is the stake, at every leverage", () => {
+    const shape = shapeOf(line(ENTRY * 1.01), ENTRY);
+    for (const leverage of [1, 10, 50]) {
+      expect(quote(shape as never, ENTRY, 100, leverage).mostLose).toBe(100);
+    }
+  });
+});
+
+describe("the liquidation price is where equity reaches maintenance margin", () => {
+  for (const leverage of [2, 10, 50]) {
+    test(`at ${leverage}x, long and short`, () => {
+      const stake = 100;
+      for (const dir of [1, -1] as const) {
+        const liq = liquidationPrice(ENTRY, stake, leverage, dir);
+        const q = (stake * leverage) / ENTRY;
+        // Equity at that price, against what the venue must still hold.
+        const equity = stake + dir * q * (liq - ENTRY);
+        expect(equity).toBeCloseTo(MARGIN.maintenance * q * liq, 6);
+      }
+    });
+  }
+
+  test("and it sits the right side of the entry", () => {
+    expect(liquidationPrice(ENTRY, 100, 10, 1)).toBeLessThan(ENTRY);
+    expect(liquidationPrice(ENTRY, 100, 10, -1)).toBeGreaterThan(ENTRY);
+  });
+
+  test("and more leverage brings it closer", () => {
+    const near = ENTRY - liquidationPrice(ENTRY, 100, 50, 1);
+    const far = ENTRY - liquidationPrice(ENTRY, 100, 2, 1);
+    expect(near).toBeLessThan(far);
+  });
+});
+
+describe("the exits are honoured", () => {
+  const shape = shapeOf(line(ENTRY * 1.02), ENTRY);
+
+  test("a stop caps the loss at what was asked for", () => {
+    const book = settle(walk(ENTRY, ENTRY * 0.95, 60), shape as never, ENTRY, 100, 10, 60, { lose: 25, gain: null });
+    expect(book.done).toBe("stop");
+    expect(book.net).toBeCloseTo(-25, 6);
+  });
+
+  test("a target banks the gain that was asked for", () => {
+    const book = settle(walk(ENTRY, ENTRY * 1.05, 60), shape as never, ENTRY, 100, 10, 60, { lose: null, gain: 40 });
+    expect(book.done).toBe("target");
+    expect(book.net).toBeCloseTo(40, 6);
+  });
+
+  test("and without them the round runs to the clock", () => {
+    const book = settle(walk(ENTRY, ENTRY * 1.001, 60), shape as never, ENTRY, 100, 10, 60);
+    expect(book.done).toBeNull();
+  });
+
+  test("a stop the market never reaches changes nothing", () => {
+    const calm = walk(ENTRY, ENTRY * 1.001, 60);
+    const withStop = settle(calm, shape as never, ENTRY, 100, 10, 60, { lose: 90, gain: null });
+    const without = settle(calm, shape as never, ENTRY, 100, 10, 60);
+    expect(withStop.net).toBeCloseTo(without.net, 6);
+  });
+});
+
+describe("sizes the venue would actually accept", () => {
+  test("round down to the step, never up", () => {
+    expect(roundSize(0.123456789)).toBe(0.12345);
+    expect(roundSize(0.000069)).toBe(0.00006);
+  });
+
+  test("the minimums are enforced on both size and notional", () => {
+    expect(tradeable(11 / ENTRY, ENTRY)).toBe(true);
+    expect(tradeable(9 / ENTRY, ENTRY)).toBe(false);
+    expect(tradeable(MARKET.minBase / 2, ENTRY)).toBe(false);
+  });
+
+  test("asking for exactly the minimum notional is rejected, because rounding down loses it", () => {
+    // $10 at $64k is 0.00015625 BTC, which rounds down to 0.00015, which is
+    // $9.60. Anything that sizes a position off the $10 floor has to ask for
+    // a little more than the floor or it will be turned away.
+    expect(tradeable(MARKET.minQuote / ENTRY, ENTRY)).toBe(false);
+    expect(roundSize(MARKET.minQuote / ENTRY) * ENTRY).toBeLessThan(MARKET.minQuote);
+  });
+});
+
+describe("the shape reads the line the way the bar describes it", () => {
+  test("a line that ends above the entry is a long", () => {
+    expect(shapeOf(line(ENTRY * 0.99, ENTRY * 1.02), ENTRY)?.long).toBe(true);
+  });
+
+  test("and one that ends below it is a short", () => {
+    expect(shapeOf(line(ENTRY * 1.01, ENTRY * 0.98), ENTRY)?.long).toBe(false);
+  });
+
+  test("a single point is not a line", () => {
+    expect(shapeOf([{ t: 0, price: ENTRY }], ENTRY)).toBeNull();
+  });
+});

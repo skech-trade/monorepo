@@ -80,7 +80,9 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   furthest it gets on its side, "where you're out" is the furthest it strays
   the other way. No dip means no floor and the whole stake is at risk.
 - Quote: "If it gets there +$X", "The most you can lose $Y", "Put in $S,
-  trades like $N". Loss is capped at the stake.
+  trades like $N". Loss is capped at the stake, and at your stop if you set
+  one: the bar used to say the whole stake with a $25 stop armed on the row
+  above it.
 - The ribbon: a band around the line, one and a half average candle ranges
   wide, sized from the last twenty candles. Candles that close inside it
   count. The money is decided by the levels; the ribbon is the score.
@@ -122,9 +124,9 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   tally goes, in the table's footer: "Bitcoin today, 2 of 3 came good" and
   the total on the right.
 - The round is as long as the line. Placing a trade sets the clock to the
-  line's last minute (never under three) and rescales the points to span it,
-  so a nine minute line is a nine minute call and the chart, the replay and
-  the card all end where the drawing does. The bar says "Runs 9 minutes, as
+  line's last second (never under five) and rescales the points to span it,
+  so a forty second line is a forty second call and the chart, the replay and
+  the card all end where the drawing does. The bar says "Runs 40 seconds, as
   long as the line" before you place it. Drawing off the right edge while it
   runs still lengthens it.
 - The card, 1280 by 720, painted from the theme as it is on screen (light or

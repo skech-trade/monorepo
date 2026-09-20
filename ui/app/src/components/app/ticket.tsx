@@ -8,6 +8,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/
 import { Switch } from "@/components/ui/switch";
 import { type Account, BALANCE, price as fmtPrice, type Market, priceDp, signedUsd, usd } from "@/lib/market";
 import { cn } from "@/lib/utils";
+import { FEE, liquidationPrice as venueLiquidation } from "@/lib/venue";
 import { Pane, Segmented, Stat } from "./controls";
 import { DESK_STEPS, LeverageMeter } from "./leverage-meter";
 
@@ -33,10 +34,7 @@ export type Order = {
   postOnly: boolean;
 };
 
-const LEVERAGE_PRESETS = [2, 5, 10, 25, 50, 100];
-const TAKER_FEE = 0.0005;
-const MAKER_FEE = 0.0002;
-const MAINTENANCE = 0.9;
+const LEVERAGE_PRESETS = [2, 5, 10, 25, 50];
 
 export function emptyOrder(): Order {
   return {
@@ -66,9 +64,8 @@ function entryPrice(order: Order, market: Market): number {
 }
 
 export function liquidationPrice(order: Order, market: Market): number {
-  const entry = entryPrice(order, market);
-  const move = MAINTENANCE / order.leverage;
-  return order.side === "long" ? entry * (1 - move) : entry * (1 + move);
+  const pay = Number.parseFloat(order.pay) || 0;
+  return venueLiquidation(entryPrice(order, market), pay, order.leverage, order.side === "long" ? 1 : -1);
 }
 
 /* ---- pieces ---------------------------------------------------------------- */
@@ -210,7 +207,7 @@ export function Ticket({
   const units = entry > 0 ? notional / entry : 0;
   const resting = isResting(order);
   const maker = resting || order.postOnly;
-  const fee = notional * (maker ? MAKER_FEE : TAKER_FEE);
+  const fee = notional * (maker ? FEE.maker : FEE.taker);
   const long = order.side === "long";
   const exitAt = (kind: "stop" | "target") =>
     entry * (long ? (kind === "stop" ? 0.95 : 1.08) : kind === "stop" ? 1.05 : 0.92);

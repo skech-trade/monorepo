@@ -1,4 +1,10 @@
 import type { Candle } from "./market";
+import { FEE as VENUE_FEE, LATENCY_BARS, liquidationPrice } from "./venue";
+
+/** What a round trip costs, per side. Zero on Lighter Standard. See `venue.ts`. */
+export const FEE = VENUE_FEE.taker;
+
+export { LATENCY_BARS, liquidationPrice };
 
 export type Pt = { t: number; price: number };
 
@@ -22,34 +28,6 @@ const TURN_GAP = 0.03;
 /** Under this total travel the drawing says nothing worth trading. */
 const FLAT = 0.0002;
 
-/**
- * Taker and maker fee per side, base tier, September 2026. Hyperliquid:
- * hyperliquid.gitbook.io/hyperliquid-docs/trading/fees. Lighter:
- * docs.lighter.xyz/trading/trading-fees. A drawn line crosses the spread, so taker applies, in and
- * out of every leg.
- */
-export const VENUES = {
-  hyperliquid: { taker: 0.00045, maker: 0.00015 },
-  lighter: { taker: 0, maker: 0 },
-  lighterPremium: { taker: 0.00028, maker: 0.00004 },
-} as const;
-
-/**
- * Lighter: standard accounts pay nothing either side. On Hyperliquid a 50× round trip is 4.5% of
- * the stake, so every turn lost before it was drawn.
- */
-export const VENUE: keyof typeof VENUES = "lighter";
-
-/** Taker fee per side. Charged twice a leg: once in, once out. */
-export const FEE = VENUES[VENUE].taker;
-
-/**
- * Lighter delays taker orders 300ms by design; call it 500ms with our hop. A candle is a second, so
- * half of one. Fills land there either way, which is variance, not a cost.
- */
-export const LATENCY_BARS = 0.5;
-/** The venue closes a leg when equity falls to this fraction of notional. */
-const MAINT = 0.0125;
 
 /** Price of the drawn line at a moment, flat past either end. */
 export function priceAt(pts: Pt[], t: number, entry: number): number {
@@ -192,6 +170,7 @@ export function quote(
   entry: number,
   stake: number,
   leverage: number,
+  exits: Exits = { lose: null, gain: null },
 ): Quote {
   /* Every leg, not just the furthest point: a zigzag is that many round trips out of the same stake. */
   let equity = stake;
@@ -200,11 +179,18 @@ export function quote(
     const close = shape.prices[leg.to];
     const notional = equity * leverage;
     equity += leg.dir * (notional / open) * (close - open) - FEE * notional * 2;
-    if (equity <= 0) return { ifWorks: -stake, mostLose: stake, wipedAt: liquidationPrice(entry, stake, leverage, shape.long ? 1 : -1), notional: stake * leverage };
+    if (equity <= 0) break;
   }
+  /*
+    A stop you have set is the most you can lose, and that is the whole point
+    of setting one. The bar said "the most you can lose $100" with a $25 stop
+    armed on the row above it, which is the screen disagreeing with its own
+    control about the only number that matters.
+  */
+  const gross = Math.max(-stake, equity - stake);
   return {
-    ifWorks: equity - stake,
-    mostLose: stake,
+    ifWorks: exits.gain !== null ? Math.min(gross, exits.gain) : gross,
+    mostLose: exits.lose !== null ? Math.min(stake, exits.lose) : stake,
     wipedAt: liquidationPrice(entry, stake, leverage, shape.long ? 1 : -1),
     notional: stake * leverage,
   };
@@ -230,17 +216,6 @@ export type Book = {
   /** The price it closed at, or the mark if it has not. */
   exit: number;
 };
-
-/**
- * Where isolated margin gives out, solved as a venue does: equity is stake less entry fee plus P&L,
- * closed when it falls to MAINT of notional at the mark. Long P = (q·entry − room) / (q·(1 − mmr));
- * short flips the signs. The flat-haircut formula drifted at low leverage.
- */
-export function liquidationPrice(entry: number, stake: number, leverage: number, dir: 1 | -1): number {
-  const q = (stake * leverage) / entry;
-  const room = stake - FEE * stake * leverage;
-  return dir > 0 ? (q * entry - room) / (q * (1 - MAINT)) : (q * entry + room) / (q * (1 + MAINT));
-}
 
 /**
  * The line traded leg by leg: each turn closes one position and opens the next, sized off the

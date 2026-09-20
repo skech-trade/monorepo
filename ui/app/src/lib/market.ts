@@ -41,6 +41,8 @@ export type Position = {
   pnlPct: number;
 };
 
+import { liquidationPrice } from "./venue";
+
 export const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1D", "1W"] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];
 
@@ -197,10 +199,7 @@ export function positionsFor(market: Market): Position[] {
       notional,
       leverage,
       entry,
-      liquidation:
-        side === "long"
-          ? entry * (1 - 0.9 / leverage)
-          : entry * (1 + 0.9 / leverage),
+      liquidation: liquidationPrice(entry, notional / leverage, leverage, side === "long" ? 1 : -1),
       pnl: (notional * pnlPct) / 100,
       pnlPct,
     };

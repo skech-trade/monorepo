@@ -106,8 +106,11 @@ export function DrawScreen({ market }: { market: Market }) {
     return pts.map((p) => ({ ...p, price: p.price + shift }));
   }, [riding, pts, price]);
   const shape = useMemo(() => shapeOf(view, entryView), [view, entryView]);
-  const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage) : null), [shape, entryView, stake, leverage]);
-  const book = useMemo(() => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage, runBars) : null), [run, shape, entry, stake, leverage, runBars]);
+  const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage, exits) : null), [shape, entryView, stake, leverage, exits]);
+  const book = useMemo(
+    () => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage, runBars, exits) : null),
+    [run, shape, entry, stake, leverage, runBars, exits],
+  );
   const ribbon = useMemo(() => ribbonFor(feed), [feed]);
   /** Your last line, moved to today's price. */
   const ghost = useMemo(
@@ -121,9 +124,9 @@ export function DrawScreen({ market }: { market: Market }) {
   });
 
   const finish = useCallback((bars: Candle[], early: boolean) => {
-    const { shape: sh, entry: en, stake: st, leverage: lev, runBars: rbars } = live.current;
+    const { shape: sh, entry: en, stake: st, leverage: lev, runBars: rbars, exits: ex } = live.current;
     if (!sh) return;
-    const bk = settle(bars, sh, en, st, lev, rbars);
+    const bk = settle(bars, sh, en, st, lev, rbars, ex);
     const acc = accuracyOf(bars, sh.prices, rbars);
     const outcome: Outcome | "closed" = early && bk.done === null ? "closed" : (bk.done ?? "time");
     // The round is kept whole on its record: what arrived, how long it was, how it ended. That is what replays and exports.
@@ -169,7 +172,7 @@ export function DrawScreen({ market }: { market: Market }) {
       const next = [...rn, bar];
       setRun(next);
       setBand((b) => easeBand(b, bandFor([...fd, ...next].slice(-HISTORY), bar.c, sh.prices)));
-      const bk = settle(next, sh, en, live.current.stake, live.current.leverage, live.current.runBars);
+      const bk = settle(next, sh, en, live.current.stake, live.current.leverage, live.current.runBars, live.current.exits);
       if (bk.done !== null || next.length >= live.current.runBars) finish(next, false);
     }, TICK_MS);
     const sub = setInterval(() => {
