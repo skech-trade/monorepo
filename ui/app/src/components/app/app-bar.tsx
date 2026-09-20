@@ -36,6 +36,7 @@ import { HANDLE } from "@/lib/user";
 import { markAsked, useProfile } from "@/lib/profile";
 import { cn } from "@/lib/utils";
 import { hasAuth, shortAddress, useAccount } from "./auth";
+import { DepositSheet } from "./deposit";
 import { NamePrompt } from "./name-prompt";
 import { SignInButton } from "./sign-in";
 
@@ -48,6 +49,7 @@ export function AppBar({ account }: { account: Account }) {
   const me = useAccount();
   const profile = useProfile(me.address);
   const [askName, setAskName] = useState(false);
+  const [depositing, setDepositing] = useState(false);
   /* Signed out with auth available, the only thing in the corner is the way in. */
   const anonymous = hasAuth && !me.signedIn;
   /*
@@ -100,7 +102,11 @@ export function AppBar({ account }: { account: Account }) {
           </span>
         )}
         {anonymous ? null : (
-          <Button className="hidden lg:inline-flex" onClick={() => announceSoon("Deposits open when the venue is wired up.")} variant="secondary">
+          <Button
+            className="hidden lg:inline-flex"
+            onClick={() => (me.address ? setDepositing(true) : announceSoon("Sign in first, then you can add money."))}
+            variant="secondary"
+          >
             <ArrowDownToLineIcon />
             Deposit
           </Button>
@@ -161,7 +167,7 @@ export function AppBar({ account }: { account: Account }) {
             ) : null}
             <MenuSeparator />
             <MenuGroup>
-              <MenuItem onClick={() => announceSoon("Deposits open when the venue is wired up.")}>
+              <MenuItem onClick={() => (me.address ? setDepositing(true) : announceSoon("Sign in first, then you can add money."))}>
                 <ArrowDownToLineIcon />
                 Deposit
               </MenuItem>
@@ -201,6 +207,7 @@ export function AppBar({ account }: { account: Account }) {
       </div>
     </header>
     <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen} />
+    <DepositSheet address={me.address} onDone={profile.refresh} onOpenChange={setDepositing} open={depositing} />
     <NamePrompt
       onOpenChange={(next) => {
         // Closing without saving is still an answer. Remember it, or the

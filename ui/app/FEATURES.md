@@ -25,14 +25,34 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   contract wallet cannot sign one off chain.
 - Signed out, the corner holds one thing: Sign in. No avatar, no Deposit, no
   menu of things that would need an account.
-- Signed in, the menu greets whatever you signed in with, shows the wallet
-  address under it, and Disconnect becomes Sign out and works.
+- Signed in, the menu greets you by name, shows the wallet address under it,
+  and Disconnect becomes Sign out and works. Both lines truncate: a name runs
+  to 24 characters and an address to 42.
+- The name is asked once, the first time somebody arrives without one, and
+  skipping is an answer that sticks. It used to greet you with your own wallet
+  address, and ask again on every visit.
 - Coinbase's button opens Coinbase's modal: an email field, then Continue
   with phone, Google or Apple. The one-time codes and the recovery are theirs
   to get right, and this is the screen where getting it wrong locks someone
   out of their money, so none of it is rebuilt here.
 - With no project id the app runs signed out and everything else still works,
   which is what the tests and screenshots use.
+
+## Adding money
+
+- Whatever you are holding, wherever it is, ending as collateral on Lighter.
+  Lighter hands out an address that credits your perp account and makes one if
+  you have none; Relay turns what you hold into USDC on a chain Lighter
+  watches and sends it there. Neither needs a key.
+- Measured: 0.01 ETH on Arbitrum becomes $25.71 on Lighter, one step, two
+  seconds, nine cents. USDC already on Base is free and arrives at once.
+- The sheet prices the route before anything is signed, so what lands is a
+  number you saw rather than one you find out afterwards. The button says the
+  figure: "Add $25.71".
+- Relay's own Lighter route was the alternative and is worse for the people
+  this is for: its recipient is an account index, so a wallet that has never
+  deposited has nothing to put there, and a made-up one still quotes, at
+  $3.62 of relayer gas against $0.02.
 
 ## Settings
 

@@ -23,9 +23,9 @@ const RELAY = process.env.RELAY_URL ?? "https://api.relay.link";
 
 /** The chains Lighter watches for intent deposits, and their USDC. */
 export const CHAINS = [
-  { id: 8453, name: "Base", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
-  { id: 42161, name: "Arbitrum", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" },
-  { id: 43114, name: "Avalanche", usdc: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E" },
+  { id: 8453, name: "Base", network: "base", nativeSymbol: "ETH", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+  { id: 42161, name: "Arbitrum", network: "arbitrum", nativeSymbol: "ETH", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" },
+  { id: 43114, name: "Avalanche", network: "avalanche", nativeSymbol: "AVAX", usdc: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E" },
 ] as const;
 
 /** The native coin of a chain, as Relay spells it. */
@@ -42,8 +42,8 @@ export type Quote = {
   seconds: number;
   /** Where the money is going, so the app can show it. */
   intentAddress: string;
-  /** What the wallet has to sign, in order. */
-  steps: unknown[];
+  /** What the wallet has to sign, in order. Flattened out of Relay's steps. */
+  transactions: { to: string; data: string; value: string; chainId: number }[];
 };
 
 export class Deposits {
@@ -115,6 +115,17 @@ export class Deposits {
       steps?: unknown[];
     };
     if (!d.details) return null;
+    /*
+      Relay describes the work as steps, each holding items, each holding one
+      transaction. The app only ever signs transactions in order, so they are
+      flattened here rather than teaching the browser Relay's shape.
+    */
+    const transactions = (d.steps ?? []).flatMap((step) =>
+      ((step as { items?: { data?: Record<string, unknown> }[] }).items ?? [])
+        .map((item) => item.data)
+        .filter((tx): tx is Record<string, unknown> => Boolean(tx?.to))
+        .map((tx) => ({ to: String(tx.to), data: String(tx.data ?? "0x"), value: String(tx.value ?? "0"), chainId: Number(tx.chainId) })),
+    );
     return {
       inAmount: d.details.currencyIn?.amountFormatted ?? "0",
       inSymbol: d.details.currencyIn?.currency?.symbol ?? "",
@@ -123,7 +134,7 @@ export class Deposits {
       impactUsd: Number(d.details.totalImpact?.usd ?? 0),
       seconds: d.details.timeEstimate ?? 0,
       intentAddress: intent,
-      steps: d.steps ?? [],
+      transactions,
     };
   }
 }
