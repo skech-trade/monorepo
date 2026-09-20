@@ -8,7 +8,7 @@ import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitl
 import { usd } from "@/lib/market";
 import { type Chain, type DepositQuote, useDepositChains, useDepositQuote } from "@/lib/deposit";
 import { cn } from "@/lib/utils";
-import { Segmented } from "./controls";
+import { ChainMark, TokenMark } from "./marks";
 
 /**
  * Putting money on the venue.
@@ -32,9 +32,13 @@ function units(amount: string, decimals: number): string | null {
   return /^\d+$/.test(out) && BigInt(out) > 0n ? out : null;
 }
 
-function Line({ quote, busy }: { quote: DepositQuote | null; busy: boolean }) {
+function Line({ quote, busy, typed, ready }: { quote: DepositQuote | null; busy: boolean; typed: boolean; ready: boolean }) {
+  // Each of these used to read "type an amount", including when an amount had
+  // been typed and the reason was that nothing was configured.
+  if (!ready) return <p className="text-muted-foreground text-sm">No route service configured, so nothing can be priced.</p>;
   if (busy) return <p className="text-muted-foreground text-sm">Working out the route…</p>;
-  if (!quote) return <p className="text-muted-foreground text-sm">Type an amount and we will price it.</p>;
+  if (!typed) return <p className="text-muted-foreground text-sm">Type an amount and we will price it.</p>;
+  if (!quote) return <p className="text-muted-foreground text-sm">No route for that amount. Try a little more.</p>;
   const cost = Math.abs(quote.impactUsd);
   return (
     <p className="text-muted-foreground text-sm leading-snug">
@@ -104,20 +108,49 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
           <SheetDescription>Whatever you are holding, wherever it is. It lands as collateral on Lighter.</SheetDescription>
         </SheetHeader>
         <SheetPanel className="flex flex-col gap-4">
-          {chains.length > 1 ? (
-            <Segmented label="Which chain" onChange={(v) => setChainId(Number(v))} options={chains.map((c) => ({ value: String(c.id), label: c.name }))} size="sm" value={String(chain?.id ?? "")} />
-          ) : null}
+          {/* A grid, not a strip: six chains will not sit in one row, and a
+              mark is quicker to find than a word. */}
+          <div>
+            <p className="pb-2 font-medium text-muted-foreground text-xs">From</p>
+            <div className="grid grid-cols-3 gap-1.5" role="group">
+              {chains.map((c) => (
+                <button
+                  aria-pressed={chain?.id === c.id}
+                  className={cn(
+                    "flex min-w-0 cursor-pointer items-center gap-1.5 rounded-xl border px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent",
+                    chain?.id === c.id && "border-foreground/24 bg-accent",
+                  )}
+                  key={c.id}
+                  onClick={() => setChainId(c.id)}
+                  type="button"
+                >
+                  <ChainMark className="size-4" id={c.id} />
+                  <span className="truncate">{c.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
-          <Segmented
-            label="Which token"
-            onChange={(v) => setNative(v === "native")}
-            options={[
-              { value: "usdc", label: "USDC" },
-              { value: "native", label: chain?.nativeSymbol ?? "ETH" },
-            ]}
-            size="sm"
-            value={native ? "native" : "usdc"}
-          />
+          <div>
+            <p className="pb-2 font-medium text-muted-foreground text-xs">Send</p>
+            <div className="flex gap-1.5">
+              {[false, true].map((isNative) => (
+                <button
+                  aria-pressed={native === isNative}
+                  className={cn(
+                    "flex flex-1 cursor-pointer items-center gap-1.5 rounded-xl border px-2 py-1.5 text-xs transition-colors hover:bg-accent",
+                    native === isNative && "border-foreground/24 bg-accent",
+                  )}
+                  key={String(isNative)}
+                  onClick={() => setNative(isNative)}
+                  type="button"
+                >
+                  <TokenMark chainId={chain?.id ?? 8453} className="size-4" native={isNative} />
+                  <span className="truncate">{isNative ? (chain?.nativeSymbol ?? "ETH") : "USDC"}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
           <Input
             autoComplete="off"
@@ -127,7 +160,7 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
             value={amount}
           />
 
-          <Line busy={busy} quote={quote} />
+          <Line busy={busy} quote={quote} ready={chains.length > 0} typed={smallest !== null} />
 
           {problem ? <p className="text-down text-xs">{problem}</p> : null}
           {sent ? <p className="text-muted-foreground text-xs">Sent. It shows up as collateral once it lands.</p> : null}

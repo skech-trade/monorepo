@@ -21,12 +21,29 @@
 
 const RELAY = process.env.RELAY_URL ?? "https://api.relay.link";
 
-/** The chains Lighter watches for intent deposits, and their USDC. */
+/**
+ * Where money can come from.
+ *
+ * Every chain a Coinbase embedded wallet can sign on, which is the real
+ * limit: Relay bridges from almost anywhere, but the wallet has to be able to
+ * send the transaction. `network` is CDP's own name for it, so a chain listed
+ * here is a chain the wallet can sign on by construction.
+ */
 export const CHAINS = [
   { id: 8453, name: "Base", network: "base", nativeSymbol: "ETH", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
   { id: 42161, name: "Arbitrum", network: "arbitrum", nativeSymbol: "ETH", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" },
+  { id: 10, name: "Optimism", network: "optimism", nativeSymbol: "ETH", usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85" },
+  { id: 137, name: "Polygon", network: "polygon", nativeSymbol: "POL", usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359" },
   { id: 43114, name: "Avalanche", network: "avalanche", nativeSymbol: "AVAX", usdc: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E" },
+  { id: 1, name: "Ethereum", network: "ethereum", nativeSymbol: "ETH", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
 ] as const;
+
+/**
+ * Where it lands. Lighter watches a handful of chains for intent deposits and
+ * Base is the cheapest of them, so everything is routed there whatever it
+ * started as.
+ */
+export const LANDS_ON = CHAINS[0];
 
 /** The native coin of a chain, as Relay spells it. */
 export const NATIVE = "0x0000000000000000000000000000000000000000";
@@ -85,7 +102,7 @@ export class Deposits {
    * wallet signs and rounding it here would be rounding somebody's money.
    */
   async quote(opts: { address: string; fromChain: number; token: string; amount: string; toChain?: number; usdc?: string }): Promise<Quote | null> {
-    const to = CHAINS.find((c) => c.id === (opts.toChain ?? 8453)) ?? CHAINS[0];
+    const to = CHAINS.find((c) => c.id === (opts.toChain ?? LANDS_ON.id)) ?? LANDS_ON;
     const intent = await this.intentAddress(opts.address, to.id);
     if (!intent) return null;
 

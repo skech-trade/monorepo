@@ -44,8 +44,15 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   Lighter hands out an address that credits your perp account and makes one if
   you have none; Relay turns what you hold into USDC on a chain Lighter
   watches and sends it there. Neither needs a key.
+- Six chains: Base, Arbitrum, Optimism, Polygon, Avalanche and Ethereum, each
+  with its own mark, USDC or the chain's own coin. The limit is not Relay,
+  which bridges from almost anywhere, but what a Coinbase wallet can sign on.
 - Measured: 0.01 ETH on Arbitrum becomes $25.71 on Lighter, one step, two
-  seconds, nine cents. USDC already on Base is free and arrives at once.
+  seconds, nine cents. 25 USDC on Polygon becomes $24.97 in two. USDC already
+  on Base is free and arrives at once.
+- Chain and token marks are drawn in the app rather than fetched: an icon that
+  arrives over the network is a request on every load and a blank square while
+  it lands.
 - The sheet prices the route before anything is signed, so what lands is a
   number you saw rather than one you find out afterwards. The button says the
   figure: "Add $25.71".
