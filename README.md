@@ -53,8 +53,20 @@ PORT=3000 bun run dev:landing
 `typecheck` relies on the route types Next generates, so run `bun run build`
 (or `bun run dev`) at least once in a fresh checkout before it will pass.
 
+## Docs
+
+| Doc | What it covers |
+| --- | --- |
+| [docs/TRADING.md](docs/TRADING.md) | how a drawn line becomes a real position, and the guards that must not be removed |
+| [docs/TESTNET.md](docs/TESTNET.md) | what is real on testnet, what cannot follow it there, and how to switch |
+| [docs/LIGHTER-VERIFIED.md](docs/LIGHTER-VERIFIED.md) | what was read off the live venue rather than a spec |
+| [docs/CDP-SETUP.md](docs/CDP-SETUP.md) | Coinbase embedded wallets, and the portal page with three names |
+| [docs/VERCEL.md](docs/VERCEL.md) | the env the app needs, and the three things that are not env |
+
 ## Adding a workspace
 
-Anything dropped in `ui/` is picked up automatically. For a shared package
-(e.g. a component library), add its glob to `workspaces` in the root
-`package.json` and depend on it as `"@skech/<name>": "workspace:*"`.
+Anything dropped in `ui/`, `services/` or `packages/` is picked up
+automatically. Depend on one as `"@skech/<name>": "workspace:*"`.
+`packages/core` is the example: the drawn-shape model and the venue's numbers,
+imported by both the browser and the trader so they cannot disagree about what
+a line means.
