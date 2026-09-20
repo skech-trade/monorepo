@@ -40,6 +40,14 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   laptop. Ours were 36, made for a mouse.
 - The header is one row: the market and its price. It fills the width at
   390px, which is why nothing else was put in it.
+- Edge to edge: bar, content, footer, the shape a phone app has. The margin,
+  border and rounded corners are how a panel sits on a desk among other
+  panels; on a phone there is nothing to sit among, and the inset only took
+  eight pixels off each side of the chart to put a hairline where the screen
+  edge already is. The desk keeps its card.
+- The app bar is 56px on a phone. Forty-four pixel buttons in a forty-eight
+  pixel bar left two pixels top and bottom, and the toggle and Sign in were
+  forty-four and forty, so nothing in it lined up.
 - The stop loss and take profit open out in the drawer: a switch, and the
   wheel under it once it is on. As chips they hid the wheel in a popover, and
   a popover inside a drawer portals itself outside the drawer, so the first

@@ -75,7 +75,15 @@ export function AppBar({ account }: { account: Account }) {
   const funded = perp !== null && perp.accountIndex !== null;
   return (
     <>
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-3">
+    {/*
+      Taller on a phone, because the things in it are now thumb-sized.
+
+      Forty-four pixel buttons in a forty-eight pixel bar leave two pixels top
+      and bottom: they read as jammed in, and next to each other they were
+      forty-four and forty, so nothing lined up. Fifty-six is what a phone
+      header is on both platforms, and it is unchanged on a desk.
+    */}
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 sm:h-12 sm:gap-3">
       <Link aria-label="skech home" className="shrink-0 transition-opacity hover:opacity-70" href="/app">
         <Wordmark />
       </Link>
@@ -121,10 +129,13 @@ export function AppBar({ account }: { account: Account }) {
           <MenuTrigger
             render={<Button aria-label="Your account" className="rounded-full p-0" size="icon" variant="outline" />}
           >
-            <Avatar className="size-7">
+            {/* Scales with the button it sits in, which is bigger on a
+                phone. Left at seven it was a small disc adrift in a large
+                circle. */}
+            <Avatar className="size-8 sm:size-7">
               <AvatarImage alt="" src={AVATAR} />
               <AvatarFallback>
-                <UserIcon className="size-3.5" />
+                <UserIcon className="size-4 sm:size-3.5" />
               </AvatarFallback>
             </Avatar>
           </MenuTrigger>

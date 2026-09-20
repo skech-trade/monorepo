@@ -649,7 +649,20 @@ export function DrawScreen({ market }: { market: Market }) {
   );
 
   return (
-    <section aria-label="Draw" className="m-2 flex min-h-[24rem] flex-1 flex-col overflow-hidden rounded-2xl border bg-background">
+    /*
+      Edge to edge on a phone, a card on a desk.
+
+      The margin, the border and the rounded corners are how a panel sits on a
+      desk among other panels. On a phone there is nothing to sit among: it is
+      the whole screen, and the inset only takes eight pixels off each side of
+      the chart and puts a hairline where the screen edge already is. So the
+      phone gets the plain three-part shape a phone app has, bar, content,
+      footer, and the desk keeps its card.
+    */
+    <section
+      aria-label="Draw"
+      className="flex min-h-[24rem] flex-1 flex-col overflow-hidden border-0 bg-background sm:m-2 sm:rounded-2xl sm:border"
+    >
       {/* Market on the left; exits, size, boost and the button hard right, on the chart's own header. */}
       <div className="flex flex-wrap items-center gap-1.5 border-b px-2 py-2 sm:gap-2 sm:px-3">
         {/* The day comes from the venue when there is one; the mock's own
@@ -664,7 +677,9 @@ export function DrawScreen({ market }: { market: Market }) {
         />
         {phone ? null : <div className="ml-auto">{controls}</div>}
       </div>
-      <div className="flex min-h-0 flex-1 gap-2 px-2 pt-2">
+      {/* The chart runs to the edges on a phone: there is no panel beside it
+          for the gutter to separate it from. */}
+      <div className="flex min-h-0 flex-1 gap-2 sm:px-2 sm:pt-2">
         {/* Always present. What it holds changes with the phase; the chart
             settings are in it whatever is happening to the money. */}
         <div className="hidden sm:block">
