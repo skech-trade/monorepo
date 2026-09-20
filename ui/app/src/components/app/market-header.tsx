@@ -158,15 +158,20 @@ export function MarketHeader({ market, className }: { market: Market; className?
             between the logo and the way in, and a price that refuses to give
             ground pushes both off the screen. */}
         <span className="flex min-w-0 items-baseline gap-2 sm:block">
-          <span className="flex min-w-0 items-center gap-1 font-medium text-sm leading-none sm:text-base">
-            {/* The mark says which market on a phone, and the price is the
-                number somebody is here for, so the name gives up the room
-                rather than both of them ending in an ellipsis. */}
-            <span className="truncate max-sm:hidden">{market.name}</span>
-            {/* After the name on a desk, where the name is what opens. On a
-                phone the name is not drawn, so it would sit against the mark
-                and point at nothing; it goes after the price instead. */}
-            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
+          {/*
+            The name and the chevron that opens on it, on a desk only.
+
+            Hidden as a pair rather than one at a time: an empty span still
+            takes a gap from the row it is in, so the mark and the price sat
+            two gaps apart while everything after them sat one.
+
+            The mark says which market on a phone, and the price is the number
+            somebody is here for, so the name is what gives up the room rather
+            than both of them ending in an ellipsis.
+          */}
+          <span className="flex min-w-0 items-center gap-1 font-medium text-sm leading-none max-sm:hidden sm:text-base">
+            <span className="truncate">{market.name}</span>
+            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
           </span>
           <span className="flex min-w-0 items-baseline gap-2 sm:mt-1">
             <span className="figures truncate font-semibold text-base sm:text-xl">${fmtPrice(market.price)}</span>
