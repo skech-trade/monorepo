@@ -3,26 +3,16 @@
 import { usd } from "@/lib/market";
 import { cn } from "@/lib/utils";
 
-/**
- * How hard, as a meter you can set. One notch per step, every notch the same
- * width, the scale written at each end and what you have picked between them.
- *
- * The lit run used to be stretched to half the track however few notches were
- * lit, so the figures under it would have room. That bought the room by lying
- * about the reading: at 10× of 50 the first six notches sat visibly wider than
- * the last six, and a meter whose divisions are uneven is not a meter. The
- * figures went under the track instead, where there is room for them anyway.
- */
+/** A meter: one notch per step at even widths, the scale at each end, the reading under the track. */
 
 /* Up to 50, because that is what the venue gives you. On a market that moves
    six dollars a second, ten times your money on a twenty-four second round is
-   a rounding error — the leverage is what makes a drawn line worth drawing. */
-export const DRAW_STEPS = [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50];
+   a rounding error, the leverage is what makes a drawn line worth drawing. */
 /** Up to 100×, the notches a desk trader reaches for. */
 export const DESK_STEPS = [1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50, 75, 100];
 
 /** The step nearest a value, so a preset off the notches still lights one. */
-export function nearestStep(steps: number[], value: number): number {
+function nearestStep(steps: number[], value: number): number {
   return steps.reduce((best, s) => (Math.abs(s - value) < Math.abs(best - value) ? s : best), steps[0]);
 }
 
@@ -45,16 +35,7 @@ export function LeverageMeter({
   const n = steps.length;
   const idx = steps.indexOf(nearestStep(steps, value));
   const max = steps[n - 1];
-  /*
-    Filled in proportion to the multiple, not to the notch.
-
-    One notch per step lit six of twelve at 10x of 50 — half the track for a
-    fifth of the leverage, because the steps are not evenly spaced and the bar
-    was counting them rather than measuring them. A meter that reads "half" at
-    a fifth is worse than no meter. The fill is value/max, the notches are
-    ticks sitting at their own place along it, and 10x of 50 looks like 10x of
-    50.
-  */
+  /* Fill is value/max and the notches are ticks along it, so 10× of 50 reads as a fifth. */
   const at = (v: number) => (v / max) * 100;
 
   const pick = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -91,17 +72,8 @@ export function LeverageMeter({
       >
         <div className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-150" style={{ width: `${at(value)}%` }} />
         {/*
-          A handle, because this is a thing you drag.
-
-          It was a row of dots along the track, which is a picture of a scale
-          and not a control: nothing about it said grab here, and the dots sat
-          at the steps rather than at the reading. The handle sits where the
-          fill ends, and the little shove of half its own width keeps it inside
-          the track at either end instead of hanging off.
-
-          Background rather than white, because the fill is near-black in the
-          light theme and near-white in the dark one, and only a handle that
-          flips with the page stays visible on both.
+          A handle at the fill's end, shoved half its width inside the track; background colour so
+          it flips with the theme.
         */}
         <span aria-hidden="true" className="pointer-events-none absolute inset-x-3 inset-y-0">
           <span

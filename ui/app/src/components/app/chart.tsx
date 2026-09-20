@@ -41,29 +41,9 @@ import {
 } from "@/lib/theme";
 
 /**
- * The price chart.
- *
- * This was ~470 lines of hand-drawn SVG. It drew a good candle, and it was the
- * right call while the screen only had to *show* a price: every colour was a
- * CSS variable, so it followed the theme for free, and dragging a level was
- * native.
- *
- * It is lightweight-charts now, because pro mode asks for pan, zoom,
- * scrollback, a log scale, four series types, a volume histogram and panes of
- * indicators — and each of those is a week of getting edge cases wrong.
- * TradingView have already got them right, it is Apache-2.0, and its only
- * dependency is their own canvas shim.
- *
- * Two things the library does not give us, both handled below:
- *
- *   Colour. A canvas takes strings, so the palette is read out of CSS once and
- *   re-read when the theme changes. `theme.ts` is the entire cost of the swap.
- *
- *   Draggable levels. `IPriceLine` is display-only — their API has
- *   `applyOptions` and `options` and nothing else. So the line is theirs and
- *   the grip is ours: an absolutely positioned strip whose `y` comes from
- *   `priceToCoordinate` on a rAF loop, written straight to the DOM so that
- *   panning does not re-render React sixty times a second.
+ * lightweight-charts (Apache-2.0) for pan, zoom, log scale, series types, volume and study panes.
+ * Two gaps handled here: colours are read from CSS through theme.ts, and draggable levels are ours,
+ * a positioned grip whose y comes from priceToCoordinate on a rAF loop written straight to the DOM.
  */
 
 export type ChartKind = "candles" | "bars" | "line" | "area";
@@ -131,7 +111,7 @@ export function PriceChart({
   fitToken: number;
   /** Folds a study pane away from the pane itself, not just the toolbar. */
   onCloseStudy?: (study: Study) => void;
-  /** The OHLC readout on hover. Desk only — see the note where it renders. */
+  /** The OHLC readout on hover. Desk only, see the note where it renders. */
   legend?: boolean;
   className?: string;
 }) {
@@ -143,7 +123,7 @@ export function PriceChart({
   const [legend, setLegend] = useState<Candle | null>(null);
 
   // Null through the server render and through hydration, then the real values
-  // — which is also what keeps the canvas out of the server render entirely.
+  //, which is also what keeps the canvas out of the server render entirely.
   const palette = useSyncExternalStore(
     subscribePalette,
     paletteSnapshot,
@@ -159,13 +139,8 @@ export function PriceChart({
   }, [levels]);
 
   /**
-   * The EMA values, keyed by bar time.
-   *
-   * The library will print a series title on the price axis — that is the
-   * coloured "EMA 25" plate every terminal has stacked up the right-hand edge.
-   * Ours go in the legend instead, next to the OHLC they belong with, so the
-   * axis stays a scale. A lookup table rather than series references because
-   * the legend only ever needs one bar's worth.
+   * EMA values by bar time, for the legend; series titles on the axis would stack plates up the
+   * right edge.
    */
   const maValues = useMemo(
     () =>
@@ -243,14 +218,8 @@ export function PriceChart({
         borderVisible: true,
         minBarSpacing: 2,
         /**
-         * Fold a column away and the chart gets 240px wider. Without these the
-         * library keeps the bar spacing and extends the visible range past the
-         * first candle, so the space a folded panel gave back arrives as an
-         * empty strip on the left instead of as more chart.
-         *
-         * `lockVisibleTimeRangeOnResize` keeps the same bars in view and widens
-         * them; the two edges stop a pan or a pinch from finding that
-         * emptiness later.
+         * Fold a column and the chart gets 240px wider; these keep the same bars in view and widen
+         * them instead of showing an empty strip.
          */
         fixLeftEdge: true,
         lockVisibleTimeRangeOnResize: true,
@@ -281,27 +250,13 @@ export function PriceChart({
     };
 
     /**
-     * Their default prints 69000.00. Ours is the rule the rest of the screen
-     * uses, so the axis, the tags and the ticket all round a price the same
-     * way.
-     *
-     * On the series rather than on the chart: `localization.priceFormatter` is
-     * chart-wide, so it also reformats the volume pane's axis and labels a
-     * histogram in dollars and cents.
+     * Our price rule, on the series: a chart-wide `localization.priceFormatter` would also label
+     * the volume axis in dollars.
      */
     const priceFormat = {
       formatter: (value: number) => fmtPrice(value),
       minMove: 0.01,
-      /**
-       * At most ten labels, whatever the height.
-       *
-       * The library targets a fixed pixel gap between ticks, so a 600px pane —
-       * which is what Draw is — comes back with twenty-five of them and the
-       * axis reads as a ruler. There is no tick-count option; this hook hands
-       * over every value at once, so thinning is a modulo. The gridlines stay
-       * where they were: they are nearly invisible against the panel, and it
-       * is the column of figures that was shouting.
-       */
+      /** At most ten labels: the library targets a pixel gap and a 600px pane came back with twenty-five. */
       tickmarksFormatter: (values: readonly number[]) => {
         const every = Math.max(1, Math.ceil(values.length / 10));
         return values.map((value, i) =>
@@ -312,18 +267,8 @@ export function PriceChart({
     } as const;
 
     /**
-     * Keep the levels you can drag inside the band you can see.
-     *
-     * Autoscale looks at the series data and nothing else, so a stop dragged
-     * below the low leaves the chart, its grip pins to the edge, and the next
-     * drag starts from a price that is not where the pointer is. Extending the
-     * range here is what makes the grip and the line the same object.
-     *
-     * Capped at half the candle range on each side, and only for levels you
-     * can move. A liquidation at 10× sits about 9% away — roughly as far as a
-     * day of candles travels — so letting it in would halve the height of the
-     * thing the chart is for. It is drawn where it falls and left off the top
-     * or bottom if that is where it falls.
+     * Extend autoscale so a dragged level stays in view, capped at half the candle range and only
+     * for movable levels; a 10× liquidation sits 9% away and would halve the chart.
      */
     const autoscaleInfoProvider = (
       base: () => { priceRange: { minValue: number; maxValue: number } } | null,
@@ -558,16 +503,8 @@ export function PriceChart({
     }
 
     /**
-     * Pane heights, as stretch factors rather than pixels.
-     *
-     * `setHeight` is in the API and it is the wrong tool: setting an absolute
-     * height on three of four panes in the same tick collapses every pane to
-     * zero — verified, the canvases come back 1900×0 and the chart renders as
-     * an empty box with a time axis under it. Stretch factors are the
-     * proportional model the library actually lays panes out with.
-     *
-     * Four to one: the price keeps most of the room with one study open and
-     * still over half of it with three.
+     * Stretch factors, not `setHeight`: absolute heights on three panes in one tick collapsed every
+     * pane to zero. Four to one keeps price most of the room.
      */
     const panes = instance.panes();
     if (panes.length > 1) {
@@ -658,12 +595,8 @@ export function PriceChart({
   }, [levels, palette]);
 
   /**
-   * The grips.
-   *
-   * One strip per draggable level, positioned from the price scale every frame
-   * and written straight to `style.transform`. Going through React here would
-   * be a render per frame while panning, for an element whose only state is a
-   * number of pixels.
+   * One grip per draggable level, positioned every frame straight to `style.transform`; through
+   * React this would render sixty times a second while panning.
    */
   useEffect(() => {
     const layer = gripLayer.current;
@@ -674,12 +607,8 @@ export function PriceChart({
       frame = requestAnimationFrame(tick);
 
       /**
-       * Study labels, stacked down the panes.
-       *
-       * A pane knows its own height but not where it starts, so the offsets are
-       * accumulated: pane n begins below everything above it, plus a separator
-       * each. Same frame loop as the grips, and the same rule — only touch the
-       * DOM when the number actually changed.
+       * Study labels stacked down the panes; a pane knows its height but not its offset, so offsets
+       * accumulate.
        */
       const labels = studyLayer.current;
       const panes = chart.current?.panes() ?? [];
@@ -773,23 +702,8 @@ export function PriceChart({
       </div>
 
       {/*
-        One label per study pane, with its own fold.
-        
-        The toolbar can turn a study off, but the toolbar is a row of six words
-        at the top of the panel and the pane is 300px below it — so closing the
-        thing you are looking at means finding the word that matches it. The
-        label also names the pane, which nothing did before: a histogram with a
-        0-200 axis and no caption is a mystery until you hover it.
-        
-        A chevron rather than a cross: folded, the same chip stays at the foot
-        of the panel pointing the other way, so this is a drawer and not a
-        delete. A cross promises the label is going away with the pane.
-        
-        It points at the pane, not at the gesture. This chip sits on top of the
-        pane it closes, so down is where the thing it acts on is; the chip in
-        the tray sits under where the pane will reappear, so it points up. Read
-        as a disclosure triangle instead — expanded up, collapsed down — both
-        end up pointing away from the pane they are about.
+        One label per study pane with its own fold chevron: the toolbar word is 300px away and
+        nothing else named the pane. A chevron, not a cross: this is a drawer.
       */}
       <div
         className="pointer-events-none absolute inset-x-0 top-0 z-10"
@@ -812,12 +726,7 @@ export function PriceChart({
       {/* The readout, and only while a pointer is on the chart. xStream prints
           O H L C permanently in the corner, which is four figures nobody asked
           for sitting on top of the one picture the screen is about. */}
-      {/*
-        Desk only. "O H L C" is four letters that mean nothing until somebody
-        tells you, and Draw is the mode for the reader nobody has told. The
-        price is already at the top of the panel, which is the part of this a
-        person who has never traded was going to read anyway.
-      */}
+      {/* Desk only; OHLC means nothing to the reader Draw is for. */}
       {withLegend && legend ? (
         <div className="pointer-events-none absolute top-2 left-2 z-10 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-full border bg-popover px-3 py-1 text-xs shadow-xs/5">
           {(

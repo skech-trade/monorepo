@@ -24,12 +24,25 @@ against it.
 
 ```
 src/lib/           market.ts (mock data), indicators.ts, sketch.ts (the drawn
-                   line as a trade), theme.ts (tokens for the canvas), mode.ts
+                   line as a trade: legs, quote, settle, accuracy), theme.ts
+                   (tokens read back for canvases), share.ts (download, share
+                   sheet, clipboard, canvas recording), user.ts, mode.ts
 src/components/ui  coss/ui, fetched from https://coss.com/ui/r and owned here
-src/components/app the screen: app-bar, market-header, account-card, desk,
-                   chart (lightweight-charts), chart-toolbar, order-book,
-                   ticket, positions, controls, and draw/ for the Draw mode
+src/components/app the screen: app-bar, market-header, desk, chart
+                   (lightweight-charts), chart-toolbar, order-book, ticket,
+                   positions, controls, and draw/ for the Draw mode
+src/components/app/draw
+                   draw-screen (state and the feed), sketch-canvas (the SVG you
+                   draw on), draw-tools (rail and Shapes), place-ticket with
+                   draw-controls and exit-controls (the header row), sketch-tray
+                   (the bar under the chart), sketches (the Rounds sheet),
+                   round-card (one painter for the on-screen card, the PNG and
+                   the clip), round-copy (the sentences), clip-player
 ```
+
+One rule for the model: anything that judges a candle against the line lives
+in `sketch.ts` (`resample`, `lineAt`, `accuracyOf`) and the chart, the card
+and the score all call it, so they cannot disagree.
 
 ## Draw and Desk
 
@@ -37,9 +50,10 @@ src/components/app the screen: app-bar, market-header, account-card, desk,
 along its foot. Drag a line into the empty half, the bar reads it as where
 you're aiming and where you're out, quotes "if it gets there" and "the most
 you can lose" at the stake and leverage you pick, and one button draws it in.
-Points is the default tool: click to place. Pen, Undo, Clear and a Shapes
-menu sit in a rail on the chart; every point is a handle. It plays out against a simulated feed and settles on the
-rule it was quoted on, for as many minutes as the line is long, then the
+Points is the default tool: click to place. Undo, Clear and a Shapes menu sit
+in a rail on the chart; every point is a handle. It plays out against a
+simulated feed and settles on the rule it was quoted on, for as many seconds
+as the line is long, then the
 Rounds sheet opens with the round drawn back: Replay, Picture (PNG), Clip
 (MP4 or WebM) and Post on X, all done in the browser with no keys. Every
 round is kept there. **Desk** is the terminal: chart with

@@ -14,10 +14,7 @@ import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
 import { lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
-/**
- * The chart you draw on. Our own SVG, sized to its box in pixels. History on
- * the left, the future on the right, "now" between them.
- */
+/** The chart you draw on: our own SVG, history left, future right, now between them. */
 
 export type Phase = "live" | "drawing" | "drawn" | "running" | "settled";
 export type Band = { lo: number; hi: number };
@@ -146,10 +143,7 @@ export function SketchCanvas({
   editableFrom: number;
   /** What the line is worth where it ends, shown at the head while drawing. */
   headLabel?: string | null;
-  /**
-   * How much future the right half shows, in seconds. Not the round's length:
-   * the round is free to grow past it and arrive as the chart scrolls.
-   */
+  /** How much future the right half shows, in seconds. The round may grow past it. */
   horizonSeconds: number;
   /** Your last line, faint, so you notice your habits. */
   ghost: Pt[] | null;
@@ -166,23 +160,15 @@ export function SketchCanvas({
   const [pushing, setPushing] = useState(false);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   /**
-   * How the chart is being looked at. Display only: zoom and pan move the eye,
-   * never the orders. `anchor` is the candle held on the split, and null means
-   * hold the live one — which is all that following is.
+   * How the chart is looked at. Display only. `anchor` is the candle held on the split; null
+   * follows the live one.
    */
   const [view, setView] = useState<{ zoom: number; anchor: number | null }>({ zoom: 1, anchor: null });
   /** The view being dragged, from where it was grabbed. */
   const pan = useRef<{ x: number; anchor: number; moved: boolean } | null>(null);
   /*
-    A new line starts on a fresh view.
-
-    Pan and zoom belong to the round they were looking at. An anchor is a
-    candle number, and the next round's candles start again at zero — so a view
-    parked eighty candles into a finished round puts the new one somewhere off
-    the left of the screen, and you get an empty chart with an axis reading
-    +113m and no way to tell what went wrong. Adjusting state during render is
-    the documented way to reset on a changing prop, and unlike an effect it
-    leaves nothing stale on screen for a frame.
+    A new line starts on a fresh view: anchors are candle numbers and the next round starts at zero.
+    Reset during render so nothing stale paints.
   */
   const [seenPhase, setSeenPhase] = useState(phase);
 
@@ -196,24 +182,11 @@ export function SketchCanvas({
   const priceAtY = (yy: number) => band.hi - ((yy - plotT) / (plotB - plotT)) * span;
 
   /**
-   * The picture slides left as the round runs.
-   *
-   * Bars are a fixed width and "now" is pinned to the split, so every candle
-   * that arrives pushes the whole chart — the history, the run so far, your
-   * line — one bar to the left, and a bar of fresh canvas appears on the right.
-   * That canvas is the point of this: it is room to draw into, and drawing into
-   * it is how the round gets longer. The right half is always `horizonSeconds`
-   * ahead of now, whatever length the round itself has grown to.
-   *
-   * It did not move before. The round's end sat on the right edge and stayed
-   * there while the candles walked up to it, so the future you could still
-   * trade shrank to nothing and the only way out of a line you had outgrown was
-   * to close the position.
+   * Bars have a fixed width and now is pinned to the split, so each candle slides the picture left
+   * and opens a bar of canvas on the right. The right half is always `horizonSeconds` ahead.
    */
-  // Settled, the round is over and all of it is behind now, so widen the bars
-  // just enough that its first candle clears the left edge. Only when it has
-  // to: a round that never outgrew the window keeps the window's own scale, and
-  // the picture does not lurch at the moment it finishes.
+  // Settled, widen the bars just enough that the first candle clears the left edge; a round that
+  // fit keeps its scale.
   const fit = phase === "settled" ? (runBars * (plotR - split)) / Math.max(1, split - plotL) : 0;
   const VIEW = Math.max(1, horizonSeconds, fit);
   const baseStep = (plotR - split) / VIEW;
@@ -229,12 +202,7 @@ export function SketchCanvas({
   const tOfX = (x: number) => barOfX(x) / runBars;
   /** Where now actually is: the split, until you pan away from it. */
   const xNow = xOfBar(elapsed);
-  /*
-    A bar is a second, so the axis counts in seconds and only says minutes once
-    it would otherwise be reading "+124s". It said "+24m" on a round that
-    finished in twelve seconds, which is the sort of thing a reader notices and
-    then stops trusting the rest of the numbers.
-  */
+  /* Seconds until the axis would read past 120s, then minutes. */
   const label = (bars: number) => {
     const s = Math.round(bars);
     if (Math.abs(s) < 90) return `${s > 0 ? "+" : ""}${s}s`;
@@ -244,15 +212,11 @@ export function SketchCanvas({
   /** Held where there is something to see, as the reference clamps its own. */
   const holdAnchor = (a: number) => Math.min(Math.max(a, -feed.length), Math.max(runBars, elapsed) + VIEW);
 
-  /*
-    Zoom and pan, as the reference has them — and with its rule, which is worth
-    keeping verbatim: they change the view only, orders never move. The factor
-    is on the span, so a bigger number is further out.
-  */
+  /* Zoom and pan change the view only; orders never move. The factor is on the span. */
   const zoomTime = (spanFactor: number, px?: number) => {
     setView((v) => {
       const z = Math.min(8, Math.max(0.15, v.zoom / spanFactor));
-      // Held about the place under the pointer — but only when the view is
+      // Held about the place under the pointer, but only when the view is
       // yours. Following re-centres on the next candle regardless, so pinning
       // it to the cursor as well would just fight itself.
       if (v.anchor === null || px === undefined) return { ...v, zoom: z };
@@ -270,16 +234,7 @@ export function SketchCanvas({
   /** Where the pen is held while it draws: the middle of the plot. */
   const pivot = (plotL + plotR) / 2;
 
-  /*
-    The finished plan, framed.
-
-    Letting go used to hand the round back at its own scale, which put its last
-    point exactly on the right edge with nothing after it — the line looked cut
-    off rather than finished, and there was nowhere for the eye to land. It sits
-    across the middle sixty percent now: history still readable to the left, a
-    tenth of the plot as air on the right, and the whole of what you drew
-    between them.
-  */
+  /* The finished plan sits across the middle sixty percent, with a tenth of air on the right. */
   const framePlan = () => {
     const width = plotR - plotL;
     const x0 = plotL + width * 0.3;
@@ -290,16 +245,12 @@ export function SketchCanvas({
 
   if (seenPhase !== phase) {
     setSeenPhase(phase);
-    /*
-      A fresh line and a started round both want the live candle back on the
-      split. A finished one wants framing: the pen may have run the view a long
-      way ahead of now, and the plan is the thing to look at.
-    */
+    /* Fresh line or started round: live candle back on the split. Finished: frame the plan. */
     if (phase === "live" || phase === "running") setView({ zoom: 1, anchor: null });
     else if (phase === "drawn") setView(framePlan());
   }
   const reset = () => setView({ zoom: 1, anchor: null });
-  // Points can still be placed while it runs — ahead of the candles, never behind.
+  // Points can still be placed while it runs, ahead of the candles, never behind.
   const canDraw = phase === "live" || phase === "drawn" || phase === "running";
 
   const local = (e: ReactPointerEvent) => {
@@ -307,14 +258,8 @@ export function SketchCanvas({
     if (!r) return null;
     const x = Math.min(plotR, Math.max(xNow, e.clientX - r.left));
     /*
-      Across, the pen is penned in: you cannot draw before now, and the right
-      edge is where the chart runs forward to make room.
-
-      Up and down it is not. Clamping the price to the band meant the top of
-      the plot was the highest call you were allowed to make — draw at the
-      ceiling and the line flattened along it, and the band never learned you
-      had wanted to go higher, because the clamp had already thrown that away.
-      The reading is taken wherever the hand is and the scale opens to meet it.
+      Time is clamped to now and the right edge; price is not, so the scale can open to a hand
+      drawing at the ceiling.
     */
     return { t: tOfX(x), price: priceAtY(e.clientY - r.top) };
   };
@@ -331,31 +276,14 @@ export function SketchCanvas({
 
   const onDown = (e: ReactPointerEvent) => {
     /*
-      A press that is dismissing a panel is not a press on the chart.
-
-      The chart is the drawing surface, so the click that closed a popover
-      landed here and started a line — which made every one of those panels a
-      thing you could open and not get out of without drawing something. The
-      panel is closing on this same press; the chart sits it out.
-
-      Asked of the trigger rather than the panel. The panel stays in the
-      document after it shuts, so "is one present" is true for the rest of the
-      session once any has been opened — a guard that would have quietly
-      stopped the screen drawing at all. `aria-expanded` is the button's own
-      account of whether its thing is open, it is a contract rather than an
-      implementation detail, and it flips the instant the panel does.
+      A press that dismisses a popover is not a press on the chart. Asked of the trigger's
+      aria-expanded, not the panel, which stays in the DOM after it shuts.
     */
     if (typeof document !== "undefined" && document.querySelector('[aria-expanded="true"]')) return;
     const r = box.current?.getBoundingClientRect();
     if (!r) return;
     const px = e.clientX - r.left;
-    /*
-      One surface, two gestures, divided where now is.
-
-      The past is for looking at, so dragging it moves the view; the future is
-      for drawing in, so dragging that draws. Nobody has to find a tool for it,
-      and there is no mode to be in the wrong one of.
-    */
+    /* Left of now drags the view; right of now draws. */
     if (!canDraw || px < xNow) {
       e.currentTarget.setPointerCapture(e.pointerId);
       pan.current = { x: px, anchor, moved: false };
@@ -421,7 +349,7 @@ export function SketchCanvas({
     return () => el.removeEventListener("touchmove", block);
   }, []);
 
-  /* Scroll to zoom time, as the reference does — attached by hand because it
+  /* Scroll to zoom time, as the reference does, attached by hand because it
      has to call preventDefault, and React's own wheel listener is passive. */
   const wheel = useRef(zoomTime);
   useEffect(() => {
@@ -447,18 +375,9 @@ export function SketchCanvas({
   });
 
   /**
-   * Held against the edge, the canvas opens.
-   *
-   * On a clock rather than on pointer moves, because holding the pen still is
-   * exactly how someone asks for more room and a still pointer fires no moves
-   * at all — which is why it stopped expanding the moment you stopped wiggling.
-   * Frame by frame, by however much time has actually passed, so the speed is
-   * the same on any machine.
-   *
-   * The head is pushed back to the end on every frame too. Growing the round
-   * shrinks every point's share of it, including the one under your finger, so
-   * without this the line would shrink away from the edge you are pressing
-   * against instead of drawing on into the room it just made.
+   * Held against the edge the canvas opens, on a clock by elapsed time (a still pointer fires no
+   * moves). The head is pushed back to the end each frame so the line does not shrink away from the
+   * edge.
    */
   useEffect(() => {
     if (!pushing) return;
@@ -472,17 +391,8 @@ export function SketchCanvas({
       const here = at.current;
       if (!here) return;
       /*
-        The pen leads and the chart follows, on a clock and at a capped speed.
-
-        Past the middle of the plot the view runs forward to bring the tip back
-        to it, but never faster than PAN_BARS candles a second. It used to do
-        this from the move handler, by the whole overshoot, every event: several
-        pointer moves land between two renders, each one reads a tip that has
-        not been brought back yet, and each adds the full correction again. Ten
-        moves across a third of the screen ran the view a hundred and ten
-        candles forward and took the round to its ceiling. A clock cannot
-        compound — it advances by elapsed time, whatever the browser does with
-        the events.
+        The view runs forward to bring the tip back to the middle, at most PAN_BARS a second, on a
+        clock so pointer moves cannot compound the correction.
       */
       const over = (here.x - now.current.pivot) / now.current.step;
       if (over > 0) now.current.advance(Math.min(over, seconds * PAN_BARS));
@@ -505,27 +415,9 @@ export function SketchCanvas({
     })),
   );
 
-  /*
-    The live price, and nothing else.
-
-    There were two more rules here — "aiming" where the line ends up and "out"
-    at the far side — and they described exits this product does not have. A
-    drawn line is not a target you get taken out at and not a stop you get
-    stopped at; the only thing that closes a position here is running out of
-    money. Two coloured levels promising otherwise were answering a question
-    nobody had asked, in the one place the reader is trying to read their own
-    line.
-  */
+  /* The live price only. Aiming and out levels described exits this product does not have. */
   const tags: TagSpec[] = [{ key: "now", price, y: y(price) }];
-  /*
-    The crosshair, unless it is standing on the price.
-
-    Two dashed rules a few pixels apart, each with a plate reading a price
-    within a few dollars of the other, is one line as far as a reader is
-    concerned — and they will spend a moment working out which is which every
-    time. Near the live price the crosshair has nothing to add, so it gets out
-    of the way and the price keeps its own rule.
-  */
+  /* The crosshair steps aside near the live price; two plates a few dollars apart read as one. */
   const onPrice = !!hover && Math.abs(hover.y - y(price)) < 14;
   const crosshair = hover && !drawing && !onPrice;
   if (crosshair) tags.push({ key: "hover", price: priceAtY(hover.y), y: hover.y, tone: "probe" });
@@ -558,11 +450,10 @@ export function SketchCanvas({
               </text>
             </>
           ) : null}
-          {/* Minutes from now, read off the axis itself rather than assumed, so
-              they stay true however far you have zoomed or panned — and laid
-              across the whole plot rather than the half ahead of now, because
-              panning back into the history used to take now off the screen and
-              the entire axis with it. Behind now they simply read negative. */}
+          {/*
+            Read off the axis so labels stay true under zoom and pan, across the whole plot; behind
+            now they read negative.
+          */}
           {[0.2, 0.4, 0.6, 0.8, 1].map((f) => {
             const x = plotL + f * (plotR - plotL);
             if (Math.abs(x - xNow) < 34) return null;
@@ -591,7 +482,7 @@ export function SketchCanvas({
           ) : null}
           <line stroke="var(--muted-foreground)" strokeDasharray="3 4" strokeOpacity="0.5" x1={plotL} x2={plotR} y1={y(price)} y2={y(price)} />
 
-          {/* How far the round has run — behind now, because now has moved. */}
+          {/* How far the round has run, behind now, because now has moved. */}
           {run.length > 0 ? (
             <line stroke="var(--brand)" strokeWidth="2" x1={Math.max(plotL, xOfT(0))} x2={Math.min(plotR, xNow)} y1={plotB + 1} y2={plotB + 1} />
           ) : null}
@@ -608,12 +499,10 @@ export function SketchCanvas({
             />
           ) : null}
 
-          {/* One axis for both. History used to be squeezed to fit the left
-              half at its own bar width, which is fine while nothing moves and
-              impossible once it scrolls: the run's candles cross the split and
-              have to land among bars the same size as themselves. So history is
-              laid out in the same units, running back from the round's start,
-              and falls off the left edge as the round goes on. */}
+          {/*
+            History in the same units as the run, running back from the round's start, so scrolling
+            candles land among bars their own size.
+          */}
           <CandleMarks bars={feed} body={Math.max(2, runStep * 0.6)} dim={hasLine} x={(i) => xOfBar(i - feed.length + 0.5)} y={y} />
           <CandleMarks bars={run} body={Math.max(2, runStep * 0.6)} x={(i) => xOfBar(i + 0.5)} y={y} />
 
@@ -626,18 +515,8 @@ export function SketchCanvas({
                   point: a turn is where one position ends and the next begins. */}
               <path d={legPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin="miter" strokeMiterlimit={2} strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
               {/*
-                Coloured by what each candle made, not by whether it landed in
-                the ribbon.
-
-                Inside is not the same as right. Hold a short while the price
-                edges up and the candle can sit well inside the band — the shape
-                was close — while the position loses money the whole way. Green
-                there said you were doing well at the moment you were not, which
-                is the worst thing a colour on this chart can do.
-
-                So: the direction the line is going at that moment is the
-                position you are in, the candle's own move is what the market
-                did, and the two multiplied is whether that minute paid.
+                Shaded by what each candle made (line direction times candle move), not by whether
+                it landed in the ribbon. Inside is not right.
               */}
               {run.map((candle, i) => {
                 const was = lineAt(shape.prices, i / runBars);
@@ -734,14 +613,7 @@ export function SketchCanvas({
         </svg>
       ) : null}
 
-      {/*
-        The eye, not the order book.
-
-        Zoom and pan are display only — nothing here moves a position, and the
-        chart says so by leaving the line exactly where it was. Following is a
-        toggle rather than a mode you fall out of silently: drag the past and it
-        turns itself off, press it and now comes back to the middle.
-      */}
+      {/* Zoom and pan move the eye only. Following turns itself off when you drag the past. */}
       {w > 0 ? (
         <div className="absolute right-2 bottom-7 flex items-center gap-0.5 rounded-xl border bg-card/85 p-0.5 backdrop-blur-sm [&_svg]:size-3.5">
           <Button aria-label="Pan earlier" className="size-7 rounded-lg" onClick={() => panTime(-1)} variant="ghost">
@@ -782,47 +654,25 @@ export function SketchCanvas({
       ) : null}
 
       {/*
-        Where it bought and where it sold.
-
-        Every turn on this line is a close and an open, so a turn the candles
-        have already reached is a trade that has already happened. The word says
-        which: the line leaves a trough going up, so that is a buy; it leaves a
-        peak going down, so that is a sell. Above the peaks and below the
-        troughs, out of the line's way.
-
-        Only behind the candles. Ahead of them these are still intentions, and
-        the handles you can drag say so already.
+        Buy and sell marks where a turn the candles have reached closes one position and opens the
+        next. Only behind the candles; ahead, the handles say it.
       */}
       {(phase === "running" || phase === "settled") && pts.length > 1
         ? plotted.map((p, i) => {
             const next = pts[i + 1];
-            // Once it has settled the whole round is behind us, so every turn
-            // is a trade that happened. `editableFrom` is zero then — it means
-            // "nothing is editable", not "nothing has happened" — and reading
-            // it as the boundary hid every mark the moment the round ended.
+            // Settled, the whole round is behind us; `editableFrom` is zero then and must not be
+            // read as the boundary.
             const behind = phase === "settled" ? 1 : editableFrom;
             if (!next || pts[i].t > behind) return null;
             const buy = next.price > pts[i].price;
-            /*
-              Only where the direction actually changes.
-
-              A bend in the middle of a rise is not a trade. Editing a handle
-              can leave two rising segments joined at a point — the compiler
-              reads that as one long, quite rightly, because nothing closes
-              there — but marking every point put a "Buy" on each of them, five
-              in a row up one hill, as though the position were being sold and
-              bought back at every kink. The first point is the entry; after
-              that a mark belongs only where the line turns round.
-            */
+            /* Only where direction changes: a bend inside a rise is one long. */
             const prev = pts[i - 1];
             if (prev && buy === pts[i].price > prev.price) return null;
             return (
               <span
                 className={cn(
-                  // Bordered in its own colour and set in the same size as the
-                  // price tags. These mark the two moments on the chart that
-                  // actually cost money; a 10px grey chip made them the
-                  // quietest thing on it.
+                  // Same plate as the price tags; a grey chip made the two moments that cost money
+                  // the quietest thing on the chart.
                   "pointer-events-none absolute -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 font-semibold text-xs leading-4 shadow-xs/5",
                   buy ? "border-up/40 text-up" : "border-down/40 text-down",
                 )}
@@ -846,20 +696,11 @@ export function SketchCanvas({
         </span>
       ) : null}
 
-      {/*
-        What it is worth, and only that.
-
-        A pill, like the one the line carries while you draw, because it is the
-        same kind of thing: a number attached to a place on the chart. It read
-        "−$0.08 inside" before — a running total with a verdict stapled to it on
-        whether the last candle landed in the ribbon. Two answers to two
-        different questions in one line, and only one of them is money. The
-        ribbon already says inside by colouring itself.
-      */}
+      {/* A pill with the money and only the money; the ribbon already says inside by colour. */}
       {phase === "running" && pnl !== null && run.length > 0 ? (
         <span
           className={cn(
-            // The same plate the price tags wear — a dark fill and a hairline —
+            // The same plate the price tags wear, a dark fill and a hairline , 
             // so the figure is what carries the colour. A solid green lozenge
             // shouted the sign twice and drowned the number doing it.
             "figures pointer-events-none absolute rounded-full border bg-popover px-2 py-0.5 font-semibold text-[11px] leading-4 shadow-xs/5",

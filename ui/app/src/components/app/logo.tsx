@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 /** The mark is a flat shape, painted as a mask in currentColor. */
-export function LogoMark({ className }: { className?: string }) {
+function LogoMark({ className }: { className?: string }) {
   return (
     <span
       aria-hidden="true"

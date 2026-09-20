@@ -11,10 +11,8 @@ const clock = (s: number) => {
 };
 
 /**
- * The clip, with the app's own controls under it instead of the browser's.
- * Play or pause by the button or by clicking the picture, drag the line to
- * scrub, and when it ends the button turns into a replay. Silent, so there
- * is no volume to show.
+ * The clip with the app's own controls: play or pause by the button or the picture, drag the line
+ * to scrub, replay when it ends. Silent, so no volume.
  */
 export function ClipPlayer({ src, className }: { src: string; className?: string }) {
   const video = useRef<HTMLVideoElement>(null);

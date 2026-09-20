@@ -60,16 +60,7 @@ export function AppBar({
       </InputGroup>
 
       <div className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
-        {/*
-          A reading, not a control.
-
-          This was a Button with no onClick — outline, hover state, focus ring
-          and all — which is a promise the header cannot keep: there is nothing
-          to press. A balance is a figure you glance at, so it is set as one.
-          The word "cash" goes with the chrome; Deposit is standing right next
-          to it saying what kind of money this is. The label stays for anyone
-          listening rather than looking.
-        */}
+        {/* A reading, not a control: a Button with no onClick promised a press. */}
         <span className="hidden items-center px-1 font-medium text-sm lg:inline-flex">
           <span className="sr-only">Cash balance: </span>
           <span className="figures">${usd(account.balance)}</span>

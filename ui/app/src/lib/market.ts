@@ -82,15 +82,8 @@ function hash(s: string) {
 // --- the market ------------------------------------------------------------
 
 /**
- * Bitcoin, and nothing else.
- *
- * One market at launch. The address is WBTC's on mainnet, because the route is
- * an address and that is the one people paste; the market is named BTC because
- * that is what the price is of.
- *
- * Adding a second market is a row in `KNOWN` plus its address in `LISTED` —
- * the screen already takes the market as a prop and formats to whatever
- * precision the price needs. Nothing below this line knows there is only one.
+ * One market: WBTC's mainnet address, named BTC. A second market is a row in `KNOWN` plus its
+ * address in `LISTED`.
  */
 const KNOWN: Record<string, { symbol: string; name: string; price: number }> = {
   "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599": {
@@ -101,24 +94,15 @@ const KNOWN: Record<string, { symbol: string; name: string; price: number }> = {
 };
 
 /**
- * The markets, in listing order.
- *
- * Checksummed, because that is the form a reader copies out of a block
- * explorer and the form that should appear in the URL bar. `KNOWN` is keyed
- * lowercase, so either spelling resolves.
+ * Listing order, checksummed as a block explorer prints it; `KNOWN` is keyed lowercase so either
+ * spelling resolves.
  */
 export const LISTED = ["0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"];
 
 /** The one market, for the redirects that have to name it. */
 export const DEFAULT_MARKET = LISTED[0];
 
-/**
- * `null` for an address that is not listed.
- *
- * Deliberately not a generated placeholder. An unknown address is either a
- * typo or a market we do not run, and inventing a ticker and a price for it
- * would make both look like a market we do.
- */
+/** Null, never a placeholder: an unknown address must not look like a market we run. */
 export function marketFor(address: string): Market | null {
   const base = KNOWN[address.toLowerCase()];
   if (!base) return null;
@@ -146,14 +130,7 @@ export function marketFor(address: string): Market | null {
 
 // --- the series ------------------------------------------------------------
 
-/**
- * `count` bars walking into the market's current price.
- *
- * Built backwards from the close so the last candle lands exactly on the price
- * in the header. A series generated forwards drifts, and then the chart's last
- * bar and the header disagree by a few percent, which is the single fastest
- * way to make a trading screen look fake.
- */
+/** Built backwards from the close so the last bar lands exactly on the header price. */
 export function candlesFor(
   market: Market,
   timeframe: Timeframe,
@@ -184,10 +161,7 @@ export function candlesFor(
     const o = closes[i];
     const c = closes[i + 1];
     const wick = (Math.max(o, c) - Math.min(o, c)) * (0.4 + rand() * 1.8) + o * vol * 0.35;
-    // Volume tracks the size of the move, the way it does in a real tape: a
-    // flat bar on heavy volume is a thing that happens, a 3% bar on nothing is
-    // not, and a histogram uncorrelated with the candles above it reads as
-    // noise drawn under the chart.
+    // Volume tracks the size of the move, as it does on a real tape.
     const move = Math.abs(c - o) / o;
     out.push({
       t: now - (count - 1 - i) * span,
@@ -201,35 +175,9 @@ export function candlesFor(
   return out;
 }
 
-/**
- * One step of the bar still forming.
- *
- * Draw runs on the fastest bar we have and the chart moves while you are
- * looking at it, because a plan drawn onto a frozen picture is a picture. The
- * step is small — four ticks a second at this size is a few dollars a minute on
- * Bitcoin, which is about what the real thing does on a quiet afternoon.
- *
- * The high and low only ever widen, the way a bar actually forms; the close is
- * the only part that can go back where it came from.
- */
-export function tickCandle(bar: Candle, step = 0.00012): Candle {
-  const c = bar.c * (1 + (Math.random() - 0.5) * 2 * step);
-  return {
-    ...bar,
-    c,
-    h: Math.max(bar.h, c),
-    l: Math.min(bar.l, c),
-    v: bar.v + Math.random() * 0.04,
-  };
-}
-
 // --- open positions --------------------------------------------------------
 
-/**
- * Two open positions, so the table is reviewable as a table rather than only
- * as an empty state. An address that hashes even gets one position instead of
- * two, and one in four gets none, which is enough variety to see all three.
- */
+/** Two open positions by default; some addresses get one or none, so all three states show. */
 export function positionsFor(market: Market): Position[] {
   const rand = mulberry32(hash(market.address) ^ 0x2545f491);
   const n = [2, 1, 2, 0][Math.floor(rand() * 4)];
@@ -261,15 +209,7 @@ export function positionsFor(market: Market): Position[] {
 
 // --- formatting ------------------------------------------------------------
 
-/**
- * How many decimals a price of this size deserves.
- *
- * One rule, applied everywhere, so the entry in the ticket, the axis on the
- * chart and the entry in the positions table all round the same way. Two
- * places for anything over a dollar; more as the number gets small, because
- * $0.0004 and $0.0009 are a factor of two apart and "$0.00" twice is not a
- * price.
- */
+/** One rounding rule everywhere: two places over a dollar, more as the price gets small. */
 export function priceDp(price: number): number {
   // Zero carries no precision, and asking it for seven decimal places is how
   // an axis ends up labelled "0.000000".
@@ -317,7 +257,7 @@ export function shortAddress(address: string): string {
 }
 
 /**
- * The wallet's collateral balance. Mock, like everything else here — it exists
+ * The wallet's collateral balance. Mock, like everything else here, it exists
  * so the percentage chips in the ticket have something to be a percentage of.
  */
 export const BALANCE = 12_480.55;
@@ -376,13 +316,8 @@ export type Account = {
 };
 
 /**
- * A resting book around the mark.
- *
- * The shape matters more than the numbers: size thins out as you walk away
- * from the touch, with the occasional wall, because a book with uniform size at
- * every level reads as a table rather than as a market. The spread is one tick
- * and the two sides are generated from the same seed so they stay plausible
- * against each other.
+ * Size thins away from the touch with the odd wall; both sides from one seed so they stay plausible
+ * together.
  */
 export function bookFor(market: Market, depth = 12): {
   bids: BookLevel[];
@@ -413,20 +348,8 @@ export function bookFor(market: Market, depth = 12): {
 }
 
 /**
- * The tape: recent prints, newest first.
- *
- * Two things that were wrong when this was a bag of random numbers, and both
- * were visible at a glance:
- *
- *   The times were not in order. The gap between prints was randomised *per
- *   print* and then multiplied by the index, so a later row could carry an
- *   earlier clock. Gaps accumulate now, which is what a tape is.
- *
- *   The colour did not agree with the price. On a real tape the colour is the
- *   aggressor — a buy lifted the offer, a sell hit the bid — so buys print at
- *   or above the mid and sells at or below it. Assigning the side by coin flip
- *   and the price by a separate coin flip produced a green print below a red
- *   one at a lower price, which reads as broken to anyone who has watched one.
+ * Newest first, with gaps accumulating so times stay ordered. Colour is the aggressor, so buys
+ * print at or above mid and sells at or below.
  */
 export function tradesFor(market: Market, count = 28): Trade[] {
   const rand = mulberry32(hash(market.address) ^ 0xc2b2ae35);

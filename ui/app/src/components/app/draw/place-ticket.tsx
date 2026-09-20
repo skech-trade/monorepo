@@ -10,13 +10,8 @@ import { ExitControls } from "./exit-controls";
 import type { Phase } from "./sketch-canvas";
 
 /**
- * Size, leverage, and the button that spends the money — hard right of the
- * chart's own header, across from the market it acts on.
- *
- * They sat along the bottom beside the prose explaining the line. Size and
- * leverage are not commentary: they decide what a press costs, so they belong
- * beside the press, and all three belong on the chart rather than in the row
- * that carries the wordmark and the account.
+ * Exits, size, boost and the button that spends the money, hard right of the chart's header, beside
+ * the press they price.
  */
 
 export function PlaceTicket({
@@ -51,27 +46,15 @@ export function PlaceTicket({
   className?: string;
 }) {
   /*
-    The note beside the button opens on hover, not on its own.
-
-    It used to open itself the moment a line was finished, and the next click
-    on the chart went to closing it instead of placing the second point. Every
-    line that was drawn by clicking lost a point that way. The bar under the
-    chart already answers "what does this cost me" the moment the pen lifts;
-    this note adds which way you are facing and what the boost turns the
-    stake into, for anyone who hovers to ask.
+    Opens on hover only. Opening itself when a line finished stole the next click on the chart, so
+    click-drawn lines lost their second point.
   */
 
   const settings = phase === "live" || phase === "drawing" || phase === "drawn";
   const long = shape?.long ?? true;
   /** There is a line, and it is finished. Until then the button is dim. */
   const ready = phase === "drawn" && shape !== null && quote !== null;
-  /*
-    One flex item, not two.
-
-    "Trade" and the rest were separate children of a button whose own layout
-    puts a gap between its children, and the non-breaking space between them
-    added a second one on top: "Trade   for $100", with a hole in it.
-  */
+  /* One flex item: as two children the button's own gap left a hole in "Trade for $100". */
   const label = (
     <span>
       Trade<span className="hidden sm:inline"> for ${usd(stake, 0)}</span>
@@ -99,22 +82,8 @@ export function PlaceTicket({
       ) : null}
 
       {/*
-        The button is always there, and dim until there is a line to send.
-
-        It appeared only once something had been drawn, so the row rearranged
-        itself under the reader's hand at the exact moment they were deciding
-        something — and until then nothing on screen said what the drawing was
-        for. Present and disabled says both: here is what happens next, and it
-        is not available yet.
-
-        One button, and it trades. It was two: a green button that opened a
-        ticket and a green button inside the ticket that sent it, so the first
-        press, the one that looked exactly like the thing to press, only
-        dismissed something. Blue rather than green or red, because those two
-        mean money up and money down everywhere else here and a control is not
-        a figure. The popup beside it holds nothing to click and says the one
-        thing not already on the row: which way you are facing, and what the
-        boost turns the stake into.
+        Always present and dim until there is a line, so the row does not rearrange under the hand.
+        Blue, because green and red mean money here.
       */}
       {settings ? (
         ready ? (

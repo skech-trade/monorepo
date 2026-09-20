@@ -14,7 +14,7 @@ import { DESK_STEPS, LeverageMeter } from "./leverage-meter";
 /* ---- the order ------------------------------------------------------------ */
 
 export type Side = "long" | "short";
-export type MarginMode = "cross" | "isolated";
+type MarginMode = "cross" | "isolated";
 
 export type Order = {
   side: Side;
@@ -33,7 +33,7 @@ export type Order = {
   postOnly: boolean;
 };
 
-export const LEVERAGE_PRESETS = [2, 5, 10, 25, 50, 100];
+const LEVERAGE_PRESETS = [2, 5, 10, 25, 50, 100];
 const TAKER_FEE = 0.0005;
 const MAKER_FEE = 0.0002;
 const MAINTENANCE = 0.9;
@@ -59,7 +59,7 @@ export function isResting(order: Order): boolean {
   return order.base === "limit";
 }
 
-export function entryPrice(order: Order, market: Market): number {
+function entryPrice(order: Order, market: Market): number {
   const limit = Number.parseFloat(order.limit);
   if (isResting(order) && Number.isFinite(limit) && limit > 0) return limit;
   return market.price;
@@ -359,8 +359,8 @@ export function Ticket({
       <div className="flex flex-col gap-3 border-t p-3">
         <div className="flex flex-col gap-1.5">
           <Stat label="Entry price" value={`$${fmtPrice(entry)}`} />
-          <Stat label="Wiped out at" tone="text-warning-foreground" value={notional > 0 ? `$${fmtPrice(liquidationPrice(order, market))}` : "—"} />
-          <Stat label="Margin used" value={pay > 0 ? `$${usd(pay)}` : "—"} />
+          <Stat label="Wiped out at" tone="text-warning-foreground" value={notional > 0 ? `$${fmtPrice(liquidationPrice(order, market))}` : "none"} />
+          <Stat label="Margin used" value={pay > 0 ? `$${usd(pay)}` : "none"} />
           <Stat label={maker ? "Fee (maker)" : "Fee (taker)"} value={`$${usd(fee)}`} />
         </div>
         {/* The one filled button on the desk, in the colour of the direction. */}

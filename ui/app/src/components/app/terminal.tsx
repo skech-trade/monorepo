@@ -9,13 +9,8 @@ import { DrawScreen } from "./draw/draw-screen";
 import { emptyOrder, type Order } from "./ticket";
 
 /**
- * The screen. Draw at the market's own address; Desk one segment further in.
- *
- * Which one you get is the URL rather than a toggle in the bar. Desk is the
- * full terminal — book, tape, ticket, margin — and putting it a press away
- * from a screen whose whole pitch is "draw a line" asked every newcomer to
- * rule it out before they had drawn anything. It is still there, in full, for
- * anyone who wants it and can be sent a link to it.
+ * Draw at the market's address, Desk one segment further in. The URL decides, not a toggle; the
+ * full terminal stays a link away.
  */
 export function Terminal({ market, positions, mode = "draw" }: { market: Market; positions: Position[]; mode?: Mode }) {
   const [blurred, setBlurred] = useState(false);

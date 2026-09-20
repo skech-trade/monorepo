@@ -11,21 +11,8 @@ import { cn } from "@/lib/utils";
 import { AmountWheel } from "./draw-controls";
 
 /**
- * Where to get out, in money.
- *
- * "Close it if I lose $50, close it if I make $70" is a sentence someone who
- * has never traded can say out loud and check afterwards. A stop at
- * $63,412.80 is the same instruction wearing a costume, and it asks a reader
- * to do arithmetic against a price they have not looked up.
- *
- * Off, each is a switch: the one control that reads as "not on" without
- * anybody having to work it out. On, the switch goes and the figure takes its
- * place, in the colour of what it does — red for the one that caps a loss,
- * green for the one that banks a gain. A switch sitting beside a number it is
- * not controlling is only a second thing to press.
- *
- * They sit left of size and boost, which are the other two figures you set
- * before a round. Same row, same chip, same wheel.
+ * Where to get out, in money: "close it if I lose $50" is a sentence a non-trader can check, and a
+ * price is the same instruction in a costume.
  */
 
 /** How far a take profit can be wound. No ceiling in the model; a wheel needs
@@ -55,16 +42,8 @@ function Exit({
   return (
     <Popover onOpenChange={setOpen} open={open}>
       {/*
-        Off, it is a switch: the one control that reads as "not on" without
-        anybody having to work it out. On, the switch goes and the figure takes
-        its place, in the colour of the thing it does — red for the one that
-        caps a loss, green for the one that banks a gain. A switch sitting next
-        to a number it is not controlling is just a second thing to press.
-
-        Either way the chip is the trigger, so pressing it opens the amount.
-        Winding that back to "Off" turns it off, and the switch comes back —
-        which is the same move Size and Boost already use, where the value is
-        the control and the wheel is how you change it.
+        Off: a switch. On: the figure, red for the loss cap, green for the gain. The chip is the
+        trigger either way.
       */}
       <PopoverTrigger
         render={
@@ -87,15 +66,7 @@ function Exit({
         {on ? (
           <>
             <span className={cn("figures font-medium", side === "lose" ? "text-down" : "text-up")}>${usd(value, 0)}</span>
-            {/*
-              A way out that is actually here.
-
-              Turning one off used to mean opening the wheel and landing it on
-              "Off" — a drag onto a row that did not respond to being pressed.
-              Every venue that has this puts a clear next to the value, so this
-              does too: the cross turns it off, the rest of the chip opens the
-              amount.
-            */}
+            {/* A cross turns it off, as every venue does; the rest of the chip opens the amount. */}
             <span
               aria-label={`Turn off ${label.toLowerCase()}`}
               className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-background hover:text-foreground [&_svg]:size-3"

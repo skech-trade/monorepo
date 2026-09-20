@@ -6,12 +6,7 @@ import { legPath } from "@/lib/sketch";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 
-/**
- * One way to put a line down, and two ways to take it back.
- *
- * Points is a click per turn: every point is a handle you can move or remove,
- * before and while it plays out. Shapes are eight common calls, one press each.
- */
+/** Points: a click per turn, every point a handle. Shapes: eight common calls, one press each. */
 
 export type Preset =
   | "dip-rip"
@@ -83,24 +78,9 @@ export function DrawTools({
   /** Curve between the points, or straight legs. */
 }) {
   return (
-    /*
-      A rail down the side of the chart, not a row across the header.
-
-      Tools belong beside the thing they act on, and the thing they act on is
-      the whole height of the chart. In the header they sat a screen's width
-      from the line, sharing a row with the price — which is a reading, not a
-      control.
-
-      Down the side where there is a side to spare, and along the top where
-      there is not: on a phone a column of tools is a sixth of the width, taken
-      from the one thing the screen is for.
-    */
+    /* A rail beside the chart, the height of what it acts on; a row on a phone. */
     <div className="flex shrink-0 flex-row items-center gap-1 self-start rounded-2xl border bg-card p-1 sm:flex-col sm:gap-1.5 sm:p-1.5 [&_svg]:size-4 sm:[&_svg]:size-5">
-      {/* The one way to draw, shown rather than chosen. There was a pen beside
-          it — a stroke that settled into these same points on release — and it
-          only ever cost the line its corners on the way. A turn is a close and
-          an open, so a tool that rounds them off is a tool that changes the
-          trade. */}
+      {/* One tool, shown not chosen. The pen rounded corners, and a corner is a close and an open. */}
       <Tip words="Click to place a point, or drag to draw. Drag a point to move it, double-click to remove it.">
         <span className="flex size-8 items-center justify-center rounded-lg bg-accent text-foreground sm:size-10 sm:rounded-xl">
           <WaypointsIcon />

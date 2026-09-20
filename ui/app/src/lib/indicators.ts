@@ -5,19 +5,6 @@ export type Point = { time: number; value: number };
 /** Seconds, which is what lightweight-charts wants for a UTCTimestamp. */
 const seconds = (ms: number) => Math.floor(ms / 1000);
 
-export function sma(candles: Candle[], period: number): Point[] {
-  if (period < 1 || candles.length < period) return [];
-  const out: Point[] = [];
-  let sum = 0;
-  for (let i = 0; i < candles.length; i++) {
-    sum += candles[i].c;
-    if (i >= period) sum -= candles[i - period].c;
-    if (i >= period - 1) {
-      out.push({ time: seconds(candles[i].t), value: sum / period });
-    }
-  }
-  return out;
-}
 
 /**
  * Seeded from the simple average of the first `period` bars, which is the
@@ -74,13 +61,7 @@ export function bollinger(
   return { upper, middle, lower };
 }
 
-/**
- * Relative strength index, Wilder's smoothing.
- *
- * The plain average of gains and losses is the version that appears in most
- * blog posts and it disagrees with every terminal a reader will have used.
- * Wilder's is the one they have seen.
- */
+/** Relative strength index with Wilder's smoothing, the version every terminal uses. */
 export function rsi(candles: Candle[], period = 14): Point[] {
   if (candles.length <= period) return [];
 

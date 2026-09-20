@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 /** Small shared pieces. Everything here is a coss component with a job. */
 
-export type Tone = "default" | "up" | "down";
+type Tone = "default" | "up" | "down";
 
 export type Segment<T extends string> = {
   value: T;
@@ -24,10 +24,8 @@ export type Segment<T extends string> = {
 };
 
 /**
- * coss sizes a segmented track off its items, and an item runs two pixels
- * taller than a Button of the same name — so a segmented control never lines
- * up with the button next to it. Pinning the item two pixels shorter makes the
- * track come out at the Button height: sm 28, default 32, lg 36.
+ * coss items run two pixels taller than the Button of the same size; pinning them shorter lines the
+ * track up: sm 28, default 32, lg 36.
  */
 const SEGMENT_HEIGHTS: Record<"sm" | "default" | "lg", string> = {
   default: "[&_[data-slot=tabs-tab]]:h-8 sm:[&_[data-slot=tabs-tab]]:h-7",
@@ -125,29 +123,8 @@ export function Stat({
   );
 }
 
-/** A figure with its label under it. */
-export function Figure({
-  label,
-  value,
-  tone,
-  size = "sm",
-}: {
-  label: string;
-  value: ReactNode;
-  tone?: string;
-  size?: "sm" | "lg";
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-0.5">
-      <span className={cn("figures truncate", size === "lg" ? "font-semibold text-2xl" : "text-sm", tone)}>
-        {value}
-      </span>
-      <span className="truncate text-muted-foreground text-xs">{label}</span>
-    </div>
-  );
-}
 
-export function FoldButton({
+function FoldButton({
   collapsed,
   onCollapsed,
   title,
@@ -190,14 +167,8 @@ export function FoldButton({
 }
 
 /**
- * A panel of the desk. A coss Card with a one-row header that holds the
- * panel's own control and the fold chevron. Folded sideways it is a rail
- * with its name set vertically; folded up it keeps only the header.
- *
- * The header is eleven deep so the pill inside it clears the card's corner by
- * about as much as it clears the sides. A 2xl corner is 18px of curve, and a
- * pill set three pixels below it and eight in from the edge reads as squeezed
- * out of the corner rather than sitting in it.
+ * A desk panel: a coss Card with a one-row header holding the panel's control and the fold. The
+ * header is eleven deep so the pill clears the 2xl corner.
  */
 export function Pane({
   title,

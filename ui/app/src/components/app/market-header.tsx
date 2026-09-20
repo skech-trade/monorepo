@@ -139,12 +139,7 @@ export function MarketHeader({ market, className }: { market: Market; className?
         onClick={() => setPicking(true)}
         type="button"
       >
-        {/*
-          Stacked and set large where there is room, and a single quiet line on
-          a phone. The price is a reading you glance at; on a small screen it
-          was the loudest thing above the chart and took a row of its own to be
-          it, pushing everything that does something further down.
-        */}
+        {/* Stacked and large where there is room; one quiet line on a phone. */}
         <TokenAvatar className="size-7 sm:size-9" symbol={market.symbol} />
         <span className="flex min-w-0 items-baseline gap-2 sm:block">
           <span className="flex items-center gap-1 font-medium text-sm leading-none sm:text-base">

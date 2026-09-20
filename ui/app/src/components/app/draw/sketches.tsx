@@ -10,7 +10,9 @@ import { type Candle, type Market, price as fmtPrice, signedUsd, usd } from "@/l
 import { legPath, type Outcome, type Pt } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 import { ClipPlayer } from "./clip-player";
-import { canRecordClip, canShareFile, type Clip, copyPicture, exportPng, postText, recordClip, RoundCanvas, saveBlob, shareOrSave, xPostUrl } from "./replay";
+import { canRecordVideo, canShareFile, type Clip, copyPicture, saveBlob, shareOrSave, xPostUrl } from "@/lib/share";
+import { exportPng, recordClip, RoundCanvas } from "./round-card";
+import { postText } from "./round-copy";
 
 /** A sketch is a position you can look at. The list keeps the drawing. */
 export type Sketch = {
@@ -24,19 +26,15 @@ export type Sketch = {
   status: "running" | "settled";
   net: number;
   exit?: number;
-  liquidated?: boolean;
-  /** Share of the move that went your way. Over a half means it profited. */
-  accuracy?: number;
   /** The round, kept: what arrived, how long it was, how it ended. */
   run?: Candle[];
   runBars?: number;
   outcome?: Outcome | "closed";
+  /** Share of the move that went your way, 0 to 1. Over a half means it profited. */
   right?: number;
-  /** The line the model traded: the handles, or the curve through them. */
-  curve?: Pt[];
 };
 
-export function SketchThumb({ sketch, className }: { sketch: Sketch; className?: string }) {
+function SketchThumb({ sketch, className }: { sketch: Sketch; className?: string }) {
   const W = 96;
   const H = 56;
   const prices = sketch.pts.map((p) => p.price).concat(sketch.entry);
@@ -56,7 +54,7 @@ export function SketchThumb({ sketch, className }: { sketch: Sketch; className?:
 }
 
 /** Wins in a row, counting back from the latest settled round. */
-export function streakOf(sketches: Sketch[]): number {
+function streakOf(sketches: Sketch[]): number {
   let n = 0;
   for (const s of sketches) {
     if (s.status !== "settled") continue;
@@ -75,13 +73,8 @@ function XMark() {
   );
 }
 
-/**
- * The latest round, as a card: the money, one sentence saying what happened,
- * a replay you can run again, and the picture or clip to send. This is where
- * a round ends now, in the same place every earlier round is listed, rather
- * than in a dialog over the chart.
- */
-export function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; market: Market; streak: number; onNext?: () => void }) {
+/** The latest round as a card: the canvas, the buttons, nothing else. */
+function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; market: Market; streak: number; onNext?: () => void }) {
   const [play, setPlay] = useState(0);
   const [busy, setBusy] = useState<"png" | "clip" | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -116,7 +109,7 @@ export function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; 
 
   /** A clip takes a few seconds. Record first, watch it, then save or share on the next click. */
   const record = async () => {
-    if (!canRecordClip()) {
+    if (!canRecordVideo()) {
       setNote("This browser can't record video. Picture works.");
       return;
     }
@@ -153,10 +146,8 @@ export function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; 
   };
 
   /**
-   * X has no way to take a file from a page without an app key, so the post
-   * opens prefilled with the words and the picture goes on the clipboard in
-   * the same click, to paste in. A clip is saved instead, to drag in. The
-   * tab has to open first, inside the click, or the browser blocks it.
+   * X takes no file from a page without an app key: open the compose tab first (inside the click,
+   * or it is blocked), then put the picture on the clipboard, or save a held clip.
    */
   const postOnX = async () => {
     window.open(xPostUrl(text), "_blank", "noopener");
@@ -248,25 +239,13 @@ function Outcome({ sketch }: { sketch: Sketch }) {
       </span>
     );
   }
-  if (sketch.liquidated) return <span className="text-warning-foreground">wiped out</span>;
-  if (sketch.accuracy === undefined) return <span className="text-muted-foreground">{sketch.net >= 0 ? "called it" : "missed"}</span>;
-  return <span className="figures text-muted-foreground">right {Math.round(sketch.accuracy * 100)}%</span>;
+  if (sketch.outcome === "liquidated") return <span className="text-warning-foreground">wiped out</span>;
+  if (sketch.right === undefined) return <span className="text-muted-foreground">{sketch.net >= 0 ? "called it" : "missed"}</span>;
+  return <span className="figures text-muted-foreground">right {Math.round(sketch.right * 100)}%</span>;
 }
 
-/**
- * The same table the desk keeps its positions in.
- *
- * A line is a position, so it is listed like one: a row per line, columns that
- * line up, figures right-aligned in the tabular face, the seams hairlines. It
- * was a stack of free-floating cards with the numbers stacked two-deep inside
- * each — nothing to read down, nothing to compare, and a column of air beneath.
- *
- * No side column. The drawing in the first cell is the side: a line that ends
- * above where it started is up, and you can see that faster than you can read
- * the word for it. A pill saying so as well was the same fact twice, in the
- * widest possible form, in a list whose whole point is the shapes.
- */
-export function SketchList({ sketches, market }: { sketches: Sketch[]; market: Market }) {
+/** The same table the desk keeps positions in; the drawing in the first cell is the side. */
+function SketchList({ sketches, market }: { sketches: Sketch[]; market: Market }) {
   const settled = sketches.filter((s) => s.status === "settled");
   const total = settled.reduce((sum, s) => sum + s.net, 0);
   const won = settled.filter((s) => s.net >= 0).length;
@@ -315,14 +294,7 @@ export function SketchList({ sketches, market }: { sketches: Sketch[]; market: M
       {settled.length > 0 ? (
         <TableFooter>
           <TableRow>
-            {/*
-              The same line twice, spanning whatever columns are showing.
-
-              colSpan is an attribute and cannot be a media query, and reading
-              the width in JavaScript would mean a hook that disagrees with the
-              server on the first paint. Two cells, each hidden at the width
-              the other is for, costs a line of markup and nothing else.
-            */}
+            {/* Two cells, one per width: colSpan cannot be a media query. */}
             <TableCell className="pl-3 text-muted-foreground sm:hidden" colSpan={2}>
               {market.name} today, <span className="figures text-foreground">{won}</span> of <span className="figures text-foreground">{settled.length}</span> came good
             </TableCell>
@@ -380,7 +352,7 @@ export function seedSketches(market: Market): Sketch[] {
   const e2 = market.price * 1.003;
   const shape = (entry: number, ms: number[]): Pt[] => ms.map((m, i) => ({ t: i / (ms.length - 1), price: entry * m }));
   return [
-    { id: "seed-1", long: true, stake: 100, leverage: 5, entry: e1, pts: shape(e1, [1, 0.996, 0.992, 0.995, 1.002, 1.008, 1.012, 1.016]), placedAt: Date.now() - 3 * 3_600_000, status: "settled", net: 23.4, exit: e1 * 1.0047, accuracy: 0.83 },
-    { id: "seed-2", long: false, stake: 50, leverage: 10, entry: e2, pts: shape(e2, [1, 1.003, 0.998, 0.993, 0.99, 0.986, 0.985]), placedAt: Date.now() - 55 * 60_000, status: "settled", net: -17.9, exit: e2 * 1.0036, accuracy: 0.38 },
+    { id: "seed-1", long: true, stake: 100, leverage: 5, entry: e1, pts: shape(e1, [1, 0.996, 0.992, 0.995, 1.002, 1.008, 1.012, 1.016]), placedAt: Date.now() - 3 * 3_600_000, status: "settled", net: 23.4, exit: e1 * 1.0047, right: 0.83 },
+    { id: "seed-2", long: false, stake: 50, leverage: 10, entry: e2, pts: shape(e2, [1, 1.003, 0.998, 0.993, 0.99, 0.986, 0.985]), placedAt: Date.now() - 55 * 60_000, status: "settled", net: -17.9, exit: e2 * 1.0036, right: 0.38 },
   ];
 }

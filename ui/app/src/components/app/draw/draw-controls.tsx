@@ -12,12 +12,8 @@ const STEP = 5;
 const MIN = 20;
 const MAX = 500;
 /**
- * A figure on a wheel. The middle row is also a field: click it to type.
- *
- * The stake picks one between $20 and $500; the two exits pick one from zero,
- * where zero reads "Off", because a stop you have not set is not a stop of
- * nothing. One control for all three, because it is the same gesture and
- * nobody should have to learn a second one.
+ * A figure on a wheel; the middle row is a field, click to type. The stake runs $20 to $500; the
+ * exits from zero, where zero reads Off.
  */
 export function AmountWheel({
   value,
@@ -134,16 +130,7 @@ export function AmountWheel({
               data-near={Math.abs(i - index) === 1 ? "" : undefined}
               data-selected={i === index ? "" : undefined}
               key={amount}
-              /*
-                A row you can see is a row you can press.
-
-                Only the middle one did anything before, and that was to start
-                typing — so the "Off" at the top of an exit wheel looked like a
-                choice and was not one, and the only way to reach any value was
-                to drag the wheel onto it. Pressing a row now picks it and
-                glides it into the middle; pressing the middle one still opens
-                it for typing.
-              */
+              /* Any visible row picks itself; the middle one opens for typing. */
               onClick={() => {
                 if (i === index) {
                   setDraft(String(value));
@@ -182,23 +169,8 @@ export function AmountWheel({
         </div>
       ) : null}
       {/*
-        Done, beside the figure it is agreeing to.
-
-        The wheel applies as it turns, so there is nothing to submit — but
-        there was also nothing to press, and the only way out was to click the
-        chart, which is the drawing surface. A tick says "that one" and shuts
-        the panel, which is the sentence the gesture was already making.
-
-        Inside the lit band rather than floating beside it: the band is the
-        selection, so the thing that agrees to the selection belongs in it. Sat
-        outside, it was a second object at the edge of a narrow panel with
-        nothing tying it to the figure it applied to.
-
-        Last in the box and raised, because the panel that opens for typing is
-        laid over the whole wheel — so the tick was underneath it, and the one
-        moment you most want to press it was the one moment you could not. It
-        took a programmatic click in a test, which goes straight to the element
-        and never asks what is on top of it.
+        Done sits inside the lit band, raised above the typing overlay, and commits a half-typed
+        figure first.
       */}
       <PopoverClose
         aria-label="Done"
@@ -218,7 +190,7 @@ export function AmountWheel({
 
 /* The label goes on a phone and the figure stays: "$100" beside a wheel of
    dollars needs no word, and the row it is in has four other things in it. */
-export function Setting({ label, value }: { label: string; value: string }) {
+function Setting({ label, value }: { label: string; value: string }) {
   return (
     <>
       <span className="hidden text-muted-foreground sm:inline">{label}</span>
