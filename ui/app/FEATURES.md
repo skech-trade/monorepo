@@ -9,6 +9,10 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - App bar: wordmark, market search (inert, one market, says so), cash chip
   with "Deposit", Draw / Desk switch, account menu (deposit, withdraw,
   privacy, settings, support, sign out).
+- The line marking the current price is the one piece of furniture on the
+  chart that has to be findable at a glance, because every drawn point is
+  judged against it. At half opacity in grey it was a rumour on a phone held
+  at arm's length.
 - Privacy blurs every figure on the screen, for reading it in company.
 - The rail beside the chart is there in every phase. While a round runs it
   holds only the chart settings: there is nothing to undo, clearing would not

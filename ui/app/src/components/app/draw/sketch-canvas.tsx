@@ -579,7 +579,17 @@ export function SketchCanvas({
               <line stroke="var(--muted-foreground)" strokeDasharray="2 3" strokeOpacity="0.6" x1={hover.x} x2={hover.x} y1={plotT} y2={plotB} />
             </g>
           ) : null}
-          <line stroke="var(--muted-foreground)" strokeDasharray="3 4" strokeOpacity="0.5" x1={plotL} x2={plotR} y1={y(price)} y2={y(price)} />
+          {/*
+            Where the price is now, straight across.
+
+            This is the line every drawn point is judged against, so it is the
+            one piece of furniture on the chart that has to be findable at a
+            glance. At half opacity in grey it was a rumour, especially on a
+            phone held at arm's length: brighter, and solid rather than dashed
+            on the half that has already happened, where nothing else competes
+            with it.
+          */}
+          <line stroke="var(--muted-foreground)" strokeDasharray="3 4" strokeOpacity="0.9" strokeWidth="1.25" x1={plotL} x2={plotR} y1={y(price)} y2={y(price)} />
 
           {/* How far the round has run, behind now, because now has moved. */}
           {run.length > 0 ? (
