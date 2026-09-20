@@ -90,6 +90,19 @@ export function AvalancheMark({ className }: MarkProps) {
   );
 }
 
+export function WorldMark({ className }: MarkProps) {
+  return (
+    <svg aria-hidden="true" className={`${box} ${className ?? ""}`} viewBox="0 0 32 32">
+      <circle cx="16" cy="16" fill="#000" r="16" />
+      {/* A globe: the outline, its equator, and a meridian bowed to one side. */}
+      <circle cx="16" cy="16" fill="none" r="8.5" stroke="#fff" strokeWidth="1.6" />
+      <path d="M7.5 16h17" stroke="#fff" strokeLinecap="round" strokeWidth="1.6" />
+      <path d="M16 7.5c3.2 3.4 3.2 13.6 0 17" fill="none" stroke="#fff" strokeWidth="1.6" />
+      <path d="M16 7.5c-3.2 3.4-3.2 13.6 0 17" fill="none" stroke="#fff" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
 export function UsdcMark({ className }: MarkProps) {
   return (
     <svg aria-hidden="true" className={`${box} ${className ?? ""}`} viewBox="0 0 32 32">
@@ -110,6 +123,7 @@ const CHAIN_MARKS: Record<number, (p: MarkProps) => React.ReactElement> = {
   1: EthereumMark,
   10: OptimismMark,
   137: PolygonMark,
+  480: WorldMark,
   8453: BaseMark,
   42161: ArbitrumMark,
   43114: AvalancheMark,

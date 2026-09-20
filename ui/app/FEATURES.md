@@ -51,9 +51,17 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   Lighter hands out an address that credits your perp account and makes one if
   you have none; Relay turns what you hold into USDC on a chain Lighter
   watches and sends it there. Neither needs a key.
-- Six chains: Base, Arbitrum, Optimism, Polygon, Avalanche and Ethereum, each
-  with its own mark, USDC or the chain's own coin. The limit is not Relay,
-  which bridges from almost anywhere, but what a Coinbase wallet can sign on.
+- Seven chains: Base, Arbitrum, Optimism, Polygon, Avalanche, Ethereum and
+  World, each with its own mark, USDC or the chain's own coin. That is every
+  chain there can be, not a selection: Relay bridges from sixty, so it was
+  never the limit, and a Coinbase embedded wallet signs on exactly those seven
+  and no others. Measured from World, the newest of them: 5 USDC becomes
+  $4.971446 on Lighter in two seconds, for under three cents.
+- The address is narrower than the bridge and always will be: Lighter watches
+  Base, Arbitrum and Avalanche for plain transfers, and that is Lighter's list
+  rather than ours. It costs nothing, because anyone can send to it from
+  anywhere, so a wallet on a chain we cannot sign on is somebody else's
+  problem to solve once rather than ours to work around.
 - Measured: 0.01 ETH on Arbitrum becomes $25.71 on Lighter, one step, two
   seconds, nine cents. 25 USDC on Polygon becomes $24.97 in two. USDC already
   on Base is free and arrives at once.

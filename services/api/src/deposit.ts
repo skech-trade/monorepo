@@ -29,6 +29,13 @@ const RELAY = process.env.RELAY_URL ?? "https://api.relay.link";
  * send the transaction. `network` is CDP's own name for it, so a chain listed
  * here is a chain the wallet can sign on by construction.
  */
+/*
+  Every chain the wallet can sign on, which is the whole list and not a
+  selection. Relay bridges from sixty, so it was never the limit: a Coinbase
+  embedded wallet signs on base, ethereum, avalanche, polygon, optimism,
+  arbitrum and world, and that is the ceiling. Each USDC address below was
+  read off its own chain with a `symbol()` call rather than copied.
+*/
 export const CHAINS = [
   { id: 8453, name: "Base", network: "base", nativeSymbol: "ETH", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
   { id: 42161, name: "Arbitrum", network: "arbitrum", nativeSymbol: "ETH", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" },
@@ -36,6 +43,7 @@ export const CHAINS = [
   { id: 137, name: "Polygon", network: "polygon", nativeSymbol: "POL", usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359" },
   { id: 43114, name: "Avalanche", network: "avalanche", nativeSymbol: "AVAX", usdc: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E" },
   { id: 1, name: "Ethereum", network: "ethereum", nativeSymbol: "ETH", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
+  { id: 480, name: "World", network: "world", nativeSymbol: "ETH", usdc: "0x79A02482A880bCE3F13e09Da970dC34db4CD24d1" },
 ] as const;
 
 /**

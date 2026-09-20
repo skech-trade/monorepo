@@ -66,3 +66,23 @@ anybody who has lost it all can come back.
 
 On mainnet the route answers 409. There is no faucet, and the deposit address
 is the way in.
+
+## Which chains, and why that many
+
+Two lists, and they are different sizes for different reasons.
+
+The **deposit address** takes plain USDC on Base, Arbitrum and Avalanche.
+That is Lighter's CCTP list, not ours, and there is no widening it. It costs
+little, because the address is open to anyone: an exchange withdrawal, a
+friend, a wallet we have never heard of.
+
+The **bridge from the skech wallet** covers Base, Arbitrum, Optimism, Polygon,
+Avalanche, Ethereum and World. That is not a selection, it is the whole set.
+Relay bridges from sixty chains, so Relay was never the limit; the limit is
+that a Coinbase embedded wallet can only sign a transaction on those seven,
+which the SDK spells out in `SendEvmTransactionWithEndUserAccountBodyNetwork`.
+Adding an eighth means either a different wallet or a chain Coinbase adds.
+
+Every USDC address in `CHAINS` was read off its own chain with a `symbol()`
+call rather than copied from a list. A bridged lookalike on the wrong chain
+does not arrive and cannot be recovered.
