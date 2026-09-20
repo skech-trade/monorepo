@@ -15,7 +15,7 @@ console.log(`market ${market.id} ${market.symbol}  last ${market.last}  min ${ma
 const trader = new Trader(venue, signer, accountIndex);
 const want = Math.max(market.minBase, market.minQuote / market.last * 1.2);
 console.log(`opening ${want.toFixed(5)} BTC (about $${(want * market.last).toFixed(2)})`);
-console.log("open :", (await trader.goTo(market, want))?.hash.slice(0, 26) ?? "nothing to send");
+console.log("open :", (await trader.goTo(market, want, { cap: want }))?.hash.slice(0, 26) ?? "nothing to send");
 
 for (let i = 0; i < 12; i++) {
   await Bun.sleep(1000);

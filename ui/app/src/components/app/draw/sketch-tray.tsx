@@ -29,6 +29,8 @@ export function SketchBar({
   runBars,
   sketches,
   onOpenList,
+  onVenue,
+  venueProblem,
 }: {
   market: Market;
   phase: Phase;
@@ -39,6 +41,9 @@ export function SketchBar({
   runBars: number;
   sketches: Sketch[];
   onOpenList: () => void;
+  /** Whether a real position is behind this round, and what went wrong if not. */
+  onVenue?: boolean;
+  venueProblem?: string | null;
 }) {
   const lines = (
     <Button onClick={onOpenList} variant="outline">
@@ -84,9 +89,15 @@ export function SketchBar({
     */
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <span className="mr-auto flex items-center gap-1.5 text-muted-foreground">
-          <span className="size-1.5 animate-pulse rounded-full bg-info" />
-          Candle <F>{runCount}</F> of <F>{Math.round(runBars)}</F>
+        <span className="mr-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="size-1.5 animate-pulse rounded-full bg-info" />
+            Candle <F>{runCount}</F> of <F>{Math.round(runBars)}</F>
+          </span>
+          {/* Whether there is money behind this. A round that did not reach
+              the venue has to say so: the chart looks identical either way. */}
+          {onVenue ? <span className="text-up">On the venue</span> : null}
+          {venueProblem ? <span className="text-down">Not traded. {venueProblem}</span> : null}
         </span>
         {lines}
       </div>

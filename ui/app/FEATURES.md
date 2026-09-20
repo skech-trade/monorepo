@@ -84,6 +84,34 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   header. The faucet refuses above $100 of portfolio value, and says so in its
   own words.
 
+## Trading for real
+
+- Press Trade and the round opens a real position on Lighter. The page sends
+  the points it drew and nothing else: what the line means, which way the
+  position faces at each moment and what size that is are all worked out by
+  the trader, from `@skech/core`, the same code the page quotes with. A page
+  that decided its own orders could claim it drew anything.
+- The line is a target position over time, not one trade. Every turn is a
+  reversal, and on Lighter a reversal is one order rather than a close and an
+  open. Measured on testnet: a line drawn down, up and down sent four orders,
+  short, long, short, flat, and booked the venue's own figure.
+- While a round runs the money on screen is the venue's, not ours: its mark,
+  its fills, its fees. The local settlement still draws the ribbon and decides
+  when the round is over, but it does not name the number once real money is
+  on it.
+- The round outlives the tab. The trader answers as soon as the position is
+  open rather than when the round ends, so a closed laptop does not leave one
+  running with nobody watching.
+- With no trader configured a round runs exactly as it always did, against
+  real prices with no position behind it, and the tray says so while it runs.
+  Silence there would be the worst of both.
+- Three guards, each of which exists because something went wrong on testnet.
+  No order may exceed twice the round's size, measured against the round and
+  not against what is held, so a position read wrong cannot raise its own
+  ceiling. A position past twice the target stops the round instead of trading
+  further into it. And a top-up waits for the venue to book the last fill,
+  while a reversal does not.
+
 ## Settings
 
 - Everything the reader sets is remembered in this browser, under one key. The

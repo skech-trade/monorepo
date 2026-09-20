@@ -9,6 +9,10 @@
         "typescript": "^5",
       },
     },
+    "packages/core": {
+      "name": "@skech/core",
+      "version": "0.0.0",
+    },
     "services/api": {
       "name": "@skech/api",
       "version": "0.0.0",
@@ -28,6 +32,9 @@
     "services/trader": {
       "name": "@skech/trader",
       "version": "0.0.0",
+      "dependencies": {
+        "@skech/core": "workspace:*",
+      },
       "devDependencies": {
         "@types/bun": "^1.4.2",
         "typescript": "^5",
@@ -41,6 +48,7 @@
         "@coinbase/cdp-core": "^0.0.126",
         "@coinbase/cdp-hooks": "^0.0.126",
         "@coinbase/cdp-react": "^0.0.126",
+        "@skech/core": "workspace:*",
         "@types/qrcode": "^1.5.6",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -364,6 +372,8 @@
     "@skech/api": ["@skech/api@workspace:services/api"],
 
     "@skech/app": ["@skech/app@workspace:ui/app"],
+
+    "@skech/core": ["@skech/core@workspace:packages/core"],
 
     "@skech/feed": ["@skech/feed@workspace:services/feed"],
 

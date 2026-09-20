@@ -55,3 +55,42 @@ that signs on testnet.
 `/rounds` opens, holds and flattens. Compiling the drawn shape into legs comes
 next, from the same code the browser uses so the client cannot lie about what
 it drew, and with it the stop and target as reduce-only trigger orders.
+
+## A round, end to end
+
+```
+POST /rounds      {pts, stake, leverage, seconds, exits}  -> the round, already open
+GET  /rounds/:id                                          -> how it is going
+POST /rounds/:id/close                                    -> out now, at the market
+```
+
+The page sends the points it drew and nothing else. `@skech/core` turns those
+into legs here, the same way the page turns them into a quote, so a client
+cannot claim it drew something it did not. Every tick the runner asks where
+the line is going at this moment and takes the position there; `goTo` reads
+what is actually held before it sends anything, so a missed tick, a rejected
+order or a partial fill all correct themselves rather than compounding.
+
+It answers as soon as the position is open, not when the round ends. A round
+outlives the tab that drew it, and holding the request open for the length of
+one means a closed laptop leaves a position running with nobody watching it.
+
+### What it refuses to do
+
+Three guards, each of them written after something went wrong on testnet.
+
+**No order larger than twice the round.** The cap comes from the round's own
+size, not from the position, so a position read wrong cannot raise its own
+ceiling. Lighter reports a short as a positive size with `sign: -1`; reading
+only the first made every short look like a long, and the runner sold the
+difference again every second until a flat account was 3.565 BTC short.
+
+**A position past twice the target stops the round.** Whatever the reason, it
+is not the round doing what it was asked, so it closes instead of trading
+further into it.
+
+**A top-up waits for the fill.** The venue takes a second or two to show an
+order as a position, and asking every second meant sending the same order
+again before the first one landed. A reversal still goes out at once: that is
+the drawing changing its mind, and waiting means trading the wrong way for
+another second.

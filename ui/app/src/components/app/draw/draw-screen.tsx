@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeed } from "@/lib/feed";
+import { closeRound, hasTrader, openRound, useVenueRound } from "@/lib/round";
 import { useSettings } from "@/lib/settings";
 import { type Candle, candlesFor, type Market, signedUsd } from "@/lib/market";
 import { accuracyOf, type Exits, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
@@ -90,6 +91,15 @@ export function DrawScreen({ market }: { market: Market }) {
   const [band, setBand] = useState<Band>(() => bandFor(seed, market.price));
   const [sketches, setSketches] = useState<Sketch[]>(() => seedSketches(market));
   const [listOpen, setListOpen] = useState(false);
+  /*
+    The round on the venue, when there is a trader to run one.
+
+    Its id is all this screen keeps: the position, the profit and the way it
+    ended are the venue's to say, and asking is the only way to know them.
+  */
+  const [venueId, setVenueId] = useState<string | null>(null);
+  const [venueProblem, setVenueProblem] = useState<string | null>(null);
+  const venue = useVenueRound(venueId);
   const [lastSketch, setLastSketch] = useState<Sketch | null>(null);
   /** The point under the finger, while one is. */
   const dragIndex = useRef<number | null>(null);
@@ -125,6 +135,15 @@ export function DrawScreen({ market }: { market: Market }) {
     () => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage, runBars, exits) : null),
     [run, shape, entry, stake, leverage, runBars, exits],
   );
+  /*
+    What the round is worth, and who says so.
+
+    With a position on the venue the answer is the venue's: its mark, its
+    fees, its fills. The local settlement still runs, because it draws the
+    ribbon and decides when the round is over, but it does not get to name
+    the number when real money is on it.
+  */
+  const net = venue ? (venue.status === "done" ? venue.realised : venue.unrealised) : (book?.net ?? null);
   const ribbon = useMemo(() => ribbonFor(feed), [feed]);
   /** Your last line, moved to today's price. */
   const ghost = useMemo(
@@ -189,10 +208,22 @@ export function DrawScreen({ market }: { market: Market }) {
       if (bk.done !== null || next.length >= live.current.runBars) finish(next, false);
     };
     arriving.current = arrive;
-    // With a feed the bars come from the market, so there is nothing to invent.
-    if (fromMarket.current) return () => undefined;
 
+    /*
+      The walk, for when there is no feed.
+
+      It used to bail out of this effect when the feed was already connected,
+      and start when it was not. The effect runs once, so a feed that connected
+      a moment after mount left the walk running: the market's bars and the
+      invented ones both arrived, the chart moved at twice the speed, and a
+      round that said sixty-eight seconds was over in thirty-four. Worse, half
+      the tape a round was judged against was made up.
+
+      So the interval always exists and asks on every tick whether the market
+      is answering, which is a thing that changes while it runs.
+    */
     const tick = setInterval(() => {
+      if (fromMarket.current) return;
       const { phase: ph, shape: sh, run: rn, feed: fd, entry: en } = live.current;
       if (ph === "settled") return;
       const open = ph === "running" && sh ? (rn.at(-1)?.c ?? en) : (fd.at(-1)?.c ?? en);
@@ -448,6 +479,21 @@ export function DrawScreen({ market }: { market: Market }) {
     // press the button.
     setViewBars(horizon);
     setPhase("running");
+    /*
+      And on the venue, if there is one wired up.
+
+      Fired rather than awaited: the screen has already started moving, and a
+      round that takes a second to open should not hold the picture still.
+      A refusal is said on the screen rather than swallowed, because a round
+      that quietly did not trade is the worst of both.
+    */
+    setVenueId(null);
+    setVenueProblem(null);
+    if (hasTrader) {
+      void openRound({ pts: moved, stake, leverage, seconds: bars, exits })
+        .then((r) => ("error" in r ? setVenueProblem(r.error) : setVenueId(r.id)))
+        .catch((e) => setVenueProblem((e as Error).message.slice(0, 140)));
+    }
     // No toast. The header turns into "Close trade", the bar starts counting
     // candles and the chart starts moving: three things already say it.
   };
@@ -475,8 +521,8 @@ export function DrawScreen({ market }: { market: Market }) {
   const headLabel = shape && quote ? `${signedUsd(quote.ifWorks, 0)} if it gets here` : null;
 
   const shown = useMemo(
-    () => (phase === "running" && book ? sketches.map((s) => (s.status === "running" ? { ...s, net: book.net } : s)) : sketches),
-    [sketches, book, phase],
+    () => (phase === "running" && net !== null ? sketches.map((s) => (s.status === "running" ? { ...s, net } : s)) : sketches),
+    [sketches, net, phase],
   );
 
   return (
@@ -502,7 +548,10 @@ export function DrawScreen({ market }: { market: Market }) {
           exits={exits}
           leverage={leverage}
           market={market}
-          onCloseNow={() => run.length && finish(run, true)}
+          onCloseNow={() => {
+            if (venueId) void closeRound(venueId);
+            if (run.length) finish(run, true);
+          }}
           onDrawAgain={() => {
             fold();
             setPhase("live");
@@ -538,7 +587,7 @@ export function DrawScreen({ market }: { market: Market }) {
           onRemove={onRemove}
           onUp={onUp}
           phase={phase}
-          pnl={book?.net ?? null}
+          pnl={net}
           price={price}
           pts={view}
           run={run}
@@ -554,6 +603,8 @@ export function DrawScreen({ market }: { market: Market }) {
         <SketchBar
           market={market}
           onOpenList={() => setListOpen(true)}
+          onVenue={venue !== null}
+          venueProblem={venueProblem}
           openCount={sketches.length}
           phase={phase}
           quote={quote}

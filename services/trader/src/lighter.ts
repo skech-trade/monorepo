@@ -46,7 +46,15 @@ export class Lighter {
       positions: raw
         .map((p) => ({
           marketId: Number(p.market_id),
-          size: asNum(p.position),
+          /*
+            Lighter reports the size and its direction in two fields: a short
+            of 3.565 BTC comes back as `position: "3.56500"` with `sign: -1`.
+            Reading only the first made every short look like a long, so
+            `goTo` saw a position the opposite way round from the one it held
+            and sold the difference again on every tick. It took a testnet
+            account from flat to 3.565 BTC short in twelve seconds.
+          */
+          size: asNum(p.position) * (Number(p.sign) < 0 ? -1 : 1),
           avgEntry: asNum(p.avg_entry_price),
           value: asNum(p.position_value),
           unrealised: asNum(p.unrealized_pnl),
@@ -79,4 +87,10 @@ export class Lighter {
 }
 
 /** Transaction types, as the venue numbers them. */
-export const TX = { changePubKey: 8, createOrder: 14, cancelOrder: 15, cancelAllOrders: 16, updateLeverage: 23 } as const;
+/*
+  The venue's own numbers. `updateLeverage` was 23, which testnet answers with
+  "unsupported tx type"; it is 20, and the way to tell is that 20 rejects an
+  empty body with "invalid initial margin fraction", meaning it parsed it as
+  an update-leverage transaction, and every other number nearby does not.
+*/
+export const TX = { changePubKey: 8, createOrder: 14, cancelOrder: 15, cancelAllOrders: 16, updateLeverage: 20 } as const;

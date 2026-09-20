@@ -1,0 +1,14 @@
+{
+  "name": "@skech/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./venue": "./src/venue.ts",
+    "./shape": "./src/shape.ts"
+  },
+  "scripts": {
+    "test": "bun test"
+  }
+}

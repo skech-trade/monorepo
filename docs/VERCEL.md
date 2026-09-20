@@ -12,10 +12,15 @@ NEXT_PUBLIC_SKECH_NETWORK=testnet
 NEXT_PUBLIC_CDP_PROJECT_ID=029972f7-032e-41c1-96c7-1eb64355e499
 NEXT_PUBLIC_API_URL=https://api.your-domain.com
 NEXT_PUBLIC_FEED_URL=https://feed.your-domain.com
+NEXT_PUBLIC_TRADER_URL=https://trader.your-domain.com
 ```
 
-Four names, all of them public by design: the project id identifies the CDP
-app to Coinbase's own panel, and the two URLs are called from the browser.
+Five names, all of them public by design: the project id identifies the CDP
+app to Coinbase's own panel, and the three URLs are called from the browser.
+
+Leave `NEXT_PUBLIC_TRADER_URL` out and rounds still run, against real prices,
+with no position behind them, and the screen says so while one is running. A
+round that quietly did not trade would be the worst of both.
 There is no secret in this project, and nothing server-side. If you find
 yourself pasting `CDP_API_KEY_SECRET` or a Lighter private key in here, stop:
 those belong to the services.
@@ -46,13 +51,13 @@ https://portal.cdp.coinbase.com/wallets/non-custodial/clients. Without it,
 signing in fails with "Failed to get project config", which reads like a
 broken build rather than a missing entry.
 
-**The API has to allow the origin.** Set `ALLOW_ORIGIN` on the API service to
-the Vercel origin rather than leaving it `*` once there is real money behind
-it.
+**The API and the trader have to allow the origin.** Set `ALLOW_ORIGIN` on
+both services to the Vercel origin rather than leaving it `*` once there is
+real money behind it. The trader especially: it is the service that signs.
 
-**The services need TLS.** The browser calls them directly from an https page,
-so an `http://` URL is blocked as mixed content and the app comes up with no
-prices, no balance and no deposits, silently.
+**The services need TLS.** The browser calls all three directly from an https
+page, so an `http://` URL is blocked as mixed content and the app comes up
+with no prices, no balance, no deposits and no trading, silently.
 
 ## The root env file does not apply here
 

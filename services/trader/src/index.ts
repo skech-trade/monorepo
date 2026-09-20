@@ -12,6 +12,7 @@
  */
 
 import { Lighter } from "./lighter";
+import { Rounds, type RoundSpec } from "./rounds";
 import { ACCOUNT, API_KEY_INDEX, BASE, CHAIN_ID, MARKET_ID, NETWORK, PRIVATE_KEY } from "./network";
 import { Trader } from "./round";
 import { Signer } from "./signer";
@@ -37,12 +38,28 @@ try {
   signerError = (e as Error).message;
 }
 
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+/* The browser calls this service directly, so it needs the same headers the
+   API sends. In production this is one origin, not a star. */
+const cors = {
+  "access-control-allow-origin": process.env.ALLOW_ORIGIN ?? "*",
+  "access-control-allow-headers": "content-type",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+};
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...cors } });
+
+const rounds = trader ? new Rounds(venue, trader, ACCOUNT, MARKET_ID) : null;
+
+/** A number from the page, clamped to something a round can actually be. */
+const clamp = (v: unknown, min: number, max: number, fallback: number) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+};
 
 Bun.serve({
   port: PORT,
   async fetch(req) {
     const url = new URL(req.url);
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
 
     if (url.pathname === "/health") {
       const market = await venue.market(MARKET_ID).catch(() => null);
@@ -60,21 +77,52 @@ Bun.serve({
       return json({ position: await venue.positionIn(ACCOUNT, MARKET_ID) });
     }
 
-    // Open, hold, flatten. The shape compiler goes here next.
+    /*
+      A drawn round.
+
+      The page sends the points it drew, the stake, the boost and how long it
+      runs. Everything else is worked out here: what the line means, which way
+      the position faces at each moment, and what size that is. It answers as
+      soon as the round is open rather than when it ends, because a round
+      outlives the tab that drew it.
+    */
     if (url.pathname === "/rounds" && req.method === "POST") {
-      if (!trader) return json({ error: signerError ?? "no signer" }, 503);
-      const { stake = 20, leverage = 10, seconds = 10 } = (await req.json().catch(() => ({}))) as {
-        stake?: number;
-        leverage?: number;
-        seconds?: number;
+      if (!rounds) return json({ error: signerError ?? "no signer" }, 503);
+      const body = (await req.json().catch(() => ({}))) as Partial<RoundSpec>;
+      const pts = Array.isArray(body.pts) ? body.pts.filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.price)).slice(0, 256) : [];
+      if (pts.length < 2) return json({ error: "a line needs at least two points" }, 400);
+      const spec: RoundSpec = {
+        pts,
+        stake: clamp(body.stake, 1, 100_000, 20),
+        leverage: Math.round(clamp(body.leverage, 1, 50, 10)),
+        seconds: Math.round(clamp(body.seconds, 3, 900, 30)),
+        exits: {
+          lose: body.exits?.lose == null ? null : clamp(body.exits.lose, 0, 100_000, 0),
+          gain: body.exits?.gain == null ? null : clamp(body.exits.gain, 0, 1_000_000, 0),
+        },
       };
-      const market = await venue.market(MARKET_ID);
-      const opened = await trader.goTo(market, trader.sizeFor({ stake, leverage, marketId: MARKET_ID }, market.last));
-      if (!opened) return json({ error: "under the venue's minimum" }, 400);
-      await Bun.sleep(Math.min(120, Math.max(1, seconds)) * 1000);
-      const held = await venue.positionIn(ACCOUNT, MARKET_ID);
-      const closed = await trader.flatten(market);
-      return json({ open: opened.hash, held, close: closed?.hash ?? null });
+      try {
+        return json(await rounds.open(spec));
+      } catch (e) {
+        return json({ error: (e as Error).message.slice(0, 160) }, 400);
+      }
+    }
+
+    /** How a round is going, and how it went. Polled by the page while it runs. */
+    if (url.pathname.startsWith("/rounds/") && req.method === "GET") {
+      const round = rounds?.get(url.pathname.slice("/rounds/".length));
+      return round ? json(round) : json({ error: "no such round" }, 404);
+    }
+
+    /** Out now, at the market. The header's "Close trade". */
+    if (url.pathname.endsWith("/close") && req.method === "POST") {
+      const id = url.pathname.slice("/rounds/".length, -"/close".length);
+      const round = await rounds?.close(id);
+      return round ? json(round) : json({ error: "no such round" }, 404);
+    }
+
+    if (url.pathname === "/rounds" && req.method === "GET") {
+      return json({ rounds: rounds?.all() ?? [] });
     }
 
     return json({ error: "not found" }, 404);

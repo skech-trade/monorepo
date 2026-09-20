@@ -43,10 +43,29 @@ export class Trader {
    * Take the position to `want` BTC, signed as one order for the difference.
    * A reversal is one order on this venue, not a close and an open.
    */
-  async goTo(m: MarketInfo, want: number, slippage = 0.01, clientOrderIndex = BigInt(Date.now() % 2 ** 31)) {
+  async goTo(m: MarketInfo, want: number, opts: { cap?: number; slippage?: number; clientOrderIndex?: bigint } = {}) {
+    const { cap, slippage = 0.01, clientOrderIndex = BigInt(Date.now() % 2 ** 31) } = opts;
     const have = (await this.venue.positionIn(this.accountIndex, m.id))?.size ?? 0;
     const delta = sizeStep(m, Math.abs(want - have)) * Math.sign(want - have);
     if (delta === 0) return null;
+    /*
+      Nothing this round sends can be larger than going from its full
+      position to the opposite one, which is twice its size. The cap comes
+      from the round rather than from what is held, so a position read wrong
+      cannot raise its own ceiling.
+
+      Not a tidiness rule. Reading a short as a long made `have` the wrong
+      sign, so every tick computed a delta twice the position and sent it,
+      and a testnet account went from flat to 3.565 BTC short in twelve
+      seconds. That was one field misread; the next one will be something
+      else, and this is what stops it turning into a runaway either way.
+    */
+    if (cap !== undefined) {
+      const ceiling = Math.abs(cap) * 2 + m.minBase;
+      if (Math.abs(delta) > ceiling) {
+        throw new Error(`refusing ${delta.toFixed(5)} BTC: this round trades ${Math.abs(cap).toFixed(5)} at most`);
+      }
+    }
     const isAsk = delta < 0;
     const mark = (await this.venue.market(m.id)).last;
     if (!tradeable(m, Math.abs(delta), mark)) return null;
@@ -68,7 +87,7 @@ export class Trader {
   }
 
   /** Close whatever is open, reduce-only so it can never flip by accident. */
-  async flatten(m: MarketInfo) {
-    return this.goTo(m, 0);
+  async flatten(m: MarketInfo, cap?: number) {
+    return this.goTo(m, 0, { cap });
   }
 }

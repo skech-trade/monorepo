@@ -236,9 +236,11 @@ export function DrawControls({
           {/* Draw does not say leverage anywhere else, and the word is the
               single biggest piece of jargon left on this screen. */}
           <PopoverTitle>Set your boost</PopoverTitle>
+          {/* Two short facts beat one long sentence: what it trades like,
+              and what takes it. The second is the one that costs money. */}
           <PopoverDescription>
-            Put in ${usd(stake, 0)}, trade like ${usd(stake * leverage, 0)}. A move of{" "}
-            <span className="figures text-down">{(wipeoutMove(leverage) * 100).toFixed(wipeoutMove(leverage) < 0.02 ? 2 : 1)}%</span> against you takes all of it.
+            Trades like <span className="figures text-foreground">${usd(stake * leverage, 0)}</span>. Gone at{" "}
+            <span className="figures text-down">{(wipeoutMove(leverage) * 100).toFixed(wipeoutMove(leverage) < 0.02 ? 2 : 1)}%</span> against you.
           </PopoverDescription>
           <div className="pt-4">
             <AmountWheel format={(n) => `${n}\u00d7`} label="Boost" max={50} min={1} onChange={onLeverage} step={1} value={leverage} />
