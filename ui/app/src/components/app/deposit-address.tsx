@@ -1,0 +1,84 @@
+"use client";
+
+import { CheckIcon, CopyIcon } from "lucide-react";
+import QRCode from "qrcode";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import type { SendTo } from "@/lib/deposit";
+import { ChainMark, UsdcMark } from "./marks";
+
+/**
+ * The address that is the whole deposit.
+ *
+ * One per person, the same on every chain Lighter watches, and open to
+ * anyone: USDC sent from Coinbase, an exchange, another wallet or a friend
+ * all land on their account, and make it if there is not one.
+ *
+ * This is why it leads. Everything else asks somebody to fund a brand new
+ * wallet and then bridge out of it, which is two moves and a balance sitting
+ * in a place that is neither their own wallet nor their position.
+ */
+export function DepositAddress({ address, chains, minimum }: { address: string; chains: readonly SendTo[]; minimum: number }) {
+  const [qr, setQr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    // Drawn here, so no image is fetched and nothing about the address leaves
+    // the page to be rendered somewhere else.
+    QRCode.toDataURL(address, { margin: 1, width: 320, errorCorrectionLevel: "M", color: { dark: "#000000ff", light: "#ffffffff" } })
+      .then((url) => live && setQr(url))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [address]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // No clipboard. The address is on screen to read.
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-muted-foreground text-sm leading-snug">
+        Send <span className="font-medium text-foreground">USDC</span> here from anywhere: Coinbase, an exchange, another wallet. It arrives as collateral,
+        usually within a few minutes.
+      </p>
+
+      {/* White whatever the theme, because a dark QR on a dark ground does not scan. */}
+      <div className="flex items-center gap-3 rounded-xl border bg-white p-3">
+        {/* biome-ignore lint/performance/noImgElement: a data URI made on this page, with nothing to optimise */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {qr ? <img alt="" className="size-24 shrink-0" src={qr} /> : <div className="size-24 shrink-0 animate-pulse rounded bg-black/5" />}
+        <div className="min-w-0 flex-1">
+          <p className="break-all font-mono text-[11px] text-black leading-snug">{address}</p>
+          <Button className="mt-2" onClick={() => void copy()} size="xs" variant="outline">
+            {copied ? <CheckIcon /> : <CopyIcon />}
+            {copied ? "Copied" : "Copy address"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-muted-foreground text-xs">
+        <span className="inline-flex items-center gap-1">
+          <UsdcMark className="size-4" /> USDC only
+        </span>
+        {chains.map((c) => (
+          <span className="inline-flex items-center gap-1" key={c.id}>
+            <ChainMark className="size-4" id={c.id} /> {c.name}
+          </span>
+        ))}
+      </div>
+
+      <p className="text-muted-foreground text-xs leading-snug">
+        At least ${minimum}. Anything else, or any other chain, will not arrive and cannot be recovered.
+      </p>
+    </div>
+  );
+}

@@ -26,6 +26,31 @@ export type DepositQuote = {
 
 export const NATIVE = "0x0000000000000000000000000000000000000000";
 
+/** A chain a plain USDC transfer to the deposit address is watched on. */
+export type SendTo = { id: number; name: string };
+
+export type DepositAddress = { address: string; chains: SendTo[]; asset: string; minimum: number };
+
+/**
+ * The one address that credits this wallet's Lighter account. Unchanging, so
+ * it is fetched once and kept.
+ */
+export function useDepositAddress(address: string | null): DepositAddress | null {
+  const [found, setFound] = useState<DepositAddress | null>(null);
+  useEffect(() => {
+    if (!URL_API || !address) return;
+    let live = true;
+    fetch(`${URL_API}/deposit/address?address=${address}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => live && setFound((d as DepositAddress | null)?.address ? (d as DepositAddress) : null))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [address]);
+  return found;
+}
+
 export function useDepositChains(): Chain[] {
   const [chains, setChains] = useState<Chain[]>([]);
   useEffect(() => {

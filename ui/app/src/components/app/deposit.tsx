@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { usd } from "@/lib/market";
-import { type Chain, type DepositQuote, useDepositChains, useDepositQuote } from "@/lib/deposit";
+import { type Chain, type DepositQuote, useDepositAddress, useDepositChains, useDepositQuote } from "@/lib/deposit";
 import { cn } from "@/lib/utils";
+import { DepositAddress } from "./deposit-address";
 import { ChainMark, TokenMark } from "./marks";
 
 /**
@@ -59,6 +60,11 @@ function Line({ quote, busy, typed, ready }: { quote: DepositQuote | null; busy:
 
 export function DepositSheet({ address, open, onOpenChange, onDone }: { address: string | null; open: boolean; onOpenChange: (open: boolean) => void; onDone: () => void }) {
   const chains = useDepositChains();
+  const deposit = useDepositAddress(address);
+  /* Sending from the skech wallet is the second way, not the first: a wallet
+     made a minute ago has nothing in it, so leading with it asks somebody to
+     fund it and then bridge out of it, which is two moves for one deposit. */
+  const [bridging, setBridging] = useState(false);
   const [chainId, setChainId] = useState<number | null>(null);
   const [native, setNative] = useState(false);
   const [amount, setAmount] = useState("");
@@ -108,6 +114,22 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
           <SheetDescription>Whatever you are holding, wherever it is. It lands as collateral on Lighter.</SheetDescription>
         </SheetHeader>
         <SheetPanel className="flex flex-col gap-4">
+          {deposit && !bridging ? (
+            <>
+              <DepositAddress address={deposit.address} chains={deposit.chains} minimum={deposit.minimum} />
+              <Button className="w-full" onClick={() => setBridging(true)} variant="outline">
+                Or send from this wallet
+              </Button>
+            </>
+          ) : null}
+
+          {deposit && !bridging ? null : (
+          <>
+          {deposit ? (
+            <Button className="-mt-1 self-start" onClick={() => setBridging(false)} size="xs" variant="ghost">
+              Back to the address
+            </Button>
+          ) : null}
           {/* A grid, not a strip: six chains will not sit in one row, and a
               mark is quicker to find than a word. */}
           <div>
@@ -170,8 +192,10 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
           </Button>
 
           <p className="text-muted-foreground text-xs leading-snug">
-            It goes to an address Lighter gave for your wallet. If you have never used Lighter, the first deposit makes the account.
+            Whatever is in this wallet, turned into collateral in one go. If you have never used Lighter, this makes the account.
           </p>
+          </>
+          )}
         </SheetPanel>
       </SheetPopup>
     </Sheet>

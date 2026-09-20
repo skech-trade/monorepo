@@ -10,7 +10,9 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { Segmented } from "./controls";
+import { useAccount } from "./auth";
 import { setDark, useDark } from "./theme-toggle";
+import { WalletOut } from "./wallet-out";
 
 /**
  * What the reader has set. The chart's own three sit under a gear on the
@@ -130,6 +132,7 @@ export function ChartSettingsButton({ className, side = "right" }: { className?:
 export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [settings, set] = useSettings();
   const dark = useDark();
+  const me = useAccount();
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetPopup className="sm:max-w-sm" side="right" variant="inset">
@@ -158,6 +161,11 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
           <Group title="On the drawing">
             <PlotSettings />
           </Group>
+          {me.address ? (
+            <Group title="Your wallet">
+              <WalletOut address={me.address} />
+            </Group>
+          ) : null}
           <Group title="Privacy">
             <Row hint="Every figure on the screen, for reading it in company." label="Blur the money">
               <Switch aria-label="Blur the money" checked={settings.blurred} onCheckedChange={(blurred) => set({ blurred })} />

@@ -45,6 +45,16 @@ export const CHAINS = [
  */
 export const LANDS_ON = CHAINS[0];
 
+/**
+ * Where a plain USDC transfer to the deposit address is watched for. Lighter's
+ * CCTP list, not ours, and narrower than the chains Relay can bridge from.
+ */
+export const SEND_TO = [
+  { id: 8453, name: "Base" },
+  { id: 42161, name: "Arbitrum" },
+  { id: 43114, name: "Avalanche" },
+] as const;
+
 /** The native coin of a chain, as Relay spells it. */
 export const NATIVE = "0x0000000000000000000000000000000000000000";
 
@@ -70,23 +80,31 @@ export class Deposits {
   private readonly known = new Map<string, string>();
 
   /**
-   * An address that credits this wallet's perp account. Public, no key, and
-   * it works for a wallet that has never touched Lighter, which is the whole
-   * reason this route exists.
+   * The address that credits this wallet's perp account.
    *
-   * The amount has to be positive or the call is refused, but the address
-   * that comes back does not depend on it: the same wallet and chain give the
-   * same address for $10, $25 or $100. So one is sent to satisfy the check
-   * and the real figure is whatever actually arrives.
+   * One per person, and that is the whole point: it is the same address on
+   * Base, Arbitrum, Avalanche and Arc, it does not change with the amount,
+   * and `is_external_deposit` means anyone may send to it. So a reader can
+   * send USDC straight from Coinbase, an exchange, another wallet or a
+   * friend, and it lands on their Lighter account, making the account if they
+   * have none.
+   *
+   * That removes a whole hop. Everything else asks someone to fund a new
+   * wallet first and bridge from it, which is two moves and a balance sitting
+   * somewhere that feels like neither their money nor their position.
+   *
+   * Without `is_external_deposit` the call refuses an amount of zero, with
+   * "amount should be greater than 0 for user wallet deposit". With it, zero
+   * is right, because the amount is whatever turns up.
    */
-  async intentAddress(address: string, chainId: number): Promise<string | null> {
-    const key = `${chainId}:${address.toLowerCase()}`;
+  async intentAddress(address: string, chainId: number = LANDS_ON.id): Promise<string | null> {
+    const key = address.toLowerCase();
     const had = this.known.get(key);
     if (had) return had;
     const res = await fetch(`${this.lighter}/api/v1/createIntentAddress`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ chain_id: String(chainId), from_addr: address, amount: "5" }),
+      body: new URLSearchParams({ chain_id: String(chainId), from_addr: address, amount: "0", is_external_deposit: "true" }),
     }).catch(() => null);
     if (!res?.ok) return null;
     const out = (await res.json()) as { intent_address?: string };

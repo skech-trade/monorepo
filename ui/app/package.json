@@ -15,11 +15,13 @@
     "@coinbase/cdp-core": "^0.0.126",
     "@coinbase/cdp-hooks": "^0.0.126",
     "@coinbase/cdp-react": "^0.0.126",
+    "@types/qrcode": "^1.5.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lightweight-charts": "^5.2.1",
     "lucide-react": "^1.45.0",
     "next": "16.3.5",
+    "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tailwind-merge": "^3.6.0"

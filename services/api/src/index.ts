@@ -7,7 +7,7 @@
  */
 
 import { hasDb, migrate, rename, sql, userFor } from "./db";
-import { CHAINS, Deposits, NATIVE } from "./deposit";
+import { CHAINS, Deposits, NATIVE, SEND_TO } from "./deposit";
 import { Lighter } from "./lighter";
 
 const PORT = Number(process.env.PORT ?? 3230);
@@ -73,6 +73,21 @@ Bun.serve({
       const balance = await venue.balanceForAddress(at).catch(() => null);
       if (!balance) return json({ error: "venue unreachable" }, 502);
       return json(balance);
+    }
+
+    /*
+      The one address that credits this wallet's Lighter account.
+
+      The same on every chain Lighter watches, unchanging, and open to anyone:
+      USDC sent from an exchange, another wallet or a friend all land the same
+      way. This is the path that asks nothing of a new wallet.
+    */
+    if (url.pathname === "/deposit/address") {
+      const at = address(url.searchParams.get("address"));
+      if (!at) return json({ error: "address required" }, 400);
+      const intent = await deposits.intentAddress(at).catch(() => null);
+      if (!intent) return json({ error: "venue unreachable" }, 502);
+      return json({ address: intent, chains: SEND_TO, asset: "USDC", minimum: 5 });
     }
 
     /** Where money can come from. The app does not need to know these. */
