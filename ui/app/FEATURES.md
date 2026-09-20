@@ -119,6 +119,10 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   account 391 with $10,000, key registered, a three-leg line traded as four
   orders on 391, and its own collateral down to $9,999.117519. The balance
   that moved is the one on the screen.
+- The card and the Rounds sheet show what the venue booked, not what the
+  simulation worked out. A round that cost $39 in slippage read $0.00,
+  because the local settlement had nothing to settle after an early close.
+  Two numbers for one round, and the wrong one on screen.
 - The tray still compares the account a round landed on with the one behind
   your wallet, and says so in amber if they ever differ. They should not any
   more, so it is a check rather than a mode.

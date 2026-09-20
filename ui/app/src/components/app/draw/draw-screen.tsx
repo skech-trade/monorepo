@@ -100,6 +100,9 @@ export function DrawScreen({ market }: { market: Market }) {
     ended are the venue's to say, and asking is the only way to know them.
   */
   const [venueId, setVenueId] = useState<string | null>(null);
+  /* Which drawn round the venue round belongs to, so the settled card can
+     show what the venue booked rather than what the simulation worked out. */
+  const [venueSketch, setVenueSketch] = useState<string | null>(null);
   const [venueProblem, setVenueProblem] = useState<string | null>(null);
   const venue = useVenueRound(venueId);
   /* Whose account the orders land on, against whose balance is on the screen. */
@@ -474,7 +477,7 @@ export function DrawScreen({ market }: { market: Market }) {
     somebody trades, and never again: it authorises a key that can trade their
     Lighter account and nothing else. It cannot move money off the venue.
   */
-  const trade = async (address: string, spec: Omit<Parameters<typeof openRound>[0], "address">) => {
+  const trade = async (address: string, sketchId: string, spec: Omit<Parameters<typeof openRound>[0], "address">) => {
     try {
       const { registered } = await keyFor(address);
       if (!registered) {
@@ -493,6 +496,7 @@ export function DrawScreen({ market }: { market: Market }) {
       if ("error" in round) return setVenueProblem(round.error);
       setVenueProblem(null);
       setVenueId(round.id);
+      setVenueSketch(sketchId);
     } catch (e) {
       setVenueProblem((e as Error).message.slice(0, 140));
     }
@@ -530,9 +534,10 @@ export function DrawScreen({ market }: { market: Market }) {
       that quietly did not trade is the worst of both.
     */
     setVenueId(null);
+    setVenueSketch(null);
     setVenueProblem(null);
     if (hasTrader && me.address) {
-      void trade(me.address, { pts: moved, stake, leverage, seconds: bars, exits });
+      void trade(me.address, sketch.id, { pts: moved, stake, leverage, seconds: bars, exits });
     }
     // No toast. The header turns into "Close trade", the bar starts counting
     // candles and the chart starts moving: three things already say it.
@@ -560,9 +565,23 @@ export function DrawScreen({ market }: { market: Market }) {
      trade that costs money to be right about. It read "+$-4" before. */
   const headLabel = shape && quote ? `${signedUsd(quote.ifWorks, 0)} if it gets here` : null;
 
+  /*
+    What each round is worth, on the cards and in the sheet.
+
+    A round that went to the venue is worth what the venue booked, whether it
+    is still open or finished. The settled card used to show the local
+    settlement whatever happened: a round that cost $39 in slippage on the
+    venue read $0.00, because the simulation had nothing to settle after an
+    early close. Two numbers for one round, and the wrong one on screen.
+  */
   const shown = useMemo(
-    () => (phase === "running" && net !== null ? sketches.map((s) => (s.status === "running" ? { ...s, net } : s)) : sketches),
-    [sketches, net, phase],
+    () =>
+      sketches.map((s) => {
+        if (venue && s.id === venueSketch) return { ...s, net: venue.status === "done" ? venue.realised : venue.unrealised };
+        if (phase === "running" && net !== null && s.status === "running") return { ...s, net };
+        return s;
+      }),
+    [sketches, net, phase, venue, venueSketch],
   );
 
   return (
