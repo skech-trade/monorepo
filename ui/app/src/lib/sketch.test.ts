@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Candle } from "./market";
 import { type Pt, quote, settle, shapeOf } from "./sketch";
-import { liquidationPrice, MARGIN, MARKET, roundSize, tradeable, wipeoutMove } from "./venue";
+import { liquidationPrice, MAINNET, MARGIN, roundSize, TESTNET, tradeable, wipeoutMove } from "./venue";
 
 /**
  * The file that decides money, pinned by the properties that have to hold
@@ -131,18 +131,31 @@ describe("sizes the venue would actually accept", () => {
     expect(roundSize(0.000069)).toBe(0.00006);
   });
 
-  test("the minimums are enforced on both size and notional", () => {
-    expect(tradeable(11 / ENTRY, ENTRY)).toBe(true);
-    expect(tradeable(9 / ENTRY, ENTRY)).toBe(false);
-    expect(tradeable(MARKET.minBase / 2, ENTRY)).toBe(false);
+  test("both floors are enforced, not just the size", () => {
+    for (const m of [MAINNET, TESTNET]) {
+      expect(tradeable(20 / ENTRY, ENTRY, m)).toBe(true);
+      expect(tradeable(9 / ENTRY, ENTRY, m)).toBe(false);
+      expect(tradeable(m.minBase / 2, ENTRY, m)).toBe(false);
+    }
   });
 
   test("asking for exactly the minimum notional is rejected, because rounding down loses it", () => {
     // $10 at $64k is 0.00015625 BTC, which rounds down to 0.00015, which is
-    // $9.60. Anything that sizes a position off the $10 floor has to ask for
-    // a little more than the floor or it will be turned away.
-    expect(tradeable(MARKET.minQuote / ENTRY, ENTRY)).toBe(false);
-    expect(roundSize(MARKET.minQuote / ENTRY) * ENTRY).toBeLessThan(MARKET.minQuote);
+    // $9.60. Anything sized off the venue's own floor has to ask for a little
+    // more than the floor or it will be turned away.
+    expect(tradeable(MAINNET.minQuote / ENTRY, ENTRY, MAINNET)).toBe(false);
+    expect(roundSize(MAINNET.minQuote / ENTRY, MAINNET) * ENTRY).toBeLessThan(MAINNET.minQuote);
+  });
+
+  test("testnet is a different market with a different floor", () => {
+    // Found the hard way: an order sized for mainnet is rejected on testnet
+    // and the error says nothing useful about why.
+    expect(TESTNET.id).not.toBe(MAINNET.id);
+    expect(TESTNET.minBase).toBeGreaterThan(MAINNET.minBase);
+    // 0.00017 BTC is $10.88, over the notional floor both share, but under
+    // testnet's size floor of 0.0002 and over mainnet's of 0.00007.
+    expect(tradeable(0.00017, ENTRY, MAINNET)).toBe(true);
+    expect(tradeable(0.00017, ENTRY, TESTNET)).toBe(false);
   });
 });
 

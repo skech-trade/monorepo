@@ -7,8 +7,14 @@
  * once and every screen told a different story about where you get wiped out.
  */
 
-/** BTC on Lighter. The only market skech lists. */
-export const MARKET = {
+/**
+ * BTC on Lighter. The only market skech lists.
+ *
+ * Testnet is a different market with a different id and a different floor,
+ * which is the sort of thing that is found the hard way: an order sized for
+ * mainnet is rejected there and the error says nothing useful.
+ */
+export const MAINNET: Market = {
   /** `market_index` in every order. */
   id: 1,
   symbol: "BTC",
@@ -20,7 +26,12 @@ export const MARKET = {
   minBase: 0.00007,
   minQuote: 10,
   maxLeverage: 50,
-} as const;
+};
+
+export const TESTNET: Market = { ...MAINNET, id: 4096, minBase: 0.0002 };
+
+/** Which one the app is quoting. Testnet until a round has been through it end to end. */
+export const MARKET: Market = process.env.NEXT_PUBLIC_LIGHTER_NET === "mainnet" ? MAINNET : TESTNET;
 
 /**
  * Standard accounts pay nothing, either side.
@@ -51,14 +62,25 @@ export const MARGIN = {
  */
 export const LATENCY_BARS = 0.5;
 
+/** What an order has to satisfy. Defaults to the market the app is quoting. */
+export type Market = {
+  readonly id: number;
+  readonly symbol: string;
+  readonly sizeDecimals: number;
+  readonly priceDecimals: number;
+  readonly minBase: number;
+  readonly minQuote: number;
+  readonly maxLeverage: number;
+};
+
 /** A size the venue will accept: rounded down to its step. */
-export const roundSize = (btc: number) => Math.floor(btc * 10 ** MARKET.sizeDecimals) / 10 ** MARKET.sizeDecimals;
+export const roundSize = (btc: number, m: Market = MARKET) => Math.floor(btc * 10 ** m.sizeDecimals) / 10 ** m.sizeDecimals;
 
 /** A price the venue will accept: rounded to its tick. */
-export const roundPrice = (usd: number) => Math.round(usd * 10 ** MARKET.priceDecimals) / 10 ** MARKET.priceDecimals;
+export const roundPrice = (usd: number, m: Market = MARKET) => Math.round(usd * 10 ** m.priceDecimals) / 10 ** m.priceDecimals;
 
-/** Whether the venue would take this order at all. */
-export const tradeable = (btc: number, price: number) => roundSize(btc) >= MARKET.minBase && roundSize(btc) * price >= MARKET.minQuote;
+/** Whether the venue would take this order at all. Both floors, not just the size. */
+export const tradeable = (btc: number, price: number, m: Market = MARKET) => roundSize(btc, m) >= m.minBase && roundSize(btc, m) * price >= m.minQuote;
 
 /**
  * Where isolated margin gives out, solved the way a venue does it.
