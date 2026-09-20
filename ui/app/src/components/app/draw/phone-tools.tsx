@@ -50,7 +50,7 @@ export function PhoneTools({
       <DrawerTrigger asChild>
         {/* Square when it holds only the icon, so it is not a wide pill with
             the icon adrift in it. It grows only when there is a count to show. */}
-        <Button aria-label="Tools and settings" className={cn("rounded-full", set > 0 && "w-auto gap-1.5 px-2.5", className)} size="icon" variant="outline">
+        <Button aria-label="Tools and settings" className={cn("size-13 rounded-full", set > 0 && "w-auto gap-1.5 px-3", className)} size="icon" variant="outline">
           <SlidersHorizontalIcon />
           {set > 0 ? <span className="figures text-muted-foreground text-xs">{set}</span> : null}
         </Button>

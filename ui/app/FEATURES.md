@@ -28,14 +28,15 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 
 - One row of controls at the bottom, where a thumb is, and symmetric about
   the thing it is for: rounds and the tools drawer on the left, size and boost
-  on the right, all four the same circle, and the button between them taking
-  whatever width is left. Everything else on the screen is chart.
+  on the right, all four the same 52px circle, and the button between them,
+  52px tall, taking whatever width is left. Everything else on the screen is chart.
 - The row above it is drawn only when it has something to say. While a line is
   being drawn the chart already reads "click to place your points" where the
   points go, so repeating it under the chart cost a row and told nobody
   anything. It comes back for the figures on a finished line, the candle count
   while a round runs, and the result.
-- Buttons are 44px on a phone and unchanged on a desk. A pointer is a pixel
+- Buttons are 44px on a phone and unchanged on a desk, and the footer's own
+  are 52px, because that row is the one people actually press. A pointer is a pixel
   and a thumb is about a centimetre, which is why every phone platform asks
   for 44 and why the trading apps people already use look oversized on a
   laptop. Ours were 36, made for a mouse.
