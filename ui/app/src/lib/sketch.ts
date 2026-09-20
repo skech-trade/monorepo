@@ -1,5 +1,5 @@
 import type { Candle } from "./market";
-import { FEE as VENUE_FEE, LATENCY_BARS, liquidationPrice } from "./venue";
+import { FEE as VENUE_FEE, LATENCY_BARS, liquidationPrice, MARGIN, roundSize, tradeable } from "./venue";
 
 /** What a round trip costs, per side. Zero on Lighter Standard. See `venue.ts`. */
 export const FEE = VENUE_FEE.taker;
@@ -222,6 +222,49 @@ export type Book = {
  * equity at the time and charged its own round trip. Liquidation is checked inside each leg; equity
  * stops at zero.
  */
+/** One net position: how much BTC is held, what it averaged, what has been booked. */
+type Position = { size: number; avg: number; realised: number };
+
+/**
+ * Trade the position to `want`, at `price`.
+ *
+ * The part that reduces what is open books a profit or a loss; the part that
+ * is left re-averages the entry. This is one order on the venue, of the size
+ * of the difference, which is why a reversal costs one round trip and not two.
+ */
+function tradeTo(pos: Position, want: number, price: number): Position {
+  const delta = want - pos.size;
+  if (delta === 0) return pos;
+  let { size, avg, realised } = pos;
+  if (size !== 0 && Math.sign(delta) !== Math.sign(size)) {
+    const closed = Math.min(Math.abs(delta), Math.abs(size));
+    realised += Math.sign(size) * closed * (price - avg);
+    size -= Math.sign(size) * closed;
+  }
+  const opened = want - size;
+  if (opened !== 0) {
+    avg = size === 0 ? price : (avg * size + price * opened) / (size + opened);
+    size += opened;
+  }
+  if (size === 0) avg = price;
+  realised -= FEE * Math.abs(delta) * price;
+  return { size, avg, realised };
+}
+
+/**
+ * The line, traded as one position.
+ *
+ * Every turn you drew closes what is open and opens the other way, which the
+ * venue sees as a single order for the difference. It used to run each leg as
+ * a position of its own, with its own liquidation price, sized off compounded
+ * equity: a zigzag had four liquidation prices and the bar could only show the
+ * first. There is one position, one average entry and one margin now, and the
+ * liquidation test is the venue's own: equity has fallen to the maintenance it
+ * must hold against the position at the mark.
+ *
+ * Sizes are rounded down to the venue's step, so the figure here is a figure
+ * Lighter would accept. Under its minimum nothing opens at all.
+ */
 export function settle(
   bars: Candle[],
   shape: Shape,
@@ -248,42 +291,53 @@ export function settle(
   /** A sample index on the drawing, to a candle of the round. */
   const barOf = (sample: number) => Math.round((sample / (SAMPLES - 1)) * runBars);
 
-  let equity = stake;
+  let pos: Position = { size: 0, avg: entry, realised: 0 };
   let exit = priceAt(last);
+  /** Isolated margin: the stake, plus whatever the round has booked so far. */
+  const equityAt = (mark: number) => stake + pos.realised + pos.size * (mark - pos.avg);
+  /** What the venue must still hold against what is open. */
+  const heldAt = (mark: number) => MARGIN.maintenance * Math.abs(pos.size) * mark;
 
   for (const leg of shape.legs) {
     const from = barOf(leg.from);
     if (from >= last) break;
     const to = barOf(leg.to);
     const open = fillAt(from);
-    const notional = equity * leverage;
-    const q = notional / open;
-    const liq = liquidationPrice(open, equity, leverage, leg.dir);
+    const want = leg.dir * roundSize((stake * leverage) / open);
+    // Under the venue's minimum there is no order to send, so the round sits flat.
+    if (tradeable(Math.abs(want), open)) pos = tradeTo(pos, want, open);
 
     /* Bar by bar: the margin first, then your two levels, tested on the wick. */
-    const banked = equity - stake;
     for (let i = from; i < Math.min(to, last); i++) {
       const bar = bars[i];
-      const worst = leg.dir > 0 ? bar.l : bar.h;
-      const best = leg.dir > 0 ? bar.h : bar.l;
-      if (leg.dir * (worst - liq) <= 0) return { net: -stake, done: "liquidated", exit: liq };
-      if (exits.lose !== null && banked + leg.dir * q * (worst - open) <= -exits.lose) {
-        return { net: -exits.lose, done: "stop", exit: open + (leg.dir * (-exits.lose - banked)) / q };
+      const worst = pos.size >= 0 ? bar.l : bar.h;
+      const best = pos.size >= 0 ? bar.h : bar.l;
+      if (pos.size !== 0 && equityAt(worst) <= heldAt(worst)) return { net: -stake, done: "liquidated", exit: worst };
+      if (exits.lose !== null && equityAt(worst) - stake <= -exits.lose) {
+        return { net: -exits.lose, done: "stop", exit: priceForPnl(pos, -exits.lose) };
       }
-      if (exits.gain !== null && banked + leg.dir * q * (best - open) >= exits.gain) {
-        return { net: exits.gain, done: "target", exit: open + (leg.dir * (exits.gain - banked)) / q };
+      if (exits.gain !== null && equityAt(best) - stake >= exits.gain) {
+        return { net: exits.gain, done: "target", exit: priceForPnl(pos, exits.gain) };
       }
     }
 
     const close = fillAt(Math.min(to, last));
-    equity += leg.dir * q * (close - open) - FEE * notional * 2;
     exit = close;
-    if (equity <= 0) return { net: -stake, done: "liquidated", exit: close };
+    if (equityAt(close) <= 0) return { net: -stake, done: "liquidated", exit: close };
     // Still inside this leg: it is marked, not closed, and nothing follows yet.
     if (to >= last) break;
+    // No flattening between legs. The next one trades straight through to the
+    // other side, which is the single order the venue would receive.
   }
 
-  return { net: Math.max(-stake, equity - stake), done: null, exit };
+  const mark = priceAt(last);
+  return { net: Math.max(-stake, equityAt(mark) - stake), done: null, exit: pos.size === 0 ? exit : mark };
+}
+
+/** The price at which the round would be up or down exactly `pnl`. */
+function priceForPnl(pos: Position, pnl: number): number {
+  if (pos.size === 0) return pos.avg;
+  return pos.avg + (pnl - pos.realised) / pos.size;
 }
 
 /**

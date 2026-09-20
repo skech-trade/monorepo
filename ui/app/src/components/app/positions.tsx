@@ -15,6 +15,7 @@ import {
 } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import { Pane, Pill, Segmented } from "./controls";
+import { announceSoon } from "./soon";
 
 type Tab = "positions" | "orders" | "history";
 
@@ -107,8 +108,8 @@ export function Positions({
                   </TableCell>
                   <TableCell className="pr-3 text-right">
                     <span className="inline-flex gap-1">
-                      <Button size="xs" variant="outline">Exits</Button>
-                      <Button size="xs" variant="outline">Close</Button>
+                      <Button onClick={() => announceSoon("The desk is a preview. Draw is the part that runs.")} size="xs" variant="outline">Exits</Button>
+                      <Button onClick={() => announceSoon("The desk is a preview. Draw is the part that runs.")} size="xs" variant="outline">Close</Button>
                     </span>
                   </TableCell>
                 </TableRow>
@@ -139,7 +140,7 @@ export function Positions({
                   <TableCell className="figures">${usd(o.size)} <span className="text-muted-foreground">{o.type} at ${fmtPrice(o.price)}</span></TableCell>
                   <TableCell className="figures">{usd(o.filled * 100, 0)}%</TableCell>
                   <TableCell className="figures">{time(o.t)}</TableCell>
-                  <TableCell className="pr-3 text-right"><Button size="xs" variant="outline">Cancel</Button></TableCell>
+                  <TableCell className="pr-3 text-right"><Button onClick={() => announceSoon("The desk is a preview. Draw is the part that runs.")} size="xs" variant="outline">Cancel</Button></TableCell>
                 </TableRow>
               ))}
             </TableBody>

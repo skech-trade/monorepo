@@ -13,6 +13,10 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - Light and dark, from the toggle in the bar or the Settings sheet. An inline
   script applies the stored theme and palette before the first paint.
 
+- Nothing on the screen pretends to work. Deposit, Withdraw, Transfers,
+  Rewards, Support, Disconnect, the desk's submit and the positions row
+  buttons all say "Not live yet" and what is missing.
+
 ## Settings
 
 - Everything the reader sets is remembered in this browser, under one key. The
@@ -108,7 +112,10 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   The one filled button on a view is the direction button in its colour.
   Candles sit one step quieter than the P&L figures. No vertical grid.
 - Size: wheel, $20 to $500 in $5 steps, click to type. Boost: 1× to 50× on
-  the same wheel, "Put in $100, trade like $1,000" above it. Stop loss and
+  the same wheel, "Put in $100, trade like $1,000. A move of 8.9% against you
+  takes all of it" above it. That figure is a function of the boost alone and
+  it is why the default is ten and not fifty: at fifty it reads 0.81%, which
+  Bitcoin does several times on an ordinary day. Stop loss and
   take profit as money, off by default, on the same wheel.
 - "Trade for $S" places it. No toast: the header turns into "Close trade",
   the bar starts counting candles and the chart starts moving.

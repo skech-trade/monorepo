@@ -31,6 +31,7 @@ import { Wordmark } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { useSettings } from "@/lib/settings";
 import { SettingsSheet } from "./settings";
+import { announceSoon } from "./soon";
 import { HANDLE } from "@/lib/user";
 
 /** Mock, like the balance. DiceBear's "shapes" set is CC0: abstract, no face. */
@@ -63,7 +64,7 @@ export function AppBar({ account }: { account: Account }) {
           <span className="sr-only">Cash balance: </span>
           <span className="figures">${usd(account.balance)}</span>
         </span>
-        <Button className="hidden lg:inline-flex" variant="secondary">
+        <Button className="hidden lg:inline-flex" onClick={() => announceSoon("Deposits open when the venue is wired up.")} variant="secondary">
           <ArrowDownToLineIcon />
           Deposit
         </Button>
@@ -96,15 +97,15 @@ export function AppBar({ account }: { account: Account }) {
             </div>
             <MenuSeparator />
             <MenuGroup>
-              <MenuItem>
+              <MenuItem onClick={() => announceSoon("Deposits open when the venue is wired up.")}>
                 <ArrowDownToLineIcon />
                 Deposit
               </MenuItem>
-              <MenuItem>
+              <MenuItem onClick={() => announceSoon("Withdrawals open when the venue is wired up.")}>
                 <ArrowUpFromLineIcon />
                 Withdraw
               </MenuItem>
-              <MenuItem>
+              <MenuItem onClick={() => announceSoon("There is nothing to show until money moves.")}>
                 <HistoryIcon />
                 Transfers
               </MenuItem>
@@ -117,16 +118,16 @@ export function AppBar({ account }: { account: Account }) {
               <SettingsIcon />
               Settings
             </MenuItem>
-            <MenuItem>
+            <MenuItem onClick={() => announceSoon("Rewards are not built yet.")}>
               <GiftIcon />
               Rewards
             </MenuItem>
-            <MenuItem>
+            <MenuItem onClick={() => announceSoon("Support is not built yet.")}>
               <LifeBuoyIcon />
               Support
             </MenuItem>
             <MenuSeparator />
-            <MenuItem variant="destructive">
+            <MenuItem onClick={() => announceSoon("There is no wallet connected yet.")} variant="destructive">
               <LogOutIcon />
               Disconnect
             </MenuItem>

@@ -10,6 +10,7 @@ import { type Account, BALANCE, price as fmtPrice, type Market, priceDp, signedU
 import { cn } from "@/lib/utils";
 import { FEE, liquidationPrice as venueLiquidation } from "@/lib/venue";
 import { Pane, Segmented, Stat } from "./controls";
+import { announceSoon } from "./soon";
 import { DESK_STEPS, LeverageMeter } from "./leverage-meter";
 
 /* ---- the order ------------------------------------------------------------ */
@@ -364,6 +365,7 @@ export function Ticket({
         <Button
           className={cn("w-full", long ? "border-success bg-success text-white shadow-success/24 hover:bg-success/90" : "")}
           disabled={pay <= 0}
+          onClick={() => announceSoon("The desk is a preview. Draw is the part that runs.")}
           size="lg"
           variant={long ? "default" : "destructive"}
         >

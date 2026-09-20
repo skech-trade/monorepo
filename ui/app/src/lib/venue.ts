@@ -79,3 +79,16 @@ export function liquidationPrice(entry: number, stake: number, leverage: number,
   const room = stake - FEE.taker * stake * leverage;
   return dir > 0 ? (q * entry - room) / (q * (1 - MARGIN.maintenance)) : (q * entry + room) / (q * (1 + MARGIN.maintenance));
 }
+
+/**
+ * How far the market has to move against a position to take the whole stake,
+ * as a fraction of the entry price. A function of the leverage alone:
+ *
+ *   (1 − L·mmr) / (L · (1 − mmr))
+ *
+ * At 50x that is 0.81%, which Bitcoin does several times on an ordinary day.
+ * At 10x it is 8.9%, which it mostly does not. This is the number behind the
+ * choice, so the screen says it rather than leaving it to be worked out.
+ */
+export const wipeoutMove = (leverage: number) =>
+  Math.max(0, (1 - leverage * MARGIN.maintenance) / (leverage * (1 - MARGIN.maintenance)));

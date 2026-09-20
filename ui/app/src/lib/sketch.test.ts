@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Candle } from "./market";
 import { type Pt, quote, settle, shapeOf } from "./sketch";
-import { liquidationPrice, MARGIN, MARKET, roundSize, tradeable } from "./venue";
+import { liquidationPrice, MARGIN, MARKET, roundSize, tradeable, wipeoutMove } from "./venue";
 
 /**
  * The file that decides money, pinned by the properties that have to hold
@@ -157,5 +157,69 @@ describe("the shape reads the line the way the bar describes it", () => {
 
   test("a single point is not a line", () => {
     expect(shapeOf([{ t: 0, price: ENTRY }], ENTRY)).toBeNull();
+  });
+});
+
+describe("the round is one position, not one per leg", () => {
+  /** Up, down, up: three legs, so three positions under the old model. */
+  const zigzag = () => shapeOf(line(ENTRY * 1.01, ENTRY * 0.99, ENTRY * 1.015), ENTRY);
+
+  test("a zigzag still cannot lose more than the stake", () => {
+    const shape = zigzag();
+    expect(shape?.legs.length).toBeGreaterThan(1);
+    const book = settle(walk(ENTRY, ENTRY * 0.9, 60), shape as never, ENTRY, 100, 50, 60);
+    expect(book.net).toBeGreaterThanOrEqual(-100);
+  });
+
+  test("and a stop on a zigzag still caps the loss where it was set", () => {
+    const book = settle(walk(ENTRY, ENTRY * 0.94, 60), zigzag() as never, ENTRY, 100, 20, 60, { lose: 30, gain: null });
+    expect(book.done).toBe("stop");
+    expect(book.net).toBeCloseTo(-30, 6);
+  });
+
+  test("liquidation happens where the venue would do it, not before", () => {
+    const shape = shapeOf(line(ENTRY * 1.02), ENTRY);
+    /*
+      At fifty times, initial margin is 2% and maintenance is 1.2%, so the
+      position is gone on a move of about 0.81% against it. Bitcoin does that
+      several times on an ordinary day.
+    */
+    const survives = settle(walk(ENTRY, ENTRY * 0.995, 60), shape as never, ENTRY, 100, 50, 60);
+    expect(survives.done).not.toBe("liquidated");
+    const wiped = settle(walk(ENTRY, ENTRY * 0.99, 60), shape as never, ENTRY, 100, 50, 60);
+    expect(wiped.done).toBe("liquidated");
+    expect(wiped.net).toBe(-100);
+  });
+
+  test("and lower leverage really does buy room", () => {
+    const shape = shapeOf(line(ENTRY * 1.02), ENTRY);
+    // The same 1% move that wipes a 50x position leaves a 5x one alive.
+    expect(settle(walk(ENTRY, ENTRY * 0.99, 60), shape as never, ENTRY, 100, 5, 60).done).not.toBe("liquidated");
+  });
+
+  test("a flat market books roughly nothing, at any leverage", () => {
+    const flat = walk(ENTRY, ENTRY, 60);
+    for (const leverage of [1, 10, 50]) {
+      expect(Math.abs(settle(flat, zigzag() as never, ENTRY, 100, leverage, 60).net)).toBeLessThan(0.01);
+    }
+  });
+});
+
+describe("the move that wipes you out", () => {
+  test("agrees with the liquidation price at every leverage", () => {
+    for (const leverage of [2, 5, 10, 20, 50]) {
+      const fromPrice = 1 - liquidationPrice(ENTRY, 100, leverage, 1) / ENTRY;
+      expect(wipeoutMove(leverage)).toBeCloseTo(fromPrice, 9);
+    }
+  });
+
+  test("and more leverage always leaves less room", () => {
+    expect(wipeoutMove(50)).toBeLessThan(wipeoutMove(10));
+    expect(wipeoutMove(10)).toBeLessThan(wipeoutMove(2));
+  });
+
+  test("the number the screen shows people", () => {
+    expect(wipeoutMove(50) * 100).toBeCloseTo(0.81, 2);
+    expect(wipeoutMove(10) * 100).toBeCloseTo(8.91, 2);
   });
 });

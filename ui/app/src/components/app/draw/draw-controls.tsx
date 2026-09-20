@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { CheckIcon } from "lucide-react";
 import { Popover, PopoverClose, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { usd } from "@/lib/market";
+import { wipeoutMove } from "@/lib/venue";
 import { cn } from "@/lib/utils";
 import styles from "./amount-wheel.module.css";
 
@@ -236,7 +237,8 @@ export function DrawControls({
               single biggest piece of jargon left on this screen. */}
           <PopoverTitle>Set your boost</PopoverTitle>
           <PopoverDescription>
-            Put in ${usd(stake, 0)}, trade like ${usd(stake * leverage, 0)}.
+            Put in ${usd(stake, 0)}, trade like ${usd(stake * leverage, 0)}. A move of{" "}
+            <span className="figures text-down">{(wipeoutMove(leverage) * 100).toFixed(wipeoutMove(leverage) < 0.02 ? 2 : 1)}%</span> against you takes all of it.
           </PopoverDescription>
           <div className="pt-4">
             <AmountWheel format={(n) => `${n}\u00d7`} label="Boost" max={50} min={1} onChange={onLeverage} step={1} value={leverage} />

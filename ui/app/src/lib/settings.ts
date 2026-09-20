@@ -49,7 +49,14 @@ export const DEFAULTS: Settings = {
   marks: true,
   crosshair: true,
   stake: 100,
-  leverage: 50,
+  /*
+    Ten, not fifty. At fifty a 0.81% move takes the whole stake and Bitcoin
+    does that several times on an ordinary day; at ten it takes 8.9%. Fifty was
+    chosen against a simulated tape set to a calm average, where it almost
+    never bites. It will bite constantly against the real feed. Anyone who
+    wants it can still pick it.
+  */
+  leverage: 10,
   blurred: false,
   timeframe: "15m",
   kind: "candles",
