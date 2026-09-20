@@ -1,7 +1,7 @@
 "use client";
 
 import { useCurrentUser, useEvmAddress, useIsSignedIn, useSignOut } from "@coinbase/cdp-hooks";
-import { CDPReactProvider, type Config } from "@coinbase/cdp-react";
+import { CDPReactProvider, type Config, type Theme } from "@coinbase/cdp-react";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 
 /**
@@ -65,10 +65,68 @@ function Publish({ children }: { children: ReactNode }) {
   return <Ctx.Provider value={account}>{children}</Ctx.Provider>;
 }
 
+/**
+ * Coinbase's panel, in our colours.
+ *
+ * Every value is one of our own CSS variables rather than a hex, so the panel
+ * follows the theme switch for free: the variables are redefined under `.dark`
+ * and the panel is reading them live. Handing it two palettes to choose
+ * between would mean keeping them in step by hand for ever.
+ */
+const theme: Partial<Theme> = {
+  "colors-bg-default": "var(--popover)",
+  "colors-bg-alternate": "var(--muted)",
+  "colors-bg-overlay": "rgb(0 0 0 / 0.32)",
+  "colors-bg-skeleton": "var(--muted)",
+  "colors-bg-primary": "var(--primary)",
+  "colors-bg-secondary": "var(--secondary)",
+  "colors-fg-default": "var(--foreground)",
+  "colors-fg-muted": "var(--muted-foreground)",
+  "colors-fg-primary": "var(--brand)",
+  "colors-fg-onPrimary": "var(--primary-foreground)",
+  "colors-fg-onSecondary": "var(--secondary-foreground)",
+  "colors-fg-positive": "var(--up)",
+  "colors-fg-negative": "var(--down)",
+  "colors-line-default": "var(--border)",
+  "colors-line-heavy": "var(--input)",
+  "colors-line-primary": "var(--brand)",
+  "colors-page-bg-default": "var(--popover)",
+  "colors-page-border-default": "var(--border)",
+  "colors-page-text-default": "var(--foreground)",
+  "colors-page-text-muted": "var(--muted-foreground)",
+  /* The one filled button on this screen is the ballpoint blue the line is
+     drawn in, so Coinbase's Continue is that blue too. */
+  "colors-cta-primary-bg-default": "var(--brand)",
+  "colors-cta-primary-bg-hover": "color-mix(in srgb, var(--brand) 88%, black)",
+  "colors-cta-primary-bg-pressed": "color-mix(in srgb, var(--brand) 78%, black)",
+  "colors-cta-primary-text-default": "#ffffff",
+  "colors-cta-primary-text-hover": "#ffffff",
+  "colors-cta-secondary-bg-default": "var(--muted)",
+  "colors-cta-secondary-bg-hover": "var(--accent)",
+  "font-family-sans": "var(--font-sans), ui-sans-serif, system-ui, sans-serif",
+  /*
+    And our corners. The panel came with Coinbase's rounding, which is square
+    beside a screen where every panel is an 18px curve and every button is a
+    pill. Same trick as the colours: our variables, so one change moves both.
+  */
+  "borderRadius-xs": "var(--radius-sm)",
+  "borderRadius-sm": "var(--radius-md)",
+  "borderRadius-md": "var(--radius-lg)",
+  "borderRadius-lg": "var(--radius-xl)",
+  "borderRadius-xl": "var(--radius-2xl)",
+  "borderRadius-modal": "var(--radius-2xl)",
+  "borderRadius-input": "var(--radius-xl)",
+  "borderRadius-cta": "9999px",
+  "borderRadius-badge": "9999px",
+  "borderRadius-banner": "var(--radius-xl)",
+  "borderRadius-select-trigger": "var(--radius-xl)",
+  "borderRadius-select-list": "var(--radius-2xl)",
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   if (!hasAuth) return <Ctx.Provider value={SIGNED_OUT}>{children}</Ctx.Provider>;
   return (
-    <CDPReactProvider config={config}>
+    <CDPReactProvider config={config} theme={theme}>
       <Publish>{children}</Publish>
     </CDPReactProvider>
   );

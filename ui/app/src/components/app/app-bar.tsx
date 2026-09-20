@@ -12,7 +12,7 @@ import {
   UserIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
@@ -26,14 +26,17 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu";
-import { type Account, usd } from "@/lib/market";
+import { type Account, signedUsd, usd } from "@/lib/market";
 import { Wordmark } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { useSettings } from "@/lib/settings";
 import { SettingsSheet } from "./settings";
 import { announceSoon } from "./soon";
 import { HANDLE } from "@/lib/user";
+import { useProfile } from "@/lib/profile";
+import { cn } from "@/lib/utils";
 import { hasAuth, shortAddress, useAccount } from "./auth";
+import { NamePrompt } from "./name-prompt";
 import { SignInButton } from "./sign-in";
 
 /** Mock, like the balance. DiceBear's "shapes" set is CC0: abstract, no face. */
@@ -43,9 +46,31 @@ export function AppBar({ account }: { account: Account }) {
   const [{ blurred }, set] = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const me = useAccount();
+  const profile = useProfile(me.address);
+  const [askName, setAskName] = useState(false);
   /* Signed out with auth available, the only thing in the corner is the way in. */
   const anonymous = hasAuth && !me.signedIn;
-  const name = me.handle ?? HANDLE;
+  /*
+    A name, a handle, or the wallet. "Hola, 0x3e32…0136" is the app admitting
+    it does not know who you are, so it asks once, the first time somebody
+    signs in without a name on file.
+  */
+  const name = profile.name ?? me.handle ?? HANDLE;
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!me.signedIn || !profile.ready || profile.name || asked.current) return;
+    asked.current = true;
+    setAskName(true);
+  }, [me.signedIn, profile.ready, profile.name]);
+
+  /*
+    What the account is worth, from the venue rather than from a constant.
+    Collateral is what can be traded with; equity adds what anything open has
+    made, and that is the figure a reader means by "my balance".
+  */
+  const perp = profile.balance;
+  const cash = perp ? perp.equity : account.balance;
+  const funded = perp !== null && perp.accountIndex !== null;
   return (
     <>
     <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-3">
@@ -66,10 +91,14 @@ export function AppBar({ account }: { account: Account }) {
 
       <div className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
         {/* A reading, not a control: a Button with no onClick promised a press. */}
-        <span className="hidden items-center px-1 font-medium text-sm lg:inline-flex">
-          <span className="sr-only">Cash balance: </span>
-          <span className="figures">${usd(account.balance)}</span>
-        </span>
+        {anonymous ? null : (
+          <span className="hidden max-w-40 items-center gap-1 truncate px-1 font-medium text-sm lg:inline-flex">
+            <span className="sr-only">Perp balance: </span>
+            <span className="figures">${usd(cash)}</span>
+            {/* Nothing deposited yet, so the zero is a fact rather than a loss. */}
+            {perp && !funded ? <span className="font-normal text-muted-foreground text-xs">to deposit</span> : null}
+          </span>
+        )}
         {anonymous ? null : (
           <Button className="hidden lg:inline-flex" onClick={() => announceSoon("Deposits open when the venue is wired up.")} variant="secondary">
             <ArrowDownToLineIcon />
@@ -98,13 +127,38 @@ export function AppBar({ account }: { account: Account }) {
                 <AvatarImage alt="" src={AVATAR} />
                 <AvatarFallback>{name.slice(0, 2)}</AvatarFallback>
               </Avatar>
-              <div className="min-w-0 leading-tight">
+              {/* min-w-0 and truncate on both lines: a name is up to 24
+                  characters and an address is 42, and neither may widen the
+                  menu or spill out of it. */}
+              <div className="min-w-0 flex-1 leading-tight">
                 <p className="truncate font-medium">Hola, {name}</p>
                 <p className="truncate text-muted-foreground text-xs">
-                  {me.address ? <span className="figures">{shortAddress(me.address)}</span> : <><span className="figures">${usd(account.balance)}</span> cash</>}
+                  {me.address ? <span className="figures">{shortAddress(me.address)}</span> : <span className="figures">${usd(cash)}</span>}
                 </p>
               </div>
             </div>
+            {perp ? (
+              <>
+                <MenuSeparator />
+                {/* The venue's own numbers. Collateral is what can be traded
+                    with; the second line is what anything open has made. */}
+                <div className="flex flex-col gap-1 px-2 py-2 text-xs">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-muted-foreground">On the venue</span>
+                    <span className="figures font-medium">${usd(perp.collateral)}</span>
+                  </div>
+                  {perp.positions > 0 ? (
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-muted-foreground">
+                        {perp.positions} open
+                      </span>
+                      <span className={cn("figures", perp.unrealised >= 0 ? "text-up" : "text-down")}>{signedUsd(perp.unrealised)}</span>
+                    </div>
+                  ) : null}
+                  {!funded ? <p className="text-muted-foreground">Nothing deposited yet.</p> : null}
+                </div>
+              </>
+            ) : null}
             <MenuSeparator />
             <MenuGroup>
               <MenuItem onClick={() => announceSoon("Deposits open when the venue is wired up.")}>
@@ -147,6 +201,7 @@ export function AppBar({ account }: { account: Account }) {
       </div>
     </header>
     <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen} />
+    <NamePrompt onOpenChange={setAskName} onSave={profile.setName} open={askName} />
     </>
   );
 }

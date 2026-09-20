@@ -1,24 +1,23 @@
 "use client";
 
-import { AuthButton } from "@coinbase/cdp-react";
+import { SignInModal } from "@coinbase/cdp-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 
 /**
- * Coinbase's own sign-in button.
+ * Our button, Coinbase's panel.
  *
- * It is a trigger, not a form: pressing it opens their modal, which handles
- * the email and phone codes, Google, and making the wallet at the end. That
- * belongs to them. The one-time codes and the recovery are the part that
- * locks someone out of their money if it is got wrong, so it is not ours to
- * rebuild.
- *
- * It was inside a dialog of ours for a moment, which put a button inside a
- * dialog that opened nothing. It sits in the header now, where it is the one
- * thing a signed-out reader can press.
+ * The modal is theirs and stays theirs: the one-time codes and the recovery
+ * are the parts that lock someone out of their money if they are got wrong.
+ * The trigger is ours, so the corner of the app looks like the rest of it.
  */
 export function SignInButton({ className }: { className?: string }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className={className} data-slot="sign-in">
-      <AuthButton />
-    </div>
+    <SignInModal open={open} setIsOpen={setOpen}>
+      <Button className={className} onClick={() => setOpen(true)} size="sm">
+        Sign in
+      </Button>
+    </SignInModal>
   );
 }

@@ -19,7 +19,8 @@
     "dev:feed": "bun run --filter @skech/feed dev",
     "test": "bun run --filter '*' test",
     "dev:trader": "bun run --filter @skech/trader dev",
-    "docker": "docker compose up --build feed"
+    "docker": "docker compose up --build feed",
+    "dev:api": "bun run --filter @skech/api dev"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

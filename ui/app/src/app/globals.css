@@ -330,3 +330,15 @@
     animation: none;
   }
 }
+
+/* Coinbase's panel, wearing our backdrop.
+   Its overlay is a flat colour with no blur, which reads as a different app
+   sitting on top of this one. Ours is a 32% black and a small blur, and the
+   theme cannot express the blur, so it is set here. The panel itself is
+   themed through tokens in `auth.tsx`. */
+[data-cdp-provider] [class*="overlay"],
+[data-cdp-provider] [class*="Overlay"],
+[data-cdp-provider] [data-slot="overlay"] {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
