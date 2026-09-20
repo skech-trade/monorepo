@@ -142,17 +142,18 @@ export function MarketHeader({ market, className }: { market: Market; className?
   const up = market.changePct >= 0;
   return (
     <div className={cn("flex items-center", className)}>
-      <button
+      {/*
+        Our own button, and on a phone it wears the same coat as everything
+        else floating over that chart: outline, card behind it, blurred. Bare
+        text and a chevron over a drawing reads as a caption, not a control.
+        On a desk it is the heading of a panel, so the ghost variant leaves it
+        plain until a pointer is on it.
+      */}
+      <Button
         aria-haspopup="dialog"
-        /* A button on a phone, where it sits in a row of them; a plain
-           heading on a desk, where it is the title of the panel. */
-        /* No card around it. It is the title of the screen, sitting next to
-           the logo, not a control competing with the button beside it. */
-        /* A press has no hover to give it away, so the whole row darkens
-           while a finger is on it. */
-        className="-m-1.5 flex min-w-0 items-center gap-2 rounded-lg p-1.5 text-left transition-colors hover:bg-accent active:bg-accent sm:gap-3"
+        className="h-auto min-w-0 justify-start gap-2 rounded-lg px-1.5 py-1.5 text-left max-sm:h-10 max-sm:border max-sm:border-input max-sm:bg-card/85 max-sm:px-3 max-sm:backdrop-blur-sm sm:-m-1.5 sm:gap-3"
         onClick={() => setPicking(true)}
-        type="button"
+        variant="ghost"
       >
         {/* Stacked and large where there is room; one quiet line on a phone. */}
         <TokenAvatar className="size-6 sm:size-9" symbol={market.symbol} />
@@ -190,7 +191,7 @@ export function MarketHeader({ market, className }: { market: Market; className?
             <ChevronDownIcon className="size-3.5 shrink-0 self-center text-muted-foreground sm:hidden" />
           </span>
         </span>
-      </button>
+      </Button>
       <MarketPicker current={market} onOpenChange={setPicking} open={picking} />
     </div>
   );

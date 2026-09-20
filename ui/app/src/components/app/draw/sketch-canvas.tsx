@@ -725,7 +725,7 @@ export function SketchCanvas({
         way of anything.
       */}
       {w > 0 ? (
-        <div className="absolute flex max-sm:top-14 max-sm:left-2 max-sm:w-13 max-sm:flex-col max-sm:items-center max-sm:gap-1.5 sm:right-2 sm:bottom-7 sm:items-center sm:gap-0.5 sm:rounded-xl sm:border sm:bg-card/85 sm:p-0.5 sm:backdrop-blur-sm sm:[&_svg]:size-3.5">
+        <div className="absolute flex max-sm:top-16 max-sm:left-2 max-sm:w-13 max-sm:flex-col max-sm:items-center max-sm:gap-1.5 sm:right-2 sm:bottom-7 sm:items-center sm:gap-0.5 sm:rounded-xl sm:border sm:bg-card/85 sm:p-0.5 sm:backdrop-blur-sm sm:[&_svg]:size-3.5">
           {/* Panning is a drag on a phone, so the two arrows are a desk thing.
               Four left, under the market label and above rounds and the tools
               drawer, all of it down the dead half of the chart.

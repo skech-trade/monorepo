@@ -46,9 +46,10 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   price that has already happened, so a label over the chart costs no layout
   at all, where a row cost a band of chrome above a chart that wants every
   pixel. It sits right, clear of the column of controls down the left.
-- The name gives way to the price there, because the mark already says which
-  market. The row darkens under a finger, because a touch has no hover to give
-  it away.
+- It is a real button there, wearing the same coat as everything else floating
+  over that chart: outline, card behind it, blurred. Bare text and a chevron
+  over a drawing reads as a caption, not a control. The name gives way to the
+  price, because the mark already says which market.
 - Light or dark moves into the tools drawer, beside the other chart settings.
 - "Test" rides with the price rather than sitting beside it in the bar: it
   says which venue the number came from, and out in the bar it left no room to

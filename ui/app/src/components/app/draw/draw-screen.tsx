@@ -727,7 +727,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
           the column of controls down the left.
         */}
         {phone ? (
-          <div className="absolute top-2 right-3 z-10">
+          <div className="absolute top-4 right-3 z-10">
             <MarketHeader market={market} />
           </div>
         ) : null}
