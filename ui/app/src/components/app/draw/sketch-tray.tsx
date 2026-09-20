@@ -30,6 +30,7 @@ export function SketchBar({
   sketches,
   onOpenList,
   onVenue,
+  venueAccount,
   venueProblem,
 }: {
   market: Market;
@@ -43,6 +44,8 @@ export function SketchBar({
   onOpenList: () => void;
   /** Whether a real position is behind this round, and what went wrong if not. */
   onVenue?: boolean;
+  /** The account it landed on, when that is not the reader's own. */
+  venueAccount?: number | null;
   venueProblem?: string | null;
 }) {
   const lines = (
@@ -96,7 +99,15 @@ export function SketchBar({
           </span>
           {/* Whether there is money behind this. A round that did not reach
               the venue has to say so: the chart looks identical either way. */}
-          {onVenue ? <span className="text-up">On the venue</span> : null}
+          {/* "On the venue" is true and not the whole truth while the trader
+              holds one key for one account: the orders are real and they are
+              not on the account whose balance is in the header. */}
+          {onVenue && venueAccount === null ? <span className="text-up">On the venue</span> : null}
+          {onVenue && venueAccount !== null ? (
+            <span className="text-warning">
+              On shared account <F>{venueAccount}</F>, not yours
+            </span>
+          ) : null}
           {venueProblem ? <span className="text-down">Not traded. {venueProblem}</span> : null}
         </span>
         {lines}

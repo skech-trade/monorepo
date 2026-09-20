@@ -111,6 +111,13 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - With no trader configured a round runs exactly as it always did, against
   real prices with no position behind it, and the tray says so while it runs.
   Silence there would be the worst of both.
+- **The trader holds one key for one account, so rounds do not land on your
+  own.** The balance in the header is your Lighter account; the orders are on
+  the trader's. That is why a real round leaves the header unmoved. The tray
+  names the account it used while the round runs, in amber, rather than
+  letting somebody work it out from a balance that never changes. Per-user
+  accounts need a trading key registered against each wallet, which the
+  signer can do: it exports both key generation and the registration.
 - Three guards, each of which exists because something went wrong on testnet.
   No order may exceed twice the round's size, measured against the round and
   not against what is held, so a position read wrong cannot raise its own

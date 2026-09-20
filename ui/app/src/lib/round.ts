@@ -35,6 +35,31 @@ export type VenueRound = {
   problem: string | null;
 };
 
+/**
+ * Which Lighter account the trader signs for.
+ *
+ * It holds one key for one account, so every round lands there whoever is
+ * signed in. That is fine for testing and dishonest to hide: somebody
+ * watching their own balance sit still while the chart moves is owed the
+ * reason. The app compares this with the account behind their own wallet and
+ * says when they are not the same.
+ */
+export function useTraderAccount(): number | null {
+  const [account, setAccount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!hasTrader) return;
+    let live = true;
+    fetch(`${URL_TRADER}/health`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => live && typeof d?.account === "number" && setAccount(d.account))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  return account;
+}
+
 export type RoundSpec = {
   pts: Pt[];
   stake: number;

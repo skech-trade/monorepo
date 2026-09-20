@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeed } from "@/lib/feed";
-import { closeRound, hasTrader, openRound, useVenueRound } from "@/lib/round";
+import { closeRound, hasTrader, openRound, useTraderAccount, useVenueRound } from "@/lib/round";
+import { useProfile } from "@/lib/profile";
+import { useAccount } from "../auth";
 import { useSettings } from "@/lib/settings";
 import { type Candle, candlesFor, type Market, signedUsd } from "@/lib/market";
 import { accuracyOf, type Exits, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
@@ -100,6 +102,18 @@ export function DrawScreen({ market }: { market: Market }) {
   const [venueId, setVenueId] = useState<string | null>(null);
   const [venueProblem, setVenueProblem] = useState<string | null>(null);
   const venue = useVenueRound(venueId);
+  /* Whose account the orders land on, against whose balance is on the screen. */
+  const traderAccount = useTraderAccount();
+  const me = useAccount();
+  const mine = useProfile(me.address).balance?.accountIndex ?? null;
+  /*
+    Whether the round lands on the reader's own account.
+
+    The trader holds one key for one account, so today it never does. Saying
+    nothing would leave somebody watching their own balance sit still while
+    the chart moves and the orders are real, with no way to tell why.
+  */
+  const notMine = traderAccount !== null && mine !== null && traderAccount !== mine;
   const [lastSketch, setLastSketch] = useState<Sketch | null>(null);
   /** The point under the finger, while one is. */
   const dragIndex = useRef<number | null>(null);
@@ -607,6 +621,7 @@ export function DrawScreen({ market }: { market: Market }) {
           market={market}
           onOpenList={() => setListOpen(true)}
           onVenue={venue !== null}
+          venueAccount={venue !== null && notMine ? traderAccount : null}
           venueProblem={venueProblem}
           openCount={sketches.length}
           phase={phase}

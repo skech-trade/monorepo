@@ -94,3 +94,17 @@ order as a position, and asking every second meant sending the same order
 again before the first one landed. A reversal still goes out at once: that is
 the drawing changing its mind, and waiting means trading the wrong way for
 another second.
+
+## One key, one account
+
+The trader signs everything with a single Lighter key, so every round lands
+on that account whoever drew it. A reader's own balance, which the app reads
+from their own wallet's Lighter account, does not move when they trade. The
+app says so in the tray while a round runs rather than leaving somebody to
+work it out from a number that never changes.
+
+The way out is a trading key per wallet. Lighter's own signer exports both
+halves: `GenerateAPIKey` makes the keypair and `SignChangePubKey` registers
+its public half against an account, authorised by the wallet that owns it.
+Neither is in the C shim yet. The `lighter_accounts` table is already there
+for the result, with a column that never holds a key in the clear.
