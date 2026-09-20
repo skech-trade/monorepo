@@ -62,13 +62,21 @@ export function PlaceTicket({
   );
 
   return (
-    <div className={cn("flex items-center gap-1.5 max-sm:w-full sm:gap-2", className)}>
+    /*
+      On a phone this is not a group of its own: its children join the footer
+      row so the button can sit between the pair on the left and the pair on
+      the right. `contents` drops the box and keeps the children, which is the
+      only way to interleave them without moving the markup around.
+    */
+    <div className={cn("flex items-center gap-1.5 max-sm:contents sm:gap-2", className)}>
       {/* When it ends, then what it costs, then the press. The two exits come
           first because they are the ones you leave alone most rounds. */}
       {settings ? (
         <>
           <ExitControls exits={exits} onExits={onExits} stake={stake} />
-          <DrawControls leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} />
+          {/* To the right of the button on a phone, mirroring rounds and the
+              tools drawer on its left. */}
+          <DrawControls className="max-sm:order-3" leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} />
         </>
       ) : null}
 
@@ -88,7 +96,7 @@ export function PlaceTicket({
       {settings ? (
         ready ? (
           <Popover>
-            <PopoverTrigger delay={250} openOnHover render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90 max-sm:min-w-0 max-sm:flex-1" onClick={onPlace} />}>
+            <PopoverTrigger delay={250} openOnHover render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90 max-sm:order-2 max-sm:min-w-0 max-sm:flex-1" onClick={onPlace} />}>
               {label}
             </PopoverTrigger>
             <PopoverPopup align="end" className="w-auto max-w-xs px-3 py-2">
@@ -103,7 +111,7 @@ export function PlaceTicket({
             </PopoverPopup>
           </Popover>
         ) : (
-          <Button className="border-info bg-info text-white shadow-info/24 max-sm:min-w-0 max-sm:flex-1" disabled>
+          <Button className="border-info bg-info text-white shadow-info/24 max-sm:order-2 max-sm:min-w-0 max-sm:flex-1" disabled>
             {label}
           </Button>
         )
@@ -113,7 +121,7 @@ export function PlaceTicket({
           now" is how a desk talks about a position; this is the control that
           ends a trade, so it says so. */}
       {phase === "running" ? (
-        <Button className="max-sm:min-w-0 max-sm:flex-1" onClick={onCloseNow} variant="outline">
+        <Button className="max-sm:order-2 max-sm:min-w-0 max-sm:flex-1" onClick={onCloseNow} variant="outline">
           Close trade
         </Button>
       ) : null}
@@ -122,7 +130,7 @@ export function PlaceTicket({
           what pressing it gets you, in the words the rest of the screen uses
           for trades. */}
       {phase === "settled" ? (
-        <Button className="max-sm:min-w-0 max-sm:flex-1" onClick={onDrawAgain} variant="outline">
+        <Button className="max-sm:order-2 max-sm:min-w-0 max-sm:flex-1" onClick={onDrawAgain} variant="outline">
           New trade
         </Button>
       ) : null}

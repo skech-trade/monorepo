@@ -228,7 +228,11 @@ export function DrawControls({
   return (
     <div className={cn("flex items-center gap-1.5 sm:gap-2", className)}>
       <Popover>
-        <PopoverTrigger render={<Button variant="outline" />}>
+        {/* Square on a phone, the same as the two on the other side of the
+            button, so the footer reads as two, one, two rather than a row of
+            odd widths. The value still fits: the label beside it is already
+            dropped at this size. */}
+        <PopoverTrigger render={<Button className="max-sm:size-11 max-sm:px-0" variant="outline" />}>
           <Setting label="Size" value={`$${usd(stake, 0)}`} />
         </PopoverTrigger>
         <PopoverPopup align="start" className="w-56">
@@ -240,7 +244,7 @@ export function DrawControls({
         </PopoverPopup>
       </Popover>
       <Popover>
-        <PopoverTrigger render={<Button variant="outline" />}>
+        <PopoverTrigger render={<Button className="max-sm:size-11 max-sm:px-0" variant="outline" />}>
           <Setting label="Boost" value={`${leverage}×`} />
         </PopoverTrigger>
         <PopoverPopup align="start" className="w-56">

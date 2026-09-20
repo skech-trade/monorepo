@@ -26,9 +26,10 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 
 ## On a phone
 
-- One row of controls, at the bottom, where a thumb is: rounds, the tools
-  drawer, size, boost, and the button, which takes whatever width is left.
-  Everything else on the screen is chart.
+- One row of controls at the bottom, where a thumb is, and symmetric about
+  the thing it is for: rounds and the tools drawer on the left, size and boost
+  on the right, all four the same circle, and the button between them taking
+  whatever width is left. Everything else on the screen is chart.
 - The row above it is drawn only when it has something to say. While a line is
   being drawn the chart already reads "click to place your points" where the
   points go, so repeating it under the chart cost a row and told nobody

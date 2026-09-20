@@ -604,7 +604,7 @@ export function DrawScreen({ market }: { market: Market }) {
       {/* Rounds lives here on a phone, where the tray it used to sit in is not
           drawn until there is something to put in it. */}
       {phone ? (
-        <Button aria-label={`Rounds, ${sketches.length}`} className="relative rounded-full" onClick={() => setListOpen(true)} size="icon" variant="outline">
+        <Button aria-label={`Rounds, ${sketches.length}`} className="relative shrink-0 rounded-full" onClick={() => setListOpen(true)} size="icon" variant="outline">
           <HistoryIcon />
           {sketches.length > 0 ? (
             <span className="figures -top-1 -right-1 absolute flex size-4 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
