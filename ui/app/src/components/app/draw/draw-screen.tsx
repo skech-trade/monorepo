@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeed } from "@/lib/feed";
 import { closeRound, hasTrader, keyFor, openRound, prepareKey, registerKey, useVenueRound } from "@/lib/round";
+import { usePhone } from "@/lib/phone";
 import { useProfile } from "@/lib/profile";
 import { useAccount } from "../auth";
 import { useSettings } from "@/lib/settings";
@@ -585,6 +586,54 @@ export function DrawScreen({ market }: { market: Market }) {
     [sketches, net, phase, venue, venueSketch],
   );
 
+  const phone = usePhone();
+
+  /*
+    Size, boost and the button, plus the tools drawer on a phone.
+
+    Defined once and placed twice over, because where it belongs is not the
+    same on both. On a desk it sits in the chart's own header, beside the
+    market. On a phone that header was two cramped rows and the button that
+    spends the money ended up at the top of the screen, furthest from a thumb,
+    so it goes to the bottom bar instead.
+  */
+  const controls = (
+    <div className="flex items-center gap-1.5 sm:gap-2">
+      <PhoneTools
+        canUndo={pts.length > 1}
+        className="sm:hidden"
+        drawing={phase !== "running" && phase !== "settled"}
+        exits={exits}
+        onClear={onClear}
+        onExits={setExits}
+        onPreset={onPreset}
+        onUndo={onUndo}
+        stake={stake}
+      />
+      <PlaceTicket
+        exits={exits}
+        leverage={leverage}
+        market={market}
+        onCloseNow={() => {
+          if (venueId) void closeRound(venueId);
+          if (run.length) finish(run, true);
+        }}
+        onDrawAgain={() => {
+          fold();
+          setPhase("live");
+        }}
+        onExits={setExits}
+        onLeverage={setLeverage}
+        onPlace={onPlace}
+        onStake={setStake}
+        phase={phase}
+        quote={quote}
+        shape={shape}
+        stake={stake}
+      />
+    </div>
+  );
+
   return (
     <section aria-label="Draw" className="m-2 flex min-h-[24rem] flex-1 flex-col overflow-hidden rounded-2xl border bg-background">
       {/* Market on the left; exits, size, boost and the button hard right, on the chart's own header. */}
@@ -599,45 +648,7 @@ export function DrawScreen({ market }: { market: Market }) {
               : { ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }
           }
         />
-        {/* One group, pushed right. Two things each asking for `ml-auto` split
-            the free space between them, which stranded the tools button in the
-            middle of the row with a gap either side. */}
-        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-          {/* A phone gets one button for all of it, in the ticket row, rather
-              than a rail of five on a line of its own. */}
-          <PhoneTools
-            canUndo={pts.length > 1}
-            className="sm:hidden"
-            drawing={phase !== "running" && phase !== "settled"}
-            exits={exits}
-            onClear={onClear}
-            onExits={setExits}
-            onPreset={onPreset}
-            onUndo={onUndo}
-            stake={stake}
-          />
-        <PlaceTicket
-          exits={exits}
-          leverage={leverage}
-          market={market}
-          onCloseNow={() => {
-            if (venueId) void closeRound(venueId);
-            if (run.length) finish(run, true);
-          }}
-          onDrawAgain={() => {
-            fold();
-            setPhase("live");
-          }}
-          onExits={setExits}
-          onLeverage={setLeverage}
-          onPlace={onPlace}
-          onStake={setStake}
-          phase={phase}
-          quote={quote}
-          shape={shape}
-          stake={stake}
-        />
-        </div>
+        {phone ? null : <div className="ml-auto">{controls}</div>}
       </div>
       <div className="flex min-h-0 flex-1 gap-2 px-2 pt-2">
         {/* Always present. What it holds changes with the phase; the chart
@@ -674,7 +685,7 @@ export function DrawScreen({ market }: { market: Market }) {
         </div>
       </div>
       {/* The bar takes its row; the plot above it is never covered. */}
-      <div className="border-t px-3 py-3">
+      <div className="flex flex-col gap-2 border-t px-3 py-3">
         <SketchBar
           market={market}
           onOpenList={() => setListOpen(true)}
@@ -689,6 +700,8 @@ export function DrawScreen({ market }: { market: Market }) {
           shape={shape}
           sketches={shown}
         />
+        {/* Within reach on a phone, and the only row that has to be. */}
+        {phone ? <div className="flex items-center justify-end gap-1.5">{controls}</div> : null}
       </div>
       <RoundsSheet
         market={market}

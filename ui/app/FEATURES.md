@@ -26,10 +26,13 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 
 ## On a phone
 
-- The header is two rows, not three: the market, then size, boost and the
-  button. The rail of five tools that had a line to itself is one button that
-  opens a drawer from the bottom, holding undo, clear, the exits, the eight
-  shapes and the chart settings.
+- The header is one row: the market and its price. Size, boost and the button
+  moved to the bottom bar, where a thumb is, rather than sitting at the top of
+  the screen furthest from it. The rail of five tools that had a line to
+  itself is one button beside them, opening a drawer from the bottom with
+  undo, clear, the exits, the eight shapes and the chart settings in it.
+- That gives the chart three rows of height back, on the screen with the least
+  of it.
 - The stop loss and take profit open out in the drawer: a switch, and the
   wheel under it once it is on. As chips they hid the wheel in a popover, and
   a popover inside a drawer portals itself outside the drawer, so the first
