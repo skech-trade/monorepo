@@ -108,6 +108,24 @@
   --brand: #8fb0ff;
 }
 
+[data-palette="colourblind"] {
+  --success: #0284c7;
+  --destructive: #ea580c;
+  --up: #0369a1;
+  --up-mark: #0284c7;
+  --down: #c2410c;
+  --down-mark: #ea580c;
+}
+
+[data-palette="colourblind"].dark {
+  --success: #38bdf8;
+  --destructive: #fb923c;
+  --up: #7dd3fc;
+  --up-mark: #38bdf8;
+  --down: #fdba74;
+  --down-mark: #fb923c;
+}
+
 @theme inline {
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);

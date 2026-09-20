@@ -112,7 +112,9 @@ export function subscribePalette(onChange: () => void): () => void {
     onChange();
   };
   const observer = new MutationObserver(invalidate);
-  observer.observe(document.documentElement, { attributeFilter: ["class"], attributes: true });
+  // The class carries the theme, `data-palette` the colour pair. The canvas
+  // charts read their colours out of CSS, so both have to invalidate them.
+  observer.observe(document.documentElement, { attributeFilter: ["class", "data-palette"], attributes: true });
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   media.addEventListener("change", invalidate);
   return () => {

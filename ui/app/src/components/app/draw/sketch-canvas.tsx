@@ -10,9 +10,12 @@ import {
 } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, CrosshairIcon, RotateCcwIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
+import { type CandleStyle, useSettings } from "@/lib/settings";
 import { lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
+import { ChartSettingsButton } from "../settings";
 
 /** The chart you draw on: our own SVG, history left, future right, now between them. */
 
@@ -81,7 +84,39 @@ function Tag({ price, y, tone = "default", label }: TagSpec) {
   );
 }
 
-function CandleMarks({ bars, x, body, y, dim }: { bars: Candle[]; x: (i: number) => number; body: number; y: (p: number) => number; dim?: boolean }) {
+/**
+ * The market, drawn the way the reader asked for. Candles and bars carry the
+ * direction in their colour; a line is one neutral stroke through the closes,
+ * so the only coloured line on the chart stays the one you drew.
+ */
+function CandleMarks({
+  bars,
+  x,
+  body,
+  y,
+  dim,
+  style,
+}: {
+  bars: Candle[];
+  x: (i: number) => number;
+  body: number;
+  y: (p: number) => number;
+  dim?: boolean;
+  style: CandleStyle;
+}) {
+  if (style === "line") {
+    return (
+      <path
+        d={legPath(bars.map((c, i) => ({ x: x(i), y: y(c.c) })))}
+        fill="none"
+        opacity={dim ? 0.35 : 0.7}
+        stroke="var(--foreground)"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+    );
+  }
   return (
     <g opacity={dim ? 0.45 : 0.9}>
       {bars.map((c, i) => {
@@ -93,7 +128,15 @@ function CandleMarks({ bars, x, body, y, dim }: { bars: Candle[]; x: (i: number)
           // biome-ignore lint/suspicious/noArrayIndexKey: positional
           <g fill={tone} key={i} stroke={tone}>
             <line strokeWidth="1" x1={cx} x2={cx} y1={y(c.h)} y2={y(c.l)} />
-            <rect height={Math.max(1, bottom - top)} width={body} x={cx - body / 2} y={top} />
+            {style === "bars" ? (
+              // Open on the left, close on the right, as a bar chart has it.
+              <>
+                <line strokeWidth="1.5" x1={cx - body / 2} x2={cx} y1={y(c.o)} y2={y(c.o)} />
+                <line strokeWidth="1.5" x1={cx} x2={cx + body / 2} y1={y(c.c)} y2={y(c.c)} />
+              </>
+            ) : (
+              <rect height={Math.max(1, bottom - top)} width={body} x={cx - body / 2} y={top} />
+            )}
           </g>
         );
       })}
@@ -163,6 +206,7 @@ export function SketchCanvas({
    * How the chart is looked at. Display only. `anchor` is the candle held on the split; null
    * follows the live one.
    */
+  const [{ candles, grid }] = useSettings();
   const [view, setView] = useState<{ zoom: number; anchor: number | null }>({ zoom: 1, anchor: null });
   /** The view being dragged, from where it was grabbed. */
   const pan = useRef<{ x: number; anchor: number; moved: boolean } | null>(null);
@@ -438,10 +482,16 @@ export function SketchCanvas({
         >
           <defs>
             <pattern height="16" id="sk-grid" patternUnits="userSpaceOnUse" width="16">
-              <path d="M16 0 H0 V16" fill="none" stroke="var(--border)" strokeWidth="1" />
+              {grid === "dots" ? (
+                <circle cx="16" cy="16" fill="var(--border)" r="0.9" />
+              ) : (
+                <path d="M16 0 H0 V16" fill="none" stroke="var(--border)" strokeWidth="1" />
+              )}
             </pattern>
           </defs>
-          <rect fill="url(#sk-grid)" height={plotB - plotT} width={Math.max(0, plotR - Math.max(plotL, xNow))} x={Math.max(plotL, xNow)} y={plotT} />
+          {grid === "off" ? null : (
+            <rect fill="url(#sk-grid)" height={plotB - plotT} width={Math.max(0, plotR - Math.max(plotL, xNow))} x={Math.max(plotL, xNow)} y={plotT} />
+          )}
           {xNow > plotL && xNow < plotR ? (
             <>
               <line stroke="var(--muted-foreground)" strokeDasharray="2 5" strokeOpacity="0.5" x1={xNow} x2={xNow} y1={plotT} y2={plotB} />
@@ -503,8 +553,8 @@ export function SketchCanvas({
             History in the same units as the run, running back from the round's start, so scrolling
             candles land among bars their own size.
           */}
-          <CandleMarks bars={feed} body={Math.max(2, runStep * 0.6)} dim={hasLine} x={(i) => xOfBar(i - feed.length + 0.5)} y={y} />
-          <CandleMarks bars={run} body={Math.max(2, runStep * 0.6)} x={(i) => xOfBar(i + 0.5)} y={y} />
+          <CandleMarks bars={feed} body={Math.max(2, runStep * 0.6)} dim={hasLine} style={candles} x={(i) => xOfBar(i - feed.length + 0.5)} y={y} />
+          <CandleMarks bars={run} body={Math.max(2, runStep * 0.6)} style={candles} x={(i) => xOfBar(i + 0.5)} y={y} />
 
           {/* The ribbon: stay inside it and the candle counts. Coloured as
               candles arrive, green inside, grey out. */}
@@ -640,6 +690,8 @@ export function SketchCanvas({
           <Button aria-label="Reset the view" className="size-7 rounded-lg" disabled={following && view.zoom === 1} onClick={reset} variant="ghost">
             <RotateCcwIcon />
           </Button>
+          <Separator className="mx-0.5 h-4" orientation="vertical" />
+          <ChartSettingsButton />
         </div>
       ) : null}
 

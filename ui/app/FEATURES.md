@@ -9,8 +9,28 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - App bar: wordmark, market search (inert, one market, says so), cash chip
   with "Deposit", Draw / Desk switch, account menu (deposit, withdraw,
   transfers, profile, blur balances, settings, rewards, support, disconnect).
-- Blur balances hides every figure on the screen.
-- Light theme. Dark tokens defined, not switched on.
+- Privacy blurs every figure on the screen, for reading it in company.
+- Light and dark, from the toggle in the bar or the Settings sheet. An inline
+  script applies the stored theme and palette before the first paint.
+
+## Settings
+
+- Everything the reader sets is remembered in this browser, under one key. The
+  Desk used to forget its timeframe, overlays, studies, log scale and folded
+  panes on every visit; it no longer does. So do the theme, the palette, the
+  privacy blur and the three below.
+- Colours: green and red, or blue and orange for readers who cannot separate
+  the two. Set on the aliases the candles, the figures, the ribbon, the pills
+  and the order book all read, so nothing green or red survives the switch.
+  The Desk's canvas chart follows it too, because its palette is read out of
+  computed styles and invalidated when `data-palette` changes.
+- Candles: candles, bars (open left, close right) or one neutral line through
+  the closes, which leaves the drawn line the only coloured line on the chart.
+- Grid: lines, dots or off.
+- Where: a gear at the end of the chart's own view controls holds the three
+  chart ones, beside what they change. The Settings sheet, opened from the
+  account menu, holds those plus the theme and the privacy blur. One store, so
+  the two agree.
 
 ## Market
 

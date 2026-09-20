@@ -2,6 +2,7 @@
 
 import { ChevronUpIcon } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useSettings } from "@/lib/settings";
 import { Button } from "@/components/ui/button";
 import {
   accountFor,
@@ -10,9 +11,8 @@ import {
   type Market,
   ordersFor,
   type Position,
-  type Timeframe,
 } from "@/lib/market";
-import { type ChartKind, type Level, type Overlay, PriceChart, type Study } from "./chart";
+import { type Level, PriceChart, type Study } from "./chart";
 import { ChartToolbar } from "./chart-toolbar";
 import { MarketBar } from "./market-bar";
 import { OrderBook } from "./order-book";
@@ -33,16 +33,11 @@ export function Desk({
   order: Order;
   patch: (next: Partial<Order>) => void;
 }) {
-  const [timeframe, setTimeframe] = useState<Timeframe>("15m");
-  const [kind, setKind] = useState<ChartKind>("candles");
-  const [overlays, setOverlays] = useState<Overlay[]>(["ma"]);
-  const [studies, setStudies] = useState<Study[]>(["volume"]);
-  const [folded, setFolded] = useState<Study[]>([]);
-  const [logScale, setLogScale] = useState(false);
+  /* Every choice on this screen is remembered, so the desk you left is the
+     desk you come back to. Only the fit button is a moment rather than a
+     setting. */
+  const [{ timeframe, kind, overlays, studies, folded, logScale, bookShut, ticketShut, positionsShut }, set] = useSettings();
   const [fitToken, setFitToken] = useState(0);
-  const [bookShut, setBookShut] = useState(false);
-  const [ticketShut, setTicketShut] = useState(false);
-  const [positionsShut, setPositionsShut] = useState(false);
 
   const candles = useMemo(() => candlesFor(market, timeframe), [market, timeframe]);
   const account = useMemo(() => accountFor(positions), [positions]);
@@ -78,11 +73,11 @@ export function Desk({
           kind={kind}
           logScale={logScale}
           onFit={() => setFitToken((n) => n + 1)}
-          onKind={setKind}
-          onLogScale={setLogScale}
-          onOverlays={setOverlays}
-          onStudies={setStudies}
-          onTimeframe={setTimeframe}
+          onKind={(kind) => set({ kind })}
+          onLogScale={(logScale) => set({ logScale })}
+          onOverlays={(overlays) => set({ overlays })}
+          onStudies={(studies) => set({ studies })}
+          onTimeframe={(timeframe) => set({ timeframe })}
           overlays={overlays}
           studies={studies}
           timeframe={timeframe}
@@ -94,10 +89,7 @@ export function Desk({
             kind={kind}
             levels={levels}
             logScale={logScale}
-            onCloseStudy={(s) => {
-              setStudies((c) => c.filter((x) => x !== s));
-              setFolded((c) => (c.includes(s) ? c : [...c, s]));
-            }}
+            onCloseStudy={(study) => set({ studies: studies.filter((x) => x !== study), folded: folded.includes(study) ? folded : [...folded, study] })}
             overlays={overlays}
             studies={studies}
           />
@@ -107,10 +99,7 @@ export function Desk({
             {folded.map((s) => (
               <Button
                 key={s}
-                onClick={() => {
-                  setFolded((c) => c.filter((x) => x !== s));
-                  setStudies((c) => (c.includes(s) ? c : [...c, s]));
-                }}
+                onClick={() => set({ folded: folded.filter((x) => x !== s), studies: studies.includes(s) ? studies : [...studies, s] })}
                 size="sm"
                 variant="outline"
               >
@@ -126,7 +115,7 @@ export function Desk({
         className="order-3 xl:order-none xl:col-start-2 xl:row-start-2"
         collapsed={bookShut}
         market={market}
-        onCollapsed={setBookShut}
+        onCollapsed={(bookShut) => set({ bookShut })}
         onPickPrice={(price) => patch({ base: "limit", limit: price.toFixed(price >= 100 ? 2 : 4) })}
       />
 
@@ -135,7 +124,7 @@ export function Desk({
         collapsed={ticketShut}
         account={account}
         market={market}
-        onCollapsed={setTicketShut}
+        onCollapsed={(ticketShut) => set({ ticketShut })}
         order={order}
         patch={patch}
       />
@@ -145,7 +134,7 @@ export function Desk({
         collapsed={positionsShut}
         fills={fills}
         mark={market.price}
-        onCollapsed={setPositionsShut}
+        onCollapsed={(positionsShut) => set({ positionsShut })}
         orders={orders}
         positions={positions}
       />

@@ -46,9 +46,9 @@ import {
  * a positioned grip whose y comes from priceToCoordinate on a rAF loop written straight to the DOM.
  */
 
-export type ChartKind = "candles" | "bars" | "line" | "area";
-export type Overlay = "ma" | "bollinger";
-export type Study = "volume" | "rsi" | "macd";
+import type { ChartKind, Overlay, Study } from "@/lib/chart-options";
+
+export type { ChartKind, Overlay, Study };
 
 /** What each study pane calls itself on its own label. */
 const STUDY_NAME: Record<Study, string> = {

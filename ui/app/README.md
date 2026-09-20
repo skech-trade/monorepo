@@ -26,7 +26,9 @@ against it.
 src/lib/           market.ts (mock data), indicators.ts, sketch.ts (the drawn
                    line as a trade: legs, quote, settle, accuracy), theme.ts
                    (tokens read back for canvases), share.ts (download, share
-                   sheet, clipboard, canvas recording), user.ts, mode.ts
+                   sheet, clipboard, canvas recording), settings.ts (what the
+                   reader set, in localStorage), chart-options.ts, user.ts,
+                   mode.ts
 src/components/ui  coss/ui, fetched from https://coss.com/ui/r and owned here
 src/components/app the screen: app-bar, market-header, desk, chart
                    (lightweight-charts), chart-toolbar, order-book, ticket,
@@ -43,6 +45,11 @@ src/components/app/draw
 One rule for the model: anything that judges a candle against the line lives
 in `sketch.ts` (`resample`, `lineAt`, `accuracyOf`) and the chart, the card
 and the score all call it, so they cannot disagree.
+
+One rule for preferences: they all live in `settings.ts`, they are all
+remembered, and the two that have to be right on the first painted frame (the
+theme and the colour palette) ride on `<html>` where the boot script in
+`layout.tsx` can set them before React runs.
 
 ## Draw and Desk
 

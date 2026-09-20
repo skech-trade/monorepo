@@ -12,8 +12,23 @@ function subscribe(onChange: () => void) {
 }
 const isDark = () => document.documentElement.classList.contains("dark");
 
+/** The class on `<html>` is the source of truth, so the toggle keeps no state of its own. */
+export function useDark(): boolean {
+  return useSyncExternalStore(subscribe, isDark, () => false);
+}
+
+/** Flip the theme and remember it. */
+export function setDark(next: boolean) {
+  document.documentElement.classList.toggle("dark", next);
+  try {
+    localStorage.setItem("theme", next ? "dark" : "light");
+  } catch {
+    // Private mode. The class still flips for this page.
+  }
+}
+
 export function ThemeToggle() {
-  const dark = useSyncExternalStore(subscribe, isDark, () => false);
+  const dark = useDark();
   const words = dark ? "Switch to light" : "Switch to dark";
   return (
     <Tooltip>
@@ -21,15 +36,7 @@ export function ThemeToggle() {
         render={
           <Button
             aria-label={words}
-            onClick={() => {
-              const next = !dark;
-              document.documentElement.classList.toggle("dark", next);
-              try {
-                localStorage.setItem("theme", next ? "dark" : "light");
-              } catch {
-                // Private mode. The class still flips for this page.
-              }
-            }}
+            onClick={() => setDark(!dark)}
             size="icon"
             variant="outline"
           />
