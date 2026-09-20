@@ -31,6 +31,47 @@ char *shim_check_client(int apiKeyIndex, long long accountIndex) {
   return take(CheckClient(apiKeyIndex, accountIndex));
 }
 
+/*
+ * A fresh trading keypair.
+ *
+ * One of these per wallet is what lets somebody trade their own Lighter
+ * account rather than a shared one: the public half is registered against
+ * their account, and the private half is what signs their orders.
+ */
+char *shim_generate_api_key(char **privateKey, char **publicKey) {
+  ApiKeyResponse r = GenerateAPIKey();
+  if (r.err != NULL) {
+    if (r.privateKey) Free(r.privateKey);
+    if (r.publicKey) Free(r.publicKey);
+    return take(r.err);
+  }
+  *privateKey = take(r.privateKey);
+  *publicKey = take(r.publicKey);
+  return NULL;
+}
+
+/*
+ * Register a public key against an account.
+ *
+ * The account's owner has to agree, and they prove it with their Ethereum
+ * wallet: `messageToSign` comes back for that wallet to sign, and the
+ * signature goes into the transaction before it is sent.
+ */
+char *shim_sign_change_pub_key(char *pubKey, unsigned char skipNonce, long long nonce, int apiKeyIndex, long long accountIndex,
+                               char **txInfo, char **txHash, char **messageToSign) {
+  SignedTxResponse r = SignChangePubKey(pubKey, skipNonce, nonce, apiKeyIndex, accountIndex);
+  if (r.err != NULL) {
+    if (r.txInfo) Free(r.txInfo);
+    if (r.txHash) Free(r.txHash);
+    if (r.messageToSign) Free(r.messageToSign);
+    return take(r.err);
+  }
+  *txInfo = take(r.txInfo);
+  *txHash = take(r.txHash);
+  *messageToSign = take(r.messageToSign);
+  return NULL;
+}
+
 /** Returns the error, or NULL. On success `txInfo` and `txHash` are filled in. */
 char *shim_sign_create_order(int marketIndex, long long clientOrderIndex, long long baseAmount, int price, int isAsk, int orderType,
                              int timeInForce, int reduceOnly, int triggerPrice, long long orderExpiry, unsigned char skipNonce,

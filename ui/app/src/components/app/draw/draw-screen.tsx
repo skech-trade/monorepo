@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeed } from "@/lib/feed";
-import { closeRound, hasTrader, openRound, useTraderAccount, useVenueRound } from "@/lib/round";
+import { closeRound, hasTrader, keyFor, openRound, prepareKey, registerKey, useVenueRound } from "@/lib/round";
 import { useProfile } from "@/lib/profile";
 import { useAccount } from "../auth";
 import { useSettings } from "@/lib/settings";
@@ -103,17 +103,12 @@ export function DrawScreen({ market }: { market: Market }) {
   const [venueProblem, setVenueProblem] = useState<string | null>(null);
   const venue = useVenueRound(venueId);
   /* Whose account the orders land on, against whose balance is on the screen. */
-  const traderAccount = useTraderAccount();
   const me = useAccount();
-  const mine = useProfile(me.address).balance?.accountIndex ?? null;
-  /*
-    Whether the round lands on the reader's own account.
-
-    The trader holds one key for one account, so today it never does. Saying
-    nothing would leave somebody watching their own balance sit still while
-    the chart moves and the orders are real, with no way to tell why.
-  */
-  const notMine = traderAccount !== null && mine !== null && traderAccount !== mine;
+  const profile = useProfile(me.address);
+  const mine = profile.balance?.accountIndex ?? null;
+  /* A round that landed on any account but the reader's own would be a bug,
+     not a mode. This is the check that says so if it ever happens again. */
+  const notMine = venue !== null && mine !== null && venue.accountIndex !== mine;
   const [lastSketch, setLastSketch] = useState<Sketch | null>(null);
   /** The point under the finger, while one is. */
   const dragIndex = useRef<number | null>(null);
@@ -470,6 +465,39 @@ export function DrawScreen({ market }: { market: Market }) {
     setPhase("drawn");
   };
 
+  /*
+    Open the round on the venue, registering a trading key first if this
+    wallet has none.
+
+    The key is asked for here rather than on a setup screen somewhere, because
+    it is needed exactly once and exactly now. One signature, the first time
+    somebody trades, and never again: it authorises a key that can trade their
+    Lighter account and nothing else. It cannot move money off the venue.
+  */
+  const trade = async (address: string, spec: Omit<Parameters<typeof openRound>[0], "address">) => {
+    try {
+      const { registered } = await keyFor(address);
+      if (!registered) {
+        setVenueProblem("Sign the prompt to trade your own account.");
+        const prep = await prepareKey(address);
+        if (prep.error) return setVenueProblem(prep.error);
+        if (prep.messageToSign) {
+          const signature = await me.signMessage(prep.messageToSign);
+          if (!signature) return setVenueProblem("The wallet did not sign, so nothing was traded.");
+          const done = await registerKey(address, signature);
+          if (done.error) return setVenueProblem(done.error);
+        }
+        setVenueProblem(null);
+      }
+      const round = await openRound({ address, ...spec });
+      if ("error" in round) return setVenueProblem(round.error);
+      setVenueProblem(null);
+      setVenueId(round.id);
+    } catch (e) {
+      setVenueProblem((e as Error).message.slice(0, 140));
+    }
+  };
+
   const onPlace = () => {
     if (!shape) return;
     // The round is as long as the line. A line that stops at ten minutes is
@@ -503,10 +531,8 @@ export function DrawScreen({ market }: { market: Market }) {
     */
     setVenueId(null);
     setVenueProblem(null);
-    if (hasTrader) {
-      void openRound({ pts: moved, stake, leverage, seconds: bars, exits })
-        .then((r) => ("error" in r ? setVenueProblem(r.error) : setVenueId(r.id)))
-        .catch((e) => setVenueProblem((e as Error).message.slice(0, 140)));
+    if (hasTrader && me.address) {
+      void trade(me.address, { pts: moved, stake, leverage, seconds: bars, exits });
     }
     // No toast. The header turns into "Close trade", the bar starts counting
     // candles and the chart starts moving: three things already say it.
@@ -621,7 +647,7 @@ export function DrawScreen({ market }: { market: Market }) {
           market={market}
           onOpenList={() => setListOpen(true)}
           onVenue={venue !== null}
-          venueAccount={venue !== null && notMine ? traderAccount : null}
+          venueAccount={notMine ? venue.accountIndex : null}
           venueProblem={venueProblem}
           openCount={sketches.length}
           phase={phase}

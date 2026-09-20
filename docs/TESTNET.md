@@ -23,6 +23,7 @@ and the absence is the message.
 | Balances | account 378, about 10,000 test USDC |
 | Test funds | one press, from Lighter's own faucet |
 | Drawn rounds | the whole way: draw, trade, reverse at every turn, close |
+| Whose account | your own, with a key your wallet registers once |
 | Liquidation | the venue does it, at its own maintenance margin |
 
 A round through the trader has been run end to end: opened 0.0002 BTC at

@@ -95,16 +95,34 @@ again before the first one landed. A reversal still goes out at once: that is
 the drawing changing its mind, and waiting means trading the wrong way for
 another second.
 
-## One key, one account
+## A key per wallet
 
-The trader signs everything with a single Lighter key, so every round lands
-on that account whoever drew it. A reader's own balance, which the app reads
-from their own wallet's Lighter account, does not move when they trade. The
-app says so in the tray while a round runs rather than leaving somebody to
-work it out from a number that never changes.
+```
+POST /keys/prepare   {address}              -> {messageToSign, accountIndex}
+POST /keys/register  {address, signature}   -> {ok, accountIndex}
+GET  /keys/:address                         -> {registered, accountIndex}
+```
 
-The way out is a trading key per wallet. Lighter's own signer exports both
-halves: `GenerateAPIKey` makes the keypair and `SignChangePubKey` registers
-its public half against an account, authorised by the wallet that owns it.
-Neither is in the C shim yet. The `lighter_accounts` table is already there
-for the result, with a column that never holds a key in the clear.
+Rounds trade the drawer's own Lighter account, signed with a key they
+registered against it. Before this the service held one key for one account
+and every round landed there, so somebody watched their own balance sit still
+while their orders filled on somebody else's.
+
+Two steps, because the middle one is not ours. `GenerateAPIKey` makes a
+keypair and `SignChangePubKey` signs its registration, leaving an `L1Sig`
+empty; the wallet that owns the account signs the message the signer hands
+back, and that signature fills the gap. The new key signing its own
+registration proves whoever asks holds it, and the wallet's signature proves
+they own the account. Neither alone is enough, which is why the transaction
+carries both.
+
+The key can trade that account and nothing else. It cannot withdraw, and it
+cannot move money off the venue.
+
+Registering waits for the venue to accept the key before saying it is theirs.
+It takes a few seconds, and answering "no trading key for this wallet" to
+somebody who has just registered one is the least helpful possible reply.
+
+Keys live in `trader_keys` in Postgres. With no database they are held in
+memory and `/health` says `memory only, lost on restart`, because a trader
+that refuses to start without a database is a trader nobody can try.

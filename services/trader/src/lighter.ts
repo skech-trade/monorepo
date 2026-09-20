@@ -63,6 +63,13 @@ export class Lighter {
     };
   }
 
+  /** The Lighter account a wallet owns, or null if it has never had one. */
+  async accountForAddress(l1: string): Promise<number | null> {
+    const d = await this.get<{ sub_accounts?: { index: number }[] }>(`/api/v1/accountsByL1Address?l1_address=${l1}`).catch(() => null);
+    const first = d?.sub_accounts?.[0];
+    return first ? Number(first.index) : null;
+  }
+
   async positionIn(index: number | bigint, marketId: number): Promise<PositionInfo | null> {
     return (await this.account(index)).positions.find((p) => p.marketId === marketId) ?? null;
   }

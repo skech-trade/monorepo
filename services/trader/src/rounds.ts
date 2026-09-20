@@ -38,6 +38,8 @@ export type Round = {
   startedAt: number;
   /** Collateral when the round opened, so realised is a difference the venue agrees with. */
   openedWith: number;
+  /** The Lighter account this round traded on: the drawer's own. */
+  accountIndex: number;
   /** Which way the position faces now, and how big, from the venue. */
   size: number;
   /** The venue's own mark-to-market on what is open. */
@@ -83,13 +85,16 @@ export function dirAt(shape: Shape, u: number): 1 | -1 {
   return last ? last.dir : shape.long ? 1 : -1;
 }
 
+/** Who a round trades as: their account, and the key that speaks for it. */
+export type Who = { trader: Trader; accountIndex: number };
+
 export class Rounds {
   private readonly live = new Map<string, Round>();
+  /** Which account each round is on, so finishing one closes the right position. */
+  private readonly whose = new Map<string, Who>();
 
   constructor(
     private readonly venue: Lighter,
-    private readonly trader: Trader,
-    private readonly accountIndex: number,
     private readonly marketId: number,
   ) {}
 
@@ -109,7 +114,7 @@ export class Rounds {
    * length of one would mean a closed laptop leaves a position running with
    * nobody watching it, which is the whole reason this is a server.
    */
-  async open(spec: RoundSpec): Promise<Round> {
+  async open(spec: RoundSpec, who: Who): Promise<Round> {
     const market = await this.venue.market(this.marketId);
     const entry = market.last;
     const shape = shapeOf(spec.pts, entry);
@@ -126,7 +131,8 @@ export class Rounds {
       leverage: spec.leverage,
       seconds: spec.seconds,
       startedAt: Date.now(),
-      openedWith: (await this.venue.account(this.accountIndex).catch(() => null))?.collateral ?? 0,
+      accountIndex: who.accountIndex,
+      openedWith: (await this.venue.account(who.accountIndex).catch(() => null))?.collateral ?? 0,
       size: 0,
       unrealised: 0,
       realised: 0,
@@ -134,27 +140,29 @@ export class Rounds {
       problem: null,
     };
     this.live.set(id, round);
+    this.whose.set(id, who);
 
     // Isolated margin at this round's boost, once, before any order.
-    await this.trader.setLeverage(this.marketId, spec.leverage).catch((e) => {
+    await who.trader.setLeverage(this.marketId, spec.leverage).catch((e) => {
       round.problem = `leverage: ${(e as Error).message.slice(0, 120)}`;
     });
 
-    void this.run(round, shape, market, spec);
+    void this.run(round, shape, market, spec, who);
     return round;
   }
 
   /** Close a round early, at the reader's request. */
   async close(id: string): Promise<Round | null> {
     const round = this.live.get(id);
-    if (!round || round.status === "done") return round ?? null;
+    const who = this.whose.get(id);
+    if (!round || !who || round.status === "done") return round ?? null;
     round.outcome = "time";
-    await this.finish(round, await this.venue.market(this.marketId));
+    await this.finish(round, await this.venue.market(this.marketId), who);
     return round;
   }
 
-  private async finish(round: Round, market: MarketInfo, cap?: number) {
-    const flat = await this.trader.flatten(market, cap).catch(() => null);
+  private async finish(round: Round, market: MarketInfo, who: Who, cap?: number) {
+    const flat = await who.trader.flatten(market, cap).catch(() => null);
     if (flat) round.orders.push({ at: Date.now(), want: 0, hash: flat.hash });
 
     /*
@@ -166,12 +174,12 @@ export class Rounds {
     let after = null;
     for (let i = 0; i < 5; i++) {
       await Bun.sleep(1000);
-      after = await this.venue.positionIn(this.accountIndex, this.marketId).catch(() => null);
+      after = await this.venue.positionIn(who.accountIndex, this.marketId).catch(() => null);
       if (!after || after.size === 0) break;
     }
     round.size = after?.size ?? 0;
     round.unrealised = after?.unrealised ?? 0;
-    const account = await this.venue.account(this.accountIndex).catch(() => null);
+    const account = await this.venue.account(who.accountIndex).catch(() => null);
     if (account && round.openedWith) round.realised = account.collateral - round.openedWith;
     round.status = "done";
     if (!round.outcome) round.outcome = "time";
@@ -179,7 +187,7 @@ export class Rounds {
     if (round.size !== 0) round.problem = `still holding ${round.size.toFixed(5)} BTC after the close`;
   }
 
-  private async run(round: Round, shape: Shape, market: MarketInfo, spec: RoundSpec) {
+  private async run(round: Round, shape: Shape, market: MarketInfo, spec: RoundSpec, who: Who) {
     const full = (spec.stake * spec.leverage) / round.entry;
     const ends = round.startedAt + spec.seconds * 1000;
 
@@ -194,7 +202,7 @@ export class Rounds {
         const turning = asked === null || Math.sign(want) !== Math.sign(asked);
 
         if (turning || Date.now() - askedAt > SETTLE_MS) {
-          const sent = await this.trader.goTo(market, want, { cap: full }).catch((e) => {
+          const sent = await who.trader.goTo(market, want, { cap: full }).catch((e) => {
             round.problem = (e as Error).message.slice(0, 160);
             return null;
           });
@@ -203,7 +211,7 @@ export class Rounds {
           if (sent) round.orders.push({ at: Date.now(), want, hash: sent.hash });
         }
 
-        const held = await this.venue.positionIn(this.accountIndex, this.marketId).catch(() => null);
+        const held = await this.venue.positionIn(who.accountIndex, this.marketId).catch(() => null);
         round.size = held?.size ?? 0;
         round.unrealised = held?.unrealised ?? 0;
 
@@ -234,12 +242,12 @@ export class Rounds {
         }
         await Bun.sleep(TICK_MS);
       }
-      await this.finish(round, market, full);
+      await this.finish(round, market, who, full);
     } catch (e) {
       round.problem = (e as Error).message.slice(0, 160);
       round.outcome = "failed";
       // Whatever went wrong, do not leave a position open behind it.
-      await this.finish(round, market, full).catch(() => undefined);
+      await this.finish(round, market, who, full).catch(() => undefined);
     }
   }
 }

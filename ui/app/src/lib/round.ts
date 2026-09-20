@@ -28,12 +28,53 @@ export type VenueRound = {
   status: "running" | "done";
   outcome: "time" | "stop" | "target" | "failed" | null;
   entry: number;
+  /** The Lighter account it traded on, which is the drawer's own. */
+  accountIndex: number;
   size: number;
   unrealised: number;
   realised: number;
   orders: { at: number; want: number; hash: string }[];
   problem: string | null;
 };
+
+/**
+ * Whether this wallet can trade its own Lighter account yet.
+ *
+ * It can once it has registered a trading key against it, which takes one
+ * signature from the wallet and lasts. Until then a round has nothing to sign
+ * with, and trading somebody else's account instead would be worse than not
+ * trading at all.
+ */
+export async function keyFor(address: string): Promise<{ registered: boolean; accountIndex: number | null }> {
+  if (!hasTrader) return { registered: false, accountIndex: null };
+  const res = await fetch(`${URL_TRADER}/keys/${address}`).catch(() => null);
+  const body = res?.ok ? ((await res.json().catch(() => null)) as { registered?: boolean; accountIndex?: number | null } | null) : null;
+  return { registered: Boolean(body?.registered), accountIndex: body?.accountIndex ?? null };
+}
+
+/** Step one: the message the wallet has to sign, word for word. */
+export async function prepareKey(address: string): Promise<{ messageToSign?: string; already?: boolean; error?: string }> {
+  if (!hasTrader) return { error: "No trader configured." };
+  const res = await fetch(`${URL_TRADER}/keys/prepare`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ address }),
+  }).catch(() => null);
+  if (!res) return { error: "The trader did not answer." };
+  return ((await res.json().catch(() => null)) as { messageToSign?: string; already?: boolean; error?: string } | null) ?? { error: "No answer." };
+}
+
+/** Step two: hand back the signature, and the key is theirs from then on. */
+export async function registerKey(address: string, signature: string): Promise<{ ok?: boolean; accountIndex?: number; error?: string }> {
+  if (!hasTrader) return { error: "No trader configured." };
+  const res = await fetch(`${URL_TRADER}/keys/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ address, signature }),
+  }).catch(() => null);
+  if (!res) return { error: "The trader did not answer." };
+  return ((await res.json().catch(() => null)) as { ok?: boolean; accountIndex?: number; error?: string } | null) ?? { error: "No answer." };
+}
 
 /**
  * Which Lighter account the trader signs for.
@@ -61,6 +102,8 @@ export function useTraderAccount(): number | null {
 }
 
 export type RoundSpec = {
+  /** Whose account this trades. Their key signs it; their balance moves. */
+  address: string;
   pts: Pt[];
   stake: number;
   leverage: number;

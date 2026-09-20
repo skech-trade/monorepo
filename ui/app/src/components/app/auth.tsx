@@ -1,6 +1,6 @@
 "use client";
 
-import { useCurrentUser, useEvmAddress, useIsSignedIn, useSignOut } from "@coinbase/cdp-hooks";
+import { useCurrentUser, useEvmAddress, useIsSignedIn, useSignEvmMessage, useSignOut } from "@coinbase/cdp-hooks";
 import { CDPReactProvider, type Config, type Theme } from "@coinbase/cdp-react";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 
@@ -43,9 +43,19 @@ export type Account = {
   /** Whatever they signed in with, for the greeting. */
   handle: string | null;
   signOut: () => void;
+  /**
+   * Sign a plain message with the wallet.
+   *
+   * Registering a trading key needs it: Lighter hands back a message that
+   * says which key, on which account, and only the wallet that owns the
+   * account can agree to it. Published through this context like everything
+   * else, so a screen can ask for a signature without knowing whether
+   * Coinbase's provider is mounted.
+   */
+  signMessage: (message: string) => Promise<string | null>;
 };
 
-const SIGNED_OUT: Account = { signedIn: false, address: null, handle: null, signOut: () => undefined };
+const SIGNED_OUT: Account = { signedIn: false, address: null, handle: null, signOut: () => undefined, signMessage: async () => null };
 const Ctx = createContext<Account>(SIGNED_OUT);
 
 /** An address, short enough to sit in a menu. */
@@ -57,11 +67,22 @@ function Publish({ children }: { children: ReactNode }) {
   const { evmAddress } = useEvmAddress();
   const { currentUser } = useCurrentUser();
   const { signOut } = useSignOut();
+  const { signEvmMessage } = useSignEvmMessage();
   const user = currentUser as { authenticationMethods?: { email?: { email?: string }; sms?: { phoneNumber?: string } } } | null;
   const account = useMemo<Account>(() => {
     const handle = user?.authenticationMethods?.email?.email ?? user?.authenticationMethods?.sms?.phoneNumber ?? (evmAddress ? shortAddress(evmAddress) : null);
-    return { signedIn: Boolean(isSignedIn), address: evmAddress ?? null, handle, signOut: () => void signOut() };
-  }, [isSignedIn, evmAddress, user, signOut]);
+    return {
+      signedIn: Boolean(isSignedIn),
+      address: evmAddress ?? null,
+      handle,
+      signOut: () => void signOut(),
+      signMessage: async (message: string) => {
+        if (!evmAddress) return null;
+        const { signature } = await signEvmMessage({ evmAccount: evmAddress, message });
+        return signature;
+      },
+    };
+  }, [isSignedIn, evmAddress, user, signOut, signEvmMessage]);
   return <Ctx.Provider value={account}>{children}</Ctx.Provider>;
 }
 

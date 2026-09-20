@@ -1,7 +1,13 @@
 # Everything that is not the browser.
 #
-#   docker compose up feed          the market, on :3210
-#   docker compose --profile trade up   and the signer with it
+#   docker compose --env-file .env.local up db        Postgres, on :5432
+#   docker compose --env-file .env.local up feed      the market, on :3210
+#   docker compose --env-file .env.local --profile trade up
+#
+# The env file has to be named. Compose reads `.env` by default and this repo
+# keeps one `.env.local` at the root for every service, so without the flag
+# every variable below arrives empty and the services quietly run on their
+# defaults.
 #
 # The app reads the feed from the browser, so its URL is the host's, not this
 # network's.
@@ -62,3 +68,9 @@ services:
       ALLOW_ORIGIN: ${ALLOW_ORIGIN:-*}
     depends_on: [feed]
     restart: unless-stopped
+
+# Named here because a service that mounts a volume it never declares is a
+# compose file that has never been run: `docker compose up db` answers
+# "refers to undefined volume db" and starts nothing.
+volumes:
+  db:

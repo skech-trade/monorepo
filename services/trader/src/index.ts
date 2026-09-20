@@ -12,7 +12,8 @@
  */
 
 import { Lighter } from "./lighter";
-import { Rounds, type RoundSpec } from "./rounds";
+import { Keys } from "./keys";
+import { Rounds, type RoundSpec, type Who } from "./rounds";
 import { ACCOUNT, API_KEY_INDEX, BASE, CHAIN_ID, MARKET_ID, NETWORK, PRIVATE_KEY } from "./network";
 import { Trader } from "./round";
 import { Signer } from "./signer";
@@ -47,7 +48,30 @@ const cors = {
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...cors } });
 
-const rounds = trader ? new Rounds(venue, trader, ACCOUNT, MARKET_ID) : null;
+const rounds = new Rounds(venue, MARKET_ID);
+const keys = new Keys(venue, CHAIN_ID, BASE);
+await keys.ready().catch((e) => console.error("keys table:", (e as Error).message.slice(0, 120)));
+
+/*
+  Who a round trades as.
+
+  Their own Lighter account, signed with a key they registered against it, so
+  the balance that moves is the one on their screen. The shared key the
+  service starts with is not a fallback for this: trading somebody else's
+  account because we could not find theirs is the bug this replaces.
+*/
+const asWhom = new Map<string, Who>();
+async function whoIs(address: string): Promise<Who | null> {
+  const at = address.toLowerCase();
+  const known = asWhom.get(at);
+  if (known) return known;
+  const held = await keys.forAddress(at);
+  if (!held) return null;
+  const signer = Signer.open({ url: BASE, privateKey: held.privateKey, chainId: CHAIN_ID, accountIndex: held.accountIndex, apiKeyIndex: held.apiKeyIndex });
+  const who: Who = { trader: new Trader(venue, signer, held.accountIndex), accountIndex: held.accountIndex };
+  asWhom.set(at, who);
+  return who;
+}
 
 /** A number from the page, clamped to something a round can actually be. */
 const clamp = (v: unknown, min: number, max: number, fallback: number) => {
@@ -64,11 +88,16 @@ Bun.serve({
     if (url.pathname === "/health") {
       const market = await venue.market(MARKET_ID).catch(() => null);
       return json({
-        ok: trader !== null && market !== null,
+        ok: market !== null,
         signer: trader ? "ready" : (signerError ?? "not configured"),
         network: NETWORK,
         venue: BASE,
-        account: ACCOUNT,
+        /*
+          Rounds trade the drawer's own account with their own key, so there
+          is no one account to report any more. What is worth saying is
+          whether those keys survive a restart.
+        */
+        keys: keys.persistent ? "postgres" : "memory only, lost on restart",
         market: market ? { id: market.id, symbol: market.symbol, last: market.last } : null,
       });
     }
@@ -87,8 +116,18 @@ Bun.serve({
       outlives the tab that drew it.
     */
     if (url.pathname === "/rounds" && req.method === "POST") {
-      if (!rounds) return json({ error: signerError ?? "no signer" }, 503);
-      const body = (await req.json().catch(() => ({}))) as Partial<RoundSpec>;
+      const body = (await req.json().catch(() => ({}))) as Partial<RoundSpec> & { address?: string };
+      const at = (body.address ?? "").toLowerCase();
+      if (!/^0x[0-9a-f]{40}$/.test(at)) return json({ error: "address required" }, 400);
+      /* A failure to build their signer is worth reporting: swallowing it
+         answered "no trading key" to somebody who had just registered one. */
+      let who: Who | null = null;
+      try {
+        who = await whoIs(at);
+      } catch (e) {
+        return json({ error: `could not sign for this wallet: ${(e as Error).message.slice(0, 120)}` }, 500);
+      }
+      if (!who) return json({ error: "no trading key for this wallet", needsKey: true }, 409);
       const pts = Array.isArray(body.pts) ? body.pts.filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.price)).slice(0, 256) : [];
       if (pts.length < 2) return json({ error: "a line needs at least two points" }, 400);
       const spec: RoundSpec = {
@@ -102,27 +141,70 @@ Bun.serve({
         },
       };
       try {
-        return json(await rounds.open(spec));
+        return json(await rounds.open(spec, who));
       } catch (e) {
         return json({ error: (e as Error).message.slice(0, 160) }, 400);
       }
     }
 
+    /*
+      A trading key for a wallet.
+
+      Two steps, because the middle one is not ours: we make a key and sign
+      its registration, the wallet's owner signs the message that says they
+      agree, and only then does it reach the venue. Without their signature
+      the key registers against nothing.
+    */
+    if (url.pathname === "/keys/prepare" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { address?: string };
+      const at = (body.address ?? "").toLowerCase();
+      if (!/^0x[0-9a-f]{40}$/.test(at)) return json({ error: "address required" }, 400);
+      const held = await keys.forAddress(at).catch(() => null);
+      if (held) return json({ already: true, accountIndex: held.accountIndex, apiKeyIndex: held.apiKeyIndex });
+      try {
+        const prep = await keys.prepare(at);
+        return json({ accountIndex: prep.accountIndex, apiKeyIndex: prep.apiKeyIndex, messageToSign: prep.messageToSign });
+      } catch (e) {
+        return json({ error: (e as Error).message.slice(0, 160) }, 400);
+      }
+    }
+
+    if (url.pathname === "/keys/register" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { address?: string; signature?: string };
+      const at = (body.address ?? "").toLowerCase();
+      if (!/^0x[0-9a-f]{40}$/.test(at)) return json({ error: "address required" }, 400);
+      if (!/^0x[0-9a-fA-F]{130}$/.test(body.signature ?? "")) return json({ error: "a wallet signature is required" }, 400);
+      try {
+        const held = await keys.register(at, body.signature as string);
+        asWhom.delete(at);
+        return json({ ok: true, accountIndex: held.accountIndex, apiKeyIndex: held.apiKeyIndex });
+      } catch (e) {
+        return json({ error: (e as Error).message.slice(0, 200) }, 400);
+      }
+    }
+
+    /** Whether this wallet can trade its own account yet. */
+    if (url.pathname.startsWith("/keys/") && req.method === "GET") {
+      const at = url.pathname.slice("/keys/".length).toLowerCase();
+      const held = await keys.forAddress(at).catch(() => null);
+      return json({ registered: held !== null, accountIndex: held?.accountIndex ?? null });
+    }
+
     /** How a round is going, and how it went. Polled by the page while it runs. */
     if (url.pathname.startsWith("/rounds/") && req.method === "GET") {
-      const round = rounds?.get(url.pathname.slice("/rounds/".length));
+      const round = rounds.get(url.pathname.slice("/rounds/".length));
       return round ? json(round) : json({ error: "no such round" }, 404);
     }
 
     /** Out now, at the market. The header's "Close trade". */
     if (url.pathname.endsWith("/close") && req.method === "POST") {
       const id = url.pathname.slice("/rounds/".length, -"/close".length);
-      const round = await rounds?.close(id);
+      const round = await rounds.close(id);
       return round ? json(round) : json({ error: "no such round" }, 404);
     }
 
     if (url.pathname === "/rounds" && req.method === "GET") {
-      return json({ rounds: rounds?.all() ?? [] });
+      return json({ rounds: rounds.all() });
     }
 
     return json({ error: "not found" }, 404);

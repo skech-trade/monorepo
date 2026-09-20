@@ -31,6 +31,11 @@ const lib = dlopen(LIB, {
     args: [FFIType.i32, FFIType.i64, FFIType.i32, FFIType.u8, FFIType.i64, FFIType.i32, FFIType.i64, FFIType.ptr, FFIType.ptr],
     returns: FFIType.ptr,
   },
+  shim_generate_api_key: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr },
+  shim_sign_change_pub_key: {
+    args: [FFIType.cstring, FFIType.u8, FFIType.i64, FFIType.i32, FFIType.i64, FFIType.ptr, FFIType.ptr, FFIType.ptr],
+    returns: FFIType.ptr,
+  },
   shim_auth_token: { args: [FFIType.i64, FFIType.i32, FFIType.i64, FFIType.ptr], returns: FFIType.ptr },
   shim_free: { args: [FFIType.ptr], returns: FFIType.void },
 });
@@ -64,6 +69,27 @@ export const MARGIN_MODE = { cross: 0, isolated: 1 } as const;
 
 export type Signed = { txInfo: string; txHash: string };
 
+/** A trading keypair. The public half is registered; the private half signs. */
+export type ApiKey = { privateKey: string; publicKey: string };
+
+/**
+ * A fresh trading key, belonging to nobody yet.
+ *
+ * One per wallet is what lets somebody trade their own Lighter account rather
+ * than a shared one. Registering it is the separate step below, and it needs
+ * the account's owner to agree with their Ethereum wallet.
+ */
+export function generateApiKey(): ApiKey {
+  const priv = slot();
+  const pub = slot();
+  const err = taken(lib.symbols.shim_generate_api_key(ptr(priv), ptr(pub)));
+  if (err) throw new Error(`lighter signer: ${err}`);
+  const privateKey = value(priv);
+  const publicKey = value(pub);
+  if (!privateKey || !publicKey) throw new Error("lighter signer: no key came back");
+  return { privateKey, publicKey };
+}
+
 export class Signer {
   constructor(
     private readonly accountIndex: bigint,
@@ -75,12 +101,18 @@ export class Signer {
    * bakes it into every signature, so a wrong one produces signatures the
    * venue rejects without saying why.
    */
-  static open(opts: { url: string; privateKey: string; chainId: number; accountIndex: number | bigint; apiKeyIndex: number }): Signer {
+  static open(opts: { url: string; privateKey: string; chainId: number; accountIndex: number | bigint; apiKeyIndex: number; check?: boolean }): Signer {
     const account = BigInt(opts.accountIndex);
     const err = taken(lib.symbols.shim_create_client(cstr(opts.url), cstr(opts.privateKey), opts.chainId, opts.apiKeyIndex, account));
     if (err) throw new Error(`lighter signer: ${err}`);
     const signer = new Signer(account, opts.apiKeyIndex);
-    signer.check();
+    /*
+      Checked by default, because a key that is not the registered one signs
+      orders the venue silently refuses. Skipped for exactly one case: a key
+      that has just been generated and is signing its own registration, which
+      by definition is not registered yet.
+    */
+    if (opts.check !== false) signer.check();
     return signer;
   }
 
@@ -88,6 +120,25 @@ export class Signer {
   check() {
     const err = taken(lib.symbols.shim_check_client(this.apiKeyIndex, this.accountIndex));
     if (err) throw new Error(`lighter signer: ${err}`);
+  }
+
+  /**
+   * Register a public key against this account, at this key index.
+   *
+   * The account's owner has to agree, and they prove it with the Ethereum
+   * wallet that owns the account: `messageToSign` comes back for that wallet
+   * to sign, and the signature goes into the transaction before it is sent.
+   * Nothing here can produce that signature, which is the point of it.
+   */
+  changePubKey(publicKey: string, nonce = -1n): Signed & { messageToSign: string } {
+    const info = slot();
+    const hash = slot();
+    const message = slot();
+    const err = taken(
+      lib.symbols.shim_sign_change_pub_key(cstr(publicKey), 0, nonce, this.apiKeyIndex, this.accountIndex, ptr(info), ptr(hash), ptr(message)),
+    );
+    if (err) throw new Error(`lighter signer: ${err}`);
+    return { txInfo: value(info) ?? "", txHash: value(hash) ?? "", messageToSign: value(message) ?? "" };
   }
 
   /**
