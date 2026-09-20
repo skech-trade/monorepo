@@ -163,7 +163,10 @@ export function MarketHeader({ market, className }: { market: Market; className?
                 number somebody is here for, so the name gives up the room
                 rather than both of them ending in an ellipsis. */}
             <span className="truncate max-sm:hidden">{market.name}</span>
-            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+            {/* After the name on a desk, where the name is what opens. On a
+                phone the name is not drawn, so it would sit against the mark
+                and point at nothing; it goes after the price instead. */}
+            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground max-sm:hidden" />
           </span>
           <span className="flex min-w-0 items-baseline gap-2 sm:mt-1">
             <span className="figures truncate font-semibold text-base sm:text-xl">${fmtPrice(market.price)}</span>
@@ -177,6 +180,7 @@ export function MarketHeader({ market, className }: { market: Market; className?
                 On a phone this pill is the whole of the app bar's middle, and
                 the badge beside it in the bar left no room to centre it. */}
             <NetworkBadge className="sm:hidden" compact />
+            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground sm:hidden" />
           </span>
         </span>
       </button>
