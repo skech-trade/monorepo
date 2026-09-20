@@ -7,10 +7,13 @@
  */
 
 import { hasDb, migrate, rename, sql, userFor } from "./db";
+import { CHAINS, Deposits, NATIVE } from "./deposit";
 import { Lighter } from "./lighter";
 
 const PORT = Number(process.env.PORT ?? 3230);
-const venue = new Lighter(process.env.LIGHTER_BASE_URL ?? "https://mainnet.zklighter.elliot.ai");
+const LIGHTER = process.env.LIGHTER_BASE_URL ?? "https://mainnet.zklighter.elliot.ai";
+const venue = new Lighter(LIGHTER);
+const deposits = new Deposits(LIGHTER);
 
 await migrate().catch((e) => console.error("migrate failed:", (e as Error).message));
 
@@ -70,6 +73,28 @@ Bun.serve({
       const balance = await venue.balanceForAddress(at).catch(() => null);
       if (!balance) return json({ error: "venue unreachable" }, 502);
       return json(balance);
+    }
+
+    /** Where money can come from. The app does not need to know these. */
+    if (url.pathname === "/deposit/chains") {
+      return json({ chains: CHAINS, native: NATIVE });
+    }
+
+    /*
+      What a deposit would cost and what would land. Nothing is signed here;
+      the steps go back to the wallet, which is the only thing that can sign
+      them and the only thing that holds the money.
+    */
+    if (url.pathname === "/deposit/quote") {
+      const at = address(url.searchParams.get("address"));
+      const fromChain = Number(url.searchParams.get("fromChain") ?? 8453);
+      const token = url.searchParams.get("token") ?? CHAINS[0].usdc;
+      const amount = url.searchParams.get("amount") ?? "";
+      if (!at) return json({ error: "address required" }, 400);
+      if (!/^\d+$/.test(amount)) return json({ error: "amount must be in the token's smallest unit" }, 400);
+      const quote = await deposits.quote({ address: at, fromChain, token, amount }).catch(() => null);
+      if (!quote) return json({ error: "no route for that" }, 502);
+      return json(quote);
     }
 
     return json({ error: "not found" }, 404);

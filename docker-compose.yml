@@ -6,6 +6,33 @@
 # The app reads the feed from the browser, so its URL is the host's, not this
 # network's.
 services:
+  # Postgres for local work. On AWS this is RDS or Aurora Serverless and this
+  # service goes away; nothing in the schema ties it to either.
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: skech
+      POSTGRES_PASSWORD: skech
+      POSTGRES_DB: skech
+    ports: ["5432:5432"]
+    volumes: ["db:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skech"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: { context: ./services/api }
+    ports: ["3230:3230"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://skech:skech@db:5432/skech}
+      LIGHTER_BASE_URL: ${LIGHTER_MAINNET_BASE_URL:-https://mainnet.zklighter.elliot.ai}
+      ALLOW_ORIGIN: ${ALLOW_ORIGIN:-*}
+    depends_on:
+      db: { condition: service_healthy }
+    restart: unless-stopped
+
   feed:
     build: { context: ./services/feed }
     ports: ["3210:3210"]

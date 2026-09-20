@@ -33,7 +33,7 @@ import { useSettings } from "@/lib/settings";
 import { SettingsSheet } from "./settings";
 import { announceSoon } from "./soon";
 import { HANDLE } from "@/lib/user";
-import { useProfile } from "@/lib/profile";
+import { markAsked, useProfile } from "@/lib/profile";
 import { cn } from "@/lib/utils";
 import { hasAuth, shortAddress, useAccount } from "./auth";
 import { NamePrompt } from "./name-prompt";
@@ -56,12 +56,12 @@ export function AppBar({ account }: { account: Account }) {
     signs in without a name on file.
   */
   const name = profile.name ?? me.handle ?? HANDLE;
-  const asked = useRef(false);
+  const opened = useRef(false);
   useEffect(() => {
-    if (!me.signedIn || !profile.ready || profile.name || asked.current) return;
-    asked.current = true;
+    if (!me.signedIn || !profile.needsName || opened.current) return;
+    opened.current = true;
     setAskName(true);
-  }, [me.signedIn, profile.ready, profile.name]);
+  }, [me.signedIn, profile.needsName]);
 
   /*
     What the account is worth, from the venue rather than from a constant.
@@ -140,23 +140,23 @@ export function AppBar({ account }: { account: Account }) {
             {perp ? (
               <>
                 <MenuSeparator />
-                {/* The venue's own numbers. Collateral is what can be traded
-                    with; the second line is what anything open has made. */}
-                <div className="flex flex-col gap-1 px-2 py-2 text-xs">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="text-muted-foreground">On the venue</span>
-                    <span className="figures font-medium">${usd(perp.collateral)}</span>
-                  </div>
-                  {perp.positions > 0 ? (
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="text-muted-foreground">
-                        {perp.positions} open
-                      </span>
-                      <span className={cn("figures", perp.unrealised >= 0 ? "text-up" : "text-down")}>{signedUsd(perp.unrealised)}</span>
-                    </div>
-                  ) : null}
-                  {!funded ? <p className="text-muted-foreground">Nothing deposited yet.</p> : null}
-                </div>
+                {/* One sentence, not a label over a figure. A stack of
+                    captioned numbers in a menu reads as a form. */}
+                <p className="px-2 py-2 text-muted-foreground text-xs">
+                  {funded ? (
+                    <>
+                      <span className="figures text-foreground">${usd(perp.collateral)}</span> on Lighter
+                      {perp.positions > 0 ? (
+                        <>
+                          , <span className={cn("figures", perp.unrealised >= 0 ? "text-up" : "text-down")}>{signedUsd(perp.unrealised)}</span> on {perp.positions} open
+                        </>
+                      ) : null}
+                      .
+                    </>
+                  ) : (
+                    "Nothing on Lighter yet. Add some and you can draw for real."
+                  )}
+                </p>
               </>
             ) : null}
             <MenuSeparator />
@@ -201,7 +201,16 @@ export function AppBar({ account }: { account: Account }) {
       </div>
     </header>
     <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen} />
-    <NamePrompt onOpenChange={setAskName} onSave={profile.setName} open={askName} />
+    <NamePrompt
+      onOpenChange={(next) => {
+        // Closing without saving is still an answer. Remember it, or the
+        // prompt greets them again on the next visit.
+        if (!next && me.address) markAsked(me.address);
+        setAskName(next);
+      }}
+      onSave={profile.setName}
+      open={askName}
+    />
     </>
   );
 }
