@@ -105,18 +105,18 @@ export function PlotSettings({ className }: { className?: string }) {
 }
 
 /** The gear in the chart's own controls. */
-export function ChartSettingsButton() {
+export function ChartSettingsButton({ className, side = "right" }: { className?: string; side?: "top" | "right" }) {
   return (
     <Popover>
       <Tooltip>
         <TooltipTrigger
-          render={<PopoverTrigger render={<Button aria-label="How the chart looks" className="size-7 rounded-lg" variant="ghost" />} />}
+          render={<PopoverTrigger render={<Button aria-label="How the chart looks" className={cn("size-7 rounded-lg", className)} variant="ghost" />} />}
         >
           <SettingsIcon />
         </TooltipTrigger>
         <TooltipPopup>How the chart looks</TooltipPopup>
       </Tooltip>
-      <PopoverPopup align="end" className="w-80" side="top">
+      <PopoverPopup align="start" className="w-80" side={side} sideOffset={8}>
         <PopoverTitle>Chart</PopoverTitle>
         <ChartSettings className="pt-2" />
         <h3 className="pt-3 pb-1 font-medium text-muted-foreground text-xs">On the drawing</h3>

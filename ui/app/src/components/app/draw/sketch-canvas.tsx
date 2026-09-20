@@ -10,12 +10,10 @@ import {
 } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, CrosshairIcon, RotateCcwIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
 import { type CandleStyle, useSettings } from "@/lib/settings";
 import { curvePath, lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
-import { ChartSettingsButton } from "../settings";
 
 /** The chart you draw on: our own SVG, history left, future right, now between them. */
 
@@ -688,8 +686,6 @@ export function SketchCanvas({
           <Button aria-label="Reset the view" className="size-7 rounded-lg" disabled={following && view.zoom === 1} onClick={reset} variant="ghost">
             <RotateCcwIcon />
           </Button>
-          <Separator className="mx-0.5 h-4" orientation="vertical" />
-          <ChartSettingsButton />
         </div>
       ) : null}
 

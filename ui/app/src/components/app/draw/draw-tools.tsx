@@ -4,6 +4,7 @@ import { EraserIcon, ShapesIcon, Undo2Icon, WaypointsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { legPath } from "@/lib/sketch";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@/components/ui/menu";
+import { ChartSettingsButton } from "../settings";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 
 /** Points: a click per turn, every point a handle. Shapes: eight common calls, one press each. */
@@ -100,6 +101,9 @@ export function DrawTools({
           <EraserIcon />
         </Button>
       </Tip>
+
+      {/* Beside the tools, because how the chart is drawn is a tool too. */}
+      <ChartSettingsButton className="size-8 rounded-lg sm:size-10 sm:rounded-xl" />
 
       <Menu>
         <MenuTrigger render={<Button aria-label="Shapes" className="size-8 rounded-lg sm:size-10 sm:rounded-xl" variant="ghost" />}>
