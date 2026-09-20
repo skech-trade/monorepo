@@ -27,8 +27,12 @@ export const hasAuth = PROJECT !== "";
 const config: Config = {
   projectId: PROJECT,
   appName: "skech",
-  // Email, phone, or Google. Whatever someone already has.
-  authMethods: ["email", "sms", "oauth:google"],
+  /*
+    Whatever someone already has. The SDK's own union is "email" and "sms"
+    plus `oauth:` with google, apple, x, telegram or github; each one still
+    has to be turned on in the CDP Portal or its button never appears.
+  */
+  authMethods: ["email", "sms", "oauth:google", "oauth:apple"],
   ethereum: { createOnLogin: "eoa" },
 };
 
