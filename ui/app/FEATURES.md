@@ -24,13 +24,25 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   and the order book all read, so nothing green or red survives the switch.
   The Desk's canvas chart follows it too, because its palette is read out of
   computed styles and invalidated when `data-palette` changes.
-- Candles: candles, bars (open left, close right) or one neutral line through
-  the closes, which leaves the drawn line the only coloured line on the chart.
-- Grid: lines, dots or off.
-- Where: a gear at the end of the chart's own view controls holds the three
-  chart ones, beside what they change. The Settings sheet, opened from the
-  account menu, holds those plus the theme and the privacy blur. One store, so
-  the two agree.
+- Candles: candles, bars (open left, close right) or one curve through the
+  closes, which leaves the drawn line the only coloured line on the chart. The
+  curve is Catmull-Rom: a second of Bitcoin moves six dollars, so joining the
+  closes with straight runs drew a saw.
+- Grid: lines, dots or off. The dot sits in the middle of its tile in the ink
+  the axis uses; at the corner in the border colour it was invisible.
+- On the drawing, each on or off: the ribbon (the band of profit and loss
+  along your line), the buy and sell marks, the crosshair.
+- Size and boost are remembered, so a round starts where the last one left off
+  instead of resetting to $100 at 50x every time.
+- Where: a gear at the end of the chart's own view controls holds all of the
+  above, beside what they change. The Settings sheet, opened from the account
+  menu, holds them plus the theme and the privacy blur. One store, so the two
+  agree.
+- Motion: the feed is not decoration, so reduced motion does not stop it. It
+  used to return before the interval was made, which meant the market never
+  moved and a round placed with that preference on never ran at all. What is
+  decorative, the marching hint and the settled ribbon fading in, is CSS and
+  stops under the preference.
 
 ## Market
 

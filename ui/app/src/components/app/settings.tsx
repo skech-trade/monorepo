@@ -86,6 +86,24 @@ export function ChartSettings({ className }: { className?: string }) {
   );
 }
 
+/** What Draw paints around the line you drew. Not on the Desk, which draws none of it. */
+export function PlotSettings({ className }: { className?: string }) {
+  const [settings, set] = useSettings();
+  return (
+    <div className={cn("flex flex-col", className)}>
+      <Row hint="The band of profit and loss along your line." label="Ribbon">
+        <Switch aria-label="Ribbon" checked={settings.ribbon} onCheckedChange={(ribbon) => set({ ribbon })} />
+      </Row>
+      <Row hint="Where the line turns, so where it buys and sells." label="Buy and sell marks">
+        <Switch aria-label="Buy and sell marks" checked={settings.marks} onCheckedChange={(marks) => set({ marks })} />
+      </Row>
+      <Row label="Crosshair">
+        <Switch aria-label="Crosshair" checked={settings.crosshair} onCheckedChange={(crosshair) => set({ crosshair })} />
+      </Row>
+    </div>
+  );
+}
+
 /** The gear in the chart's own controls. */
 export function ChartSettingsButton() {
   return (
@@ -98,9 +116,11 @@ export function ChartSettingsButton() {
         </TooltipTrigger>
         <TooltipPopup>How the chart looks</TooltipPopup>
       </Tooltip>
-      <PopoverPopup align="end" className="w-72" side="top">
+      <PopoverPopup align="end" className="w-80" side="top">
         <PopoverTitle>Chart</PopoverTitle>
         <ChartSettings className="pt-2" />
+        <h3 className="pt-3 pb-1 font-medium text-muted-foreground text-xs">On the drawing</h3>
+        <PlotSettings />
       </PopoverPopup>
     </Popover>
   );
@@ -134,6 +154,9 @@ export function SettingsSheet({ open, onOpenChange }: { open: boolean; onOpenCha
           </Group>
           <Group title="Chart">
             <ChartSettings />
+          </Group>
+          <Group title="On the drawing">
+            <PlotSettings />
           </Group>
           <Group title="Privacy">
             <Row hint="Every figure on the screen, for reading it in company." label="Blur the money">

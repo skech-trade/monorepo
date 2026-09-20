@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSettings } from "@/lib/settings";
 import { type Candle, candlesFor, type Market, signedUsd } from "@/lib/market";
 import { accuracyOf, type Exits, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
@@ -50,8 +51,11 @@ function easeBand(from: Band, to: Band): Band {
 
 export function DrawScreen({ market }: { market: Market }) {
   // Draw's own. The desk ticket's pay and leverage are a different field.
-  const [stake, setStake] = useState(100);
-  const [leverage, setLeverage] = useState(50);
+  /* What you put in last. A round that resets to the default every time makes
+     you set the same two figures before every line you draw. */
+  const [{ stake, leverage }, setSettings] = useSettings();
+  const setStake = (next: number) => setSettings({ stake: next });
+  const setLeverage = (next: number) => setSettings({ leverage: next });
   /** Where to get out, in dollars. Both optional; empty means neither. */
   const [exits, setExits] = useState<Exits>({ lose: null, gain: null });
   /* History from the same process as the live feed, so its bars are the same height as the live ones. */
@@ -144,7 +148,10 @@ export function DrawScreen({ market }: { market: Market }) {
   };
 
   useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    /* The feed is not decoration, so reduced motion does not stop it. It used
+       to return here, which meant the market never moved and a round placed
+       with that preference on never ran at all. What is decorative, the
+       marching hint and the settled ribbon fading in, is CSS and stops. */
     const tick = setInterval(() => {
       const { phase: ph, shape: sh, run: rn, feed: fd, entry: en } = live.current;
       const now = Date.now();

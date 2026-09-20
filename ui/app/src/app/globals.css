@@ -310,3 +310,23 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The hint's marching dashes, as CSS rather than SMIL, so the reduced-motion
+   rule below can stop them. The market itself keeps moving: it is the product,
+   not decoration. */
+.sk-march {
+  animation: sk-march 1.4s linear infinite;
+}
+
+@keyframes sk-march {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-march,
+  .sk-in {
+    animation: none;
+  }
+}

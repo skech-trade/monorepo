@@ -527,6 +527,22 @@ export function extend(c: Candle, vol: number): Candle {
  * Straight segments. A position is a straight run from open to close; a spline lied about the trade
  * and softened the corners that decide it.
  */
+export function curvePath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 3) return legPath(pts);
+  const at = (n: number) => n.toFixed(1);
+  let d = `M ${at(pts[0].x)} ${at(pts[0].y)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    d += ` C ${at(p1.x + (p2.x - p0.x) / 6)} ${at(p1.y + (p2.y - p0.y) / 6)}`;
+    d += ` ${at(p2.x - (p3.x - p1.x) / 6)} ${at(p2.y - (p3.y - p1.y) / 6)}`;
+    d += ` ${at(p2.x)} ${at(p2.y)}`;
+  }
+  return d;
+}
+
 export function legPath(pts: { x: number; y: number }[]): string {
   if (pts.length === 0) return "";
   return pts

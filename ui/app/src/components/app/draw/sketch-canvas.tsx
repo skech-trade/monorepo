@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
 import { type CandleStyle, useSettings } from "@/lib/settings";
-import { lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
+import { curvePath, lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 import { ChartSettingsButton } from "../settings";
 
@@ -107,7 +107,7 @@ function CandleMarks({
   if (style === "line") {
     return (
       <path
-        d={legPath(bars.map((c, i) => ({ x: x(i), y: y(c.c) })))}
+        d={curvePath(bars.map((c, i) => ({ x: x(i), y: y(c.c) })))}
         fill="none"
         opacity={dim ? 0.35 : 0.7}
         stroke="var(--foreground)"
@@ -206,7 +206,7 @@ export function SketchCanvas({
    * How the chart is looked at. Display only. `anchor` is the candle held on the split; null
    * follows the live one.
    */
-  const [{ candles, grid }] = useSettings();
+  const [{ candles, grid, ribbon: showRibbon, marks: showMarks, crosshair: showCrosshair }] = useSettings();
   const [view, setView] = useState<{ zoom: number; anchor: number | null }>({ zoom: 1, anchor: null });
   /** The view being dragged, from where it was grabbed. */
   const pan = useRef<{ x: number; anchor: number; moved: boolean } | null>(null);
@@ -463,7 +463,7 @@ export function SketchCanvas({
   const tags: TagSpec[] = [{ key: "now", price, y: y(price) }];
   /* The crosshair steps aside near the live price; two plates a few dollars apart read as one. */
   const onPrice = !!hover && Math.abs(hover.y - y(price)) < 14;
-  const crosshair = hover && !drawing && !onPrice;
+  const crosshair = showCrosshair && hover && !drawing && !onPrice;
   if (crosshair) tags.push({ key: "hover", price: priceAtY(hover.y), y: hover.y, tone: "probe" });
 
   return (
@@ -483,7 +483,7 @@ export function SketchCanvas({
           <defs>
             <pattern height="16" id="sk-grid" patternUnits="userSpaceOnUse" width="16">
               {grid === "dots" ? (
-                <circle cx="16" cy="16" fill="var(--border)" r="0.9" />
+                <circle cx="8" cy="8" fill="var(--muted-foreground)" fillOpacity="0.32" r="1" />
               ) : (
                 <path d="M16 0 H0 V16" fill="none" stroke="var(--border)" strokeWidth="1" />
               )}
@@ -558,7 +558,7 @@ export function SketchCanvas({
 
           {/* The ribbon: stay inside it and the candle counts. Coloured as
               candles arrive, green inside, grey out. */}
-          {hasLine && !drawing && shape ? (
+          {hasLine && !drawing && shape && showRibbon ? (
             <g>
               {/* Mitred, like the line it wraps. Round joins put a dome on the outside
                   of every turn, which is the one place the band should come to a
@@ -638,9 +638,7 @@ export function SketchCanvas({
               as a smudge. */}
           {phase === "live" && !(ghost && ghost.length > 1) ? (
             <g pointerEvents="none">
-              <path d={hint} fill="none" stroke="var(--brand)" strokeDasharray="3 8" strokeLinecap="round" strokeOpacity="0.35" strokeWidth="2">
-                <animate attributeName="stroke-dashoffset" dur="1.4s" from="0" repeatCount="indefinite" to="-22" />
-              </path>
+              <path className="sk-march" d={hint} fill="none" stroke="var(--brand)" strokeDasharray="3 8" strokeLinecap="round" strokeOpacity="0.35" strokeWidth="2" />
               <circle cx={xNow} cy={y(price)} fill="var(--brand)" r="3.5" />
               <text fill="var(--muted-foreground)" fontSize="12" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={(xNow + plotR) / 2} y={plotB - 10}>
                 click to place your points
@@ -709,7 +707,7 @@ export function SketchCanvas({
         Buy and sell marks where a turn the candles have reached closes one position and opens the
         next. Only behind the candles; ahead, the handles say it.
       */}
-      {(phase === "running" || phase === "settled") && pts.length > 1
+      {showMarks && (phase === "running" || phase === "settled") && pts.length > 1
         ? plotted.map((p, i) => {
             const next = pts[i + 1];
             // Settled, the whole round is behind us; `editableFrom` is zero then and must not be

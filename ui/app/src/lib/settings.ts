@@ -20,6 +20,13 @@ export type Settings = {
   palette: Palette;
   candles: CandleStyle;
   grid: GridStyle;
+  /** What Draw paints around and along the line you drew. */
+  ribbon: boolean;
+  marks: boolean;
+  crosshair: boolean;
+  /** What you put in last, so a round starts where the last one left off. */
+  stake: number;
+  leverage: number;
   /** Blur every figure, for reading the screen in company. */
   blurred: boolean;
   timeframe: Timeframe;
@@ -38,6 +45,11 @@ export const DEFAULTS: Settings = {
   palette: "classic",
   candles: "candles",
   grid: "lines",
+  ribbon: true,
+  marks: true,
+  crosshair: true,
+  stake: 100,
+  leverage: 50,
   blurred: false,
   timeframe: "15m",
   kind: "candles",
