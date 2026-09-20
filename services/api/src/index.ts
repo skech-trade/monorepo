@@ -8,20 +8,11 @@
 
 import { hasDb, migrate, rename, sql, userFor } from "./db";
 import { CHAINS, Deposits, NATIVE, SEND_TO } from "./deposit";
+import { CAN_DEPOSIT, LIGHTER, NETWORK } from "./network";
 import { Lighter } from "./lighter";
 
 const PORT = Number(process.env.PORT ?? 3230);
-/*
-  Its own variable, deliberately not the trader's.
 
-  LIGHTER_BASE_URL points the trader at testnet, which is right: it signs
-  orders and should not touch real money until a round has been through
-  testnet end to end. This service hands out a deposit address, and a testnet
-  address shown as "send USDC here" is real money sent somewhere it can never
-  be recovered from. The two must not share a switch.
-*/
-const LIGHTER = process.env.LIGHTER_API_URL ?? "https://mainnet.zklighter.elliot.ai";
-const NETWORK = LIGHTER.includes("testnet") ? "testnet" : "mainnet";
 const venue = new Lighter(LIGHTER);
 const deposits = new Deposits(LIGHTER);
 
@@ -95,6 +86,9 @@ Bun.serve({
     if (url.pathname === "/deposit/address") {
       const at = address(url.searchParams.get("address"));
       if (!at) return json({ error: "address required" }, 400);
+      // No address at all rather than one that cannot work: testnet money
+      // comes from a faucet, and its endpoint errors anyway.
+      if (!CAN_DEPOSIT) return json({ network: NETWORK, canDeposit: false, reason: "Testnet money comes from Lighter's faucet, not from a deposit." });
       const intent = await deposits.intentAddress(at).catch(() => null);
       if (!intent) return json({ error: "venue unreachable" }, 502);
       /*
@@ -116,6 +110,7 @@ Bun.serve({
       them and the only thing that holds the money.
     */
     if (url.pathname === "/deposit/quote") {
+      if (!CAN_DEPOSIT) return json({ error: "no deposits on testnet" }, 409);
       const at = address(url.searchParams.get("address"));
       const fromChain = Number(url.searchParams.get("fromChain") ?? 8453);
       const token = url.searchParams.get("token") ?? CHAINS[0].usdc;

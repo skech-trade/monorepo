@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { usd } from "@/lib/market";
-import { type Chain, type DepositQuote, useDepositAddress, useDepositChains, useDepositQuote } from "@/lib/deposit";
+import { type Chain, type DepositQuote, type NoDeposits, useDepositAddress, useDepositChains, useDepositQuote } from "@/lib/deposit";
 import { cn } from "@/lib/utils";
 import { DepositAddress } from "./deposit-address";
 import { ChainMark, TokenMark } from "./marks";
@@ -60,7 +60,9 @@ function Line({ quote, busy, typed, ready }: { quote: DepositQuote | null; busy:
 
 export function DepositSheet({ address, open, onOpenChange, onDone }: { address: string | null; open: boolean; onOpenChange: (open: boolean) => void; onDone: () => void }) {
   const chains = useDepositChains();
-  const deposit = useDepositAddress(address);
+  const found = useDepositAddress(address);
+  const off = found && "canDeposit" in found && found.canDeposit === false ? (found as NoDeposits) : null;
+  const deposit = off ? null : (found as Exclude<typeof found, NoDeposits> | null);
   /* Sending from the skech wallet is the second way, not the first: a wallet
      made a minute ago has nothing in it, so leading with it asks somebody to
      fund it and then bridge out of it, which is two moves for one deposit. */
@@ -114,6 +116,15 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
           <SheetDescription>Whatever you are holding, wherever it is. It lands as collateral on Lighter.</SheetDescription>
         </SheetHeader>
         <SheetPanel className="flex flex-col gap-4">
+          {off ? (
+            <div className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3">
+              <p className="font-medium text-sm">Nothing to deposit into on testnet.</p>
+              <p className="text-muted-foreground text-xs leading-snug">
+                {off.reason} Ask Lighter for test funds, then come back and draw. Everything else on this screen is the real thing:
+                the orders are signed and settled exactly as they will be.
+              </p>
+            </div>
+          ) : null}
           {deposit && !bridging ? (
             <>
               <DepositAddress address={deposit.address} chains={deposit.chains} minimum={deposit.minimum} network={deposit.network} />
@@ -123,7 +134,7 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
             </>
           ) : null}
 
-          {deposit && !bridging ? null : (
+          {off || (deposit && !bridging) ? null : (
           <>
           {deposit ? (
             <Button className="-mt-1 self-start" onClick={() => setBridging(false)} size="xs" variant="ghost">

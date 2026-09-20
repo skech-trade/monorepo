@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { hasAuth, shortAddress, useAccount } from "./auth";
 import { DepositSheet } from "./deposit";
 import { NamePrompt } from "./name-prompt";
+import { NetworkBadge } from "./network-badge";
 import { SignInButton } from "./sign-in";
 
 /** Mock, like the balance. DiceBear's "shapes" set is CC0: abstract, no face. */
@@ -92,6 +93,7 @@ export function AppBar({ account }: { account: Account }) {
       </InputGroup>
 
       <div className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
+        <NetworkBadge />
         {/* A reading, not a control: a Button with no onClick promised a press. */}
         {anonymous ? null : (
           <span className="hidden max-w-40 items-center gap-1 truncate px-1 font-medium text-sm lg:inline-flex">

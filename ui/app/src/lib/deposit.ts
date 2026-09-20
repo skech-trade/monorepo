@@ -29,7 +29,11 @@ export const NATIVE = "0x0000000000000000000000000000000000000000";
 /** A chain a plain USDC transfer to the deposit address is watched on. */
 export type SendTo = { id: number; name: string };
 
+/** What comes back when there is nowhere to deposit, which is testnet. */
+export type NoDeposits = { canDeposit: false; network: "testnet"; reason: string };
+
 export type DepositAddress = {
+  canDeposit?: true;
   address: string;
   chains: SendTo[];
   asset: string;
@@ -42,14 +46,21 @@ export type DepositAddress = {
  * The one address that credits this wallet's Lighter account. Unchanging, so
  * it is fetched once and kept.
  */
-export function useDepositAddress(address: string | null): DepositAddress | null {
-  const [found, setFound] = useState<DepositAddress | null>(null);
+export function useDepositAddress(address: string | null): DepositAddress | NoDeposits | null {
+  const [found, setFound] = useState<DepositAddress | NoDeposits | null>(null);
   useEffect(() => {
     if (!URL_API || !address) return;
     let live = true;
     fetch(`${URL_API}/deposit/address?address=${address}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => live && setFound((d as DepositAddress | null)?.address ? (d as DepositAddress) : null))
+      .then((d) => {
+        if (!live) return;
+        // Either an address to send to, or a reason there is none.
+        const got = d as Record<string, unknown> | null;
+        if (typeof got?.address === "string") setFound(got as unknown as DepositAddress);
+        else if (got?.canDeposit === false) setFound(got as unknown as NoDeposits);
+        else setFound(null);
+      })
       .catch(() => undefined);
     return () => {
       live = false;
