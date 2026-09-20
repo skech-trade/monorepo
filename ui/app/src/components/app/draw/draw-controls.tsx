@@ -236,7 +236,7 @@ export function DrawControls({
             dropped at this size. */}
         {/* Right of the button, as the wireframe has it: what you put in on
             one side, what it is multiplied by on the other. */}
-        <PopoverTrigger render={<Button className="max-sm:order-3 max-sm:h-13 max-sm:flex-1 max-sm:rounded-xl max-sm:before:rounded-xl" variant="outline" />}>
+        <PopoverTrigger render={<Button className="max-sm:order-3 max-sm:h-13 max-sm:flex-1" variant="outline" />}>
           <Setting label="Size" value={`$${usd(stake, 0)}`} />
         </PopoverTrigger>
         <PopoverPopup align="start" className="w-56">
@@ -248,7 +248,7 @@ export function DrawControls({
         </PopoverPopup>
       </Popover>
       <Popover>
-        <PopoverTrigger render={<Button className="max-sm:order-1 max-sm:h-13 max-sm:flex-1 max-sm:rounded-xl max-sm:before:rounded-xl" variant="outline" />}>
+        <PopoverTrigger render={<Button className="max-sm:order-1 max-sm:h-13 max-sm:flex-1" variant="outline" />}>
           <Setting label="Boost" value={`${leverage}×`} />
         </PopoverTrigger>
         <PopoverPopup align="start" className="w-56">

@@ -88,14 +88,15 @@ export function PhoneTools({
             <div className="grid grid-cols-2 gap-1.5 pb-4">
               {PRESETS.map((p) => (
                 <DrawerClose asChild key={p.value}>
-                  <button
-                    className="flex cursor-pointer flex-col gap-1 rounded-xl border p-2 text-left transition-colors hover:bg-accent"
-                    onClick={() => onPreset(p.value)}
-                    type="button"
-                  >
-                    <span className="block aspect-[20/9] w-full"><Thumb shape={p.shape} /></span>
-                    <span className="font-medium text-xs">{p.label}</span>
-                  </button>
+                  {/* Our own button, hand-rolled before: it had the border and
+                      the hover and none of the focus ring, the pressed state
+                      or the inner edge every other button on the screen has. */}
+                  <Button className="h-auto flex-col items-stretch gap-1.5 rounded-2xl p-2 text-left before:rounded-2xl" onClick={() => onPreset(p.value)} variant="outline">
+                    <span className="block aspect-[20/9] w-full">
+                      <Thumb shape={p.shape} />
+                    </span>
+                    <span className="px-0.5 pb-0.5 font-medium text-xs">{p.label}</span>
+                  </Button>
                 </DrawerClose>
               ))}
             </div>

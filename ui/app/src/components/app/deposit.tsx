@@ -181,19 +181,17 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
             <p className="pb-2 font-medium text-muted-foreground text-xs">From</p>
             <div className="grid grid-cols-3 gap-1.5" role="group">
               {chains.map((c) => (
-                <button
+                <Button
                   aria-pressed={chain?.id === c.id}
-                  className={cn(
-                    "flex min-w-0 cursor-pointer items-center gap-1.5 rounded-xl border px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent",
-                    chain?.id === c.id && "border-foreground/24 bg-accent",
-                  )}
+                  className={cn("min-w-0 justify-start gap-1.5 px-2 text-xs", chain?.id === c.id && "border-foreground/24 bg-accent")}
                   key={c.id}
                   onClick={() => setChainId(c.id)}
-                  type="button"
+                  size="sm"
+                  variant="outline"
                 >
                   <ChainMark className="size-4" id={c.id} />
                   <span className="truncate">{c.name}</span>
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -202,19 +200,17 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
             <p className="pb-2 font-medium text-muted-foreground text-xs">Send</p>
             <div className="flex gap-1.5">
               {[false, true].map((isNative) => (
-                <button
+                <Button
                   aria-pressed={native === isNative}
-                  className={cn(
-                    "flex flex-1 cursor-pointer items-center gap-1.5 rounded-xl border px-2 py-1.5 text-xs transition-colors hover:bg-accent",
-                    native === isNative && "border-foreground/24 bg-accent",
-                  )}
+                  className={cn("flex-1 gap-1.5 px-2 text-xs", native === isNative && "border-foreground/24 bg-accent")}
                   key={String(isNative)}
                   onClick={() => setNative(isNative)}
-                  type="button"
+                  size="sm"
+                  variant="outline"
                 >
                   <TokenMark chainId={chain?.id ?? 8453} className="size-4" native={isNative} />
                   <span className="truncate">{isNative ? (chain?.nativeSymbol ?? "ETH") : "USDC"}</span>
-                </button>
+                </Button>
               ))}
             </div>
           </div>

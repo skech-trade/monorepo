@@ -145,7 +145,7 @@ export function MarketHeader({ market, className }: { market: Market; className?
         aria-haspopup="dialog"
         /* A button on a phone, where it sits in a row of them; a plain
            heading on a desk, where it is the title of the panel. */
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border px-3 text-left max-sm:h-13 sm:-m-1.5 sm:flex-none sm:gap-3 sm:rounded-lg sm:border-0 sm:p-1.5 sm:hover:bg-accent"
+        className="flex min-w-0 items-center gap-2 rounded-full border px-3 text-left max-sm:h-13 max-sm:w-full sm:-m-1.5 sm:gap-3 sm:rounded-lg sm:border-0 sm:p-1.5 sm:hover:bg-accent"
         onClick={() => setPicking(true)}
         type="button"
       >
