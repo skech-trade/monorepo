@@ -94,15 +94,17 @@ export function SketchBar({
       what it pays, what it risks and how long they wait.
     */
     if (phone) {
+      /* One line, three facts, the same size as everything else on it. A big
+         figure stacked over two small ones was a headline over a caption in
+         a strip forty pixels tall. */
       return (
-        <div className="flex items-center gap-3">
-          <Lead tone={quote.ifWorks >= 0 ? "text-up" : "text-down"}>{signedUsd(quote.ifWorks, 0)}</Lead>
-          <p className="min-w-0 text-muted-foreground text-xs leading-snug">
-            at <F>${fmtPrice(shape.target)}</F>
-            <br />
-            risk <F tone="text-down">${usd(quote.mostLose, 0)}</F> · <F>{Math.round(runBars)}</F>s
-          </p>
-        </div>
+        <p className="truncate text-muted-foreground text-sm">
+          <F tone={quote.ifWorks >= 0 ? "text-up" : "text-down"}>{signedUsd(quote.ifWorks, 0)}</F> at <F>${fmtPrice(shape.target)}</F>
+          <span className="px-1.5 text-muted-foreground/50">·</span>
+          risk <F tone="text-down">${usd(quote.mostLose, 0)}</F>
+          <span className="px-1.5 text-muted-foreground/50">·</span>
+          <F>{Math.round(runBars)}</F>s
+        </p>
       );
     }
 

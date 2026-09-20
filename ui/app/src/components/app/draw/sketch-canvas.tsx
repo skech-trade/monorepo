@@ -717,29 +717,40 @@ export function SketchCanvas({
         way of anything.
       */}
       {w > 0 ? (
-        <div className="absolute flex gap-0.5 rounded-xl border bg-card/85 p-0.5 backdrop-blur-sm max-sm:top-2 max-sm:left-2 max-sm:flex-col sm:right-2 sm:bottom-7 sm:items-center [&_svg]:size-3.5">
-          <Button aria-label="Pan earlier" className="size-7 rounded-lg" onClick={() => panTime(-1)} variant="ghost">
+        <div className="absolute flex gap-0.5 max-sm:bottom-30 max-sm:left-2 max-sm:w-13 max-sm:flex-col max-sm:items-center sm:right-2 sm:bottom-7 sm:items-center sm:rounded-xl sm:border sm:bg-card/85 sm:p-0.5 sm:backdrop-blur-sm [&_svg]:size-3.5">
+          {/* Panning is a drag on a phone, so the two arrows are a desk thing.
+              Four icons left, stacked above rounds and the tools drawer so the
+              left of the chart holds one column rather than a group in each
+              corner, and icons on the chart rather than a card of buttons: a
+              bordered box holding bordered boxes reads as furniture. */}
+          <Button aria-label="Pan earlier" className="size-7 rounded-lg max-sm:hidden" onClick={() => panTime(-1)} variant="ghost">
             <ChevronLeftIcon />
           </Button>
-          <Button aria-label="Zoom out" className="size-7 rounded-lg" onClick={() => zoomTime(1.5)} variant="ghost">
+          <Button aria-label="Zoom out" className="size-7 rounded-lg max-sm:size-9" onClick={() => zoomTime(1.5)} variant="ghost">
             <ZoomOutIcon />
           </Button>
-          <Button aria-label="Zoom in" className="size-7 rounded-lg" onClick={() => zoomTime(1 / 1.5)} variant="ghost">
+          <Button aria-label="Zoom in" className="size-7 rounded-lg max-sm:size-9" onClick={() => zoomTime(1 / 1.5)} variant="ghost">
             <ZoomInIcon />
           </Button>
-          <Button aria-label="Pan later" className="size-7 rounded-lg" onClick={() => panTime(1)} variant="ghost">
+          <Button aria-label="Pan later" className="size-7 rounded-lg max-sm:hidden" onClick={() => panTime(1)} variant="ghost">
             <ChevronRightIcon />
           </Button>
           <Button
             aria-label="Follow now"
             aria-pressed={following}
-            className={cn("size-7 rounded-lg", following && "bg-accent text-foreground")}
+            className={cn("size-7 rounded-lg max-sm:size-9", following && "bg-accent text-foreground")}
             onClick={follow}
             variant="ghost"
           >
             <CrosshairIcon />
           </Button>
-          <Button aria-label="Reset the view" className="size-7 rounded-lg" disabled={following && view.zoom === 1} onClick={reset} variant="ghost">
+          <Button
+            aria-label="Reset the view"
+            className="size-7 rounded-lg max-sm:size-9"
+            disabled={following && view.zoom === 1}
+            onClick={reset}
+            variant="ghost"
+          >
             <RotateCcwIcon />
           </Button>
         </div>
