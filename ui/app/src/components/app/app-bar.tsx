@@ -33,6 +33,8 @@ import { useSettings } from "@/lib/settings";
 import { SettingsSheet } from "./settings";
 import { announceSoon } from "./soon";
 import { HANDLE } from "@/lib/user";
+import { hasAuth, shortAddress, useAccount } from "./auth";
+import { SignInButton } from "./sign-in";
 
 /** Mock, like the balance. DiceBear's "shapes" set is CC0: abstract, no face. */
 const AVATAR = `https://api.dicebear.com/9.x/shapes/svg?seed=${HANDLE}&backgroundColor=0a0a0a&shape1Color=3b82f6,10b981&shape2Color=f5f5f5&shape3Color=ef4444,f59e0b`;
@@ -40,6 +42,10 @@ const AVATAR = `https://api.dicebear.com/9.x/shapes/svg?seed=${HANDLE}&backgroun
 export function AppBar({ account }: { account: Account }) {
   const [{ blurred }, set] = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const me = useAccount();
+  /* Signed out with auth available, the only thing in the corner is the way in. */
+  const anonymous = hasAuth && !me.signedIn;
+  const name = me.handle ?? HANDLE;
   return (
     <>
     <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-3">
@@ -64,13 +70,17 @@ export function AppBar({ account }: { account: Account }) {
           <span className="sr-only">Cash balance: </span>
           <span className="figures">${usd(account.balance)}</span>
         </span>
-        <Button className="hidden lg:inline-flex" onClick={() => announceSoon("Deposits open when the venue is wired up.")} variant="secondary">
-          <ArrowDownToLineIcon />
-          Deposit
-        </Button>
+        {anonymous ? null : (
+          <Button className="hidden lg:inline-flex" onClick={() => announceSoon("Deposits open when the venue is wired up.")} variant="secondary">
+            <ArrowDownToLineIcon />
+            Deposit
+          </Button>
+        )}
 
         <ThemeToggle />
 
+        {anonymous ? <SignInButton /> : null}
+        {anonymous ? null : (
         <Menu>
           <MenuTrigger
             render={<Button aria-label="Your account" className="rounded-full p-0" size="icon" variant="outline" />}
@@ -86,12 +96,12 @@ export function AppBar({ account }: { account: Account }) {
             <div className="flex items-center gap-3 px-2 py-2">
               <Avatar className="size-10">
                 <AvatarImage alt="" src={AVATAR} />
-                <AvatarFallback>{HANDLE.slice(0, 2)}</AvatarFallback>
+                <AvatarFallback>{name.slice(0, 2)}</AvatarFallback>
               </Avatar>
               <div className="min-w-0 leading-tight">
-                <p className="font-medium">Hola, {HANDLE}</p>
-                <p className="text-muted-foreground text-xs">
-                  <span className="figures">${usd(account.balance)}</span> cash
+                <p className="truncate font-medium">Hola, {name}</p>
+                <p className="truncate text-muted-foreground text-xs">
+                  {me.address ? <span className="figures">{shortAddress(me.address)}</span> : <><span className="figures">${usd(account.balance)}</span> cash</>}
                 </p>
               </div>
             </div>
@@ -127,12 +137,13 @@ export function AppBar({ account }: { account: Account }) {
               Support
             </MenuItem>
             <MenuSeparator />
-            <MenuItem onClick={() => announceSoon("There is no wallet connected yet.")} variant="destructive">
+            <MenuItem onClick={() => (me.signedIn ? me.signOut() : announceSoon("There is no wallet connected yet."))} variant="destructive">
               <LogOutIcon />
-              Disconnect
+              {me.signedIn ? "Sign out" : "Disconnect"}
             </MenuItem>
           </MenuPopup>
         </Menu>
+        )}
       </div>
     </header>
     <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen} />

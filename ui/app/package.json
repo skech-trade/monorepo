@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "@coinbase/cdp-core": "^0.0.126",
+    "@coinbase/cdp-hooks": "^0.0.126",
+    "@coinbase/cdp-react": "^0.0.126",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lightweight-charts": "^5.2.1",

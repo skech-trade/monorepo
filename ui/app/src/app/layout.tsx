@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
+import { AuthProvider } from "@/components/app/auth";
 import { ToastProvider } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
@@ -62,9 +63,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           long as it stayed up — so the app told you it had opened a trade by
           standing in front of the only control that ends it.
         */}
-        <ToastProvider position="bottom-right">
-          <TooltipProvider delay={300}>{children}</TooltipProvider>
-        </ToastProvider>
+        <AuthProvider>
+          <ToastProvider position="bottom-right">
+            <TooltipProvider delay={300}>{children}</TooltipProvider>
+          </ToastProvider>
+        </AuthProvider>
       </body>
     </html>
   );

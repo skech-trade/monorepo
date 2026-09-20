@@ -17,6 +17,22 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   Rewards, Support, Disconnect, the desk's submit and the positions row
   buttons all say "Not live yet" and what is missing.
 
+## Signing in
+
+- Coinbase embedded wallets: email, phone or Google. No extension, no seed
+  phrase. The wallet is an EOA rather than a smart account, because Lighter
+  registers a trading key by asking the wallet to sign one plain message and a
+  contract wallet cannot sign one off chain.
+- Signed out, the corner holds one thing: Sign in. No avatar, no Deposit, no
+  menu of things that would need an account.
+- Signed in, the menu greets whatever you signed in with, shows the wallet
+  address under it, and Disconnect becomes Sign out and works.
+- Coinbase's own flow runs inside our dialog. The one-time codes and the
+  recovery are theirs to get right, and this is the screen where getting it
+  wrong locks someone out of their money.
+- With no project id the app runs signed out and everything else still works,
+  which is what the tests and screenshots use.
+
 ## Settings
 
 - Everything the reader sets is remembered in this browser, under one key. The
