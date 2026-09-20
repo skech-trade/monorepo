@@ -27,9 +27,10 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   menu of things that would need an account.
 - Signed in, the menu greets whatever you signed in with, shows the wallet
   address under it, and Disconnect becomes Sign out and works.
-- Coinbase's own flow runs inside our dialog. The one-time codes and the
-  recovery are theirs to get right, and this is the screen where getting it
-  wrong locks someone out of their money.
+- Coinbase's button opens Coinbase's modal: an email field, then Continue
+  with phone, Google or Apple. The one-time codes and the recovery are theirs
+  to get right, and this is the screen where getting it wrong locks someone
+  out of their money, so none of it is rebuilt here.
 - With no project id the app runs signed out and everything else still works,
   which is what the tests and screenshots use.
 

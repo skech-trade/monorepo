@@ -1,30 +1,24 @@
 "use client";
 
 import { AuthButton } from "@coinbase/cdp-react";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogDescription, DialogHeader, DialogPanel, DialogPopup, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 /**
- * Coinbase's own sign-in, in our own dialog.
+ * Coinbase's own sign-in button.
  *
- * Their button opens a flow that handles email codes, phone codes and Google,
- * and makes the wallet at the end of it. Wrapping it rather than rebuilding
- * it: the one-time codes and the recovery are theirs to get right, and this
- * is the screen where getting it wrong locks someone out of their money.
+ * It is a trigger, not a form: pressing it opens their modal, which handles
+ * the email and phone codes, Google, and making the wallet at the end. That
+ * belongs to them. The one-time codes and the recovery are the part that
+ * locks someone out of their money if it is got wrong, so it is not ours to
+ * rebuild.
+ *
+ * It was inside a dialog of ours for a moment, which put a button inside a
+ * dialog that opened nothing. It sits in the header now, where it is the one
+ * thing a signed-out reader can press.
  */
 export function SignInButton({ className }: { className?: string }) {
   return (
-    <Dialog>
-      <DialogTrigger render={<Button className={className} size="sm" />}>Sign in</DialogTrigger>
-      <DialogPopup className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Sign in</DialogTitle>
-          <DialogDescription>Email, phone or Google. No extension, no seed phrase.</DialogDescription>
-        </DialogHeader>
-        <DialogPanel>
-          <AuthButton />
-        </DialogPanel>
-      </DialogPopup>
-    </Dialog>
+    <div className={className} data-slot="sign-in">
+      <AuthButton />
+    </div>
   );
 }
