@@ -13,6 +13,8 @@ import { MarketHeader } from "../market-header";
 import { PlaceTicket } from "./place-ticket";
 import { DrawTools, type Preset, PRESETS } from "./draw-tools";
 import { PhoneTools } from "./phone-tools";
+import { HistoryIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
 import { SketchBar } from "./sketch-tray";
 import { RoundsSheet, seedSketches, type Sketch } from "./sketches";
@@ -598,7 +600,19 @@ export function DrawScreen({ market }: { market: Market }) {
     so it goes to the bottom bar instead.
   */
   const controls = (
-    <div className="flex items-center gap-1.5 sm:gap-2">
+    <div className="flex w-full items-center gap-1.5 sm:w-auto sm:gap-2">
+      {/* Rounds lives here on a phone, where the tray it used to sit in is not
+          drawn until there is something to put in it. */}
+      {phone ? (
+        <Button aria-label={`Rounds, ${sketches.length}`} className="relative rounded-full" onClick={() => setListOpen(true)} size="icon" variant="outline">
+          <HistoryIcon />
+          {sketches.length > 0 ? (
+            <span className="figures -top-1 -right-1 absolute flex size-4 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
+              {sketches.length}
+            </span>
+          ) : null}
+        </Button>
+      ) : null}
       <PhoneTools
         canUndo={pts.length > 1}
         className="sm:hidden"
@@ -689,6 +703,7 @@ export function DrawScreen({ market }: { market: Market }) {
         <SketchBar
           market={market}
           onOpenList={() => setListOpen(true)}
+          phone={phone}
           onVenue={venue !== null}
           venueAccount={notMine ? venue.accountIndex : null}
           venueProblem={venueProblem}
@@ -701,7 +716,7 @@ export function DrawScreen({ market }: { market: Market }) {
           sketches={shown}
         />
         {/* Within reach on a phone, and the only row that has to be. */}
-        {phone ? <div className="flex items-center justify-end gap-1.5">{controls}</div> : null}
+        {phone ? controls : null}
       </div>
       <RoundsSheet
         market={market}

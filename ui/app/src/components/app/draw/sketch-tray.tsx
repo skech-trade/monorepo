@@ -29,6 +29,7 @@ export function SketchBar({
   runBars,
   sketches,
   onOpenList,
+  phone,
   onVenue,
   venueAccount,
   venueProblem,
@@ -43,16 +44,29 @@ export function SketchBar({
   sketches: Sketch[];
   onOpenList: () => void;
   /** Whether a real position is behind this round, and what went wrong if not. */
+  /** A phone shows this row only when it has something to say. */
+  phone?: boolean;
   onVenue?: boolean;
   /** The account it landed on, when that is not the reader's own. */
   venueAccount?: number | null;
   venueProblem?: string | null;
 }) {
-  const lines = (
+  /* On a phone this sits in the action row instead, where the thumb is. */
+  const lines = phone ? null : (
     <Button onClick={onOpenList} variant="outline">
       Rounds <span className="figures text-muted-foreground">{openCount}</span>
     </Button>
   );
+
+  /*
+    Nothing to say yet, on the screen with the least room to say it.
+
+    The chart itself reads "click to place your points" where the points go,
+    which is the same instruction closer to the hand that follows it. So on a
+    phone this row is not drawn at all until there is a figure or a result in
+    it, and the bottom of the screen is one row of controls rather than two.
+  */
+  if (phone && (phase === "live" || phase === "drawing")) return null;
 
   if (phase === "live" || phase === "drawing") {
     return (

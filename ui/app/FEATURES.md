@@ -26,13 +26,20 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 
 ## On a phone
 
-- The header is one row: the market and its price. Size, boost and the button
-  moved to the bottom bar, where a thumb is, rather than sitting at the top of
-  the screen furthest from it. The rail of five tools that had a line to
-  itself is one button beside them, opening a drawer from the bottom with
-  undo, clear, the exits, the eight shapes and the chart settings in it.
-- That gives the chart three rows of height back, on the screen with the least
-  of it.
+- One row of controls, at the bottom, where a thumb is: rounds, the tools
+  drawer, size, boost, and the button, which takes whatever width is left.
+  Everything else on the screen is chart.
+- The row above it is drawn only when it has something to say. While a line is
+  being drawn the chart already reads "click to place your points" where the
+  points go, so repeating it under the chart cost a row and told nobody
+  anything. It comes back for the figures on a finished line, the candle count
+  while a round runs, and the result.
+- Buttons are 44px on a phone and unchanged on a desk. A pointer is a pixel
+  and a thumb is about a centimetre, which is why every phone platform asks
+  for 44 and why the trading apps people already use look oversized on a
+  laptop. Ours were 36, made for a mouse.
+- The header is one row: the market and its price. It fills the width at
+  390px, which is why nothing else was put in it.
 - The stop loss and take profit open out in the drawer: a switch, and the
   wheel under it once it is on. As chips they hid the wheel in a popover, and
   a popover inside a drawer portals itself outside the drawer, so the first

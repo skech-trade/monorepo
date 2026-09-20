@@ -16,16 +16,25 @@ export const buttonVariants = cva(
     },
     variants: {
       size: {
-        default: "h-9 px-[calc(--spacing(3)-1px)] sm:h-8",
-        icon: "size-9 sm:size-8",
-        "icon-lg": "size-10 sm:size-9",
-        "icon-sm": "size-8 sm:size-7",
+        /*
+          Bigger on a phone than on a desk.
+
+          A pointer is a pixel and a thumb is about a centimetre, which is why
+          every phone platform asks for 44px and every trading app on one has
+          buttons that look oversized on a laptop. These were 36px, made for
+          the mouse and merely tolerable under a thumb. The `sm:` half is the
+          desk and is unchanged.
+        */
+        default: "h-11 px-[calc(--spacing(3.5)-1px)] sm:h-8 sm:px-[calc(--spacing(3)-1px)]",
+        icon: "size-11 sm:size-8",
+        "icon-lg": "size-11 sm:size-9",
+        "icon-sm": "size-10 sm:size-7",
         "icon-xl":
           "size-11 sm:size-10 [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
         "icon-xs":
           "size-7 rounded-full before:rounded-full sm:size-6 not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-4 sm:not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-10 px-[calc(--spacing(3.5)-1px)] sm:h-9",
-        sm: "h-8 gap-1.5 px-[calc(--spacing(2.5)-1px)] sm:h-7",
+        lg: "h-12 px-[calc(--spacing(4)-1px)] sm:h-9 sm:px-[calc(--spacing(3.5)-1px)]",
+        sm: "h-10 gap-1.5 px-[calc(--spacing(3)-1px)] sm:h-7 sm:px-[calc(--spacing(2.5)-1px)]",
         xl: "h-11 px-[calc(--spacing(4)-1px)] text-lg sm:h-10 sm:text-base [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
         xs: "h-7 gap-1 rounded-full px-[calc(--spacing(2)-1px)] text-sm before:rounded-full sm:h-6 sm:text-xs [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
       },
