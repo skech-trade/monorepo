@@ -61,6 +61,13 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   and lands the point where you clicked; no drag needed. Pen drags a stroke
   that settles into its few turning points on release. Undo, Clear. Shapes
   menu with eight calls drawn as diagrams at the chart's scale.
+- Hovering a point offers a cross beside it that removes it, and the two
+  neighbours join up. Double-click still does the same. Never on the last two,
+  because a line is two points.
+- Zoom follows the price. Bar positions scale with the zoom and the price
+  scale did not, so at the far end eight candles sat in a band sized for
+  ninety and collapsed to a line: the chart read as empty. Zoomed in past 1x
+  the scale is taken from the bars, the line and the price actually on screen.
 - Every point is a handle once the line is down: drag to move (both axes,
   held between its neighbours in time), double-click to remove, click the
   empty future to insert one there. While a round plays out the points ahead

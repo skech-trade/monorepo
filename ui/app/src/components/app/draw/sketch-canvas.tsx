@@ -2,13 +2,12 @@
 
 import {
   type PointerEvent as ReactPointerEvent,
-  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, CrosshairIcon, RotateCcwIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, CrosshairIcon, RotateCcwIcon, XIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
 import { type CandleStyle, useSettings } from "@/lib/settings";
@@ -200,6 +199,8 @@ export function SketchCanvas({
   /** Held against the right edge, so the round should be opening up. */
   const [pushing, setPushing] = useState(false);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
+  /** The handle the pointer is over, so it can offer to remove itself. */
+  const [overPt, setOverPt] = useState<number | null>(null);
   /**
    * How the chart is looked at. Display only. `anchor` is the candle held on the split; null
    * follows the live one.
@@ -219,9 +220,6 @@ export function SketchCanvas({
   const plotT = PAD_T;
   const plotB = Math.max(plotT + 1, h - PAD_B);
   const split = plotL + (plotR - plotL) * HISTORY_SHARE;
-  const span = band.hi - band.lo || 1;
-  const y = useCallback((p: number) => plotT + ((band.hi - p) / span) * (plotB - plotT), [band.hi, span, plotT, plotB]);
-  const priceAtY = (yy: number) => band.hi - ((yy - plotT) / (plotB - plotT)) * span;
 
   /**
    * Bars have a fixed width and now is pinned to the split, so each candle slides the picture left
@@ -242,6 +240,48 @@ export function SketchCanvas({
   const barOfX = (x: number) => anchor + (x - split) / runStep;
   const xOfT = (t: number) => xOfBar(t * runBars);
   const tOfX = (x: number) => barOfX(x) / runBars;
+
+  /**
+   * The price scale follows what is on screen once you zoom in.
+   *
+   * Bar positions scale with the zoom and this did not, so at the far end
+   * eight candles sat in a band sized for ninety and collapsed to a line
+   * across the middle: the chart read as empty. Left alone at zoom 1 and
+   * below, where the given band already covers everything in view.
+   */
+  const scale = (() => {
+    if (view.zoom <= 1) return band;
+    const first = anchor + (plotL - split) / runStep;
+    const last = anchor + (plotR - split) / runStep;
+    let lo = Number.POSITIVE_INFINITY;
+    let hi = Number.NEGATIVE_INFINITY;
+    const take = (v: number) => {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    };
+    const inView = (b: number) => b >= first && b <= last;
+    feed.forEach((c, i) => {
+      if (inView(i - feed.length + 0.5)) {
+        take(c.h);
+        take(c.l);
+      }
+    });
+    run.forEach((c, i) => {
+      if (inView(i + 0.5)) {
+        take(c.h);
+        take(c.l);
+      }
+    });
+    // The line you drew has to stay on screen too, and so does the price.
+    for (const p of pts) if (inView(p.t * runBars)) take(p.price);
+    if (inView(elapsed)) take(price);
+    if (!Number.isFinite(lo) || hi <= lo) return band;
+    const pad = (hi - lo) * 0.18 || price * 0.0004;
+    return { lo: lo - pad, hi: hi + pad };
+  })();
+  const span = scale.hi - scale.lo || 1;
+  const y = (p: number) => plotT + ((scale.hi - p) / span) * (plotB - plotT);
+  const priceAtY = (yy: number) => scale.hi - ((yy - plotT) / (plotB - plotT)) * span;
   /** Where now actually is: the split, until you pan away from it. */
   const xNow = xOfBar(elapsed);
   /* Seconds until the axis would read past 120s, then minutes. */
@@ -620,10 +660,14 @@ export function SketchCanvas({
                         key={index}
                         onDoubleClick={live ? () => onRemove(index) : undefined}
                         onPointerDown={live ? grab(index) : undefined}
+                        onPointerEnter={live ? () => setOverPt(index) : undefined}
+                        onPointerLeave={live ? () => setOverPt((c) => (c === index ? null : c)) : undefined}
                         r={live ? 6 : 3}
                         stroke="var(--brand)"
                         strokeWidth={live ? 2 : 0}
-                      />
+                      >
+                        <title>Drag to move. Double-click to remove.</title>
+                      </circle>
                     );
                   })
                 : null}
@@ -687,6 +731,32 @@ export function SketchCanvas({
             <RotateCcwIcon />
           </Button>
         </div>
+      ) : null}
+
+      {/*
+        A way to remove a point that is not a double-click.
+
+        Double-clicking a six pixel circle is a gesture you have to be told
+        about, and nothing told you. Hovering a handle now offers a cross
+        beside it, which is the same thing every editor does. The chip keeps
+        itself alive while the pointer is on it, so there is a path from the
+        handle to the button. Never on the last two: a line is two points.
+      */}
+      {w > 0 && overPt !== null && pts.length > 2 && plotted[overPt] ? (
+        <button
+          aria-label="Remove this point"
+          className="-translate-y-1/2 absolute z-10 flex size-5 translate-x-1 items-center justify-center rounded-full border bg-popover text-muted-foreground shadow-xs/5 transition-colors hover:bg-destructive hover:text-white [&_svg]:size-3"
+          onClick={() => {
+            onRemove(overPt);
+            setOverPt(null);
+          }}
+          onPointerEnter={() => setOverPt(overPt)}
+          onPointerLeave={() => setOverPt(null)}
+          style={{ left: plotted[overPt].x + 10, top: plotted[overPt].y - 12 }}
+          type="button"
+        >
+          <XIcon />
+        </button>
       ) : null}
 
       {w > 0 ? stackTags(tags, h).map((t) => <Tag {...t} key={t.key} />) : null}
