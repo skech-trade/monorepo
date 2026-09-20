@@ -2,6 +2,7 @@
 
 import { EraserIcon, SettingsIcon, ShapesIcon, SlidersHorizontalIcon, Undo2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Drawer, DrawerClose, DrawerPopup, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import type { Exits } from "@/lib/sketch";
 import { ChartSettings, PlotSettings } from "../settings";
@@ -29,6 +30,7 @@ export function PhoneTools({
   stake,
   onExits,
   drawing,
+  className,
 }: {
   canUndo: boolean;
   onUndo: () => void;
@@ -39,13 +41,16 @@ export function PhoneTools({
   onExits: (exits: Exits) => void;
   /** While a round runs the line is not yours to change, so those tools go. */
   drawing: boolean;
+  className?: string;
 }) {
   const set = Number(exits.lose !== null) + Number(exits.gain !== null);
 
   return (
     <Drawer>
       <DrawerTrigger asChild>
-        <Button aria-label="Tools and settings" variant="outline">
+        {/* Square when it holds only the icon, so it is not a wide pill with
+            the icon adrift in it. It grows only when there is a count to show. */}
+        <Button aria-label="Tools and settings" className={cn("rounded-full", set > 0 && "w-auto gap-1.5 px-2.5", className)} size="icon" variant="outline">
           <SlidersHorizontalIcon />
           {set > 0 ? <span className="figures text-muted-foreground text-xs">{set}</span> : null}
         </Button>
@@ -70,7 +75,9 @@ export function PhoneTools({
             </div>
 
             <DrawerTitle>Where to get out</DrawerTitle>
-            <div className="flex flex-col gap-2 pb-4">
+            {/* Side by side at their own width. Stacked, each pill stretched
+                the width of the drawer with a switch adrift at one end. */}
+            <div className="flex flex-wrap gap-2 pb-4">
               <ExitRows exits={exits} onExits={onExits} stake={stake} />
             </div>
 

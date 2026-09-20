@@ -599,11 +599,15 @@ export function DrawScreen({ market }: { market: Market }) {
               : { ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }
           }
         />
-        {/* A phone gets one button for all of it, in the ticket row, rather
-            than a rail of five on a line of its own. */}
-        <div className="ml-auto flex items-center gap-1.5 sm:hidden">
+        {/* One group, pushed right. Two things each asking for `ml-auto` split
+            the free space between them, which stranded the tools button in the
+            middle of the row with a gap either side. */}
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          {/* A phone gets one button for all of it, in the ticket row, rather
+              than a rail of five on a line of its own. */}
           <PhoneTools
             canUndo={pts.length > 1}
+            className="sm:hidden"
             drawing={phase !== "running" && phase !== "settled"}
             exits={exits}
             onClear={onClear}
@@ -612,9 +616,7 @@ export function DrawScreen({ market }: { market: Market }) {
             onUndo={onUndo}
             stake={stake}
           />
-        </div>
         <PlaceTicket
-          className="ml-auto"
           exits={exits}
           leverage={leverage}
           market={market}
@@ -635,6 +637,7 @@ export function DrawScreen({ market }: { market: Market }) {
           shape={shape}
           stake={stake}
         />
+        </div>
       </div>
       <div className="flex min-h-0 flex-1 gap-2 px-2 pt-2">
         {/* Always present. What it holds changes with the phase; the chart
