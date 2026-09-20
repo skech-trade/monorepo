@@ -44,9 +44,9 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   desk, and the row it used to have is gone. That row was a band of chrome
   above a chart that wants every pixel; the chart now runs from the bar to the
   footer. The name gives way to the price, because the mark already says which
-  market, and the pill centres itself in the space between the logo and the
-  way in, which is where a title sits in every app bar on a phone. The logo
-  loses its word and light or dark moves into the tools drawer.
+  market. It sits next to the logo with no card around it: it is the title of
+  the screen, not a control competing with the button opposite. The logo loses
+  its word and light or dark moves into the tools drawer.
 - "Test" rides with the price rather than sitting beside it in the bar: it
   says which venue the number came from, and out in the bar it left no room to
   centre anything.
@@ -59,6 +59,9 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   panels; on a phone there is nothing to sit among, and the inset only took
   eight pixels off each side of the chart to put a hairline where the screen
   edge already is. The desk keeps its card.
+- The chart's top inset is 4px on a phone rather than 16. It runs straight
+  into the app bar there, so sixteen pixels of nothing under that border read
+  as a gap in the layout rather than as the chart breathing.
 - The app bar is 56px on a phone. Forty-four pixel buttons in a forty-eight
   pixel bar left two pixels top and bottom, and the toggle and Sign in were
   forty-four and forty, so nothing in it lined up.

@@ -208,7 +208,8 @@ export function SketchCanvas({
    */
   const [{ candles: chosenStyle, grid, ribbon: showRibbon, marks: showMarks, crosshair: showCrosshair }] = useSettings();
   /* Candles on a desk, a line on a phone, unless somebody has said otherwise. */
-  const candles = candleStyle(chosenStyle, usePhone());
+  const phone = usePhone();
+  const candles = candleStyle(chosenStyle, phone);
   const [view, setView] = useState<{ zoom: number; anchor: number | null }>({ zoom: 1, anchor: null });
   /** The view being dragged, from where it was grabbed. */
   const pan = useRef<{ x: number; anchor: number; moved: boolean } | null>(null);
@@ -220,7 +221,14 @@ export function SketchCanvas({
 
   const plotL = PAD_L;
   const plotR = Math.max(plotL + 1, w - PAD_R);
-  const plotT = PAD_T;
+  /*
+    Room above the plot for the tallest wick and the price label.
+
+    On a phone the chart runs straight into the app bar, so sixteen pixels of
+    nothing under that border reads as a gap in the layout rather than as the
+    chart breathing. Four is enough to keep a wick off the edge.
+  */
+  const plotT = phone ? 4 : PAD_T;
   const plotB = Math.max(plotT + 1, h - PAD_B);
   const split = plotL + (plotR - plotL) * HISTORY_SHARE;
 
