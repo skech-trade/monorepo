@@ -96,7 +96,11 @@ export function AppBar({ account, market }: { account: Account; market?: Market 
         a band of chrome above a chart that wants every pixel. Up here it sits
         where the search field does on a desk, and the row below it is gone.
       */}
-      {market ? <MarketHeader className="min-w-0 flex-1 sm:hidden" market={market} /> : null}
+      {market ? (
+        <div className="flex min-w-0 flex-1 justify-center sm:hidden">
+          <MarketHeader className="min-w-0" market={market} />
+        </div>
+      ) : null}
 
       {/* Inert: one market. The field says so rather than looking broken. */}
       <InputGroup className="mx-auto hidden w-full max-w-md md:flex">
@@ -109,8 +113,11 @@ export function AppBar({ account, market }: { account: Account; market?: Market 
         </InputGroupAddon>
       </InputGroup>
 
+      {/* Logo, market, way in. The market takes the space between the other
+          two and centres itself in it, which is where a title sits in every
+          app bar on a phone. */}
       <div className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
-        <NetworkBadge />
+        <NetworkBadge className="max-sm:hidden" />
         {/* A reading, not a control: a Button with no onClick promised a press. */}
         {anonymous ? null : (
           <span className="hidden max-w-40 items-center gap-1 truncate px-1 font-medium text-sm lg:inline-flex">

@@ -43,9 +43,13 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - The market sits in the app bar on a phone, where the search field is on a
   desk, and the row it used to have is gone. That row was a band of chrome
   above a chart that wants every pixel; the chart now runs from the bar to the
-  footer. The name gives way to the price when it is tight, because the mark
-  already says which market. The logo loses its word and light or dark moves
-  into the tools drawer, so the bar holds four things and fits.
+  footer. The name gives way to the price, because the mark already says which
+  market, and the pill centres itself in the space between the logo and the
+  way in, which is where a title sits in every app bar on a phone. The logo
+  loses its word and light or dark moves into the tools drawer.
+- "Test" rides with the price rather than sitting beside it in the bar: it
+  says which venue the number came from, and out in the bar it left no room to
+  centre anything.
 - One socket for the page. The bar and the chart show the same live price, so
   the stream is held once, by the screen above both of them.
 - "Testnet" is "Test" on a phone and never absent. Being on testnet without

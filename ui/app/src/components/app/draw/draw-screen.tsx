@@ -691,8 +691,11 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
       aria-label="Draw"
       className="flex min-h-[24rem] flex-1 flex-col overflow-hidden border-0 bg-background sm:m-2 sm:rounded-2xl sm:border"
     >
-      {/* Market on the left; exits, size, boost and the button hard right, on the chart's own header. */}
-      <div className="flex flex-wrap items-center gap-1.5 border-b px-2 py-2 sm:gap-2 sm:px-3">
+      {/* Market on the left; exits, size, boost and the button hard right, on
+          the chart's own header. Not drawn at all on a phone: the market is in
+          the app bar and the controls are in the footer, so this was an empty
+          bordered strip putting a gap between the bar and the chart. */}
+      <div className="hidden flex-wrap items-center gap-1.5 border-b px-2 py-2 sm:flex sm:gap-2 sm:px-3">
         {/* The day comes from the venue when there is one; the mock's own
             figures are about a price that is no longer on the screen. */}
         <MarketHeader

@@ -1,5 +1,7 @@
 "use client";
 
+import { cn } from "@/lib/utils";
+
 /**
  * Which Lighter this is.
  *
@@ -8,18 +10,20 @@
  * the corner, and it is not there at all on mainnet, where the absence of a
  * badge is the message.
  */
-export function NetworkBadge() {
+export function NetworkBadge({ className, compact }: { className?: string; compact?: boolean }) {
   if (process.env.NEXT_PUBLIC_SKECH_NETWORK === "mainnet") return null;
   return (
     <span
-      className="inline-flex shrink-0 rounded-full border border-warning-foreground/32 bg-warning/12 px-2 py-0.5 font-medium text-[11px] text-warning-foreground"
+      className={cn(
+        "inline-flex shrink-0 rounded-full border border-warning-foreground/32 bg-warning/12 px-2 py-0.5 font-medium text-[11px] text-warning-foreground",
+        className,
+      )}
       title="Orders are signed and settled for real, with money that is not."
     >
-      {/* Shorter on a phone, never gone. Being on testnet without knowing it
-          is worse on the screen somebody carries than on the one they sit at,
-          and the bar there has no room for the longer word. */}
-      <span className="sm:hidden">Test</span>
-      <span className="max-sm:hidden">Testnet</span>
+      {/* Shorter where it rides along with the price, never gone. Being on
+          testnet without knowing it is worse on the screen somebody carries
+          than on the one they sit at. */}
+      {compact ? "Test" : "Testnet"}
     </span>
   );
 }

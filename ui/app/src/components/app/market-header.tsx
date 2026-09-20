@@ -26,6 +26,7 @@ import {
 import { cn } from "@/lib/utils";
 import { BitcoinMark } from "./bitcoin-mark";
 import { Pill } from "./controls";
+import { NetworkBadge } from "./network-badge";
 
 /** The token's mark. Bitcoin's own; a monogram for anything we have no art for. */
 export function TokenAvatar({ symbol, className }: { symbol: string; className?: string }) {
@@ -170,6 +171,10 @@ export function MarketHeader({ market, className }: { market: Market; className?
             <Pill className="max-sm:hidden" tone={up ? "up" : "down"}>
               <span className="figures">{signedPct(market.changePct)}</span>
             </Pill>
+            {/* Which venue this price is from, said where it means something.
+                On a phone this pill is the whole of the app bar's middle, and
+                the badge beside it in the bar left no room to centre it. */}
+            <NetworkBadge className="sm:hidden" compact />
           </span>
         </span>
       </button>
