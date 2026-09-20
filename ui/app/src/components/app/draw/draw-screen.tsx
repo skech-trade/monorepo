@@ -599,23 +599,36 @@ export function DrawScreen({ market }: { market: Market }) {
     spends the money ended up at the top of the screen, furthest from a thumb,
     so it goes to the bottom bar instead.
   */
-  const controls = (
-    <div className="flex w-full items-center gap-1.5 sm:w-auto sm:gap-2">
-      {/* Rounds lives here on a phone, where the tray it used to sit in is not
-          drawn until there is something to put in it. */}
-      {phone ? (
-        <Button aria-label={`Rounds, ${sketches.length}`} className="relative size-13 shrink-0 rounded-full" onClick={() => setListOpen(true)} size="icon" variant="outline">
-          <HistoryIcon />
-          {sketches.length > 0 ? (
-            <span className="figures -top-1 -right-1 absolute flex size-4 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
-              {sketches.length}
-            </span>
-          ) : null}
-        </Button>
-      ) : null}
+  /*
+    Rounds and the tools drawer, floating over the top left of the chart.
+
+    The chart has a line down the middle marking now: everything left of it is
+    price that has already happened, which you read and never touch, and
+    everything right of it is where the drawing goes. So the left is the one
+    part of this screen with room to spare, and anything that has to be on
+    screen without being in the way belongs there rather than taking a row of
+    its own above the chart.
+  */
+  const shelf = phone ? (
+    /* Bottom left: the same dead half of the chart as the zoom column above,
+       and the corner nearest the thumb that will press them. */
+    <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex flex-col gap-1.5 [&>*]:pointer-events-auto">
+      <Button
+        aria-label={`Rounds, ${sketches.length}`}
+        className="relative size-13 shrink-0 rounded-full"
+        onClick={() => setListOpen(true)}
+        size="icon"
+        variant="outline"
+      >
+        <HistoryIcon />
+        {sketches.length > 0 ? (
+          <span className="figures -top-1 -right-1 absolute flex size-4 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
+            {sketches.length}
+          </span>
+        ) : null}
+      </Button>
       <PhoneTools
         canUndo={pts.length > 1}
-        className="sm:hidden"
         drawing={phase !== "running" && phase !== "settled"}
         exits={exits}
         onClear={onClear}
@@ -624,6 +637,18 @@ export function DrawScreen({ market }: { market: Market }) {
         onUndo={onUndo}
         stake={stake}
       />
+    </div>
+  ) : null;
+
+  /*
+    Boost, the button, size.
+
+    Three things on the row that spends money, and nothing else: on a phone
+    every other control has somewhere quieter to live, and a row of five
+    asks somebody to read five things before pressing one.
+  */
+  const controls = (
+    <div className="flex w-full items-center gap-1.5 sm:w-auto sm:gap-2">
       <PlaceTicket
         exits={exits}
         leverage={leverage}
@@ -685,7 +710,8 @@ export function DrawScreen({ market }: { market: Market }) {
         <div className="hidden sm:block">
           <DrawTools canUndo={pts.length > 1} drawing={phase !== "running" && phase !== "settled"} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
+        {shelf}
         <SketchCanvas
           band={band}
           feed={feed}

@@ -226,13 +226,17 @@ export function DrawControls({
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-center gap-1.5 sm:gap-2", className)}>
+    /* On a phone these two sit either side of the button rather than beside
+       each other, so the box around them steps out of the way. */
+    <div className={cn("flex items-center gap-1.5 max-sm:contents sm:gap-2", className)}>
       <Popover>
         {/* Square on a phone, the same as the two on the other side of the
             button, so the footer reads as two, one, two rather than a row of
             odd widths. The value still fits: the label beside it is already
             dropped at this size. */}
-        <PopoverTrigger render={<Button className="max-sm:size-13 max-sm:px-0" variant="outline" />}>
+        {/* Right of the button, as the wireframe has it: what you put in on
+            one side, what it is multiplied by on the other. */}
+        <PopoverTrigger render={<Button className="max-sm:order-3 max-sm:h-13 max-sm:flex-1 max-sm:rounded-xl max-sm:before:rounded-xl" variant="outline" />}>
           <Setting label="Size" value={`$${usd(stake, 0)}`} />
         </PopoverTrigger>
         <PopoverPopup align="start" className="w-56">
@@ -244,7 +248,7 @@ export function DrawControls({
         </PopoverPopup>
       </Popover>
       <Popover>
-        <PopoverTrigger render={<Button className="max-sm:size-13 max-sm:px-0" variant="outline" />}>
+        <PopoverTrigger render={<Button className="max-sm:order-1 max-sm:h-13 max-sm:flex-1 max-sm:rounded-xl max-sm:before:rounded-xl" variant="outline" />}>
           <Setting label="Boost" value={`${leverage}×`} />
         </PopoverTrigger>
         <PopoverPopup align="start" className="w-56">

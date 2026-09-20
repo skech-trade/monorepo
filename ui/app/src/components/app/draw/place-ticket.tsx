@@ -96,7 +96,7 @@ export function PlaceTicket({
       {settings ? (
         ready ? (
           <Popover>
-            <PopoverTrigger delay={250} openOnHover render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90 max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-1 max-sm:text-base" onClick={onPlace} />}>
+            <PopoverTrigger delay={250} openOnHover render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90 max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:rounded-xl max-sm:before:rounded-xl max-sm:text-base" onClick={onPlace} />}>
               {label}
             </PopoverTrigger>
             <PopoverPopup align="end" className="w-auto max-w-xs px-3 py-2">
@@ -111,7 +111,7 @@ export function PlaceTicket({
             </PopoverPopup>
           </Popover>
         ) : (
-          <Button className="border-info bg-info text-white shadow-info/24 max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-1 max-sm:text-base" disabled>
+          <Button className="border-info bg-info text-white shadow-info/24 max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:rounded-xl max-sm:before:rounded-xl max-sm:text-base" disabled>
             {label}
           </Button>
         )
@@ -121,7 +121,7 @@ export function PlaceTicket({
           now" is how a desk talks about a position; this is the control that
           ends a trade, so it says so. */}
       {phase === "running" ? (
-        <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-1 max-sm:text-base" onClick={onCloseNow} variant="outline">
+        <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:rounded-xl max-sm:before:rounded-xl max-sm:text-base" onClick={onCloseNow} variant="outline">
           Close trade
         </Button>
       ) : null}
@@ -130,7 +130,7 @@ export function PlaceTicket({
           what pressing it gets you, in the words the rest of the screen uses
           for trades. */}
       {phase === "settled" ? (
-        <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-1 max-sm:text-base" onClick={onDrawAgain} variant="outline">
+        <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:rounded-xl max-sm:before:rounded-xl max-sm:text-base" onClick={onDrawAgain} variant="outline">
           New trade
         </Button>
       ) : null}

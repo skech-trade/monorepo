@@ -143,7 +143,9 @@ export function MarketHeader({ market, className }: { market: Market; className?
     <div className={cn("flex items-center", className)}>
       <button
         aria-haspopup="dialog"
-        className="-m-1.5 flex min-w-0 items-center gap-3 rounded-lg p-1.5 text-left hover:bg-accent"
+        /* A button on a phone, where it sits in a row of them; a plain
+           heading on a desk, where it is the title of the panel. */
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border px-3 text-left max-sm:h-13 sm:-m-1.5 sm:flex-none sm:gap-3 sm:rounded-lg sm:border-0 sm:p-1.5 sm:hover:bg-accent"
         onClick={() => setPicking(true)}
         type="button"
       >
@@ -156,7 +158,10 @@ export function MarketHeader({ market, className }: { market: Market; className?
           </span>
           <span className="flex items-baseline gap-2 sm:mt-1">
             <span className="figures font-semibold text-base sm:text-xl">${fmtPrice(market.price)}</span>
-            <Pill tone={up ? "up" : "down"}>
+            {/* The day's move is the first thing to go when the row has to
+                hold the controls as well. The price is the number a round is
+                judged against; this one is context. */}
+            <Pill className="max-sm:hidden" tone={up ? "up" : "down"}>
               <span className="figures">{signedPct(market.changePct)}</span>
             </Pill>
           </span>

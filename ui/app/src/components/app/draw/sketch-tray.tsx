@@ -84,6 +84,28 @@ export function SketchBar({
   }
 
   if (phase === "drawn" && shape && quote) {
+    /*
+      Three facts on a phone, a sentence on a desk.
+
+      The long version says where the line is aiming, the most it can lose,
+      where the venue wipes it out, how long it runs and that a point can
+      still be moved: five things, which is a paragraph under a chart on a
+      screen four inches wide. The three that change what somebody does are
+      what it pays, what it risks and how long they wait.
+    */
+    if (phone) {
+      return (
+        <div className="flex items-center gap-3">
+          <Lead tone={quote.ifWorks >= 0 ? "text-up" : "text-down"}>{signedUsd(quote.ifWorks, 0)}</Lead>
+          <p className="min-w-0 text-muted-foreground text-xs leading-snug">
+            at <F>${fmtPrice(shape.target)}</F>
+            <br />
+            risk <F tone="text-down">${usd(quote.mostLose, 0)}</F> · <F>{Math.round(runBars)}</F>s
+          </p>
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Lead tone={quote.ifWorks >= 0 ? "text-up" : "text-down"}>{signedUsd(quote.ifWorks, 0)}</Lead>

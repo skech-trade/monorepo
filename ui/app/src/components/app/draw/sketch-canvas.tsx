@@ -706,9 +706,18 @@ export function SketchCanvas({
         </svg>
       ) : null}
 
-      {/* Zoom and pan move the eye only. Following turns itself off when you drag the past. */}
+      {/*
+        Zoom and pan move the eye only. Following turns itself off when you
+        drag the past.
+
+        Top left on a phone, in a column. Bottom right is over the half of the
+        chart the line is drawn into, which on a phone is the half a hand is
+        already covering. The left is price that has already happened: read,
+        never touched, and the one place a control sits without being in the
+        way of anything.
+      */}
       {w > 0 ? (
-        <div className="absolute right-2 bottom-7 flex items-center gap-0.5 rounded-xl border bg-card/85 p-0.5 backdrop-blur-sm [&_svg]:size-3.5">
+        <div className="absolute flex gap-0.5 rounded-xl border bg-card/85 p-0.5 backdrop-blur-sm max-sm:top-2 max-sm:left-2 max-sm:flex-col sm:right-2 sm:bottom-7 sm:items-center [&_svg]:size-3.5">
           <Button aria-label="Pan earlier" className="size-7 rounded-lg" onClick={() => panTime(-1)} variant="ghost">
             <ChevronLeftIcon />
           </Button>
