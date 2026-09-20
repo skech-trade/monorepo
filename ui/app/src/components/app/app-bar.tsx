@@ -24,9 +24,8 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu";
-import { type Account, type Market, signedUsd, usd } from "@/lib/market";
+import { type Account, signedUsd, usd } from "@/lib/market";
 import { Wordmark } from "./logo";
-import { MarketHeader } from "./market-header";
 import { ThemeToggle } from "./theme-toggle";
 import { useSettings } from "@/lib/settings";
 import { SettingsSheet } from "./settings";
@@ -44,7 +43,7 @@ import { SignInButton } from "./sign-in";
 /** Mock, like the balance. DiceBear's "shapes" set is CC0: abstract, no face. */
 const AVATAR = `https://api.dicebear.com/9.x/shapes/svg?seed=${HANDLE}&backgroundColor=0a0a0a&shape1Color=3b82f6,10b981&shape2Color=f5f5f5&shape3Color=ef4444,f59e0b`;
 
-export function AppBar({ account, market }: { account: Account; market?: Market }) {
+export function AppBar({ account }: { account: Account }) {
   const [{ blurred }, set] = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const me = useAccount();
@@ -89,15 +88,6 @@ export function AppBar({ account, market }: { account: Account; market?: Market 
         <Wordmark />
       </Link>
 
-      {/*
-        The market itself, on a phone.
-
-        It had a row of its own under the bar, which on a screen this size is
-        a band of chrome above a chart that wants every pixel. Up here it sits
-        where the search field does on a desk, and the row below it is gone.
-      */}
-      {market ? <MarketHeader className="min-w-0 sm:hidden" market={market} /> : null}
-
       {/* Inert: one market. The field says so rather than looking broken. */}
       <InputGroup className="mx-auto hidden w-full max-w-md md:flex">
         <InputGroupAddon>
@@ -109,7 +99,8 @@ export function AppBar({ account, market }: { account: Account; market?: Market 
         </InputGroupAddon>
       </InputGroup>
 
-      {/* Logo, market, way in, reading left to right. */}
+      {/* Logo and the way in. The market is on the chart itself on a phone:
+          a nav bar is for the app, and a price belongs with the picture of it. */}
       <div className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
         <NetworkBadge className="max-sm:hidden" />
         {/* A reading, not a control: a Button with no onClick promised a press. */}

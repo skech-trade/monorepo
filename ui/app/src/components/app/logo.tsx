@@ -25,9 +25,7 @@ export function Wordmark({ className }: { className?: string }) {
   return (
     <span className={cn("flex items-center gap-2 text-foreground", className)}>
       <LogoMark className="h-6 w-7" />
-      {/* The mark alone on a phone: the bar carries the market there, and the
-          name is the one thing in it somebody already knows. */}
-      <span className="font-semibold text-base tracking-tight max-sm:hidden">skech</span>
+      <span className="font-semibold text-base tracking-tight">skech</span>
     </span>
   );
 }

@@ -27,6 +27,8 @@ export function Terminal({ market, positions, mode = "draw" }: { market: Market;
     twice would be two connections to the same market saying the same thing.
   */
   const stream = useFeed(HISTORY + RUN_MAX);
+  /* The live market, handed to Draw so its own header and the label on the
+     chart are the same number. */
   const live = useMemo<Market>(() => {
     const price = stream?.bars.at(-1)?.c;
     if (!price || !stream?.stats) return market;
@@ -36,12 +38,12 @@ export function Terminal({ market, positions, mode = "draw" }: { market: Market;
 
   return (
     <div className="flex h-svh flex-col bg-background" data-blurred={blurred ? "" : undefined}>
-      <AppBar account={account} market={live} />
+      <AppBar account={account} />
       <main className="flex min-h-0 w-full flex-1 flex-col overflow-auto bg-muted/40">
         {mode === "desk" ? (
           <Desk market={market} order={order} patch={patch} positions={positions} />
         ) : (
-          <DrawScreen market={market} stream={stream} />
+          <DrawScreen market={live} stream={stream} />
         )}
       </main>
     </div>

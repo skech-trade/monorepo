@@ -40,13 +40,16 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   and a thumb is about a centimetre, which is why every phone platform asks
   for 44 and why the trading apps people already use look oversized on a
   laptop. Ours were 36, made for a mouse.
-- The market sits in the app bar on a phone, where the search field is on a
-  desk, and the row it used to have is gone. That row was a band of chrome
-  above a chart that wants every pixel; the chart now runs from the bar to the
-  footer. The name gives way to the price, because the mark already says which
-  market. It sits next to the logo with no card around it: it is the title of
-  the screen, not a control competing with the button opposite. The logo loses
-  its word and light or dark moves into the tools drawer.
+- The market sits over the top left of the chart on a phone, not in the app
+  bar and not in a row of its own. A nav bar is for the app, the logo and the
+  way in; a price belongs with the picture of it. The left of the chart is
+  price that has already happened, so the label costs no layout at all, where
+  a row cost a band of chrome above a chart that wants every pixel.
+- The name gives way to the price there, because the mark already says which
+  market, and the chevron sits in a quiet disc: loose beside the price it
+  reads as punctuation, in a circle it reads as the thing you press. The row
+  darkens under a finger, because a touch has no hover to give it away.
+- Light or dark moves into the tools drawer, beside the other chart settings.
 - "Test" rides with the price rather than sitting beside it in the bar: it
   says which venue the number came from, and out in the bar it left no room to
   centre anything.

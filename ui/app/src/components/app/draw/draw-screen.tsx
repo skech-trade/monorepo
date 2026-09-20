@@ -718,6 +718,19 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
           <DrawTools canUndo={pts.length > 1} drawing={phase !== "running" && phase !== "settled"} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
         </div>
         <div className="relative min-w-0 flex-1">
+        {/*
+          The market, over the top left of the chart, on a phone.
+
+          A nav bar is for the app: the logo and the way in. A price belongs
+          with the picture of it, and the left of this chart is price that has
+          already happened, so the label costs no layout at all where a row of
+          its own cost a band of chrome.
+        */}
+        {phone ? (
+          <div className="absolute top-2 left-3 z-10">
+            <MarketHeader market={market} />
+          </div>
+        ) : null}
         {shelf}
         <SketchCanvas
           band={band}
