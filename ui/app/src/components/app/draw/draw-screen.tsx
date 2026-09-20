@@ -722,12 +722,12 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
           The market, over the top left of the chart, on a phone.
 
           A nav bar is for the app: the logo and the way in. A price belongs
-          with the picture of it, and the left of this chart is price that has
-          already happened, so the label costs no layout at all where a row of
-          its own cost a band of chrome.
+          with the picture of it, and over the chart it costs no layout at all
+          where a row of its own cost a band of chrome. Top right, clear of
+          the column of controls down the left.
         */}
         {phone ? (
-          <div className="absolute top-2 left-3 z-10">
+          <div className="absolute top-2 right-3 z-10">
             <MarketHeader market={market} />
           </div>
         ) : null}

@@ -187,14 +187,7 @@ export function MarketHeader({ market, className }: { market: Market; className?
                 On a phone this pill is the whole of the app bar's middle, and
                 the badge beside it in the bar left no room to centre it. */}
             <NetworkBadge className="sm:hidden" compact />
-            {/* The chevron in its own quiet disc, on a phone.
-                Loose beside the price it reads as punctuation; in a circle it
-                reads as the thing you press, which is what it is. The row is
-                the title of the screen, so the affordance goes on the mark
-                rather than a card around the whole line. */}
-            <span className="flex size-5 shrink-0 items-center justify-center self-center rounded-full bg-muted text-muted-foreground sm:hidden">
-              <ChevronDownIcon className="size-3" />
-            </span>
+            <ChevronDownIcon className="size-3.5 shrink-0 self-center text-muted-foreground sm:hidden" />
           </span>
         </span>
       </button>
