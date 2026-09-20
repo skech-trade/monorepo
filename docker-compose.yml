@@ -1,0 +1,33 @@
+# Everything that is not the browser.
+#
+#   docker compose up feed          the market, on :3210
+#   docker compose --profile trade up   and the signer with it
+#
+# The app reads the feed from the browser, so its URL is the host's, not this
+# network's.
+services:
+  feed:
+    build: { context: ./services/feed }
+    ports: ["3210:3210"]
+    environment:
+      LIGHTER_WS: ${LIGHTER_WS:-wss://mainnet.zklighter.elliot.ai/stream}
+      LIGHTER_MARKET_ID: ${LIGHTER_MARKET_ID:-1}
+      ALLOW_ORIGIN: ${ALLOW_ORIGIN:-*}
+    restart: unless-stopped
+
+  trader:
+    profiles: ["trade"]
+    build: { context: ./services/trader }
+    ports: ["3220:3220"]
+    # The trading key is the crown jewel. It arrives as an environment
+    # variable here and belongs in a secrets manager in production, decrypted
+    # inside this process and nowhere else.
+    environment:
+      LIGHTER_BASE_URL: ${LIGHTER_BASE_URL:-https://testnet.zklighter.elliot.ai}
+      LIGHTER_CHAIN_ID: ${LIGHTER_CHAIN_ID:-300}
+      LIGHTER_MARKET_ID: ${LIGHTER_MARKET_ID:-4096}
+      LIGHTER_ACCOUNT_INDEX: ${LIGHTER_ACCOUNT_INDEX}
+      LIGHTER_API_KEY_INDEX: ${LIGHTER_API_KEY_INDEX}
+      LIGHTER_PRIVATE_KEY: ${LIGHTER_PRIVATE_KEY}
+    depends_on: [feed]
+    restart: unless-stopped

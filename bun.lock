@@ -17,6 +17,14 @@
         "typescript": "^5",
       },
     },
+    "services/trader": {
+      "name": "@skech/trader",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/bun": "^1.4.2",
+        "typescript": "^5",
+      },
+    },
     "ui/app": {
       "name": "@skech/app",
       "version": "0.1.0",
@@ -257,6 +265,8 @@
     "@skech/feed": ["@skech/feed@workspace:services/feed"],
 
     "@skech/landing": ["@skech/landing@workspace:ui/landing"],
+
+    "@skech/trader": ["@skech/trader@workspace:services/trader"],
 
     "@swc/helpers": ["@swc/helpers@0.5.23", "", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw=="],
 
