@@ -148,7 +148,9 @@ export function MarketHeader({ market, className }: { market: Market; className?
            heading on a desk, where it is the title of the panel. */
         /* No card around it. It is the title of the screen, sitting next to
            the logo, not a control competing with the button beside it. */
-        className="-m-1.5 flex min-w-0 items-center gap-2 rounded-lg p-1.5 text-left hover:bg-accent sm:gap-3"
+        /* A press has no hover to give it away, so the whole row darkens
+           while a finger is on it. */
+        className="-m-1.5 flex min-w-0 items-center gap-2 rounded-lg p-1.5 text-left transition-colors hover:bg-accent active:bg-accent sm:gap-3"
         onClick={() => setPicking(true)}
         type="button"
       >
@@ -185,7 +187,14 @@ export function MarketHeader({ market, className }: { market: Market; className?
                 On a phone this pill is the whole of the app bar's middle, and
                 the badge beside it in the bar left no room to centre it. */}
             <NetworkBadge className="sm:hidden" compact />
-            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground sm:hidden" />
+            {/* The chevron in its own quiet disc, on a phone.
+                Loose beside the price it reads as punctuation; in a circle it
+                reads as the thing you press, which is what it is. The row is
+                the title of the screen, so the affordance goes on the mark
+                rather than a card around the whole line. */}
+            <span className="flex size-5 shrink-0 items-center justify-center self-center rounded-full bg-muted text-muted-foreground sm:hidden">
+              <ChevronDownIcon className="size-3" />
+            </span>
           </span>
         </span>
       </button>
