@@ -66,15 +66,16 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
 - Hierarchy: one board with hairlines, no cards. The header is one 48px row.
   The one filled button on a view is the direction button in its colour.
   Candles sit one step quieter than the P&L figures. No vertical grid.
-- Size: wheel, $20 to $500 in $5 steps, click to type. Leverage: 1× to 15×
-  meter with "$100 → 10× → $1,000" under it.
-- "Draw it in for $S" places it. Toast confirms.
+- Size: wheel, $20 to $500 in $5 steps, click to type. Boost: 1× to 50× on
+  the same wheel, "Put in $100, trade like $1,000" above it. Stop loss and
+  take profit as money, off by default, on the same wheel.
+- "Trade for $S" places it. No toast: the header turns into "Close trade",
+  the bar starts counting candles and the chart starts moving.
 - Playing out: candles arrive against the line (pulled toward it by a factor
-  rolled once per sketch), live P&L over the last candle and in the tray,
-  "Take it off now".
+  rolled once per sketch), live P&L beside the last candle, "Close trade".
 - Settled on the same rule as the quote, on the wick, adverse level first:
   called it / out where you drew it / time's up / taken off / wiped out.
-  Toast. The Rounds sheet opens on the round just played. Its header is the
+  The Rounds sheet opens on the round just played. Its header is the
   word Rounds and nothing else. The card under it is the card: the same
   canvas the picture and the clip are painted from, so what you see is what
   gets posted. No text block above it, no eyebrow, no pill, no summary line.
