@@ -539,10 +539,11 @@ export function DrawScreen({ market }: { market: Market }) {
               : { ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }
           }
         />
-        {/* On a phone the rail sits in the header row, under the market line. */}
-        {phase === "live" || phase === "drawing" || phase === "drawn" ? (
-          <div className="sm:hidden"><DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} /></div>
-        ) : null}
+        {/* On a phone the rail sits in the header row, under the market line.
+            Present in every phase, like the one beside the chart. */}
+        <div className="sm:hidden">
+          <DrawTools canUndo={pts.length > 1} drawing={phase !== "running" && phase !== "settled"} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
+        </div>
         <PlaceTicket
           className="ml-auto"
           exits={exits}
@@ -567,9 +568,11 @@ export function DrawScreen({ market }: { market: Market }) {
         />
       </div>
       <div className="flex min-h-0 flex-1 gap-2 px-2 pt-2">
-        {phase === "live" || phase === "drawing" || phase === "drawn" ? (
-          <div className="hidden sm:block"><DrawTools canUndo={pts.length > 1} onClear={onClear} onPreset={onPreset} onUndo={onUndo} /></div>
-        ) : null}
+        {/* Always present. What it holds changes with the phase; the chart
+            settings are in it whatever is happening to the money. */}
+        <div className="hidden sm:block">
+          <DrawTools canUndo={pts.length > 1} drawing={phase !== "running" && phase !== "settled"} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
+        </div>
         <div className="min-w-0 flex-1">
         <SketchCanvas
           band={band}

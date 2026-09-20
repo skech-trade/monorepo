@@ -10,6 +10,12 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   with "Deposit", Draw / Desk switch, account menu (deposit, withdraw,
   privacy, settings, support, sign out).
 - Privacy blurs every figure on the screen, for reading it in company.
+- The rail beside the chart is there in every phase. While a round runs it
+  holds only the chart settings: there is nothing to undo, clearing would not
+  close the position, and a shape would replace a line already being traded.
+  It used to vanish whole and take the chart settings with it, so the one
+  moment you might want to change how the chart is drawn was the one moment
+  you could not.
 - Light and dark, from the toggle in the bar or the Settings sheet. An inline
   script applies the stored theme and palette before the first paint.
 

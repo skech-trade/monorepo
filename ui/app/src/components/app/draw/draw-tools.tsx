@@ -71,13 +71,31 @@ export function DrawTools({
   onUndo,
   onClear,
   onPreset,
+  drawing = true,
 }: {
   canUndo: boolean;
   onUndo: () => void;
   onClear: () => void;
   onPreset: (preset: Preset) => void;
-  /** Curve between the points, or straight legs. */
+  /**
+   * Whether the line is still yours to change.
+   *
+   * While a round runs it is not: there is nothing to undo, clearing it would
+   * not close the position, and a shape would replace a line that is already
+   * being traded. The rail used to disappear whole at that point and took the
+   * chart settings with it, so the one moment you might want to change how the
+   * chart is drawn was the one moment you could not.
+   */
+  drawing?: boolean;
 }) {
+  if (!drawing) {
+    return (
+      <div className="flex shrink-0 flex-row items-center gap-1 self-start rounded-2xl border bg-card p-1 sm:flex-col sm:gap-1.5 sm:p-1.5 [&_svg]:size-4 sm:[&_svg]:size-5">
+        <ChartSettingsButton className="size-8 rounded-lg sm:size-10 sm:rounded-xl" />
+      </div>
+    );
+  }
+
   return (
     /* A rail beside the chart, the height of what it acts on; a row on a phone. */
     <div className="flex shrink-0 flex-row items-center gap-1 self-start rounded-2xl border bg-card p-1 sm:flex-col sm:gap-1.5 sm:p-1.5 [&_svg]:size-4 sm:[&_svg]:size-5">
