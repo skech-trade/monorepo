@@ -24,6 +24,26 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   missing. Rewards and Transfers were words with nothing behind them and no
   plan, so they are gone rather than apologising for themselves.
 
+## On a phone
+
+- The header is two rows, not three: the market, then size, boost and the
+  button. The rail of five tools that had a line to itself is one button that
+  opens a drawer from the bottom, holding undo, clear, the exits, the eight
+  shapes and the chart settings.
+- Panels come up from the bottom rather than in from the side. Rounds, the
+  market picker, Settings and Add money all do it, because a side panel covers
+  a phone anyway and puts its close button in the corner furthest from a
+  thumb. Nothing about the desk changes.
+- The chart is a line unless somebody picks otherwise. Ninety candles across a
+  phone are slivers with no bodies worth reading. Whatever is picked is kept,
+  on either screen.
+- The shapes menu used to open to the right of a rail sitting at the left
+  edge, so most of it was off the screen and the page scrolled sideways 119px
+  to reach it.
+- The market picker showed $64,180 under a header reading $81,133, because it
+  listed the mock rather than the market on screen. It carries the live one
+  now.
+
 ## Signing in
 
 - Coinbase embedded wallets: email, phone or Google. No extension, no seed

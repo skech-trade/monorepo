@@ -18,7 +18,15 @@ export type GridStyle = "lines" | "dots" | "off";
 
 export type Settings = {
   palette: Palette;
-  candles: CandleStyle;
+  /**
+   * How Draw draws the market, or null for whatever suits the screen.
+   *
+   * Null rather than a value, because the right default is not the same on
+   * both: a phone shows the chart about a quarter as wide, and ninety candles
+   * in that space are slivers with no bodies worth reading. A line says the
+   * same thing legibly. Once somebody picks one it is kept, on either screen.
+   */
+  candles: CandleStyle | null;
   grid: GridStyle;
   /** What Draw paints around and along the line you drew. */
   ribbon: boolean;
@@ -43,7 +51,7 @@ export type Settings = {
 
 export const DEFAULTS: Settings = {
   palette: "classic",
-  candles: "candles",
+  candles: null,
   grid: "lines",
   ribbon: true,
   marks: true,
@@ -128,4 +136,12 @@ export function setSettings(patch: Partial<Settings>) {
 
 export function useSettings(): [Settings, typeof setSettings] {
   return [useSyncExternalStore(subscribe, snapshot, serverSnapshot), setSettings];
+}
+
+/**
+ * The chart style to actually draw with: what was picked, else what suits the
+ * screen. Phones get a line, everything else candles.
+ */
+export function candleStyle(chosen: CandleStyle | null, phone: boolean): CandleStyle {
+  return chosen ?? (phone ? "line" : "candles");
 }

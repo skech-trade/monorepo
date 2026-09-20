@@ -70,7 +70,15 @@ export function MarketPicker({
   onOpenChange: (open: boolean) => void;
   current: Market;
 }) {
-  const markets = LISTED.map(marketFor).filter((m): m is Market => m !== null);
+  /*
+    The one on screen carries the live price; the mock's own figure is about a
+    market that is no longer there. The picker listed $64,180 under a header
+    reading $81,133, which is the app disagreeing with itself in two places a
+    thumb apart.
+  */
+  const markets = LISTED.map(marketFor)
+    .filter((m): m is Market => m !== null)
+    .map((m) => (m.address === current.address ? current : m));
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogPopup className="sm:max-w-md">

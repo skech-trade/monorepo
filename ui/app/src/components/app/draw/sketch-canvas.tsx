@@ -10,7 +10,8 @@ import {
 import { ChevronLeftIcon, ChevronRightIcon, CrosshairIcon, RotateCcwIcon, XIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
-import { type CandleStyle, useSettings } from "@/lib/settings";
+import { usePhone } from "@/lib/phone";
+import { type CandleStyle, candleStyle, useSettings } from "@/lib/settings";
 import { curvePath, lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
@@ -205,7 +206,9 @@ export function SketchCanvas({
    * How the chart is looked at. Display only. `anchor` is the candle held on the split; null
    * follows the live one.
    */
-  const [{ candles, grid, ribbon: showRibbon, marks: showMarks, crosshair: showCrosshair }] = useSettings();
+  const [{ candles: chosenStyle, grid, ribbon: showRibbon, marks: showMarks, crosshair: showCrosshair }] = useSettings();
+  /* Candles on a desk, a line on a phone, unless somebody has said otherwise. */
+  const candles = candleStyle(chosenStyle, usePhone());
   const [view, setView] = useState<{ zoom: number; anchor: number | null }>({ zoom: 1, anchor: null });
   /** The view being dragged, from where it was grabbed. */
   const pan = useRef<{ x: number; anchor: number; moved: boolean } | null>(null);

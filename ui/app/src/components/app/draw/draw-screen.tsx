@@ -11,6 +11,7 @@ import { accuracyOf, type Exits, extend, nextCandle, type Outcome, type Pt, quot
 import { MarketHeader } from "../market-header";
 import { PlaceTicket } from "./place-ticket";
 import { DrawTools, type Preset, PRESETS } from "./draw-tools";
+import { PhoneTools } from "./phone-tools";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
 import { SketchBar } from "./sketch-tray";
 import { RoundsSheet, seedSketches, type Sketch } from "./sketches";
@@ -598,10 +599,19 @@ export function DrawScreen({ market }: { market: Market }) {
               : { ...market, price, change: price - prev, changePct: ((price - prev) / prev) * 100 }
           }
         />
-        {/* On a phone the rail sits in the header row, under the market line.
-            Present in every phase, like the one beside the chart. */}
-        <div className="sm:hidden">
-          <DrawTools canUndo={pts.length > 1} drawing={phase !== "running" && phase !== "settled"} onClear={onClear} onPreset={onPreset} onUndo={onUndo} />
+        {/* A phone gets one button for all of it, in the ticket row, rather
+            than a rail of five on a line of its own. */}
+        <div className="ml-auto flex items-center gap-1.5 sm:hidden">
+          <PhoneTools
+            canUndo={pts.length > 1}
+            drawing={phase !== "running" && phase !== "settled"}
+            exits={exits}
+            onClear={onClear}
+            onExits={setExits}
+            onPreset={onPreset}
+            onUndo={onUndo}
+            stake={stake}
+          />
         </div>
         <PlaceTicket
           className="ml-auto"

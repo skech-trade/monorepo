@@ -36,7 +36,8 @@ export const PRESETS: { value: Preset; label: string; hint: string; shape: numbe
 ];
 
 /** The shape, large enough to read at a glance. A dashed rule marks the start. */
-function Thumb({ shape }: { shape: number[] }) {
+/** The little picture of a preset. Shared with the phone drawer. */
+export function Thumb({ shape }: { shape: number[] }) {
   const W = 160;
   const H = 72;
   const lo = Math.min(0, ...shape);

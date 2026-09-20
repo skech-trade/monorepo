@@ -5,6 +5,7 @@ import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { XIcon } from "lucide-react";
 import type React from "react";
+import { usePhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -83,6 +84,17 @@ export function SheetPopup({
   closeProps?: SheetPrimitive.Close.Props;
   portalProps?: SheetPrimitive.Portal.Props;
 }): React.ReactElement {
+  /*
+    A panel from the side is a desk idea. On a phone it covers the screen
+    anyway, arrives from a direction nothing else moves in, and puts its
+    close button at the top corner furthest from a thumb. Up from the bottom
+    is what every other app on the device does, so a sheet asked for the side
+    gets the bottom here. A sheet that already asks for top or bottom is left
+    alone, and nothing about the desk changes.
+  */
+  const phone = usePhone();
+  if (phone && (side === "right" || side === "left")) side = "bottom";
+
   return (
     <SheetPortal {...portalProps}>
       <SheetBackdrop />

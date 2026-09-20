@@ -41,7 +41,16 @@ export type FeedOptions = {
  * One socket, held open. Lighter sends a snapshot on subscribe and updates
  * after it, and drops the connection now and then; reconnect backs off to
  * thirty seconds so a venue having a bad minute is not made worse.
+ *
+ * Reconnecting on close is not enough. A socket can stop delivering without
+ * ever closing, and this one does: it sat open and silent while Bitcoin moved
+ * $167, and the clock below kept manufacturing a bar a second at the last
+ * price it had heard. The chart went flat, then jumped when somebody
+ * restarted the service. So silence is watched for as well as closure.
  */
+/** How long a market this busy can plausibly go quiet before the socket is the problem. */
+const SILENCE_MS = 30_000;
+
 export class LighterFeed {
   readonly bars: Bars;
   stats: Stats | null = null;
@@ -49,6 +58,8 @@ export class LighterFeed {
   private wait = 500;
   private shut = false;
   private clock: ReturnType<typeof setInterval> | null = null;
+  /** When the socket last said anything at all. */
+  private heard = Date.now();
 
   constructor(private readonly opts: FeedOptions) {
     this.bars = new Bars(opts.keep ?? 600);
@@ -63,6 +74,16 @@ export class LighterFeed {
       this.bars.tick();
       const head = this.bars.open;
       if (head && head.t !== before) this.opts.onBar?.(head);
+      /*
+        Bitcoin prints many times a second, so half a minute of silence is
+        not a quiet market, it is a dead socket. Closing it makes the close
+        handler reconnect, which is the path that already works.
+      */
+      if (Date.now() - this.heard > SILENCE_MS) {
+        console.warn(`feed: nothing heard for ${Math.round((Date.now() - this.heard) / 1000)}s, reopening`);
+        this.heard = Date.now();
+        this.ws?.close();
+      }
     }, 1000);
   }
 
@@ -80,10 +101,14 @@ export class LighterFeed {
     this.ws = ws;
     ws.addEventListener("open", () => {
       this.wait = 500;
+      this.heard = Date.now();
       ws.send(JSON.stringify({ type: "subscribe", channel: `trade/${this.opts.marketId}` }));
       ws.send(JSON.stringify({ type: "subscribe", channel: `market_stats/${this.opts.marketId}` }));
     });
-    ws.addEventListener("message", (e) => this.take(String(e.data)));
+    ws.addEventListener("message", (e) => {
+      this.heard = Date.now();
+      this.take(String(e.data));
+    });
     ws.addEventListener("close", () => this.again());
     ws.addEventListener("error", () => ws.close());
   }

@@ -109,6 +109,16 @@ function Exit({
   );
 }
 
+/** The two of them, wherever they are shown: a row here, a drawer on a phone. */
+export function ExitRows({ exits, stake, onExits }: { exits: Exits; stake: number; onExits: (exits: Exits) => void }) {
+  return (
+    <>
+      <Exit label="Stop loss" onChange={(lose) => onExits({ ...exits, lose })} side="lose" stake={stake} value={exits.lose} />
+      <Exit label="Take profit" onChange={(gain) => onExits({ ...exits, gain })} side="gain" stake={stake} value={exits.gain} />
+    </>
+  );
+}
+
 export function ExitControls({
   exits,
   stake,
@@ -121,22 +131,18 @@ export function ExitControls({
   className?: string;
 }) {
   const set = Number(exits.lose !== null) + Number(exits.gain !== null);
-  const pair = (
-    <>
-      <Exit label="Stop loss" onChange={(lose) => onExits({ ...exits, lose })} side="lose" stake={stake} value={exits.lose} />
-      <Exit label="Take profit" onChange={(gain) => onExits({ ...exits, gain })} side="gain" stake={stake} value={exits.gain} />
-    </>
-  );
+  const pair = <ExitRows exits={exits} onExits={onExits} stake={stake} />;
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <div className="hidden items-center gap-2 sm:flex">{pair}</div>
 
-      {/* And the pair of them behind the dots where there is no room. */}
+      {/* On a phone these live in the tools drawer instead: one drawer for
+          everything that is not the trade beats two overflow buttons. */}
       <Popover>
         <PopoverTrigger
           render={
-            <Button aria-label="Stop loss and take profit" className="sm:hidden" variant="outline">
+            <Button aria-label="Stop loss and take profit" className="hidden" variant="outline">
               <MoreHorizontalIcon />
               {set > 0 ? <span className="figures text-muted-foreground text-xs">{set}</span> : null}
             </Button>

@@ -3,11 +3,13 @@
 import { SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { Drawer, DrawerPopup, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
-import { useSettings } from "@/lib/settings";
+import { usePhone } from "@/lib/phone";
+import { candleStyle, useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { Segmented } from "./controls";
 import { useAccount } from "./auth";
@@ -44,6 +46,9 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 /** The three the chart itself is drawn by. Shared by the gear and the sheet. */
 export function ChartSettings({ className }: { className?: string }) {
   const [settings, set] = useSettings();
+  /* The control shows what is actually being drawn, which on a phone is a
+     line until somebody picks something else. */
+  const phoneNow = usePhone();
   return (
     <div className={cn("flex flex-col", className)}>
       <Row hint="Blue and orange if red and green read the same to you." label="Colours">
@@ -68,7 +73,7 @@ export function ChartSettings({ className }: { className?: string }) {
             { value: "line", label: "Line" },
           ]}
           size="sm"
-          value={settings.candles}
+          value={candleStyle(settings.candles, phoneNow)}
         />
       </Row>
       <Row label="Grid">
@@ -108,6 +113,28 @@ export function PlotSettings({ className }: { className?: string }) {
 
 /** The gear in the chart's own controls. */
 export function ChartSettingsButton({ className, side = "right" }: { className?: string; side?: "top" | "right" }) {
+  const phone = usePhone();
+
+  /* Up from the bottom on a phone. A popover anchored to a rail at the left
+     edge put most of itself off the screen. */
+  if (phone) {
+    return (
+      <Drawer>
+        <DrawerTrigger asChild>
+          <Button aria-label="How the chart looks" className={cn("size-7 rounded-lg", className)} variant="ghost">
+            <SettingsIcon />
+          </Button>
+        </DrawerTrigger>
+        <DrawerPopup>
+          <DrawerTitle>Chart</DrawerTitle>
+          <ChartSettings />
+          <h3 className="pt-3 pb-1 font-medium text-muted-foreground text-xs">On the drawing</h3>
+          <PlotSettings />
+        </DrawerPopup>
+      </Drawer>
+    );
+  }
+
   return (
     <Popover>
       <Tooltip>
