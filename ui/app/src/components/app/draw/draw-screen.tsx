@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toastManager } from "@/components/ui/toast";
-import { type Candle, candlesFor, price as fmtPrice, type Market, signedUsd, usd } from "@/lib/market";
+import { type Candle, candlesFor, type Market, signedUsd } from "@/lib/market";
 import { accuracyOf, type Exits, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { PlaceTicket } from "./place-ticket";
@@ -426,8 +425,11 @@ export function DrawScreen({ market }: { market: Market }) {
           setPhase("live");
           return;
         }
+        // Where you clicked, not where the stroke's anchor would have put
+        // it: the anchor pins a stroke's first touch to the live price, and
+        // applying it to a tap flattened every first point onto the entry.
         const t = coverTo(Math.max(at.t, 0.03));
-        setPts([{ t: 0, price }, { t, price: at.price + anchor.current }]);
+        setPts([{ t: 0, price }, { t, price: at.price }]);
         setPhase("drawn");
         return;
       }
@@ -487,7 +489,8 @@ export function DrawScreen({ market }: { market: Market }) {
     // press the button.
     setViewBars(horizon);
     setPhase("running");
-    toastManager.add({ title: `Trading for $${usd(stake, 0)}`, description: `${market.name} going ${shape.long ? "up" : "down"} from $${fmtPrice(price)}. It's playing out now.` });
+    // No toast. The header turns into "Close trade", the bar starts counting
+    // candles and the chart starts moving: three things already say it.
   };
 
   // Escape clears, Z or Backspace undoes. Only while the line is yours.

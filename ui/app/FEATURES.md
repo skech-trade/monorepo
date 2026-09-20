@@ -55,8 +55,14 @@ Every figure comes from `src/lib/market.ts`, seeded from the token address.
   a row of small bars. The round stays on screen until the next line starts.
 - Share text is spoiler free: one glyph per candle, filled inside, hollow out.
 - A faint ghost of your last line sits on the empty canvas at today's price.
-- First run: the hint path marches and a dot rides it twice, then stops. It
-  disappears on the first touch. Escape clears, Z or Backspace undoes.
+- Until you have drawn anything: the hint path marches with "click to place
+  your points" under it. Once a line exists, the ghost of your last line is
+  the hint and the marching path stays away. Escape clears, Z or Backspace
+  undoes. The Shapes menu opens beside the rail, never over the app bar.
+- The note beside the Trade button ("Bitcoin long, trading like $5,000")
+  opens on hover. It used to open by itself the moment a line was finished
+  and the next click on the chart went to closing it instead of placing the
+  second point.
 - Hierarchy: one board with hairlines, no cards. The header is one 48px row.
   The one filled button on a view is the direction button in its colour.
   Candles sit one step quieter than the P&L figures. No vertical grid.

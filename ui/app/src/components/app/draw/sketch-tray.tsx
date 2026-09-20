@@ -88,7 +88,7 @@ export function SketchBar({
             by not having been pressed. */}
         <p className="mr-auto text-muted-foreground">
           <span className="font-medium text-foreground">Draw where you think {market.name} goes.</span>{" "}
-          <span className="hidden sm:inline">Drag across the right of the chart. Nothing&rsquo;s at stake until you press the button.</span>
+          <span className="hidden sm:inline">Click on the right of the chart to place points, or drag to draw. Nothing&rsquo;s at stake until you press the button.</span>
         </p>
         {lines}
       </div>

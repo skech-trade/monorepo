@@ -127,7 +127,7 @@ export function DrawTools({
         </MenuTrigger>
         {/* Forty rem does not exist on a phone, and neither does the room to
             the right of a rail that is sitting at the left edge of one. */}
-        <MenuPopup align="start" className="w-[min(40rem,calc(100vw-2rem))] p-2" side="bottom">
+        <MenuPopup align="start" className="w-[min(40rem,calc(100vw-6rem))] p-2" side="right" sideOffset={8}>
           <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
             {PRESETS.map((p) => (
               <MenuItem className="h-auto flex-col items-stretch gap-2 rounded-xl p-2 [&>span:first-child]:aspect-[20/9]" key={p.value} onClick={() => onPreset(p.value)}>

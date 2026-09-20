@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { type Market, usd } from "@/lib/market";
@@ -51,20 +50,16 @@ export function PlaceTicket({
   onCloseNow: () => void;
   className?: string;
 }) {
-  const [open, setOpen] = useState(false);
   /*
-    The ticket opens itself the moment a line is finished.
+    The note beside the button opens on hover, not on its own.
 
-    Putting the pen down is the question "so what does this cost me?", and the
-    answer should not need a second gesture to ask for. Adjusting state during
-    render is the documented way to react to a changing prop, and unlike an
-    effect it leaves nothing wrong on screen for a frame.
+    It used to open itself the moment a line was finished, and the next click
+    on the chart went to closing it instead of placing the second point. Every
+    line that was drawn by clicking lost a point that way. The bar under the
+    chart already answers "what does this cost me" the moment the pen lifts;
+    this note adds which way you are facing and what the boost turns the
+    stake into, for anyone who hovers to ask.
   */
-  const [seen, setSeen] = useState(phase);
-  if (seen !== phase) {
-    setSeen(phase);
-    setOpen(phase === "drawn");
-  }
 
   const settings = phase === "live" || phase === "drawing" || phase === "drawn";
   const long = shape?.long ?? true;
@@ -123,8 +118,8 @@ export function PlaceTicket({
       */}
       {settings ? (
         ready ? (
-          <Popover onOpenChange={setOpen} open={open}>
-            <PopoverTrigger render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90" onClick={onPlace} />}>
+          <Popover>
+            <PopoverTrigger delay={250} openOnHover render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90" onClick={onPlace} />}>
               {label}
             </PopoverTrigger>
             <PopoverPopup align="end" className="w-auto max-w-xs px-3 py-2">

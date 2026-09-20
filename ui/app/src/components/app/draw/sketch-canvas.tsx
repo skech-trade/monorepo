@@ -704,7 +704,10 @@ export function SketchCanvas({
             </g>
           ) : null}
 
-          {phase === "live" ? (
+          {/* Until you have drawn anything. After that your last line is the
+              hint, and the two of them faint and dashed in the same space read
+              as a smudge. */}
+          {phase === "live" && !(ghost && ghost.length > 1) ? (
             <g pointerEvents="none">
               <path d={hint} fill="none" stroke="var(--brand)" strokeDasharray="3 8" strokeLinecap="round" strokeOpacity="0.35" strokeWidth="2">
                 <animate attributeName="stroke-dashoffset" dur="1.4s" from="0" repeatCount="indefinite" to="-22" />
@@ -859,11 +862,13 @@ export function SketchCanvas({
             // The same plate the price tags wear — a dark fill and a hairline —
             // so the figure is what carries the colour. A solid green lozenge
             // shouted the sign twice and drowned the number doing it.
-            "figures pointer-events-none absolute -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 font-semibold text-[11px] leading-4 shadow-xs/5",
+            "figures pointer-events-none absolute rounded-full border bg-popover px-2 py-0.5 font-semibold text-[11px] leading-4 shadow-xs/5",
             Math.abs(pnl) < 0.005 ? "text-muted-foreground" : pnl > 0 ? "text-up" : "text-down",
           )}
+          // To the right of the last candle, not over it: centred, it sat on
+          // the entry mark for the first few seconds of every round.
           style={{
-            left: Math.min(plotR - 56, Math.max(56, xOfBar(run.length - 0.5))),
+            left: Math.min(plotR - 72, xOfBar(run.length - 0.5) + 10),
             top: Math.max(4, y(run[run.length - 1].h) - 24),
           }}
         >

@@ -99,6 +99,7 @@ export function MarketPicker({
                   <DialogClose
                     aria-label={`Open ${m.name}`}
                     className="absolute inset-0 rounded-lg"
+                    nativeButton={false}
                     render={<Link href={`/app/${m.address}`} />}
                   />
                   <TokenAvatar symbol={m.symbol} />
