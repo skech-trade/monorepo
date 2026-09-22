@@ -13,7 +13,7 @@
 
 import type { ServerWebSocket } from "bun";
 import { type Bar, CANDLE_MS } from "./bars";
-import { LighterFeed, type Stats } from "./lighter";
+import { LighterFeed, type Quote, type Stats } from "./lighter";
 
 const PORT = Number(process.env.PORT ?? 3210);
 // Public chart data is independent of the wallet’s execution network.
@@ -26,6 +26,8 @@ const PRICE_SOURCE = "trades";
 
 type Client = { send: (event: string, data: unknown) => void; close: () => void };
 const clients = new Set<Client>();
+let latestQuote: Quote | null = null;
+let quoteTimer: ReturnType<typeof setTimeout> | null = null;
 const sockets = new Set<ServerWebSocket<undefined>>();
 
 function broadcast(event: string, data: unknown) {
@@ -52,6 +54,15 @@ const feed = new LighterFeed({
   priceSource: PRICE_SOURCE,
   onBar: (bar: Bar) => broadcast("bar", bar),
   onStats: (stats: Stats) => broadcast("stats", stats),
+  onQuote: (quote: Quote) => {
+    // The book moves more often than anyone can see; twenty a second is plenty.
+    latestQuote = quote;
+    if (quoteTimer) return;
+    quoteTimer = setTimeout(() => {
+      quoteTimer = null;
+      if (latestQuote) broadcast("quote", latestQuote);
+    }, 50);
+  },
 });
 feed.start();
 
@@ -73,10 +84,10 @@ Bun.serve({
     closeOnBackpressureLimit: true,
     open(ws) {
       sockets.add(ws);
-      ws.send(JSON.stringify({ event: "seed", data: { bars: feed.bars.last(180), stats: feed.stats, network: NETWORK, priceSource: PRICE_SOURCE, intervalMs: CANDLE_MS, connected: feed.connected } }));
+      ws.send(JSON.stringify({ event: "seed", data: { bars: feed.bars.last(180), stats: feed.stats, network: NETWORK, priceSource: PRICE_SOURCE, intervalMs: CANDLE_MS, connected: feed.connected, quote: feed.quote } }));
     },
     message(ws, message) {
-      if (String(message) === "ping") ws.send(JSON.stringify({ event: "pong", data: { connected: feed.connected } }));
+      if (String(message) === "ping") ws.send(JSON.stringify({ event: "pong", data: { connected: feed.connected, quote: feed.quote } }));
     },
     close(ws) { sockets.delete(ws); },
   },

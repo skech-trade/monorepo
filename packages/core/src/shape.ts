@@ -83,11 +83,16 @@ export function turnTol(values: number[], ref: number, costs = false): number {
     read. On the venue it is thirty-one reversals of a real position, so a
     nearly-flat line drawn by a shaky hand would have traded itself to death.
 
-    Two basis points is the same figure `TOL` uses for a level worth marking:
-    sixteen dollars on Bitcoin at eighty thousand. A turn smaller than that is
-    a wobble whatever it costs to trade.
+    It was two basis points, sixteen dollars on Bitcoin, which is more than
+    Bitcoin usually moves in the minute a round lasts. Every turn somebody drew
+    on a quiet chart fell under it, so a line drawn long–short–long–short
+    traded as one long: the page showed the zigzag and the venue got one
+    order. The wobble filter is the share of the drawing's own height above,
+    which scales with however the line was drawn, and a hand-drawn stroke is
+    already simplified to its intended corners on release. What is left here
+    is a floor against a numerically flat line: a tenth of a basis point.
   */
-  const floor = Math.max(costs ? ref * FEE * 2 : 0, ref * (costs ? TOL : 1e-5));
+  const floor = Math.max(costs ? ref * FEE * 2 : 0, ref * 1e-5);
   return Math.max((hi - lo) * REVERSAL, floor);
 }
 

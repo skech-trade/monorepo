@@ -37,7 +37,12 @@ export type FeedOptions = {
   priceSource?: "trades" | "mark";
   onBar?: (bar: Bar) => void;
   onStats?: (stats: Stats) => void;
+  /** The book's best bid and ask, which move many times between trades. */
+  onQuote?: (quote: Quote) => void;
 };
+
+/** Best bid and ask. Shown as the live price; never folded into the trade candles. */
+export type Quote = { bid: number; ask: number; mid: number; at: number };
 
 /**
  * One socket, held open. Lighter sends a snapshot on subscribe and updates
@@ -61,6 +66,7 @@ export class LighterFeed {
   private shut = false;
   private clock: ReturnType<typeof setInterval> | null = null;
   private pending = new Map<number, Bar>();
+  quote: Quote | null = null;
   private pingAt = 0;
   private priceAt = 0;
   private readonly seenTrades = new Set<string>();
@@ -130,6 +136,7 @@ export class LighterFeed {
       this.pingAt = Date.now();
       ws.send(JSON.stringify({ type: "subscribe", channel: `trade/${this.opts.marketId}` }));
       ws.send(JSON.stringify({ type: "subscribe", channel: `market_stats/${this.opts.marketId}` }));
+      ws.send(JSON.stringify({ type: "subscribe", channel: `ticker/${this.opts.marketId}` }));
     });
     ws.addEventListener("message", (e) => {
       this.heard = Date.now();
@@ -178,6 +185,16 @@ export class LighterFeed {
       const firstTouched = sorted.length ? secondOf(sorted[0].at) : Infinity;
       for (const bar of this.bars.all()) {
         if (was === undefined || bar.t >= Math.min(was, firstTouched)) this.pending.set(bar.t, bar);
+      }
+      return;
+    }
+    if (channel.startsWith("ticker")) {
+      const t = (m.ticker ?? {}) as { a?: { price?: unknown }; b?: { price?: unknown } };
+      const ask = num(t.a?.price);
+      const bid = num(t.b?.price);
+      if (ask > 0 && bid > 0 && ask >= bid) {
+        this.quote = { bid, ask, mid: (bid + ask) / 2, at: Date.now() };
+        this.opts.onQuote?.(this.quote);
       }
       return;
     }

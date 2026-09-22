@@ -31,6 +31,8 @@ const toCandle = (b: Wire): Candle => ({ t: b.t * 1000, o: b.o, h: b.h, l: b.l, 
 /** The day, as Lighter reports it. */
 export type FeedStats = { mark: number; changePct: number; high: number; low: number; volume: number };
 
+export type FeedQuote = { bid: number; ask: number; mid: number; at: number };
+
 export type Feed = {
   /** Oldest first. Empty until the seed lands. */
   bars: Candle[];
@@ -39,6 +41,8 @@ export type Feed = {
   /** What the venue liquidates on, which is what P&L should be marked against. */
   stats: FeedStats | null;
   connected: boolean;
+  /** Best bid and ask, which move between trades. The live price line follows its middle. */
+  quote: FeedQuote | null;
   priceSource?: "trades" | "mark";
   network?: "mainnet" | "testnet";
 };
@@ -50,6 +54,7 @@ export function useFeed(keep = 1200): Feed | null {
   const [bars, setBars] = useState<Candle[]>([]);
   const [stats, setStats] = useState<FeedStats | null>(null);
   const [connected, setConnected] = useState(false);
+  const [quote, setQuote] = useState<FeedQuote | null>(null);
   const [network, setNetwork] = useState<"mainnet" | "testnet" | undefined>();
   const [priceSource, setPriceSource] = useState<"trades" | "mark">("trades");
   useEffect(() => {
@@ -63,9 +68,15 @@ export function useFeed(keep = 1200): Feed | null {
     let backoff = 500;
     let frame = 0;
     let pending = new Map<number, Candle>();
+    let pendingQuote: FeedQuote | null = null;
     let heard = Date.now();
     const flush = () => {
       frame = 0;
+      if (pendingQuote) {
+        setQuote(pendingQuote);
+        pendingQuote = null;
+      }
+      if (!pending.size) return;
       const updates = pending;
       pending = new Map();
       setBars((all) => {
@@ -103,6 +114,8 @@ export function useFeed(keep = 1200): Feed | null {
           setNetwork(data.network);
           setPriceSource(data.priceSource === "mark" ? "mark" : "trades");
           setConnected(data.connected === true);
+          const q = (data as { quote?: FeedQuote | null }).quote;
+          if (q && Number.isFinite(q.mid)) setQuote(q);
           backoff = 500;
         } else if (message.event === "bar") {
           const bar = toCandle(message.data as Wire);
@@ -113,6 +126,11 @@ export function useFeed(keep = 1200): Feed | null {
             const oldest = Math.min(...pending.keys());
             pending.delete(oldest);
           }
+          if (!frame) frame = requestAnimationFrame(flush);
+        } else if (message.event === "quote") {
+          const q = message.data as FeedQuote;
+          if (!Number.isFinite(q.mid) || q.mid <= 0) return;
+          pendingQuote = q;
           if (!frame) frame = requestAnimationFrame(flush);
         } else if (message.event === "stats") {
           setStats(message.data as FeedStats);
@@ -143,6 +161,6 @@ export function useFeed(keep = 1200): Feed | null {
   }, [keep]);
 
   return useMemo(() => hasFeed
-    ? { bars, latest: bars[bars.length - 1] ?? null, stats, connected, priceSource, network }
-    : null, [bars, stats, connected, priceSource, network]);
+    ? { bars, latest: bars[bars.length - 1] ?? null, stats, connected, quote, priceSource, network }
+    : null, [bars, stats, connected, quote, priceSource, network]);
 }

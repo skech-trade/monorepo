@@ -29,6 +29,24 @@ setInterval(async () => {
   finally { scoring = false; }
 }, 3000);
 
+/*
+  Balances, shared for two seconds. Every open tab asks every few seconds and
+  each ask was a Lighter REST read, against a limit of sixty a minute per IP:
+  twenty tabs and the venue starts refusing. Concurrent asks share one read.
+*/
+const balances = new Map<string, { at: number; value: Promise<Awaited<ReturnType<Lighter["balanceForAddress"]>> | null> }>();
+function balanceOf(address: string) {
+  const held = balances.get(address);
+  if (held && Date.now() - held.at < 2000) return held.value;
+  const value = venue.balanceForAddress(address).catch(() => null);
+  balances.set(address, { at: Date.now(), value });
+  // A failed read is not kept: the next ask tries again.
+  void value.then((v) => {
+    if (!v) balances.delete(address);
+  });
+  return value;
+}
+
 const cors = {
   "access-control-allow-origin": process.env.ALLOW_ORIGIN ?? "*",
   "access-control-allow-headers": "content-type, authorization",
@@ -90,7 +108,7 @@ Bun.serve({
     if (url.pathname === "/balance") {
       const at = address(url.searchParams.get("address"));
       if (!at) return json({ error: "address required" }, 400);
-      const balance = await venue.balanceForAddress(at).catch(() => null);
+      const balance = await balanceOf(at);
       if (!balance) return json({ error: "venue unreachable" }, 502);
       return json(balance);
     }

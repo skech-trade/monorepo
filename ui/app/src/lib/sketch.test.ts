@@ -1,7 +1,7 @@
 import { directionAt } from "@skech/core/shape";
 import { describe, expect, test } from "bun:test";
 import type { Candle } from "./market";
-import { type Pt, quote, settle, shapeOf } from "./sketch";
+import { type Pt, quote, SAMPLES, settle, shapeOf } from "./sketch";
 import { liquidationPrice, MAINNET, MARGIN, roundSize, TESTNET, tradeable, wipeoutMove } from "./venue";
 
 /**
@@ -247,18 +247,31 @@ describe("the move that wipes you out", () => {
 });
 
 
-test("a small rise ignored by execution must not appear as a Buy signal", () => {
+test("every drawn turn trades, and the page reads each one the way execution does", () => {
   const entry = 86159;
+  // A $6 rise, a $26 dip, then up: every reversal is well over 8% of the line's own height.
   const shape = shapeOf([
     { t: 0, price: entry }, { t: 0.355, price: 86165 },
     { t: 0.712, price: 86139 }, { t: 0.86, price: 86167 },
     { t: 1, price: 86185 },
   ], entry)!;
-  expect(shape.legs[0].dir).toBe(-1);
-  expect(directionAt(shape.legs, 0, 114)).toBe(-1);
-  expect(directionAt(shape.legs, 41, 114)).toBe(-1);
-  expect(settle(walk(entry, 86082, 42), shape, entry, 100, 50, 114, undefined, 0.5).net).toBeGreaterThan(0);
-  const buy = shapeOf([{ t: 0, price: entry }, { t: 1, price: entry + 100 }], entry)!;
-  expect(directionAt(buy.legs, 0, 114)).toBe(1);
-  expect(settle(walk(entry, 86082, 42), buy, entry, 100, 50, 114, undefined, 0.5).net).toBeLessThan(0);
+  expect(shape.legs.map((l) => l.dir)).toEqual([1, -1, 1]);
+  // The candle a turn lands on belongs to the leg the venue is in at that moment.
+  const bars = 114;
+  for (const leg of shape.legs) {
+    const at = Math.round((leg.from / (SAMPLES - 1)) * bars);
+    expect(directionAt(shape.legs, at, bars)).toBe(leg.dir);
+  }
+});
+
+test("a line drawn long–short–long–short on a quiet chart is four trades, not one", () => {
+  // The round that traded as one long: turns of $7 to $16 on an $86k market.
+  const pts = [[0, 86451.2], [0.149, 86462.4], [0.241, 86455.3], [0.339, 86471.8], [0.507, 86461.2], [0.547, 86477.2], [0.78, 86465.4], [1, 86489.1]].map(([t, price]) => ({ t, price }));
+  expect(shapeOf(pts, 86451.25)!.legs.map((l) => l.dir)).toEqual([1, -1, 1, -1, 1, -1, 1]);
+});
+
+test("jitter on a nearly flat line is still not a turn", () => {
+  const pts = Array.from({ length: 40 }, (_, i) => ({ t: i / 39, price: 86000 + (i % 2 ? 0.3 : -0.3) }));
+  const shape = shapeOf(pts, 86000);
+  expect(shape === null || shape.flat).toBe(true);
 });

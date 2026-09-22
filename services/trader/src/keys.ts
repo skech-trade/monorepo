@@ -1,6 +1,7 @@
 import { SQL } from "bun";
 import { Lighter } from "./lighter";
 import { generateApiKey, Signer } from "./signer";
+import { timing } from "./timing";
 
 /**
  * A trading key per wallet.
@@ -47,7 +48,7 @@ const sql = url ? new SQL({ url, max: 4, idleTimeout: 30 }) : null;
 export class Keys {
   private readonly held = new Map<string, Registered>();
   /** Registrations signed and waiting for a wallet signature, by address. */
-  private readonly pending = new Map<string, Registration & { privateKey: string }>();
+  private readonly pending = new Map<string, Registration & { privateKey: string; publicKey: string }>();
 
   constructor(
     private readonly venue: Lighter,
@@ -131,7 +132,7 @@ export class Keys {
       messageToSign: signed.messageToSign,
       txInfo: signed.txInfo,
     };
-    this.pending.set(at, { ...out, privateKey: key.privateKey });
+    this.pending.set(at, { ...out, privateKey: key.privateKey, publicKey: key.publicKey });
     return out;
   }
 
@@ -158,24 +159,29 @@ export class Keys {
       is the least helpful possible answer, so this waits for the venue to
       agree before saying the key is theirs.
     */
-    let accepted: string | null = null;
-    for (let i = 0; i < 10; i++) {
-      await Bun.sleep(1500);
-      try {
-        Signer.open({
-          url: this.url,
-          privateKey: waiting.privateKey,
-          chainId: this.chainId,
-          accountIndex: waiting.accountIndex,
-          apiKeyIndex: waiting.apiKeyIndex,
-        });
-        accepted = null;
+    /*
+      Asked of the venue's key list, every quarter second, over ordinary
+      async HTTP. It used to open a signer every second and a half, and that
+      check is a synchronous network call inside the signer: a third of a
+      second of the whole trader frozen, other people's turns included, on
+      every attempt.
+    */
+    const started = Date.now();
+    let accepted = false;
+    while (Date.now() - started < 20_000) {
+      await Bun.sleep(250);
+      const listed = await fetch(`${this.url}/api/v1/apikeys?account_index=${waiting.accountIndex}&api_key_index=${waiting.apiKeyIndex}`, { signal: AbortSignal.timeout(3000) })
+        .then((r) => r.json() as Promise<{ api_keys?: { public_key?: string }[] }>)
+        .catch(() => null);
+      // The signer writes keys with 0x; the venue lists them without.
+      const want = waiting.publicKey.toLowerCase().replace(/^0x/, "");
+      if (listed?.api_keys?.some((k) => k.public_key?.toLowerCase().replace(/^0x/, "") === want)) {
+        accepted = true;
         break;
-      } catch (e) {
-        accepted = (e as Error).message.slice(0, 120);
       }
     }
-    if (accepted) throw new Error(`the venue has not accepted the key: ${accepted}`);
+    if (!accepted) throw new Error("the venue has not accepted the key yet; try again in a moment");
+    timing("key.accepted", Date.now() - started, { account: waiting.accountIndex });
 
     const held: Registered = { accountIndex: waiting.accountIndex, apiKeyIndex: waiting.apiKeyIndex, privateKey: waiting.privateKey };
     this.held.set(at, held);

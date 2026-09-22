@@ -23,12 +23,40 @@ const URL_TRADER = (process.env.NEXT_PUBLIC_TRADER_URL ?? "").replace(/\/$/, "")
 
 export const hasTrader = URL_TRADER !== "";
 
+/** One order on the venue. Its times are the trader's clock, the same one the round's start is on. */
+export type VenueOrder = {
+  id: string;
+  tradeId: string;
+  kind: "open" | "close";
+  side: "buy" | "sell";
+  size: number;
+  dueAt: number;
+  requestedAt: number;
+  sentAt?: number;
+  ackAt?: number;
+  filledAt?: number;
+  filled: number;
+  avgPrice?: number;
+  pnl: number;
+  status: "sending" | "acked" | "partial" | "filled" | "rejected" | "uncertain";
+  via?: "ws" | "http";
+  error?: string;
+};
+
+/** One position held between two turns, with its own id. */
+export type VenueTrade = { id: string; dir: 1 | -1; size: number; status: "opening" | "open" | "closing" | "closed" | "failed"; entry?: number; exit?: number; pnl: number; openedAt?: number; closedAt?: number };
+
+/** A piece of the drawn line, as the trader scheduled it. Absolute times. */
+export type VenueSegment = { id: string; dir: 1 | -1; startAt: number; endAt: number; skipped: boolean };
+
 export type VenueRound = {
   id: string;
   status: "running" | "closing" | "done";
   net: number | null;
   pnlReady: boolean;
-  queue?: {dueAt:number;expiresAt:number;want:number;status:"queued"|"submitting"|"submitted"|"confirmed"|"cancelled"|"failed"}[];
+  segments?: VenueSegment[];
+  trades?: VenueTrade[];
+  timing?: { requestedAt: number; readyAt?: number; openAckAt?: number; openFilledAt?: number; closeRequestedAt?: number; closeAckAt?: number; closedAt?: number };
   exit?: number;
   untracked?: boolean;
   bars?: import("./market").Candle[];
@@ -46,7 +74,7 @@ export type VenueRound = {
   size: number;
   unrealised: number;
   realised: number;
-  orders: { at: number; want: number; hash: string }[];
+  orders: VenueOrder[];
   problem: string | null;
 };
 
@@ -125,7 +153,7 @@ export type RoundSpec = {
 };
 
 /** Open a round on the venue. Answers as soon as it is open, not when it ends. */
-export async function openRound(spec: RoundSpec): Promise<VenueRound | { error: string }> {
+export async function openRound(spec: RoundSpec): Promise<VenueRound | { error: string; needsKey?: boolean }> {
   if (!hasTrader) return { error: "No trader configured." };
   const res = await fetch(`${URL_TRADER}/rounds`, {
     method: "POST",
@@ -133,8 +161,36 @@ export async function openRound(spec: RoundSpec): Promise<VenueRound | { error: 
     body: JSON.stringify(spec),
   }).catch(() => null);
   if (!res) return { error: "The trader did not answer." };
-  const body = (await res.json().catch(() => null)) as (VenueRound & { error?: string }) | null;
-  if (!res.ok || !body || body.error) return { error: body?.error ?? "The trader turned that down." };
+  const body = (await res.json().catch(() => null)) as (VenueRound & { error?: string; needsKey?: boolean }) | null;
+  if (!res.ok || !body || body.error) return { error: body?.error ?? "The trader turned that down.", needsKey: body?.needsKey };
+  return body;
+}
+
+/**
+ * Everything a trade needs, done while the line is still being drawn: the
+ * trader subscribes to this account, reads its nonce and sets its leverage,
+ * so pressing the button costs one round trip to the venue and nothing else.
+ */
+export async function prepareRound(address: string, leverage: number): Promise<{ ready?: boolean; needsKey?: boolean; latencyMs?: number; error?: string }> {
+  if (!hasTrader) return { error: "No trader configured." };
+  const res = await fetch(`${URL_TRADER}/rounds/prepare`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address, leverage }) }).catch(() => null);
+  if (!res) return { error: "The trader did not answer." };
+  return ((await res.json().catch(() => null)) as { ready?: boolean; needsKey?: boolean; latencyMs?: number; error?: string } | null) ?? { error: "No answer." };
+}
+
+/** A new line for a running round. The trader keeps the past and re-plans the rest. */
+export async function editRound(id: string, pts: Pt[], seconds?: number): Promise<VenueRound | { error: string }> {
+  const res = await fetch(`${URL_TRADER}/rounds/${id}/plan`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ pts, seconds }) }).catch(() => null);
+  const body = res ? ((await res.json().catch(() => null)) as (VenueRound & { error?: string }) | null) : null;
+  if (!res?.ok || !body || body.error) return { error: body?.error ?? "The trader did not take that change." };
+  return body;
+}
+
+/** Cut a part of the line out of a running round, or put it back. */
+export async function skipSegment(id: string, segmentId: string, skipped: boolean): Promise<VenueRound | { error: string }> {
+  const res = await fetch(`${URL_TRADER}/rounds/${id}/segments/${segmentId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ skipped }) }).catch(() => null);
+  const body = res ? ((await res.json().catch(() => null)) as (VenueRound & { error?: string }) | null) : null;
+  if (!res?.ok || !body || body.error) return { error: body?.error ?? "The trader did not take that change." };
   return body;
 }
 
@@ -197,7 +253,10 @@ export function useVenueHistory(accountIndex:number|null) {
   useEffect(()=>{
     if(accountIndex===null||!hasTrader)return;
     let alive=true;
-    const load=async()=>{try {const res=await fetch(`${URL_TRADER}/rounds`);if(!res.ok)return;const data=await res.json();if(alive&&Array.isArray(data.rounds))setHistory({account:accountIndex,rounds:data.rounds.filter((r:VenueRound)=>r.accountIndex===accountIndex)});}catch{}};
+    /* Only this account's recent rounds. The trader tags the list, the browser
+       revalidates it, and an unchanged list costs a 304 and no re-render. */
+    let seen = "";
+    const load=async()=>{try {const res=await fetch(`${URL_TRADER}/rounds?account=${accountIndex}&limit=50`);if(!res.ok)return;const text=await res.text();if(!alive||text===seen)return;seen=text;const data=JSON.parse(text);if(Array.isArray(data.rounds))setHistory({account:accountIndex,rounds:data.rounds});}catch{}};
     void load();const timer=setInterval(load,2000);return()=>{alive=false;clearInterval(timer);};
   },[accountIndex]);
   return history?.account===accountIndex?history.rounds:[];

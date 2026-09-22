@@ -24,14 +24,13 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu";
-import { signedUsd, usd } from "@/lib/market";
+import { usd } from "@/lib/market";
 import { Wordmark } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { useSettings } from "@/lib/settings";
 import { SettingsSheet } from "./settings";
 import { announceSoon } from "./soon";
 import { useProfile } from "@/lib/profile";
-import { cn } from "@/lib/utils";
 import { hasAuth, useAccount } from "./auth";
 import { CopyAddress } from "./copy";
 import { DepositSheet } from "./deposit";
@@ -164,28 +163,6 @@ export function AppBar() {
                 )}
               </div>
             </div>
-            {perp ? (
-              <>
-                <MenuSeparator />
-                {/* Short enough not to grow the menu. What to do about it is
-                    the next line down, so the sentence does not have to say. */}
-                <p className="px-2 py-2 text-muted-foreground text-xs">
-                  {funded ? (
-                    <>
-                      <span className="figures text-foreground">${usd(perp.equity)}</span> total equity
-                      <span className="block mt-1">${usd(perp.available)} available to trade</span>
-                      {perp.positions > 0 ? (
-                        <>
-                          <span className={cn("figures", perp.unrealised >= 0 ? "text-up" : "text-down")}>{signedUsd(perp.unrealised)}</span> open
-                        </>
-                      ) : null}
-                    </>
-                  ) : (
-                    "Nothing on Lighter yet"
-                  )}
-                </p>
-              </>
-            ) : null}
             <MenuSeparator />
             <MenuGroup>
               <MenuItem onClick={() => (me.address ? setDepositing(true) : announceSoon("Sign in first, then you can add money."))}>

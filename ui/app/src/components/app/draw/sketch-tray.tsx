@@ -3,7 +3,7 @@
 import { CANDLE_SECONDS } from "@/lib/feed";
 
 import { Button } from "@/components/ui/button";
-import { type Market, price as fmtPrice } from "@/lib/market";
+import { type Market, price as fmtPrice, signedUsd } from "@/lib/market";
 import type { Quote, Shape } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 import type { Phase } from "./sketch-canvas";
@@ -23,6 +23,7 @@ export function SketchBar({
   quote,
   openCount,
   runCount,
+  live,
   runBars,
   sketches,
   onOpenList,
@@ -37,6 +38,8 @@ export function SketchBar({
   quote: Quote | null;
   openCount: number;
   runCount: number;
+  /** The round's P&L as it moves, and the open trade's. Ticks with the price. */
+  live?: { net: number | null; note?: string; open: { dir: 1 | -1; pnl: number } | null; trades: number };
   runBars: number;
   sketches: Sketch[];
   onOpenList: () => void;
@@ -89,12 +92,31 @@ export function SketchBar({
       Almost nothing while it plays: every figure is already on the plot. What is left is how far
       through it is.
     */
+    const left = Math.max(0, Math.ceil((runBars - runCount) * CANDLE_SECONDS));
+    const tone = (n: number) => (Math.abs(n) < 0.005 ? "text-muted-foreground" : n > 0 ? "text-up" : "text-down");
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        {/* The number somebody is watching, big and moving with the price. */}
+        {live ? (
+          <span aria-live="off" className="flex items-baseline gap-2">
+            <span className={cn("figures font-semibold text-2xl tabular-nums leading-none", live.net === null ? "text-muted-foreground" : tone(live.net))}>
+              {live.net === null ? "—" : signedUsd(live.net)}
+            </span>
+            {live.note ? <span className="text-muted-foreground text-xs">{live.note}</span> : null}
+            {live.open ? (
+              <span className="text-muted-foreground text-sm">
+                {live.open.dir > 0 ? "Long" : "Short"} <F tone={tone(live.open.pnl)}>{signedUsd(live.open.pnl)}</F>
+              </span>
+            ) : null}
+            <span className="text-muted-foreground text-sm">
+              · <F>{live.trades}</F> {live.trades === 1 ? "trade" : "trades"}
+            </span>
+          </span>
+        ) : null}
         <span className="mr-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <span className="size-1.5 animate-pulse rounded-full bg-info" />
-            Candle <F>{runCount}</F> of <F>{Math.round(runBars)}</F>
+            <F>{left}</F>s left
           </span>
           {/* Whether there is money behind this. A round that did not reach
               the venue has to say so: the chart looks identical either way. */}

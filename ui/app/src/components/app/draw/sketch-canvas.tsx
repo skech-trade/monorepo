@@ -13,7 +13,7 @@ import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
 import { usePhone } from "@/lib/phone";
 import { type CandleStyle, candleStyle, useSettings } from "@/lib/settings";
 import { curvePath, type Pt, type Shape, legPath } from "@/lib/sketch";
-import { CANDLE_MS, CANDLE_SECONDS } from "@/lib/feed";
+import { CANDLE_SECONDS } from "@/lib/feed";
 import { cn } from "@/lib/utils";
 
 /** The chart you draw on: our own SVG, history left, future right, now between them. */
@@ -142,6 +142,13 @@ function CandleMarks({
   );
 }
 
+/** An order, as a mark on the chart. `t` is its share of the round, like a drawn point's. */
+export type TradeMark = { id: string; t: number; side: "buy" | "sell"; price?: number; state: "pending" | "filled" | "failed"; label: string };
+/** One trade's stretch of the round, and what it made. */
+export type TradeBand = { id: string; dir: 1 | -1; from: number; to: number; pnl: number };
+/** One part of the scheduled line. Times are shares of the round. */
+export type SegmentMark = { id: string; dir: 1 | -1; from: number; to: number; skipped: boolean; editable: boolean };
+
 export function SketchCanvas({
   feed,
   run,
@@ -152,7 +159,11 @@ export function SketchCanvas({
   price,
   shape,
   pnl,
-  fills = [],
+  marks = [],
+  tradeBands = [],
+  pnlNote,
+  segments = [],
+  onSkip,
   onDown: onDownPt,
   onMove: onMovePt,
   onUp: onUpPt,
@@ -174,7 +185,15 @@ export function SketchCanvas({
   price: number;
   shape: Shape | null;
   pnl: number | null;
-  fills?: {id:string;at:number;buy:boolean;price:number;size:number}[];
+  /** Orders on the venue, placed by when they were sent. */
+  marks?: TradeMark[];
+  /** Each trade's stretch of the line and what it made, labelled above it. */
+  tradeBands?: TradeBand[];
+  /** Said after the P&L figure, when it is not the venue's own. */
+  pnlNote?: string;
+  /** The scheduled plan, so each part of the line can be cut or kept. */
+  segments?: SegmentMark[];
+  onSkip?: (id: string, skipped: boolean) => void;
   onDown: (pt: Pt) => void;
   onMove: (pt: Pt) => void;
   onUp: () => void;
@@ -346,7 +365,7 @@ export function SketchCanvas({
   }
   const reset = () => setView({ zoom: 1, anchor: null });
   // Points can still be placed while it runs, ahead of the candles, never behind.
-  const canDraw = phase === "live" || phase === "drawn";
+  const canDraw = phase === "live" || phase === "drawn" || phase === "running";
 
   const local = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
@@ -641,6 +660,20 @@ export function SketchCanvas({
           <CandleMarks bars={feed} body={Math.max(2, runStep * 0.6)} dim={hasLine} style={candles} x={(i) => xOfBar(i - feed.length + 0.5)} y={y} />
           <CandleMarks bars={run} body={Math.max(2, runStep * 0.6)} style={candles} x={(i) => xOfBar(i + 0.5)} y={y} />
 
+          {/* The plan the trader is running, one strip per part of the line:
+              long, short, or cut. Where the colour changes, a position turns. */}
+          {segments.map((seg) => {
+            const x1 = Math.max(plotL, xOfT(seg.from));
+            const x2 = Math.min(plotR, xOfT(seg.to));
+            if (x2 <= x1) return null;
+            return (
+              <g key={seg.id} pointerEvents="none">
+                {seg.skipped ? <rect fill="var(--muted-foreground)" fillOpacity="0.06" height={plotB - plotT} width={x2 - x1} x={x1} y={plotT} /> : null}
+                <rect fill={seg.skipped ? "var(--muted-foreground)" : seg.dir > 0 ? "var(--up)" : "var(--down)"} fillOpacity={seg.skipped ? 0.35 : 0.7} height="3" rx="1.5" width={Math.max(1, x2 - x1 - 2)} x={x1 + 1} y={plotB - 4} />
+              </g>
+            );
+          })}
+
           {/* The ribbon: stay inside it and the candle counts. Coloured as
               candles arrive, green inside, grey out. */}
           {hasLine && !drawing && shape && showRibbon ? (
@@ -649,7 +682,6 @@ export function SketchCanvas({
                   of every turn, which is the one place the band should come to a
                   point: a turn is where one position ends and the next begins. */}
               <path d={legPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin="miter" strokeMiterlimit={2} strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
-
             </g>
           ) : null}
 
@@ -836,14 +868,89 @@ export function SketchCanvas({
         </span>
       ) : null}
 
-      {/* Confirmed venue fills only; drawn turns are intentions, not executions. */}
-      {showMarks && (phase === "running" || phase === "settled") ? fills.map(fill => {
-        const candleIndex=run.findIndex(c=>fill.at>=c.t&&fill.at<c.t+CANDLE_MS);
-        if(candleIndex<0)return null;
-        const candle=run[candleIndex], candleX=xOfBar(candleIndex+0.5);
-        const candleTop=Math.max(plotT,Math.min(plotB-18,fill.buy?y(candle.l)+6:y(candle.h)-24));
-        return candleX>=plotL+9&&candleX<=plotR-9 ? <span key={fill.id} role="img" aria-label={`${fill.buy?"Buy":"Sell"} fill at ${fill.price}`} className={cn("pointer-events-none absolute flex size-[18px] -translate-x-1/2 items-center justify-center rounded-full border bg-popover font-bold text-[10px]",fill.buy?"border-up text-up":"border-down text-down")} style={{left:candleX,top:candleTop}}>{fill.buy?"B":"S"}</span>:null;
-      }):null}
+      {/* Orders where they were sent: hollow until the venue fills them, then solid at the fill price. */}
+      {showMarks && (phase === "running" || phase === "settled")
+        ? marks.map((m) => {
+            const x = xOfT(m.t);
+            if (x < plotL + 9 || x > plotR - 9) return null;
+            const candle = run[Math.min(run.length - 1, Math.max(0, Math.floor(m.t * runBars)))];
+            const at = m.price ?? candle?.c ?? price;
+            const top = Math.max(plotT, Math.min(plotB - 18, m.side === "buy" ? y(Math.min(at, candle?.l ?? at)) + 6 : y(Math.max(at, candle?.h ?? at)) - 24));
+            return (
+              <span
+                aria-label={m.label}
+                className={cn(
+                  "pointer-events-auto absolute flex size-[18px] -translate-x-1/2 items-center justify-center rounded-full border bg-popover font-bold text-[10px] transition-opacity",
+                  m.side === "buy" ? "border-up text-up" : "border-down text-down",
+                  m.state === "pending" && "animate-pulse border-dashed",
+                  m.state === "filled" && (m.side === "buy" ? "bg-up text-white" : "bg-down text-white"),
+                  m.state === "failed" && "opacity-40 line-through",
+                )}
+                key={m.id}
+                role="img"
+                style={{ left: x, top }}
+                title={m.label}
+              >
+                {m.side === "buy" ? "B" : "S"}
+              </span>
+            );
+          })
+        : null}
+
+      {/* Parts of the line still to come can be cut: a cut short between two longs keeps the long open. */}
+      {phase === "running" && onSkip
+        ? segments
+            .filter((seg) => seg.editable)
+            .map((seg) => {
+              const x = xOfT((seg.from + seg.to) / 2);
+              if (x < plotL + 30 || x > plotR - 30) return null;
+              const name = seg.dir > 0 ? "Long" : "Short";
+              return (
+                <button
+                  aria-label={seg.skipped ? `Restore this ${name.toLowerCase()}` : `Cut this ${name.toLowerCase()} and hold the previous position`}
+                  aria-pressed={seg.skipped}
+                  className={cn(
+                    "absolute z-10 -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 font-medium text-[11px] leading-4 shadow-xs/5 transition-colors hover:bg-accent",
+                    seg.skipped ? "text-muted-foreground line-through" : seg.dir > 0 ? "border-up/50 text-up" : "border-down/50 text-down",
+                  )}
+                  key={seg.id}
+                  onClick={() => onSkip(seg.id, !seg.skipped)}
+                  style={{ left: x, top: plotB - 28 }}
+                  title={seg.skipped ? "Cut: the previous position is held here. Click to restore." : "Click to cut this part and keep holding the previous position."}
+                  type="button"
+                >
+                  {name}
+                  <span aria-hidden="true" className="ml-1 opacity-70">{seg.skipped ? "↺" : "×"}</span>
+                </button>
+              );
+            })
+        : null}
+
+      {/* What each trade made, over its own stretch of the line. */}
+      {(phase === "running" || phase === "settled")
+        ? tradeBands.map((b) => {
+            const mid = (b.from + b.to) / 2;
+            const x = xOfT(mid);
+            if (x < plotL + 24 || x > plotR - 24 || xOfT(b.to) - xOfT(b.from) < 34) return null;
+            let at = pts[0]?.price ?? price;
+            for (let i = 1; i < pts.length; i++) {
+              if (pts[i].t >= mid) {
+                const k = (mid - pts[i - 1].t) / (pts[i].t - pts[i - 1].t || 1);
+                at = pts[i - 1].price + (pts[i].price - pts[i - 1].price) * k;
+                break;
+              }
+            }
+            return (
+              <span
+                className={cn("figures pointer-events-none absolute -translate-x-1/2 rounded-full bg-popover/90 px-1.5 text-[10px] leading-4", b.pnl >= 0 ? "text-up" : "text-down")}
+                key={`pnl-${b.id}`}
+                style={{ left: x, top: Math.max(plotT, y(at) - ribbonPx - 20) }}
+              >
+                {signedUsd(b.pnl)}
+              </span>
+            );
+          })
+        : null}
 
       {/* What the line is worth where the finger is. */}
       {head && headLabel && (phase === "drawing" || phase === "drawn") ? (
@@ -873,6 +980,7 @@ export function SketchCanvas({
           }}
         >
           {signedUsd(pnl)}
+          {pnlNote ? <span className="ml-1 font-normal text-muted-foreground">{pnlNote}</span> : null}
         </span>
       ) : null}
     </div>

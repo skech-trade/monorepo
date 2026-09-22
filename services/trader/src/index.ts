@@ -11,13 +11,16 @@
  * client cannot lie about what it drew.
  */
 
-import { Lighter } from "./lighter";
+import { Executor, type Quote } from "./executor";
+import { Lighter, type MarketInfo } from "./lighter";
 import { Keys } from "./keys";
 import { RoundStore } from "./round-store";
-import { Rounds, type RoundSpec, type Who } from "./rounds";
+import { Rounds, type RoundSpec } from "./rounds";
 import { ACCOUNT, API_KEY_INDEX, BASE, CHAIN_ID, MARKET_ID, NETWORK, PRIVATE_KEY } from "./network";
 import { Trader } from "./round";
 import { Signer } from "./signer";
+import { timing, timings } from "./timing";
+import { VenueSocket } from "./venue-socket";
 
 const PORT = Number(process.env.PORT ?? 3220);
 
@@ -44,15 +47,55 @@ try {
    API sends. In production this is one origin, not a star. */
 const cors = {
   "access-control-allow-origin": process.env.ALLOW_ORIGIN ?? "*",
-  "access-control-allow-headers": "content-type",
-  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type, if-none-match",
+  "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...cors } });
+
+/*
+  One socket to the execution venue, held for the life of the process.
+
+  Prices for the worst-fill bound come from its ticker, positions and fills
+  from each trading account's channels, and orders go out on it. The market's
+  sizes and floors do not change, so they are read once; its price is kept
+  current from the socket, because testnet's last trade can be hours old.
+*/
+const socket = new VenueSocket(`${BASE.replace(/^http/, "ws")}/stream`);
+socket.start();
+let market: MarketInfo | null = null;
+for (let i = 0; i < 5 && !market; i++) {
+  market = await venue.market(MARKET_ID).catch((e) => {
+    console.error("market details:", (e as Error).message.slice(0, 120));
+    return null;
+  });
+  if (!market) await Bun.sleep(1000);
+}
+let quote: Quote | null = null;
+const num = (v: unknown) => Number.parseFloat(String(v ?? "")) || 0;
+socket.subscribe(`ticker/${MARKET_ID}`, (m) => {
+  const t = m.ticker as { a?: { price?: string }; b?: { price?: string } } | undefined;
+  const ask = num(t?.a?.price);
+  const bid = num(t?.b?.price);
+  if (!ask || !bid) return;
+  quote = { bid, ask, mark: quote?.mark || (ask + bid) / 2, at: Date.now() };
+  if (market) market.last = (ask + bid) / 2;
+});
+socket.subscribe(`market_stats/${MARKET_ID}`, (m) => {
+  const s = m.market_stats as Record<string, unknown> | undefined;
+  const mark = num(s?.mark_price);
+  if (!mark) return;
+  quote = { bid: quote?.bid || num(s?.best_bid_price), ask: quote?.ask || num(s?.best_ask_price), mark, at: Date.now() };
+  if (market && !quote.bid) market.last = mark;
+});
+const marketInfo = () => {
+  if (!market) throw Error("Market details unavailable; the venue could not be reached at startup.");
+  return market;
+};
 
 const store = new RoundStore(NETWORK);
 let storeReady = false;
 await store.ready().then(()=>{storeReady=true;}).catch(()=>console.error("trade history storage unavailable"));
-const rounds = new Rounds(venue, MARKET_ID, {save: round => store.save(round)});
+const rounds = new Rounds(marketInfo, { save: (round) => store.save(round) });
 if(storeReady) for(const round of await store.all()) rounds.restore(round);
 const keys = new Keys(venue, CHAIN_ID, BASE);
 await keys.ready().catch((e) => console.error("keys table:", (e as Error).message.slice(0, 120)));
@@ -65,17 +108,32 @@ await keys.ready().catch((e) => console.error("keys table:", (e as Error).messag
   service starts with is not a fallback for this: trading somebody else's
   account because we could not find theirs is the bug this replaces.
 */
-const asWhom = new Map<string, Who>();
-async function whoIs(address: string): Promise<Who | null> {
+const execs = new Map<string, Executor>();
+async function execFor(address: string): Promise<Executor | null> {
   const at = address.toLowerCase();
-  const known = asWhom.get(at);
+  const known = execs.get(at);
   if (known) return known;
   const held = await keys.forAddress(at);
   if (!held) return null;
   const signer = Signer.open({ url: BASE, privateKey: held.privateKey, chainId: CHAIN_ID, accountIndex: held.accountIndex, apiKeyIndex: held.apiKeyIndex });
-  const who: Who = { trader: new Trader(venue, signer, held.accountIndex), accountIndex: held.accountIndex };
-  asWhom.set(at, who);
-  return who;
+  const exec = new Executor({ socket, http: venue, signer, accountIndex: held.accountIndex, apiKeyIndex: held.apiKeyIndex, market: marketInfo, quote: () => quote });
+  exec.start();
+  execs.set(at, exec);
+  return exec;
+}
+
+/*
+  Rounds that were running when this process stopped, picked back up with
+  their owner's key. Not awaited: the server answers while they reconnect.
+*/
+for (const round of rounds.all().filter((r) => r.status !== "done")) {
+  void (async () => {
+    const address = await venue.addressForAccount(round.accountIndex);
+    const exec = await execFor(address);
+    if (!exec) throw Error("no trading key");
+    await rounds.resume(round, exec);
+    console.log(`resumed round ${round.id} on account ${round.accountIndex}`);
+  })().catch((e) => console.error(`round ${round.id} not resumed: ${(e as Error).message.slice(0, 120)}; it waits for a manual close`));
 }
 
 /** A number from the page, clamped to something a round can actually be. */
@@ -104,6 +162,8 @@ Bun.serve({
           whether those keys survive a restart.
         */
         keys: keys.persistent ? "postgres" : "memory only, lost on restart",
+        socket: socket.connected ? "connected" : "reconnecting",
+        quote: quote ? { ...quote, ageMs: Date.now() - quote.at } : null,
         market: market ? { id: market.id, symbol: market.symbol, last: market.last } : null,
       });
     }
@@ -122,37 +182,88 @@ Bun.serve({
       outlives the tab that drew it.
     */
     if (url.pathname === "/rounds" && req.method === "POST") {
+      const received = Date.now();
       if(!storeReady) return json({error:"Trade history storage unavailable. Try again once the database is connected."},503);
       const body = (await req.json().catch(() => ({}))) as Partial<RoundSpec> & { address?: string };
       const at = (body.address ?? "").toLowerCase();
       if (!/^0x[0-9a-f]{40}$/.test(at)) return json({ error: "address required" }, 400);
       /* A failure to build their signer is worth reporting: swallowing it
          answered "no trading key" to somebody who had just registered one. */
-      let who: Who | null = null;
+      let exec: Executor | null = null;
       try {
-        who = await whoIs(at);
+        exec = await execFor(at);
       } catch (e) {
         return json({ error: `could not sign for this wallet: ${(e as Error).message.slice(0, 120)}` }, 500);
       }
-      if (!who) return json({ error: "no trading key for this wallet", needsKey: true }, 409);
+      if (!exec) return json({ error: "no trading key for this wallet", needsKey: true }, 409);
       const pts = Array.isArray(body.pts) ? body.pts.filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.price)).slice(0, 256) : [];
       if (pts.length < 2) return json({ error: "a line needs at least two points" }, 400);
       const spec: RoundSpec = {
         pts,
         stake: clamp(body.stake, 1, 100_000, 20),
         leverage: Math.round(clamp(body.leverage, 1, 50, 10)),
-        seconds: Math.round(clamp(body.seconds, 3, 900, 30)),
+        seconds: clamp(body.seconds, 3, 900, 30),
         exits: {
           lose: body.exits?.lose == null ? null : clamp(body.exits.lose, 0, 100_000, 0),
           gain: body.exits?.gain == null ? null : clamp(body.exits.gain, 0, 1_000_000, 0),
         },
       };
       try {
-        return json(await rounds.open(spec, who));
+        const round = await rounds.open(spec, exec);
+        timing("http.open", Date.now() - received, { round: round.id });
+        return json(round);
       } catch (e) {
         return json({ error: (e as Error).message.slice(0, 160) }, 400);
       }
     }
+
+    /*
+      Everything a trade needs, done while somebody is still drawing: their
+      signer, their account's channels, the nonce, and the leverage. None of
+      it is then on the clock when they press the button.
+    */
+    if (url.pathname === "/rounds/prepare" && req.method === "POST") {
+      const started = Date.now();
+      const body = (await req.json().catch(() => ({}))) as { address?: string; leverage?: number };
+      const at = (body.address ?? "").toLowerCase();
+      if (!/^0x[0-9a-f]{40}$/.test(at)) return json({ error: "address required" }, 400);
+      try {
+        const exec = await execFor(at);
+        if (!exec) return json({ error: "no trading key for this wallet", needsKey: true }, 409);
+        await rounds.prepare(exec, Math.round(clamp(body.leverage, 1, 50, 10)));
+        timing("http.prepare", Date.now() - started, { account: exec.accountIndex });
+        return json({ ready: true, position: exec.position(), latencyMs: Math.round(exec.latency()) });
+      } catch (e) {
+        return json({ error: (e as Error).message.slice(0, 160) }, 400);
+      }
+    }
+
+    /** A new line for a running round; the past stays, the rest follows it. */
+    const plan = url.pathname.match(/^\/rounds\/([^/]+)\/plan$/);
+    if (plan && (req.method === "PUT" || req.method === "POST")) {
+      const body = (await req.json().catch(() => ({}))) as { pts?: { t: number; price: number }[]; seconds?: number };
+      const pts = Array.isArray(body.pts) ? body.pts.filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.price)).slice(0, 256) : [];
+      if (pts.length < 2) return json({ error: "a line needs at least two points" }, 400);
+      try {
+        return json(await rounds.edit(plan[1], pts, body.seconds === undefined ? undefined : clamp(body.seconds, 3, 900, 30)));
+      } catch (e) {
+        return json({ error: (e as Error).message.slice(0, 160) }, 400);
+      }
+    }
+
+    /** Cut one part of the line out, or put it back. */
+    const segment = url.pathname.match(/^\/rounds\/([^/]+)\/segments\/([^/]+)$/);
+    if (segment && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { skipped?: boolean };
+      try {
+        return json(await rounds.skip(segment[1], segment[2], body.skipped !== false));
+      } catch (e) {
+        return json({ error: (e as Error).message.slice(0, 160) }, 400);
+      }
+    }
+
+    /** Percentiles for every measured stage. See `timing.ts`. */
+    if (url.pathname === "/metrics/timings") return json(timings());
 
     /*
       A trading key for a wallet.
@@ -183,7 +294,8 @@ Bun.serve({
       if (!/^0x[0-9a-fA-F]{130}$/.test(body.signature ?? "")) return json({ error: "a wallet signature is required" }, 400);
       try {
         const held = await keys.register(at, body.signature as string);
-        asWhom.delete(at);
+        execs.get(at)?.stop();
+        execs.delete(at);
         return json({ ok: true, accountIndex: held.accountIndex, apiKeyIndex: held.apiKeyIndex });
       } catch (e) {
         return json({ error: (e as Error).message.slice(0, 200) }, 400);
@@ -198,9 +310,9 @@ Bun.serve({
     }
 
     if(url.pathname === "/positions/close" && req.method === "POST") {
-      const body=await req.json() as {address?:string};
+      const body=(await req.json().catch(()=>({}))) as {address?:string};
       if(!/^0x[0-9a-fA-F]{40}$/.test(body.address??""))return json({error:"Address required"},400);
-      try {const who=await whoIs(body.address!);if(!who)return json({error:"No trading key"},409);return json(await rounds.closeExisting(who));}
+      try {const exec=await execFor(body.address!);if(!exec)return json({error:"No trading key"},409);return json(await rounds.closeExisting(exec));}
       catch(error){return json({error:(error as Error).message},400);}
     }
 
@@ -240,18 +352,39 @@ Bun.serve({
       const id = url.pathname.slice("/rounds/".length, -"/close".length);
       const held = rounds.get(id);
       if(held && held.status!=="done") {
-        const account = await venue.addressForAccount(held.accountIndex);
-        const who = await whoIs(account);
-        if(who) rounds.attach(id,who);
+        const account = await venue.addressForAccount(held.accountIndex).catch(() => null);
+        const exec = account ? await execFor(account) : null;
+        if(exec) rounds.attach(id,exec);
       }
-      const round = await rounds.close(id);
-      return round ? json(round) : json({ error: "no such round" }, 404);
+      try {
+        const round = await rounds.close(id);
+        return round ? json(round) : json({ error: "no such round" }, 404);
+      } catch (e) {
+        return json({ error: (e as Error).message.slice(0, 160) }, 400);
+      }
     }
 
+    /*
+      Round history. One account's, newest first, at most `limit`. It used to
+      send every account's rounds with their replays, 400KB, to every tab
+      every two seconds; now an unchanged list is a 304 with no body.
+    */
     if (url.pathname === "/rounds" && req.method === "GET") {
-      const records=new Map((storeReady?await store.all():[]).map(r=>[r.id,r]));
-      for(const r of rounds.all())records.set(r.id,r);
-      return json({ rounds: [...records.values()].sort((a,b)=>b.startedAt-a.startedAt) });
+      const account = url.searchParams.has("account") ? Number(url.searchParams.get("account")) : null;
+      const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") ?? 200)));
+      const records = new Map((storeReady ? await store.all() : []).map((r) => [r.id, r]));
+      for (const r of rounds.all()) records.set(r.id, r);
+      const list = [...records.values()]
+        .filter((r) => account === null || r.accountIndex === account)
+        .sort((a, b) => b.startedAt - a.startedAt)
+        .slice(0, limit);
+      const body = JSON.stringify({ rounds: list });
+      const etag = `W/"${Bun.hash(body).toString(36)}"`;
+      const headers = { ...cors, "content-type": "application/json", etag, "cache-control": "no-cache", "access-control-expose-headers": "etag" };
+      if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+      // Rounds carry their candle replays, which compress about tenfold.
+      if (/\bgzip\b/.test(req.headers.get("accept-encoding") ?? "")) return new Response(Bun.gzipSync(body), { headers: { ...headers, "content-encoding": "gzip", vary: "accept-encoding" } });
+      return new Response(body, { headers });
     }
 
     return json({ error: "not found" }, 404);

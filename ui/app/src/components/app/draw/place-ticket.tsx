@@ -28,6 +28,9 @@ export function PlaceTicket({
   onPlace,
   onDrawAgain,
   onCloseNow,
+  onDrawMore,
+  drawingMore = false,
+  enable,
   unavailableReason,
   recovery,
   closing = false,
@@ -46,6 +49,11 @@ export function PlaceTicket({
   onPlace: () => void;
   onDrawAgain: () => void;
   onCloseNow: () => void;
+  /** Keep drawing past the end of a running line, which adds positions. */
+  onDrawMore?: () => void;
+  drawingMore?: boolean;
+  /** A wallet with no trading key yet: the button sets it up, once, before any trade. */
+  enable?: { onEnable: () => void; pending: boolean };
   unavailableReason?: string;
   recovery?: { onClose: () => void; pending: boolean };
   closing?: boolean;
@@ -101,6 +109,10 @@ export function PlaceTicket({
         <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" disabled={recovery.pending} onClick={recovery.onClose}>
           {recovery.pending ? "Closing…" : <><span className="sm:hidden">Close position</span><span className="max-sm:hidden">Close open position</span></>}
         </Button>
+      ) : settings && ready && enable ? (
+        <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" disabled={enable.pending} loading={enable.pending} onClick={enable.onEnable}>
+          Enable trading
+        </Button>
       ) : settings ? (
         ready ? (
           <Popover>
@@ -128,6 +140,11 @@ export function PlaceTicket({
       {/* Plainly what it does, like the button that opened it. "Take it off
           now" is how a desk talks about a position; this is the control that
           ends a trade, so it says so. */}
+      {!recovery && phase === "running" && onDrawMore ? (
+        <Button aria-pressed={drawingMore} className="max-sm:order-1 max-sm:h-13 max-sm:min-w-0 max-sm:flex-1 max-sm:text-base" disabled={closing} onClick={onDrawMore} variant={drawingMore ? "default" : "outline"}>
+          {drawingMore ? "Draw from the end…" : "Draw more"}
+        </Button>
+      ) : null}
       {!recovery && phase === "running" ? (
         <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" disabled={closing} onClick={onCloseNow} variant="outline">
           {closing ? "Confirming close…" : "Close trade"}

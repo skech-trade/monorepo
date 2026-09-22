@@ -8,7 +8,10 @@
     "dev": "bun --watch --env-file=../../.env.local src/index.ts",
     "start": "bun src/index.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bench:cpu": "bun bench/cpu.ts",
+    "bench:network": "bun bench/network.ts",
+    "bench": "bun bench/cpu.ts && bun bench/network.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

@@ -97,6 +97,23 @@ export class Lighter {
     throw Error("Fill history incomplete; reconciliation pending");
   }
 
+  /** The nonce the venue expects next from this key. Read once, then counted locally. */
+  async nextNonce(account: number, apiKeyIndex: number): Promise<bigint> {
+    const d = await this.get<{ nonce?: number }>(`/api/v1/nextNonce?account_index=${account}&api_key_index=${apiKeyIndex}`);
+    if (typeof d.nonce !== "number") throw Error("nonce unavailable");
+    return BigInt(d.nonce);
+  }
+
+  /** The HTTP fallback for a batch, for when the socket is down. Same formats as the socket. */
+  async sendBatch(txTypes: number[], txInfos: string[]): Promise<{ hashes: string[] }> {
+    const body = new URLSearchParams({ tx_types: JSON.stringify(txTypes), tx_infos: JSON.stringify(txInfos) });
+    const res = await fetch(`${this.base}/api/v1/sendTxBatch`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body, signal: AbortSignal.timeout(5000) });
+    const text = await res.text();
+    const out = JSON.parse(text || "{}") as { code?: number; message?: string; tx_hash?: string[] };
+    if (!res.ok || (out.code !== undefined && out.code !== 200)) throw Object.assign(new Error(`lighter sendTxBatch: ${out.code ?? res.status} ${out.message ?? text.slice(0, 160)}`), { code: out.code ?? null });
+    return { hashes: out.tx_hash ?? [] };
+  }
+
   /**
    * Send a signed transaction. `txInfo` is what the signer produced; the type
    * says which transaction it is, and 14 is an order.
@@ -107,11 +124,11 @@ export class Lighter {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
+      signal: AbortSignal.timeout(5000),
     });
     const text = await res.text();
-    if (!res.ok) throw new Error(`lighter sendTx: ${res.status} ${text.slice(0, 200)}`);
-    const out = JSON.parse(text) as { code?: number; message?: string; tx_hash?: string };
-    if (out.code !== undefined && out.code !== 200) throw new Error(`lighter sendTx: ${out.code} ${out.message ?? ""}`);
+    const out = JSON.parse(text || "{}") as { code?: number; message?: string; tx_hash?: string };
+    if (!res.ok || (out.code !== undefined && out.code !== 200)) throw Object.assign(new Error(`lighter sendTx: ${out.code ?? res.status} ${out.message ?? text.slice(0, 200)}`), { code: out.code ?? null });
     return { hash: out.tx_hash ?? "" };
   }
 }
