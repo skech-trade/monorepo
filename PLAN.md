@@ -5,6 +5,53 @@ the official `lighter-python` and `lighter-go` source, the live mainnet API, the
 API, provider pricing pages, and a file-by-file read of `ui/app` and `ui/landing`.
 Numbers are as of that date; re-check the ones marked *verify* before relying on them.
 
+
+## Implementation update — 2026-09-22
+
+This update and the revised Phases 4–5 describe the current implementation. Other
+unmarked phases remain proposals; the original code audit below is historical.
+This is local/testnet progress, not a mainnet-readiness or latency guarantee.
+
+- **Shared market feed is implemented.** One backend Lighter WebSocket supplies our
+  browser WebSockets. The chart uses labeled, read-only mainnet BTC trade data,
+  aggregated into **500ms candles** with forming-candle updates. Testnet trades and
+  mark updates were too sparse for this view. Execution, fills and P&L still use the
+  user's account network; chart prices never determine reported profits.
+- **History is only partially implemented.** The feed retains 1,200 bars (10 minutes)
+  in memory and initially sends 180 (90 seconds). Durable recent history, cached
+  provider backfill, gap repair and cursor-based snapshot/live handoff remain planned.
+- **Order intents are queued before the round starts.** The durable backend queue
+  records due time, expiry, target position and status. Orders are signed/dispatched
+  when due, one at a time; these are not resting orders already accepted by Lighter.
+  Close cancels future intents and waits for any in-flight submission before a
+  reduce-only close. Expired turns are not replayed as a burst of late orders.
+- **UI changes are pushed.** Per-round server-sent events send snapshots, queue changes
+  and reconciled results. The UI distinguishes scheduled, submitting, submitted /
+  awaiting confirmation, and confirmed fills. B/S markers represent actual fills.
+  Heartbeats/reconnect and REST fallback handle a broken event stream.
+- **Venue confirmation still uses REST.** Browser push does not remove upstream
+  account/fill polling. Authenticated Lighter account/fill WebSockets with REST
+  recovery are the next execution-latency priority. Order submission is still HTTP.
+- **Accounting is venue-derived.** Round P&L combines matched realized fills and open
+  unrealized P&L. Portfolio equity uses venue total asset value, including allocated
+  margin. Active screens have no simulated balances, prices or settled results.
+- **Measured versus assumed:** one audited round took about 1.37 seconds from runner
+  start to opening acknowledgement; that is not click-to-fill latency. Fixed
+  three-second waits were removed, independent reads parallelized, redundant reads
+  reduced, and turn-boundary scheduling corrected. Timing records now distinguish
+  request, ready, order request/acknowledgement and confirmed close. No immediate-fill
+  promise is justified until end-to-end timings are measured.
+- **Verification:** 12 focused trader tests passed, including queued deadlines,
+  cancellation, concurrent opens, close during submission, delayed account reads,
+  partial-fill P&L and pushed status changes. Workspace typechecks and targeted UI
+  lint passed; the live event endpoint returned an immediate snapshot. Tests did not
+  submit real orders, close real positions or move funds.
+
+Detailed plans: [market data/history](docs/MARKET-DATA-PLAN.md),
+[order execution](docs/ORDER-EXECUTION.md),
+[completed UI/accounting work](docs/IMPLEMENTATION-CHECKLIST.md), and
+[mainnet launch blockers](docs/LIGHTER-LAUNCH.md).
+
 ---
 
 ## 0. The shape of the thing
@@ -137,26 +184,26 @@ Out:
   | Plus | 300 ms | 200 ms | 200 ms | 0.5 bps / 0.5 bps | 4,000 |
   | Premium | 140 ms | 0 ms | 0 ms | 0.4 / 2.8 bps (less with LIT) | 4,000–48,000 |
 
-- End-to-end for a Standard user: browser → Tokyo (50–250 ms by geography) → Lighter
-  (single-digit ms colocated) → 300 ms speed bump → fill → `account_all` push (order
-  book pushes are batched every 50 ms). **Plan on 400–600 ms from click to confirmed
-  fill.** The app's `LATENCY_BARS = 0.5` (half a one-second candle) is the right order
-  of magnitude and should stay.
-- Market data: `order_book/1` every 50 ms, `trade/1` in real time, `candle/1/1m` is the
-  **smallest candle Lighter serves**. The product draws one-second candles, so the feed
-  service builds 1 s bars from the trade stream (and marks P&L on mark price, which is
-  what the venue liquidates on).
+- Measure browser click → backend preparation → submission acknowledgement → venue
+  fill → account reconciliation → UI paint separately. Historical 400–600 ms estimates
+  were planning assumptions, not measurements. Do not use `LATENCY_BARS` or any local
+  simulation delay to represent real execution.
+- The chart aggregates public mainnet trades into 500ms bars, updating the forming
+  candle as observations arrive. Candle interval is not the upstream update frequency.
+  Testnet accounts use this explicitly labeled reference chart; fills, sizing and P&L
+  remain on the execution network. Chart anchor and execution entry are stored separately.
 
 ### 1.5 Rate limits that shape the architecture
 
-- Standard: 60 weighted REST requests per rolling minute (per IP *or* per L1 address;
-  authenticate to get the per-address bucket). `sendTx`/`nextNonce` weigh 6, most reads
-  weigh 300, so **a Standard key gets effectively zero read budget**. Reads come from
-  the WebSocket or from a **Builder account** (240,000 weighted reads/min, free,
-  applied for in Lighter's Discord, covers reads only).
-- WebSocket per IP: 255 connections, 500 subscriptions and 500 accounts per connection,
-  200 client messages/min (sendTx excluded). One Tokyo box can therefore watch
-  ~127,000 accounts.
+- Standard REST limits are **60 requests per rolling minute**, subject to documented
+  endpoint-specific exceptions; they are not a weighted budget that makes ordinary
+  reads impossible. Centralize history requests, cache them and budget account reads.
+- WebSocket limits currently include 255 connections/IP, 500 subscriptions/connection
+  and 200 client messages/minute. This is not a tested account-capacity guarantee.
+  Shared ingestion keeps upstream market-data connections independent of viewer count.
+- Builder accounts provide application-reviewed, free higher read-only REST limits.
+  They are useful for larger backfills but not required for the public WebSocket feed.
+  See [official rate limits](https://apidocs.lighter.xyz/docs/rate-limits).
 
 ### 1.6 Money
 
@@ -215,6 +262,9 @@ and that the CDP EOA `signMessage` output verifies against Lighter on testnet.
 ---
 
 ## 3. What the code is today
+
+Historical audit from 2026-09-20; these findings are not a current completion checklist.
+See the implementation update above for resolved items.
 
 From the audit of `ui/app/src` and `ui/landing/src` (file:line references are current
 as of `7d62c98`):
@@ -338,45 +388,74 @@ Goal: the mock still runs, but every number it prints is one Lighter would print
 4. Card / Apple Pay: CDP Onramp or the UDA bridge's card route. Fits the fomo comparison
    in CONTENT.md.
 
-### Phase 4 — Feed (~1 week)
+### Phase 4 — Shared live feed and historical charts (partially implemented)
 
-1. `services/feed` in Tokyo: one WebSocket to Lighter subscribed to `trade/1`,
-   `ticker/1`, `market_stats/1`, `mark_price_candle/1/1m`. Builds 1-second OHLC bars from
-   trades, keeps the last few hours in Redis, and fans out to browsers over its own
-   WebSocket or SSE.
-2. `candlesFor` in `market.ts` becomes a client that seeds 90 bars from the feed and
-   appends live ones; `nextCandle`/`follow` go away. Everything else in
-   `draw-screen.tsx` stays, which is what the "swap the feed and the rest stays"
-   comment promised.
-3. Desk: order book and tape from `order_book/1` and `trade/1`. Or keep Desk unlinked
-   until Draw is live.
+Implemented:
 
-### Phase 5 — Trading engine: rounds (~2–3 weeks, the core)
+1. Persistent Bun feed service connects to Lighter's read-only mainnet BTC stream;
+   viewers connect to our backend, not individually to Lighter.
+2. Build 500ms trade candles, publish forming-bar changes, deduplicate trades and
+   correct late arrivals. Browser updates are coalesced per animation frame.
+3. Reconnect/heartbeat handling, bounded browser queues and explicit source labels.
+   Source freshness is checked separately from receiving socket heartbeats.
+4. The active app waits for real prices when unavailable; the legacy simulated Desk
+   redirects to Draw.
 
-1. `services/trader` in `ap-northeast-1a`, one process per shard of accounts, each
-   holding a WebSocket to Lighter with `account_all/{index}` for every account it owns,
-   and the Go or WASM signer.
-2. `POST /rounds` from the app carries the drawn shape (32 samples), stake, leverage,
-   exits, duration. The server re-derives the legs with the same `sketch.ts` code (share
-   the package) so the client cannot lie, then:
-   - **t=0**: MARKET IOC entry sized `floor(stake × leverage / mark, 5 dp)`, `price` =
-     mark ± slippage cap; batch a reduce-only STOP_LOSS and TAKE_PROFIT if exits are set.
-   - **each drawn turn**: MARKET IOC for `current + next` on the other side (a reversal),
-     or a close + open batch. Legs shorter than the speed bump collapse into their
-     neighbour.
-   - **time's up / "take it off"**: reduce-only MARKET IOC close, then cancel the
-     trigger orders.
-   - **liquidation**: the venue does it; the server sees the position go to zero on
-     `account_all_positions` and books it as `liquidated`.
-3. Book realised P&L from `account_all_trades` fills, not from the chart. The card is
-   painted from the booked number. The client's `settle()` becomes a preview only.
-4. Idempotency and recovery: `client_order_index` = round id + step; on restart,
-   reconcile open positions from `account_all_positions` and either resume or close.
-   Handle nonce gaps with `skip_nonce`. Handle Lighter's 429/405 and the 60-second
-   firewall cooldown by backing off per account.
-5. Limits the app must enforce before sending: notional ≥ $10, size step, leverage
-   ≤ 50×, no more than ~50 orders a minute per account.
-6. Rounds table becomes the "Rounds" sheet's source. Seeded fake rounds go.
+Next:
+
+1. Persist recent bars and ingestion checkpoints in PostgreSQL; restore on restart.
+   Proposed retention: 15-minute memory window and 24 hours of 500ms bars. These
+   retention increases are not yet implemented.
+2. Add bounded historical endpoints backed by a shared provider-request queue/cache.
+   Prefer matching Lighter history. Never derive fictional subsecond prices from a
+   minute candle or silently splice different markets/price types together.
+3. Add stream epochs, sequence cursors, gap recovery and atomic snapshot/live handoff.
+4. Load-test browser fan-out. Add Redis and multiple gateways when measurements warrant
+   them, with a single fenced ingestion owner per network/source.
+
+Acceptance: restart without losing recent history; reconnect without duplicates;
+provider requests do not scale with viewers; unavailable ranges remain explicit.
+See [the detailed market-data plan](docs/MARKET-DATA-PLAN.md).
+
+### Phase 5 — Trading engine and immediate UI feedback (partially implemented)
+
+Implemented:
+
+1. Bun trader with native signer, per-user keys, persistent rounds and venue fill P&L.
+   Reserve each account synchronously to block overlapping rounds.
+2. Compile the shape into durable queued intents with exact due times and expiries.
+   At dispatch, obtain current position/price concurrently and sign one target-position
+   order. Confirm the previous order before reversing; do not pre-sign stale deltas.
+3. Manual close or round end cancels future intents, waits for in-flight submission,
+   then sends a reduce-only close. Two reconciled flat snapshots are required before
+   reporting completion. A timeout keeps the round unresolved and blocks a new round.
+4. Remove fixed three-second settlement sleeps. Wake at the next scheduled boundary;
+   do not execute expired turns as catch-up orders. Restored unfinished rounds require
+   explicit recovery and never silently resume their queue.
+5. Push per-round snapshots/updates through server-sent events to the UI, with
+   heartbeat/reconnect and REST fallback. Show scheduled/submitting/awaiting-fill
+   states immediately while reserving B/S markers for confirmed fills.
+6. Record timing stages. Keep original chart anchor separate from venue execution
+   entry and keep local queue status separate from venue acknowledgement/fill status.
+
+Next, in priority order:
+
+1. Authenticate and authorize trading, close, history and event-stream requests per
+   wallet; encrypt stored trading keys. These are mainnet launch blockers.
+2. Consume authenticated Lighter account/order/fill WebSockets to replace REST on the
+   normal confirmation path; retain bounded REST reconciliation on gaps/disconnects.
+3. Evaluate WebSocket order submission using measured timing. Keep nonce serialization,
+   acknowledgement correlation and no-blind-retry behavior for uncertain submissions.
+4. Measure user-initiated click-to-fill/close p50/p95/p99, queue lateness and reconciliation
+   delay. Test partial fills, rate limits, uncertain acknowledgements, restart windows
+   and cancellations during submission before claiming production readiness.
+5. Verify venue-native stop/target orders and liquidation/funding behavior. Current
+   stop/target checks are server-managed; do not describe them as resting venue protection.
+
+Queued intents improve scheduling; they cannot remove exchange latency or guarantee
+liquidity. Preplacing all market orders would execute future turns too early, while
+resting limit/conditional orders would change the strategy's time-based semantics.
+See [execution details](docs/ORDER-EXECUTION.md).
 
 ### Phase 6 — Withdrawals, history, sharing (~1 week)
 

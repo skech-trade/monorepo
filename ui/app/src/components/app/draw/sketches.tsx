@@ -5,18 +5,24 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
 import { Sheet, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type Candle, type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
 import { legPath, type Outcome, type Pt } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 import { ClipPlayer } from "./clip-player";
 import { canRecordVideo, canShareFile, type Clip, copyPicture, saveBlob, shareOrSave, xPostUrl } from "@/lib/share";
 import { exportPng, recordClip, RoundCanvas } from "./round-card";
+import { PlayerCard } from "./player-card";
+import type { PlayerState } from "@/lib/social";
+import { DEFAULT_SHARE_STYLE, type ShareStyle } from "./share-style";
 import { postText } from "./round-copy";
 
 /** A sketch is a position you can look at. The list keeps the drawing. */
 export type Sketch = {
   id: string;
+  venueId?: string;
+  pnlReady?: boolean;
+  /** Public display name captured when the prediction was placed. */
+  author?: string;
   long: boolean;
   stake: number;
   leverage: number;
@@ -74,8 +80,10 @@ function XMark() {
 }
 
 /** The latest round as a card: the canvas, the buttons, nothing else. */
-function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; market: Market; streak: number; onNext?: () => void }) {
+function RoundCard({ sketch, market, streak, onNext, buddy }: { sketch: Sketch; market: Market; streak: number; onNext?: () => void; buddy?: ShareStyle["buddy"] }) {
   const [play, setPlay] = useState(0);
+  const [studio, setStudio] = useState(false);
+  const [style, setStyle] = useState<ShareStyle>({ ...DEFAULT_SHARE_STYLE, buddy: buddy ?? "blue" });
   const [busy, setBusy] = useState<"png" | "clip" | null>(null);
   const [done, setDone] = useState<string | null>(null);
   /** A recorded clip waits here for the click that saves or shares it. */
@@ -86,7 +94,7 @@ function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; market:
     const { url } = clip;
     return () => URL.revokeObjectURL(url);
   }, [clip]);
-  const text = postText(sketch, market, streak);
+  const text = postText(sketch, market, streak, style.showMoney);
 
   const say = (w: string) => {
     setDone(w);
@@ -98,7 +106,7 @@ function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; market:
     setBusy("png");
     setNote(null);
     try {
-      const blob = await exportPng(sketch, market, streak);
+      const blob = await exportPng(sketch, market, streak, style);
       say((await shareOrSave(blob, `skech-${market.symbol.toLowerCase()}-round.png`, text)) === "shared" ? "Shared" : "Saved");
     } catch (e) {
       if ((e as DOMException).name !== "AbortError") setNote("Couldn't make the picture here.");
@@ -117,7 +125,7 @@ function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; market:
     setNote(null);
     setPlay((n) => n + 1);
     try {
-      const made = await recordClip(sketch, market, streak);
+      const made = await recordClip(sketch, market, streak, style);
       setClip({ ...made, url: URL.createObjectURL(made.blob) });
     } catch {
       setNote("The recording didn't take. Try once more, or save a picture.");
@@ -156,30 +164,61 @@ function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; market:
       setNote("The post is open in a new tab. The clip is saved, drag it in.");
       return;
     }
-    const ok = await copyPicture(exportPng(sketch, market, streak));
+    const ok = await copyPicture(exportPng(sketch, market, streak, style));
     setNote(ok ? "The post is open in a new tab. The picture is on your clipboard, paste it in." : "The post is open in a new tab. Save the picture and drop it in.");
   };
 
   return (
-    <div className="flex flex-col gap-3 p-4">
+    <div className="flex flex-col gap-5 px-6 pb-6 pt-2 sm:px-7">
+      <div>
+        <p className="text-sm text-muted-foreground">Latest result · {market.name}</p>
+        <p className={cn("mt-2 text-5xl font-semibold tracking-[-0.045em] tabular-nums", sketch.net >= 0 ? "text-up" : "text-down")}>{signedUsd(sketch.net)}</p>
+        <p className="mt-2 text-sm text-muted-foreground">{sketch.outcome === "closed" ? "Closed early" : sketch.outcome === "stop" ? "Stop loss reached" : sketch.outcome === "target" ? "Take profit reached" : sketch.outcome === "liquidated" ? "Liquidated" : "Round complete"}</p>
+      </div>
       {/* The card is the whole story: what you see here is what gets posted. */}
-      <div className="overflow-hidden rounded-xl border">{clip ? <ClipPlayer src={clip.url} /> : <RoundCanvas market={market} play={play} sketch={sketch} streak={streak} />}</div>
+      <div className="overflow-hidden rounded-2xl bg-background/60">{!sketch.run?.length ? <p className="p-6 text-sm text-muted-foreground">Chart replay wasn’t saved for this round. The result comes from venue fills.</p> : clip ? <ClipPlayer src={clip.url} /> : <RoundCanvas chartOnly={!studio} style={style} market={market} play={play} sketch={sketch} streak={streak} />}</div>
+
+      <Button className="self-start" disabled={!sketch.run?.length || !sketch.pts.length} onClick={() => setStudio(!studio)} variant="outline" aria-expanded={studio}>
+        <Share2Icon /> {studio ? "Close card studio" : "Make it yours"}
+      </Button>
+      {studio ? (
+        <div className="space-y-4 rounded-2xl border bg-muted/30 p-4">
+          <div><p className="text-sm font-medium">Your share card</p><p className="mt-1 text-xs text-muted-foreground">{sketch.author ? `Made by ${sketch.author}` : "Guest prediction · set a display name after signing in."}</p></div>
+          <fieldset disabled={busy !== null || clip !== null} className="space-y-3 disabled:opacity-60">
+            <legend className="sr-only">Card appearance</legend>
+            <div className="flex flex-wrap items-center gap-2"><span className="mr-auto text-xs text-muted-foreground">Background</span>{(["night", "paper"] as const).map(theme => <Button key={theme} size="sm" variant={style.theme === theme ? "default" : "outline"} aria-pressed={style.theme === theme} onClick={() => setStyle(s => ({ ...s, theme }))}>{theme === "night" ? "Midnight" : "Paper"}</Button>)}</div>
+            <div className="flex flex-wrap items-center gap-2"><span className="mr-auto text-xs text-muted-foreground">Sketch buddy</span>{(["blue", "mint", "coral"] as const).map(buddy => <Button key={buddy} size="sm" variant={style.buddy === buddy ? "default" : "outline"} aria-pressed={style.buddy === buddy} onClick={() => setStyle(s => ({ ...s, buddy }))}>{buddy[0].toUpperCase() + buddy.slice(1)}</Button>)}</div>
+            <label className="flex items-center justify-between text-xs"><span>Include money amounts</span><input type="checkbox" checked={style.showMoney} onChange={e => setStyle(s => ({ ...s, showMoney: e.target.checked }))} className="size-4 accent-primary" /></label>
+          </fieldset>
+          {busy === "clip" ? <p role="status" className="text-xs text-muted-foreground">Making your replay… prediction, market, then result.</p> : <p className="text-xs text-muted-foreground">Preview above. Save a picture or make an animated clip below.</p>}
+        </div>
+      ) : null}
+      <dl className="grid grid-cols-3 gap-3 text-sm">
+        <div><dt className="text-xs text-muted-foreground">Size</dt><dd className="mt-1 font-medium tabular-nums">${usd(sketch.stake, 0)}</dd></div>
+        <div><dt className="text-xs text-muted-foreground">Boost</dt><dd className="mt-1 font-medium tabular-nums">{sketch.leverage}×</dd></div>
+        <div><dt className="text-xs text-muted-foreground">Return</dt><dd className="mt-1 font-medium tabular-nums">{sketch.stake > 0 ? `${sketch.net >= 0 ? "+" : ""}${(sketch.net / sketch.stake * 100).toFixed(2)}%` : "—"}</dd></div>
+      </dl>
+      {onNext ? (
+        <Button className="h-12 w-full rounded-full sm:h-12" onClick={onNext}>
+          New trade
+        </Button>
+      ) : null}
 
       {note ? <p className="text-muted-foreground text-xs">{note}</p> : null}
 
       {clip ? (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-center gap-1">
           <span className="mr-1 text-muted-foreground text-xs">Your clip, {clip.ext === "mp4" ? "MP4" : "WebM"}.</span>
-          <Button onClick={postOnX} size="sm">
+          <Button disabled={!sketch.run?.length || !sketch.pts.length} aria-label="Post on X" onClick={postOnX} size="sm" variant="ghost">
             <XMark />
-            Post on X
+            Post
           </Button>
-          <Button onClick={() => saveBlob(clip.blob, clipName)} size="sm" variant="outline">
+          <Button onClick={() => saveBlob(clip.blob, clipName)} size="sm" variant="ghost">
             <DownloadIcon />
             Save clip
           </Button>
           {canShareFile(clip.blob, clipName) ? (
-            <Button onClick={shareClip} size="sm" variant="outline">
+            <Button onClick={shareClip} size="sm" variant="ghost">
               {done ? <CheckIcon /> : <Share2Icon />}
               {done ?? "Share"}
             </Button>
@@ -194,130 +233,69 @@ function RoundCard({ sketch, market, streak, onNext }: { sketch: Sketch; market:
           >
             Back to the chart
           </Button>
-          {onNext ? (
-            <Button className="ml-auto" onClick={onNext} size="sm" variant="ghost">
-              New trade
-            </Button>
-          ) : null}
         </div>
       ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={postOnX} size="sm">
+        <div className="grid grid-cols-4 gap-2 [&>button]:h-10 [&>button]:rounded-full [&>button]:min-w-0 [&>button]:px-1 [&>button]:text-xs">
+          <Button disabled={!sketch.run?.length || !sketch.pts.length} aria-label="Post on X" onClick={postOnX} size="sm" variant="outline">
             <XMark />
-            Post on X
+            Post
           </Button>
-          <Button disabled={busy === "clip"} onClick={() => setPlay((n) => n + 1)} size="sm" variant="outline">
+          <Button disabled={busy === "clip" || !sketch.run?.length || !sketch.pts.length} onClick={() => setPlay((n) => n + 1)} size="sm" variant="outline">
             <PlayIcon />
             Replay
           </Button>
-          <Button disabled={busy !== null} loading={busy === "png"} onClick={picture} size="sm" variant="outline">
+          <Button disabled={busy !== null || !sketch.run?.length || !sketch.pts.length} loading={busy === "png"} onClick={picture} size="sm" variant="outline">
             {done ? <CheckIcon /> : <DownloadIcon />}
             {done ?? "Picture"}
           </Button>
-          <Button disabled={busy !== null} loading={busy === "clip"} onClick={record} size="sm" variant="outline">
+          <Button disabled={busy !== null || !sketch.run?.length || !sketch.pts.length} loading={busy === "clip"} onClick={record} size="sm" variant="outline">
             <FilmIcon />
             Clip
           </Button>
-          {onNext ? (
-            <Button className="ml-auto" onClick={onNext} size="sm" variant="ghost">
-              New trade
-            </Button>
-          ) : null}
         </div>
       )}
     </div>
   );
 }
 
-/** What became of a line, in as few words as it takes. */
-function Outcome({ sketch }: { sketch: Sketch }) {
-  if (sketch.status === "running") {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-        <span className="size-1.5 animate-pulse rounded-full bg-info" />
-        playing out
-      </span>
-    );
-  }
-  if (sketch.outcome === "liquidated") return <span className="text-warning-foreground">wiped out</span>;
-  if (sketch.right === undefined) return <span className="text-muted-foreground">{sketch.net >= 0 ? "called it" : "missed"}</span>;
-  return <span className="figures text-muted-foreground">right {Math.round(sketch.right * 100)}%</span>;
-}
-
-/** The same table the desk keeps positions in; the drawing in the first cell is the side. */
+/** Compact history keeps the result scannable on both desktop and phone. */
 function SketchList({ sketches, market }: { sketches: Sketch[]; market: Market }) {
-  const settled = sketches.filter((s) => s.status === "settled");
+  const settled = sketches.filter((s) => s.status === "settled" && s.pnlReady !== false);
   const total = settled.reduce((sum, s) => sum + s.net, 0);
-  const won = settled.filter((s) => s.net >= 0).length;
-  if (sketches.length === 0) {
-    return (
-      <Empty className="py-8 md:py-8">
-        <EmptyHeader>
-          <EmptyDescription>Nothing drawn yet.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
+  if (!sketches.length) return <Empty className="py-8"><EmptyHeader><EmptyDescription>Nothing drawn yet.</EmptyDescription></EmptyHeader></Empty>;
   return (
-    <Table className="text-xs">
-      <TableHeader>
-        <TableRow>
-          <TableHead className="pl-3">Line</TableHead>
-          <TableHead>Size</TableHead>
-          <TableHead className="hidden sm:table-cell">In at</TableHead>
-          <TableHead className="hidden sm:table-cell">Out at</TableHead>
-          <TableHead className="pr-3 text-right">Result</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
+    <section className="px-6 py-6 sm:px-7" aria-label="Round history">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Recent rounds</h3>
+        <span className="text-xs text-muted-foreground">{sketches.length} rounds</span>
+      </div>
+      <div className="divide-y divide-border/50">
         {sketches.map((s) => (
-          <TableRow key={s.id}>
-            <TableCell className="pl-3">
-              <SketchThumb className="h-7 w-12 shrink-0" sketch={s} />
-            </TableCell>
-            <TableCell className="figures whitespace-nowrap">
-              ${usd(s.stake, 0)} <span className="text-muted-foreground">at {s.leverage}×</span>
-            </TableCell>
-            <TableCell className="hidden figures whitespace-nowrap sm:table-cell">${fmtPrice(s.entry)}</TableCell>
-            <TableCell className="hidden figures whitespace-nowrap sm:table-cell">
-              {s.exit === undefined ? <span className="text-muted-foreground">open</span> : `$${fmtPrice(s.exit)}`}
-            </TableCell>
-            <TableCell className="whitespace-nowrap pr-3 text-right">
-              <span className={cn("figures font-medium", s.net >= 0 ? "text-up" : "text-down")}>{signedUsd(s.net)}</span>
-              <span className="ml-2">
-                <Outcome sketch={s} />
-              </span>
-            </TableCell>
-          </TableRow>
+          <div key={s.id} className="flex items-center gap-3 py-4">
+            <SketchThumb className="h-9 w-14 shrink-0 border-0 bg-muted/30" sketch={s} />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">{market.name}<span className="ml-2 text-xs font-normal text-muted-foreground">{s.leverage}×</span></p>
+              <p className="mt-1 text-xs text-muted-foreground tabular-nums">${usd(s.stake, 0)} · {new Date(s.placedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">${fmtPrice(s.entry)} → {s.exit === undefined ? (s.status === "settled" ? "Closed" : "Open") : `$${fmtPrice(s.exit)}`}</p>
+            </div>
+            <span className={cn("shrink-0 text-sm font-medium tabular-nums", s.net >= 0 ? "text-up" : "text-down")}>{s.status === "running" ? "Live" : s.pnlReady === false ? "Unreconciled" : signedUsd(s.net)}</span>
+          </div>
         ))}
-      </TableBody>
-      {settled.length > 0 ? (
-        <TableFooter>
-          <TableRow>
-            {/* Two cells, one per width: colSpan cannot be a media query. */}
-            <TableCell className="pl-3 text-muted-foreground sm:hidden" colSpan={2}>
-              {market.name} today, <span className="figures text-foreground">{won}</span> of <span className="figures text-foreground">{settled.length}</span> came good
-            </TableCell>
-            <TableCell className="hidden pl-3 text-muted-foreground sm:table-cell" colSpan={4}>
-              {market.name} today, <span className="figures text-foreground">{won}</span> of <span className="figures text-foreground">{settled.length}</span> came good
-            </TableCell>
-            <TableCell className="pr-3 text-right">
-              <span className={cn("figures font-medium", total >= 0 ? "text-up" : "text-down")}>{signedUsd(total)}</span>
-            </TableCell>
-          </TableRow>
-        </TableFooter>
-      ) : null}
-    </Table>
+      </div>
+      {settled.length ? <div className="mt-2 flex items-center justify-between rounded-xl bg-muted/40 px-4 py-3 text-sm"><span className="text-muted-foreground">Total result</span><span className={cn("font-semibold tabular-nums", total >= 0 ? "text-up" : "text-down")}>{signedUsd(total)}</span></div> : null}
+    </section>
   );
 }
 
 export function RoundsSheet({
+  social,
   open,
   onOpenChange,
   sketches,
   market,
   onNext,
 }: {
+  social: PlayerState;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sketches: Sketch[];
@@ -328,31 +306,29 @@ export function RoundsSheet({
   const latest = settled[0];
   const streak = streakOf(sketches);
   return (
-    <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetPopup className="sm:max-w-2xl" side="right" variant="inset">
-        <SheetHeader>
-          <SheetTitle>Rounds</SheetTitle>
+    <Sheet onOpenChange={(next, details) => {
+      // Market ticks and a release on the chart must not dismiss the result.
+      // Keep sharing open until the close button, Escape, or New trade.
+      if (!next && details.reason !== "close-press" && details.reason !== "escape-key") {
+        details.cancel();
+        return;
+      }
+      onOpenChange(next);
+    }} open={open}>
+      <SheetPopup className="bg-popover sm:max-w-lg" side="right" variant="inset">
+        <SheetHeader className="px-6 pt-7 pb-4 sm:px-7">
+          <SheetTitle className="text-lg font-semibold tracking-tight">Rounds</SheetTitle>
         </SheetHeader>
         <SheetPanel className="p-0">
           {latest ? (
             <div className="border-b">
-              <RoundCard market={market} onNext={onNext} sketch={latest} streak={streak} />
+              {latest.pnlReady === false ? <div className="space-y-4 px-6 pb-6"><p className="font-medium">Position closed</p><p className="text-sm text-muted-foreground">The original round’s fill history is incomplete. Its P&L is unavailable and excluded from the total.</p>{onNext?<Button className="w-full" onClick={onNext}>New trade</Button>:null}</div> : <RoundCard buddy={social.player?.buddy} key={latest.id} market={market} onNext={onNext} sketch={latest} streak={streak} />}
             </div>
           ) : null}
+          <PlayerCard social={social} />
           <SketchList market={market} sketches={sketches} />
         </SheetPanel>
       </SheetPopup>
     </Sheet>
   );
-}
-
-/** Two lines from earlier, so the list is reviewable. Mock, like every figure here. */
-export function seedSketches(market: Market): Sketch[] {
-  const e1 = market.price * 0.994;
-  const e2 = market.price * 1.003;
-  const shape = (entry: number, ms: number[]): Pt[] => ms.map((m, i) => ({ t: i / (ms.length - 1), price: entry * m }));
-  return [
-    { id: "seed-1", long: true, stake: 100, leverage: 5, entry: e1, pts: shape(e1, [1, 0.996, 0.992, 0.995, 1.002, 1.008, 1.012, 1.016]), placedAt: Date.now() - 3 * 3_600_000, status: "settled", net: 23.4, exit: e1 * 1.0047, right: 0.83 },
-    { id: "seed-2", long: false, stake: 50, leverage: 10, entry: e2, pts: shape(e2, [1, 1.003, 0.998, 0.993, 0.99, 0.986, 0.985]), placedAt: Date.now() - 55 * 60_000, status: "settled", net: -17.9, exit: e2 * 1.0036, right: 0.38 },
-  ];
 }

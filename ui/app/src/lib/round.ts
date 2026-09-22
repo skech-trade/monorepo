@@ -25,9 +25,22 @@ export const hasTrader = URL_TRADER !== "";
 
 export type VenueRound = {
   id: string;
-  status: "running" | "done";
+  status: "running" | "closing" | "done";
+  net: number | null;
+  pnlReady: boolean;
+  queue?: {dueAt:number;expiresAt:number;want:number;status:"queued"|"submitting"|"submitted"|"confirmed"|"cancelled"|"failed"}[];
+  exit?: number;
+  untracked?: boolean;
+  bars?: import("./market").Candle[];
+  fills?: {id:string;at:number;buy:boolean;price:number;size:number}[];
+  pts: Pt[];
+  stake: number;
+  leverage: number;
+  seconds: number;
+  startedAt: number;
   outcome: "time" | "stop" | "target" | "failed" | null;
   entry: number;
+  chartEntry?: number;
   /** The Lighter account it traded on, which is the drawer's own. */
   accountIndex: number;
   size: number;
@@ -135,9 +148,9 @@ export async function closeRound(id: string): Promise<VenueRound | null> {
 /**
  * Follow a round while it runs.
  *
- * Every two seconds, because the position is the venue's and it changes when
- * the venue says so, not when a timer here says it should have. Stops asking
- * once the round is done, so a settled screen is not still polling.
+ * The backend pushes snapshots and changes over server-sent events.
+ * REST polling is only a fallback when that stream is unavailable or stale.
+ * Neither transport turns an order acknowledgement into a confirmed fill.
  */
 export function useVenueRound(id: string | null): VenueRound | null {
   /* Kept with the id it belongs to, so switching rounds shows nothing rather
@@ -147,20 +160,50 @@ export function useVenueRound(id: string | null): VenueRound | null {
   useEffect(() => {
     if (!hasTrader || !id) return;
     let live = true;
+    let done = false;
+    let lastEvent = 0;
+    const events = new EventSource(`${URL_TRADER}/rounds/${id}/events`);
+    const accept = (round: VenueRound) => {
+      if(!live || round.id!==id)return;
+      setGot({id,round});
+      if(round.status==="done"){done=true;events.close();}
+    };
+    events.addEventListener("round",event=>{
+      try{lastEvent=Date.now();accept(JSON.parse((event as MessageEvent).data));}catch{}
+    });
+    events.addEventListener("heartbeat",()=>{lastEvent=Date.now();});
+    events.onerror=()=>{lastEvent=0;};
     let timer: ReturnType<typeof setTimeout> | null = null;
     const ask = async () => {
-      const res = await fetch(`${URL_TRADER}/rounds/${id}`).catch(() => null);
-      const round = res?.ok ? ((await res.json().catch(() => null)) as VenueRound | null) : null;
-      if (!live) return;
-      if (round) setGot({ id, round });
-      if (round?.status !== "done") timer = setTimeout(ask, 2000);
+      if(!live || done)return;
+      if(!lastEvent || Date.now()-lastEvent>25000){
+        const res=await fetch(`${URL_TRADER}/rounds/${id}`).catch(()=>null);
+        const round=res?.ok?await res.json().catch(()=>null):null;
+        // A delayed fallback response must not overwrite a newer pushed update.
+        if(round && (!lastEvent || Date.now()-lastEvent>25000))accept(round);
+      }
+      if(live && !done)timer=setTimeout(ask,1000);
     };
     void ask();
-    return () => {
-      live = false;
-      if (timer) clearTimeout(timer);
-    };
+    return()=>{live=false;events.close();if(timer)clearTimeout(timer);};
   }, [id]);
 
   return got && got.id === id ? got.round : null;
+}
+
+/** Durable venue history. Never seed a new account with example trades. */
+export function useVenueHistory(accountIndex:number|null) {
+  const [history,setHistory]=useState<{account:number;rounds:VenueRound[]}|null>(null);
+  useEffect(()=>{
+    if(accountIndex===null||!hasTrader)return;
+    let alive=true;
+    const load=async()=>{try {const res=await fetch(`${URL_TRADER}/rounds`);if(!res.ok)return;const data=await res.json();if(alive&&Array.isArray(data.rounds))setHistory({account:accountIndex,rounds:data.rounds.filter((r:VenueRound)=>r.accountIndex===accountIndex)});}catch{}};
+    void load();const timer=setInterval(load,2000);return()=>{alive=false;clearInterval(timer);};
+  },[accountIndex]);
+  return history?.account===accountIndex?history.rounds:[];
+}
+
+export async function closeExistingPosition(address:string):Promise<VenueRound> {
+  const res=await fetch(`${URL_TRADER}/positions/close`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({address})});
+  const data=await res.json();if(!res.ok||data.error)throw Error(data.error??"Could not confirm the close");return data;
 }

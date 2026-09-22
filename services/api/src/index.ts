@@ -10,6 +10,7 @@ import { hasDb, migrate, rename, sql, userFor } from "./db";
 import { CHAINS, Deposits, NATIVE, SEND_TO } from "./deposit";
 import { CAN_FAUCET, FAUCET_AMOUNT, askFaucet } from "./faucet";
 import { CAN_DEPOSIT, LIGHTER, NETWORK } from "./network";
+import { migrateSocial, settlePredictions, socialRoute } from "./social";
 import { Lighter } from "./lighter";
 
 const PORT = Number(process.env.PORT ?? 3230);
@@ -19,9 +20,18 @@ const deposits = new Deposits(LIGHTER);
 
 await migrate().catch((e) => console.error("migrate failed:", (e as Error).message));
 
+await migrateSocial().catch((e) => console.error("social migration failed:", (e as Error).message));
+let scoring = false;
+setInterval(async () => {
+  if (scoring) return;
+  scoring = true;
+  try { await settlePredictions(); } catch (e) { console.error("prediction scoring:", (e as Error).message); }
+  finally { scoring = false; }
+}, 3000);
+
 const cors = {
   "access-control-allow-origin": process.env.ALLOW_ORIGIN ?? "*",
-  "access-control-allow-headers": "content-type",
+  "access-control-allow-headers": "content-type, authorization",
   "access-control-allow-methods": "GET, POST, OPTIONS",
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...cors } });
@@ -34,6 +44,14 @@ Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+
+    if (url.pathname.startsWith("/social/")) {
+      try {
+        const response = await socialRoute(req);
+        for (const [key,value] of Object.entries(cors)) response.headers.set(key,value);
+        return response;
+      } catch { return json({ error: "Player service unavailable. Please try again." },503); }
+    }
 
     if (url.pathname === "/health") {
       let db = "not configured";

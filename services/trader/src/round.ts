@@ -45,7 +45,11 @@ export class Trader {
    */
   async goTo(m: MarketInfo, want: number, opts: { cap?: number; slippage?: number; clientOrderIndex?: bigint } = {}) {
     const { cap, slippage = 0.01, clientOrderIndex = BigInt(Date.now() % 2 ** 31) } = opts;
-    const have = (await this.venue.positionIn(this.accountIndex, m.id))?.size ?? 0;
+    const [position, currentMarket] = await Promise.all([
+      this.venue.positionIn(this.accountIndex, m.id),
+      this.venue.market(m.id),
+    ]);
+    const have = position?.size ?? 0;
     const delta = sizeStep(m, Math.abs(want - have)) * Math.sign(want - have);
     if (delta === 0) return null;
     /*
@@ -67,7 +71,7 @@ export class Trader {
       }
     }
     const isAsk = delta < 0;
-    const mark = (await this.venue.market(m.id)).last;
+    const mark = currentMarket.last;
     if (!tradeable(m, Math.abs(delta), mark)) return null;
     const worst = priceUnits(m, mark * (isAsk ? 1 - slippage : 1 + slippage));
     const tx = this.signer.createOrder({
@@ -81,13 +85,16 @@ export class Trader {
     return this.send(tx, TX.createOrder);
   }
 
+  /** Read-only account history token; never returned to the browser. */
+  readToken() { return this.signer.authToken(BigInt(Math.floor(Date.now()/1000)+600)); }
+
   /** The size a round opens at: the stake, boosted, in BTC at the mark. */
   sizeFor(t: Ticket, mark: number) {
     return (t.stake * t.leverage) / mark;
   }
 
   /** Close whatever is open, reduce-only so it can never flip by accident. */
-  async flatten(m: MarketInfo, cap?: number) {
-    return this.goTo(m, 0, { cap });
+  async flatten(m: MarketInfo, cap?: number, clientOrderIndex?: bigint) {
+    return this.goTo(m, 0, { cap, clientOrderIndex });
   }
 }

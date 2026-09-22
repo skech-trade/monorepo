@@ -13,6 +13,7 @@
 
 import { Lighter } from "./lighter";
 import { Keys } from "./keys";
+import { RoundStore } from "./round-store";
 import { Rounds, type RoundSpec, type Who } from "./rounds";
 import { ACCOUNT, API_KEY_INDEX, BASE, CHAIN_ID, MARKET_ID, NETWORK, PRIVATE_KEY } from "./network";
 import { Trader } from "./round";
@@ -48,7 +49,11 @@ const cors = {
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...cors } });
 
-const rounds = new Rounds(venue, MARKET_ID);
+const store = new RoundStore(NETWORK);
+let storeReady = false;
+await store.ready().then(()=>{storeReady=true;}).catch(()=>console.error("trade history storage unavailable"));
+const rounds = new Rounds(venue, MARKET_ID, {save: round => store.save(round)});
+if(storeReady) for(const round of await store.all()) rounds.restore(round);
 const keys = new Keys(venue, CHAIN_ID, BASE);
 await keys.ready().catch((e) => console.error("keys table:", (e as Error).message.slice(0, 120)));
 
@@ -81,6 +86,7 @@ const clamp = (v: unknown, min: number, max: number, fallback: number) => {
 
 Bun.serve({
   port: PORT,
+  idleTimeout: 30,
   async fetch(req) {
     const url = new URL(req.url);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -116,6 +122,7 @@ Bun.serve({
       outlives the tab that drew it.
     */
     if (url.pathname === "/rounds" && req.method === "POST") {
+      if(!storeReady) return json({error:"Trade history storage unavailable. Try again once the database is connected."},503);
       const body = (await req.json().catch(() => ({}))) as Partial<RoundSpec> & { address?: string };
       const at = (body.address ?? "").toLowerCase();
       if (!/^0x[0-9a-f]{40}$/.test(at)) return json({ error: "address required" }, 400);
@@ -190,6 +197,38 @@ Bun.serve({
       return json({ registered: held !== null, accountIndex: held?.accountIndex ?? null });
     }
 
+    if(url.pathname === "/positions/close" && req.method === "POST") {
+      const body=await req.json() as {address?:string};
+      if(!/^0x[0-9a-fA-F]{40}$/.test(body.address??""))return json({error:"Address required"},400);
+      try {const who=await whoIs(body.address!);if(!who)return json({error:"No trading key"},409);return json(await rounds.closeExisting(who));}
+      catch(error){return json({error:(error as Error).message},400);}
+    }
+
+    const events = url.pathname.match(/^\/rounds\/([^/]+)\/events$/);
+    if(events && req.method === "GET") {
+      if(!rounds.get(events[1]))return json({error:"Round not found"},404);
+      let dispose=()=>{};
+      const body=new ReadableStream<Uint8Array>({
+        start(controller){
+          const encoder=new TextEncoder();let ended=false;
+          let unsubscribe=()=>{};let heartbeat:ReturnType<typeof setInterval>|undefined;
+          const abort=()=>dispose();
+          dispose=()=>{if(ended)return;ended=true;unsubscribe();clearInterval(heartbeat);req.signal.removeEventListener("abort",abort);try{controller.close();}catch{}};
+          const send=(event:string,data:unknown)=>{
+            if(ended)return;
+            // A slow browser reconnects for a snapshot instead of growing an unbounded queue.
+            if((controller.desiredSize??0)<0){dispose();return;}
+            try{controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));}catch{dispose();}
+          };
+          unsubscribe=rounds.subscribe(events[1],round=>send("round",round));
+          heartbeat=setInterval(()=>send("heartbeat",{}),10000);
+          req.signal.addEventListener("abort",abort,{once:true});
+          if(req.signal.aborted)dispose();
+        },cancel(){dispose();},
+      });
+      return new Response(body,{headers:{...cors,"content-type":"text/event-stream","cache-control":"no-cache, no-transform","x-accel-buffering":"no"}});
+    }
+
     /** How a round is going, and how it went. Polled by the page while it runs. */
     if (url.pathname.startsWith("/rounds/") && req.method === "GET") {
       const round = rounds.get(url.pathname.slice("/rounds/".length));
@@ -199,12 +238,20 @@ Bun.serve({
     /** Out now, at the market. The header's "Close trade". */
     if (url.pathname.endsWith("/close") && req.method === "POST") {
       const id = url.pathname.slice("/rounds/".length, -"/close".length);
+      const held = rounds.get(id);
+      if(held && held.status!=="done") {
+        const account = await venue.addressForAccount(held.accountIndex);
+        const who = await whoIs(account);
+        if(who) rounds.attach(id,who);
+      }
       const round = await rounds.close(id);
       return round ? json(round) : json({ error: "no such round" }, 404);
     }
 
     if (url.pathname === "/rounds" && req.method === "GET") {
-      return json({ rounds: rounds.all() });
+      const records=new Map((storeReady?await store.all():[]).map(r=>[r.id,r]));
+      for(const r of rounds.all())records.set(r.id,r);
+      return json({ rounds: [...records.values()].sort((a,b)=>b.startedAt-a.startedAt) });
     }
 
     return json({ error: "not found" }, 404);

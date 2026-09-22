@@ -1,3 +1,4 @@
+import type { Fill } from "./pnl";
 /** Lighter's REST surface, only the parts a round needs. */
 
 export type MarketInfo = { id: number; symbol: string; sizeDecimals: number; priceDecimals: number; minBase: number; minQuote: number; last: number };
@@ -12,7 +13,7 @@ export class Lighter {
   constructor(private readonly base: string) {}
 
   private async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.base}${path}`);
+    const res = await fetch(`${this.base}${path}`, {signal:AbortSignal.timeout(10000)});
     if (!res.ok) throw new Error(`lighter ${path}: ${res.status} ${(await res.text()).slice(0, 160)}`);
     return (await res.json()) as T;
   }
@@ -39,7 +40,8 @@ export class Lighter {
 
   async account(index: number | bigint): Promise<{ collateral: number; positions: PositionInfo[] }> {
     const d = await this.get<{ accounts: Record<string, unknown>[] }>(`/api/v1/account?by=index&value=${index}`);
-    const a = d.accounts?.[0] ?? {};
+    const a = d.accounts?.[0];
+    if (!a || !Number.isFinite(Number(a.collateral))) throw Error("Account data unavailable");
     const raw = (a.positions ?? []) as Record<string, unknown>[];
     return {
       collateral: asNum(a.collateral),
@@ -72,6 +74,27 @@ export class Lighter {
 
   async positionIn(index: number | bigint, marketId: number): Promise<PositionInfo | null> {
     return (await this.account(index)).positions.find((p) => p.marketId === marketId) ?? null;
+  }
+
+  async addressForAccount(index:number) {
+    const data=await this.get<{accounts:{l1_address:string}[]}>(`/api/v1/account?by=index&value=${index}`);
+    if(!data.accounts?.[0]?.l1_address)throw Error("Account unavailable");
+    return data.accounts[0].l1_address;
+  }
+  async fills(index: number, market: number, authorization: string, since: number): Promise<Fill[]> {
+    const all: Fill[] = [];
+    let cursor: string | undefined;
+    for (let page=0; page<20; page++) {
+      const query = new URLSearchParams({account_index:String(index),market_id:String(market),sort_by:"timestamp",sort_dir:"desc",limit:"100"});
+      if(cursor) query.set("cursor",cursor);
+      const response = await fetch(`${this.base}/api/v1/trades?${query}`, {headers:{Authorization:authorization},signal:AbortSignal.timeout(10000)});
+      const data = await response.json() as {code:number; trades?:Fill[]; next_cursor?:string};
+      if (!response.ok || data.code!==200 || !Array.isArray(data.trades)) throw Error("Fill history unavailable");
+      all.push(...data.trades);
+      if (!data.next_cursor || !data.trades.length || data.trades.at(-1)!.timestamp < since) return all;
+      cursor=data.next_cursor;
+    }
+    throw Error("Fill history incomplete; reconciliation pending");
   }
 
   /**

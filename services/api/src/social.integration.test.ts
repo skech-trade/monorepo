@@ -1,0 +1,50 @@
+import { expect, test } from "bun:test";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+
+test.skipIf(!process.env.SOCIAL_TEST_DATABASE_URL)("claims and points resist duplicate claims, forged signatures and repeated settlement",async()=>{
+  process.env.DATABASE_URL=process.env.SOCIAL_TEST_DATABASE_URL;
+  let bars=[{t:Math.floor(Date.now()/500)/2,o:100,c:100}];
+  const feed=Bun.serve({port:0,fetch:()=>Response.json({intervalMs:500,bars})});
+  process.env.SOCIAL_FEED_URL=`http://localhost:${feed.port}`;
+  const {migrateSocial,socialRoute,settlePredictions}=await import("./social");
+  const {sql}=await import("./db");
+  const wallet=privateKeyToAccount(generatePrivateKey());
+  const other=privateKeyToAccount(generatePrivateKey());
+  const call=async(path:string,body?:unknown,token?:string)=>socialRoute(new Request(`http://localhost/social/${path}`,{method:body===undefined?"GET":"POST",headers:{"content-type":"application/json",...(token?{authorization:`Bearer ${token}`}:{})},body:body===undefined?undefined:JSON.stringify(body)}));
+  type Data = {id:string; message:string; token:string; profile:{points:number;username:string}; buddy:string; points:number; level:number; achievements:string[]; completed:number};
+  const data=async(r:Promise<Response>):Promise<Data> => await (await r).json() as Data;
+  try{
+    if(!new URL(process.env.SOCIAL_TEST_DATABASE_URL!).pathname.startsWith("/skech_social_test"))throw Error("Use an isolated skech_social_test database");
+    await migrateSocial();
+    await sql!`TRUNCATE social_points, social_predictions, social_sessions, social_challenges, social_profiles RESTART IDENTITY CASCADE`;
+    const challenge=await data(call("challenge",{address:wallet.address,username:"artist_one"}));
+    const bad=await other.signMessage({message:challenge.message});
+    expect((await call("claim",{id:challenge.id,signature:bad})).status).toBe(401);
+    const signature=await wallet.signMessage({message:challenge.message});
+    const claimed=await data(call("claim",{id:challenge.id,signature}));
+    expect(claimed.profile.points).toBe(50);expect(claimed.profile.username).toBe("artist_one");
+    expect((await call("claim",{id:challenge.id,signature})).status).toBe(401);
+    expect((await call("challenge",{address:other.address,username:"ARTIST_ONE"})).status).toBe(409);
+    expect((await call("me")).status).toBe(401);
+    const token=claimed.token;
+    await call("buddy",{buddy:"coral"},token);
+    expect((await data(call("me",undefined,token))).buddy).toBe("coral");
+    const body={pts:[{t:0,price:100},{t:1,price:110}],seconds:10,points:999999};
+    expect((await call("predictions",body)).status).toBe(401);
+    const registered=await data(call("predictions",body,token));expect(registered.id).toBeString();
+    expect((await call("predictions",body,token)).status).toBe(409);
+    const start=Math.floor((Date.now()-15000)/500)*500;
+    await sql!`UPDATE social_predictions SET starts_at=${start} WHERE id=${registered.id}`;
+    bars=Array.from({length:20},(_,i)=>({t:start/1000+i*.5,o:100+i,c:101+i}));
+    await settlePredictions();await settlePredictions();
+    const result=await data(call("me",undefined,token));
+    expect(result.points).toBe(110);expect(result.level).toBe(2);
+    expect(result.achievements).toContain("first_prediction");expect(result.achievements).toContain("sharp_eye");
+    expect(result.completed).toBe(1);
+    const reconnect=await data(call("challenge",{address:wallet.address,username:"artist_one"}));
+    const again=await data(call("claim",{id:reconnect.id,signature:await wallet.signMessage({message:reconnect.message})}));
+    expect(again.profile.points).toBe(110);
+    await sql!`UPDATE social_sessions SET expires_at=now()-interval '1 second'`;
+    expect((await call("me",undefined,again.token)).status).toBe(401);
+  }finally{feed.stop(true);await sql?.close();}
+});

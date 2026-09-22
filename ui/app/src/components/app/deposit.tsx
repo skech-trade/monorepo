@@ -68,7 +68,7 @@ function Line({ quote, busy, typed, ready }: { quote: DepositQuote | null; busy:
  * faucet turns out to take a plain address, so the button does it, and the
  * screen is a button rather than three paragraphs about testnet.
  */
-function Testnet({ address, onDone }: { address: string | null; onDone: () => void }) {
+function Testnet({ address, onDone, amount = 10000, available = true }: { address: string | null; onDone: () => void; amount?: number; available?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
   const [worked, setWorked] = useState(false);
@@ -88,21 +88,24 @@ function Testnet({ address, onDone }: { address: string | null; onDone: () => vo
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button disabled={!address || busy} loading={busy} onClick={() => void ask()}>
-          Get $10,000
-        </Button>
-        {address ? <CopyAddress address={address} className="text-muted-foreground text-xs" /> : null}
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-primary/20 bg-primary/5 p-7">
+        <span className="rounded-full border border-primary/20 px-2.5 py-1 text-xs font-medium text-primary">TESTNET</span>
+        <p className="mt-6 text-4xl font-semibold tracking-tight tabular-nums">${usd(amount)}</p>
+        <p className="mt-2 text-sm text-muted-foreground">Practice funds. No real money needed.</p>
       </div>
-      {said ? <p className={cn("text-xs leading-snug", worked ? "text-up" : "text-muted-foreground")}>{said}</p> : null}
+      <div className="space-y-3"><p className="text-sm font-medium">Get a feel for Skech.</p><p className="text-sm leading-relaxed text-muted-foreground">Draw your first prediction and explore the trading experience with test funds. They have no cash value.</p></div>
+      <Button className="h-12 sm:h-12 w-full" disabled={!address || busy || !available} loading={busy} onClick={() => void ask()}>{worked ? "Request again" : `Get $${usd(amount)} in test funds`}</Button>
+      {!available ? <p className="text-sm text-muted-foreground">Test funds are temporarily unavailable.</p> : null}
+      {said ? <p role="status" className={cn("rounded-xl border p-3 text-sm leading-relaxed", worked ? "text-up" : "text-muted-foreground")}>{said}</p> : null}
+      {address ? <div className="flex items-center justify-between gap-2 border-t pt-4"><span className="text-xs text-muted-foreground">Your wallet</span><CopyAddress address={address} className="text-xs"/></div> : null}
     </div>
   );
 }
 
 export function DepositSheet({ address, open, onOpenChange, onDone }: { address: string | null; open: boolean; onOpenChange: (open: boolean) => void; onDone: () => void }) {
   const chains = useDepositChains();
-  const found = useDepositAddress(address);
+  const {found, error, retry} = useDepositAddress(address);
   const off = found && "canDeposit" in found && found.canDeposit === false ? (found as NoDeposits) : null;
   const deposit = off ? null : (found as Exclude<typeof found, NoDeposits> | null);
   /* Sending from the skech wallet is the second way, not the first: a wallet
@@ -152,23 +155,24 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
 
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetPopup className="sm:max-w-sm" side="right" variant="inset">
-        <SheetHeader>
-          <SheetTitle>{off ? "Test money" : "Add money"}</SheetTitle>
-          <SheetDescription>{off ? "Free on testnet. One press and Lighter funds your account." : "Whatever you are holding, wherever it is. It lands as collateral on Lighter."}</SheetDescription>
+      <SheetPopup className="sm:max-w-md" side="right" variant="inset">
+        <SheetHeader className="px-6 pt-8 sm:px-8">
+          <SheetTitle className="text-3xl font-semibold tracking-tight">{off ? "Room to explore." : "Add funds."}</SheetTitle>
+          <SheetDescription>{off ? "Your first prediction starts here." : "Choose how you’d like to fund your Lighter account."}</SheetDescription>
         </SheetHeader>
-        <SheetPanel className="flex flex-col gap-4">
-          {off ? <Testnet address={address} onDone={onDone} /> : null}
-          {deposit && !bridging ? (
+        <SheetPanel className="flex flex-col gap-6 px-6 pb-8 sm:px-8">
+          {!found ? error ? <div role="status" className="space-y-4 rounded-2xl border p-5"><p className="text-sm text-muted-foreground">{error}</p>{address ? <Button variant="outline" onClick={retry}>Try again</Button> : null}</div> : <div role="status" className="rounded-2xl border p-8 text-center text-sm text-muted-foreground">Loading your funding options…</div> : null}
+          {off ? <Testnet address={address} onDone={onDone} amount={off.amount} available={off.canFaucet !== false}/> : null}
+          {deposit && (!bridging || deposit.network !== "mainnet") ? (
             <>
               <DepositAddress address={deposit.address} chains={deposit.chains} minimum={deposit.minimum} network={deposit.network} />
-              <Button className="w-full" onClick={() => setBridging(true)} variant="outline">
-                Or send from this wallet
-              </Button>
+              {deposit.network === "mainnet" ? <Button className="h-12 sm:h-12 w-full" onClick={() => setBridging(true)} variant="outline">
+                Send from my Skech wallet
+              </Button> : null}
             </>
           ) : null}
 
-          {off || (deposit && !bridging) ? null : (
+          {!deposit || deposit.network !== "mainnet" || off || !bridging ? null : (
           <>
           {deposit ? (
             <Button className="-mt-1 self-start" onClick={() => setBridging(false)} size="xs" variant="ghost">
@@ -215,25 +219,28 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
             </div>
           </div>
 
+          <label className="space-y-2 text-sm font-medium">Amount
           <Input
+            className="h-16 text-2xl tabular-nums"
             autoComplete="off"
             inputMode="decimal"
             onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
             placeholder={native ? "0.01" : "25"}
             value={amount}
           />
+          </label>
 
           <Line busy={busy} quote={quote} ready={chains.length > 0} typed={smallest !== null} />
 
           {problem ? <p className="text-down text-xs">{problem}</p> : null}
           {sent ? <p className="text-muted-foreground text-xs">Sent. It shows up as collateral once it lands.</p> : null}
 
-          <Button className={cn("w-full")} disabled={!quote || sending} loading={sending} onClick={() => void send()}>
-            {quote ? `Add $${usd(Number(quote.outAmount))}` : "Add money"}
+          <Button className="h-12 sm:h-12 w-full" disabled={!quote || busy || sending} loading={sending} onClick={() => void send()}>
+            {quote ? `Add $${usd(Number(quote.outAmount))}` : "Enter an amount"}
           </Button>
 
           <p className="text-muted-foreground text-xs leading-snug">
-            Whatever is in this wallet, turned into collateral in one go. If you have never used Lighter, this makes the account.
+            Review the amount above before confirming in your wallet. Funds arrive as USDC collateral on Lighter.
           </p>
           </>
           )}

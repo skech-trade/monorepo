@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { marketFor, positionsFor } from "@/lib/market";
+import { marketFor } from "@/lib/market";
 import { Terminal } from "@/components/app/terminal";
 
 /**
@@ -29,5 +29,5 @@ export default async function TokenPage({ params }: Props) {
   const market = marketFor(token);
   if (!market) notFound();
 
-  return <Terminal market={market} positions={positionsFor(market)} />;
+  return <Terminal market={market} />;
 }

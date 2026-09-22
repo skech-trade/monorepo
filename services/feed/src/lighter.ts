@@ -7,7 +7,7 @@
  * we would never reach.
  */
 
-import { type Bar, Bars, type Trade } from "./bars";
+import { type Bar, Bars, CANDLE_MS, secondOf, type Trade } from "./bars";
 
 export type Stats = {
   /** What the venue liquidates on. P&L is marked against this, not the last trade. */
@@ -33,6 +33,8 @@ export type FeedOptions = {
   url: string;
   marketId: number;
   keep?: number;
+  /** Mark observations are real venue prices, with no traded volume. */
+  priceSource?: "trades" | "mark";
   onBar?: (bar: Bar) => void;
   onStats?: (stats: Stats) => void;
 };
@@ -58,11 +60,24 @@ export class LighterFeed {
   private wait = 500;
   private shut = false;
   private clock: ReturnType<typeof setInterval> | null = null;
+  private pending = new Map<number, Bar>();
+  private pingAt = 0;
+  private priceAt = 0;
+  private readonly seenTrades = new Set<string>();
   /** When the socket last said anything at all. */
   private heard = Date.now();
 
   constructor(private readonly opts: FeedOptions) {
-    this.bars = new Bars(opts.keep ?? 600);
+    this.bars = new Bars(opts.keep ?? 1200);
+  }
+
+  get connected() {
+    return this.ws?.readyState === WebSocket.OPEN && Date.now() - this.heard < SILENCE_MS && (this.priceAt > 0 && Date.now() - this.priceAt < SILENCE_MS);
+  }
+
+  private flush() {
+    for (const bar of this.pending.values()) this.opts.onBar?.({ ...bar });
+    this.pending.clear();
   }
 
   start() {
@@ -71,9 +86,18 @@ export class LighterFeed {
     // A market with no prints still has to produce a bar a second.
     this.clock ??= setInterval(() => {
       const before = this.bars.open?.t;
-      this.bars.tick();
+      if(this.connected) this.bars.tick();
       const head = this.bars.open;
-      if (head && head.t !== before) this.opts.onBar?.(head);
+      if (head && head.t !== before) {
+        for (const bar of this.bars.all()) {
+          if (before === undefined || bar.t >= before) this.pending.set(bar.t, bar);
+        }
+      }
+      this.flush();
+      if (this.ws?.readyState === WebSocket.OPEN && Date.now() - this.pingAt >= 30_000) {
+        this.ws.send(JSON.stringify({ type: "ping" }));
+        this.pingAt = Date.now();
+      }
       /*
         Bitcoin prints many times a second, so half a minute of silence is
         not a quiet market, it is a dead socket. Closing it makes the close
@@ -84,12 +108,13 @@ export class LighterFeed {
         this.heard = Date.now();
         this.ws?.close();
       }
-    }, 1000);
+    }, CANDLE_MS);
   }
 
   stop() {
     this.shut = true;
     if (this.clock) clearInterval(this.clock);
+    this.pending.clear();
     this.clock = null;
     this.ws?.close();
     this.ws = null;
@@ -102,12 +127,14 @@ export class LighterFeed {
     ws.addEventListener("open", () => {
       this.wait = 500;
       this.heard = Date.now();
+      this.pingAt = Date.now();
       ws.send(JSON.stringify({ type: "subscribe", channel: `trade/${this.opts.marketId}` }));
       ws.send(JSON.stringify({ type: "subscribe", channel: `market_stats/${this.opts.marketId}` }));
     });
     ws.addEventListener("message", (e) => {
       this.heard = Date.now();
       this.take(String(e.data));
+      this.flush();
     });
     ws.addEventListener("close", () => this.again());
     ws.addEventListener("error", () => ws.close());
@@ -127,18 +154,31 @@ export class LighterFeed {
     } catch {
       return;
     }
+    if(m.type === "ping") {this.ws?.send(JSON.stringify({type:"pong"}));return;}
     const channel = typeof m.channel === "string" ? m.channel : "";
     if (channel.startsWith("trade")) {
+      if (this.opts.priceSource === "mark") return;
       const trades = Array.isArray(m.trades) ? (m.trades as Record<string, unknown>[]) : [];
       // Oldest first, so a snapshot of fifty builds the series in order.
       const sorted = trades
+        .filter(t=>{
+          const id=String(t.trade_id_str??t.trade_id??"");
+          if(!id)return true;
+          if(this.seenTrades.has(id))return false;
+          this.seenTrades.add(id);
+          if(this.seenTrades.size>10000)this.seenTrades.delete(this.seenTrades.values().next().value!);
+          return true;
+        })
         .map<Trade>((t) => ({ price: num(t.price), size: num(t.size), at: num(t.timestamp) }))
         .filter((t) => t.price > 0 && t.at > 0)
         .sort((a, b) => a.at - b.at);
+      if (sorted.length) this.priceAt = Date.now();
       const was = this.bars.open?.t;
       for (const t of sorted) this.bars.add(t);
-      const head = this.bars.open;
-      if (head && head.t !== was) this.opts.onBar?.(head);
+      const firstTouched = sorted.length ? secondOf(sorted[0].at) : Infinity;
+      for (const bar of this.bars.all()) {
+        if (was === undefined || bar.t >= Math.min(was, firstTouched)) this.pending.set(bar.t, bar);
+      }
       return;
     }
     if (channel.startsWith("market_stats")) {
@@ -156,6 +196,14 @@ export class LighterFeed {
         volume: num(s.daily_quote_token_volume),
         at: Date.now(),
       };
+      if (this.opts.priceSource === "mark") {
+        this.priceAt = this.stats.at;
+        const before = this.bars.open?.t;
+        this.bars.add({ price: mark, size: 0, at: this.priceAt });
+        for (const bar of this.bars.all()) {
+          if (before === undefined || bar.t >= before) this.pending.set(bar.t, bar);
+        }
+      }
       this.opts.onStats?.(this.stats);
     }
   }

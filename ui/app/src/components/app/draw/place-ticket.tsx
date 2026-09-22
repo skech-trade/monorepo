@@ -28,6 +28,9 @@ export function PlaceTicket({
   onPlace,
   onDrawAgain,
   onCloseNow,
+  unavailableReason,
+  recovery,
+  closing = false,
   className,
 }: {
   market: Market;
@@ -43,6 +46,9 @@ export function PlaceTicket({
   onPlace: () => void;
   onDrawAgain: () => void;
   onCloseNow: () => void;
+  unavailableReason?: string;
+  recovery?: { onClose: () => void; pending: boolean };
+  closing?: boolean;
   className?: string;
 }) {
   /*
@@ -73,17 +79,15 @@ export function PlaceTicket({
           first because they are the ones you leave alone most rounds. */}
       {settings ? (
         <>
-          <ExitControls exits={exits} onExits={onExits} stake={stake} />
+          {ready ? <ExitControls exits={exits} onExits={onExits} stake={stake} /> : null}
           {/* To the right of the button on a phone, mirroring rounds and the
               tools drawer on its left. */}
           <DrawControls className="max-sm:order-3" leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} />
         </>
       ) : null}
 
-      {/* A line you have decided against needs an exit that is not the eraser
-          in the far rail. Present and dim before there is one, like the button
-          beside it, so the row does not rearrange itself mid-decision. */}
-      {settings ? (
+      {/* Reset appears once there is a prediction to clear. */}
+      {settings && ready ? (
         <Button className="hidden md:inline-flex" disabled={!ready} onClick={onDrawAgain} variant="ghost">
           Draw again
         </Button>
@@ -91,13 +95,17 @@ export function PlaceTicket({
 
       {/*
         Always present and dim until there is a line, so the row does not rearrange under the hand.
-        Blue, because green and red mean money here.
+        Monochrome, matching the primary actions on skech.trade.
       */}
-      {settings ? (
+      {recovery ? (
+        <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" disabled={recovery.pending} onClick={recovery.onClose}>
+          {recovery.pending ? "Closing…" : <><span className="sm:hidden">Close position</span><span className="max-sm:hidden">Close open position</span></>}
+        </Button>
+      ) : settings ? (
         ready ? (
           <Popover>
-            <PopoverTrigger delay={250} openOnHover render={<Button className="border-info bg-info text-white shadow-info/24 hover:bg-info/90 max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" onClick={onPlace} />}>
-              {label}
+            <PopoverTrigger delay={250} openOnHover render={<Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" disabled={!!unavailableReason} onClick={onPlace} />}>
+              {unavailableReason ?? label}
             </PopoverTrigger>
             <PopoverPopup align="end" className="w-auto max-w-xs px-3 py-2">
               <p className="text-sm">
@@ -111,8 +119,8 @@ export function PlaceTicket({
             </PopoverPopup>
           </Popover>
         ) : (
-          <Button className="border-info bg-info text-white shadow-info/24 max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" disabled>
-            {label}
+          <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" disabled>
+            {unavailableReason ?? <><span className="sm:hidden">Draw to Trade</span><span className="max-sm:hidden">Draw a prediction first</span></>}
           </Button>
         )
       ) : null}
@@ -120,17 +128,17 @@ export function PlaceTicket({
       {/* Plainly what it does, like the button that opened it. "Take it off
           now" is how a desk talks about a position; this is the control that
           ends a trade, so it says so. */}
-      {phase === "running" ? (
-        <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" onClick={onCloseNow} variant="outline">
-          Close trade
+      {!recovery && phase === "running" ? (
+        <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" disabled={closing} onClick={onCloseNow} variant="outline">
+          {closing ? "Confirming close…" : "Close trade"}
         </Button>
       ) : null}
 
       {/* The same slot as "Close trade", so it says the same kind of thing:
           what pressing it gets you, in the words the rest of the screen uses
           for trades. */}
-      {phase === "settled" ? (
-        <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" onClick={onDrawAgain} variant="outline">
+      {!recovery && phase === "settled" ? (
+        <Button className="max-sm:order-2 max-sm:h-13 max-sm:min-w-0 max-sm:flex-[2] max-sm:text-base" onClick={onDrawAgain}>
           New trade
         </Button>
       ) : null}

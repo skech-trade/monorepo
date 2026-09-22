@@ -1,7 +1,9 @@
 "use client";
 
+import { CANDLE_SECONDS } from "@/lib/feed";
+
 import { Button } from "@/components/ui/button";
-import { type Market, price as fmtPrice, signedUsd, usd } from "@/lib/market";
+import { type Market, price as fmtPrice } from "@/lib/market";
 import type { Quote, Shape } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 import type { Phase } from "./sketch-canvas";
@@ -12,11 +14,6 @@ import type { Sketch } from "./sketches";
 /** A figure inside a sentence. */
 function F({ children, tone }: { children: React.ReactNode; tone?: string }) {
   return <span className={cn("figures text-foreground", tone)}>{children}</span>;
-}
-
-/** The one figure that leads a line. */
-function Lead({ children, tone }: { children: React.ReactNode; tone?: string }) {
-  return <span className={cn("figures shrink-0 font-semibold text-xl leading-none", tone)}>{children}</span>;
 }
 
 export function SketchBar({
@@ -84,43 +81,7 @@ export function SketchBar({
   }
 
   if (phase === "drawn" && shape && quote) {
-    /*
-      Three facts on a phone, a sentence on a desk.
-
-      The long version says where the line is aiming, the most it can lose,
-      where the venue wipes it out, how long it runs and that a point can
-      still be moved: five things, which is a paragraph under a chart on a
-      screen four inches wide. The three that change what somebody does are
-      what it pays, what it risks and how long they wait.
-    */
-    if (phone) {
-      /* One line, three facts, the same size as everything else on it. A big
-         figure stacked over two small ones was a headline over a caption in
-         a strip forty pixels tall. */
-      return (
-        <p className="truncate text-muted-foreground text-sm">
-          <F tone={quote.ifWorks >= 0 ? "text-up" : "text-down"}>{signedUsd(quote.ifWorks, 0)}</F> at <F>${fmtPrice(shape.target)}</F>
-          <span className="px-1.5 text-muted-foreground/50">·</span>
-          risk <F tone="text-down">${usd(quote.mostLose, 0)}</F>
-          <span className="px-1.5 text-muted-foreground/50">·</span>
-          <F>{Math.round(runBars)}</F>s
-        </p>
-      );
-    }
-
-    return (
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <Lead tone={quote.ifWorks >= 0 ? "text-up" : "text-down"}>{signedUsd(quote.ifWorks, 0)}</Lead>
-        {/* The stake, the leverage and what they multiply to are all in the
-            header now, twice over. What is left is what the line is worth and
-            what it costs, and that a point can still be moved. */}
-        <p className="mr-auto max-w-[34rem] text-muted-foreground">
-          if it gets to <F>${fmtPrice(shape.target)}</F>. Most you can lose <F tone="text-down">${usd(quote.mostLose, 0)}</F>, wiped out at{" "}
-          <F>${fmtPrice(quote.wipedAt)}</F>. Runs <F>{Math.round(runBars)}</F> seconds, as long as the line. Drag a point to change it.
-        </p>
-        {lines}
-      </div>
-    );
+    return <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">Target <F>${fmtPrice(shape.target)}</F> · <F>{Math.round(runBars*CANDLE_SECONDS)}</F>s. Execution and P&L come from Lighter.</p>{lines}</div>;
   }
 
   if (phase === "running" && shape) {
@@ -146,7 +107,7 @@ export function SketchBar({
               On shared account <F>{venueAccount}</F>, not yours
             </span>
           ) : null}
-          {venueProblem ? <span className="text-down">Not traded. {venueProblem}</span> : null}
+          {venueProblem ? <span className="text-down">{venueProblem}</span> : null}
         </span>
         {lines}
       </div>

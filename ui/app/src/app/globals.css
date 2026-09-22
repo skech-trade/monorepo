@@ -92,6 +92,45 @@
   --sidebar-ring: var(--color-neutral-400);
 }
 
+/* Match skech.trade: warm neutral surfaces, with blue product actions. */
+:root {
+  --background: #ffffff;
+  --foreground: #343433;
+  --card: #fbfaf9;
+  --card-foreground: #343433;
+  --popover: #fbfaf9;
+  --popover-foreground: #343433;
+  --border: #e9e6e1;
+  --input: #e9e6e1;
+  --muted: #f6f4ef;
+  --muted-foreground: #5f5c59;
+  --secondary: #f6f4ef;
+  --secondary-foreground: #343433;
+  --accent: #efece6;
+  --accent-foreground: #343433;
+  --primary: #2b62de;
+  --primary-foreground: #ffffff;
+}
+
+.dark {
+  --background: #121110;
+  --foreground: #fafaf9;
+  --card: #1b1a18;
+  --card-foreground: #fafaf9;
+  --popover: #1b1a18;
+  --popover-foreground: #fafaf9;
+  --border: rgb(255 255 255 / 10%);
+  --input: rgb(255 255 255 / 10%);
+  --muted: #232220;
+  --muted-foreground: #b3ada6;
+  --secondary: #232220;
+  --secondary-foreground: #fafaf9;
+  --accent: #2c2a27;
+  --accent-foreground: #fafaf9;
+  --primary: #2b62de;
+  --primary-foreground: #ffffff;
+}
+
 /* What a trading screen adds: two directions and one ink for the drawn line.
    Text weights for figures, mark weights for candles. All aliases. */
 :root,

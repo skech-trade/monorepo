@@ -1,24 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useSettings } from "@/lib/settings";
-import { accountFor, type Market, type Position } from "@/lib/market";
-import type { Mode } from "@/lib/mode";
+import { type Market } from "@/lib/market";
+import { useAccount } from "./auth";
 import { AppBar } from "./app-bar";
-import { Desk } from "./desk";
 import { DrawScreen, HISTORY, RUN_MAX } from "./draw/draw-screen";
 import { useFeed } from "@/lib/feed";
-import { emptyOrder, type Order } from "./ticket";
 
 /**
  * Draw at the market's address, Desk one segment further in. The URL decides, not a toggle; the
  * full terminal stays a link away.
  */
-export function Terminal({ market, positions, mode = "draw" }: { market: Market; positions: Position[]; mode?: Mode }) {
+export function Terminal({ market }: { market: Market }) {
+  const me = useAccount();
   const [{ blurred }] = useSettings();
-  const [order, setOrder] = useState<Order>(emptyOrder);
-  const patch = (next: Partial<Order>) => setOrder((c) => ({ ...c, ...next }));
-  const account = useMemo(() => accountFor(positions), [positions]);
   /*
     One socket for the page.
 
@@ -31,20 +27,15 @@ export function Terminal({ market, positions, mode = "draw" }: { market: Market;
      chart are the same number. */
   const live = useMemo<Market>(() => {
     const price = stream?.bars.at(-1)?.c;
-    if (!price || !stream?.stats) return market;
-    const s = stream.stats;
-    return { ...market, price, change: (price * s.changePct) / 100, changePct: s.changePct, high24h: s.high, low24h: s.low, volume24h: s.volume };
+    const s = stream?.stats;
+    return { ...market, price:price??0, change: s&&price?(price*s.changePct)/100:0, changePct:s?.changePct??0,high24h:s?.high??0,low24h:s?.low??0,volume24h:s?.volume??0 };
   }, [market, stream]);
 
   return (
     <div className="flex h-svh flex-col bg-background" data-blurred={blurred ? "" : undefined}>
-      <AppBar account={account} />
+      <AppBar />
       <main className="flex min-h-0 w-full flex-1 flex-col overflow-auto bg-muted/40">
-        {mode === "desk" ? (
-          <Desk market={market} order={order} patch={patch} positions={positions} />
-        ) : (
-          <DrawScreen market={live} stream={stream} />
-        )}
+        <DrawScreen key={me.address ?? "signed-out"} market={live} stream={stream} />
       </main>
     </div>
   );

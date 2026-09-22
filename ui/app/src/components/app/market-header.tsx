@@ -120,9 +120,9 @@ export function MarketPicker({
                     <CopyAddress address={m.address} />
                   </div>
                   <div className="text-right">
-                    <p className="figures">${fmtPrice(m.price)}</p>
+                    <p className="figures">{m.price > 0 ? `$${fmtPrice(m.price)}` : "—"}</p>
                     <p className={cn("figures text-xs", m.changePct >= 0 ? "text-up" : "text-down")}>
-                      {signedPct(m.changePct)}
+                      {m.price > 0 ? signedPct(m.changePct) : "—"}
                     </p>
                   </div>
                 </li>
@@ -141,7 +141,7 @@ export function MarketHeader({ market, className }: { market: Market; className?
   const [picking, setPicking] = useState(false);
   const up = market.changePct >= 0;
   return (
-    <div className={cn("flex items-center", className)}>
+    <div className={cn("flex min-w-0 items-center", className)}>
       {/*
         Our own button, and on a phone it wears the same coat as everything
         else floating over that chart: outline, card behind it, blurred. Bare
@@ -151,7 +151,7 @@ export function MarketHeader({ market, className }: { market: Market; className?
       */}
       <Button
         aria-haspopup="dialog"
-        className="h-auto min-w-0 justify-start gap-2 rounded-lg px-1.5 py-1.5 text-left max-sm:h-10 max-sm:border max-sm:border-input max-sm:bg-card/85 max-sm:px-3 max-sm:backdrop-blur-sm sm:-m-1.5 sm:gap-3"
+        className="h-auto min-w-0 max-w-full justify-start gap-2 rounded-lg px-2 py-2 text-left max-sm:h-10 max-sm:border max-sm:border-input max-sm:bg-card/85 max-sm:px-3 max-sm:backdrop-blur-sm sm:h-auto sm:gap-3"
         onClick={() => setPicking(true)}
         variant="ghost"
       >
@@ -160,7 +160,7 @@ export function MarketHeader({ market, className }: { market: Market; className?
         {/* Everything here can shrink. In the app bar on a phone this sits
             between the logo and the way in, and a price that refuses to give
             ground pushes both off the screen. */}
-        <span className="flex min-w-0 items-baseline gap-2 sm:block">
+        <span className="flex min-w-0 items-center gap-2 sm:flex-col sm:items-start sm:gap-1.5">
           {/*
             The name and the chevron that opens on it, on a desk only.
 
@@ -172,17 +172,17 @@ export function MarketHeader({ market, className }: { market: Market; className?
             somebody is here for, so the name is what gives up the room rather
             than both of them ending in an ellipsis.
           */}
-          <span className="flex min-w-0 items-center gap-1 font-medium text-sm leading-none max-sm:hidden sm:text-base">
+          <span className="flex min-w-0 items-center gap-1 font-medium text-sm leading-5 max-sm:hidden">
             <span className="truncate">{market.name}</span>
             <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
           </span>
-          <span className="flex min-w-0 items-baseline gap-2 sm:mt-1">
-            <span className="figures truncate font-semibold text-base sm:text-xl">${fmtPrice(market.price)}</span>
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span className="figures truncate font-semibold text-base leading-6 tracking-tight sm:text-xl">{market.price > 0 ? `$${fmtPrice(market.price)}` : "Connecting…"}</span>
             {/* The day's move is the first thing to go when the row has to
                 hold the controls as well. The price is the number a round is
                 judged against; this one is context. */}
-            <Pill className="max-sm:hidden" tone={up ? "up" : "down"}>
-              <span className="figures">{signedPct(market.changePct)}</span>
+            <Pill className="shrink-0 max-sm:hidden" tone={up ? "up" : "down"}>
+              <span className="figures">{market.price > 0 ? signedPct(market.changePct) : "—"}</span>
             </Pill>
             {/* Which venue this price is from, said where it means something.
                 On a phone this pill is the whole of the app bar's middle, and

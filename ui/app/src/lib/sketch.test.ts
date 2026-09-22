@@ -1,3 +1,4 @@
+import { directionAt } from "@skech/core/shape";
 import { describe, expect, test } from "bun:test";
 import type { Candle } from "./market";
 import { type Pt, quote, settle, shapeOf } from "./sketch";
@@ -11,6 +12,14 @@ import { liquidationPrice, MAINNET, MARGIN, roundSize, TESTNET, tradeable, wipeo
  */
 
 const ENTRY = 64_000;
+
+test("500ms candles preserve the simulated fill delay in real seconds", () => {
+  const shape = shapeOf(line(ENTRY * 1.004), ENTRY);
+  expect(shape).not.toBeNull();
+  const seconds = settle(walk(ENTRY, ENTRY * 1.004, 60), shape!, ENTRY, 100, 10, 60);
+  const halves = settle(walk(ENTRY, ENTRY * 1.004, 120), shape!, ENTRY, 100, 10, 120, undefined, 0.5);
+  expect(halves.net).toBeCloseTo(seconds.net, 8);
+});
 
 /** A line from the entry through these prices, evenly spaced across the round. */
 const line = (...prices: number[]): Pt[] => [{ t: 0, price: ENTRY }, ...prices.map((price, i) => ({ t: (i + 1) / prices.length, price }))];
@@ -235,4 +244,21 @@ describe("the move that wipes you out", () => {
     expect(wipeoutMove(50) * 100).toBeCloseTo(0.81, 2);
     expect(wipeoutMove(10) * 100).toBeCloseTo(8.91, 2);
   });
+});
+
+
+test("a small rise ignored by execution must not appear as a Buy signal", () => {
+  const entry = 86159;
+  const shape = shapeOf([
+    { t: 0, price: entry }, { t: 0.355, price: 86165 },
+    { t: 0.712, price: 86139 }, { t: 0.86, price: 86167 },
+    { t: 1, price: 86185 },
+  ], entry)!;
+  expect(shape.legs[0].dir).toBe(-1);
+  expect(directionAt(shape.legs, 0, 114)).toBe(-1);
+  expect(directionAt(shape.legs, 41, 114)).toBe(-1);
+  expect(settle(walk(entry, 86082, 42), shape, entry, 100, 50, 114, undefined, 0.5).net).toBeGreaterThan(0);
+  const buy = shapeOf([{ t: 0, price: entry }, { t: 1, price: entry + 100 }], entry)!;
+  expect(directionAt(buy.legs, 0, 114)).toBe(1);
+  expect(settle(walk(entry, 86082, 42), buy, entry, 100, 50, 114, undefined, 0.5).net).toBeLessThan(0);
 });

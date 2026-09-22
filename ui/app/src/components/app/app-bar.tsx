@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Kbd } from "@/components/ui/kbd";
@@ -24,30 +24,28 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu";
-import { type Account, signedUsd, usd } from "@/lib/market";
+import { signedUsd, usd } from "@/lib/market";
 import { Wordmark } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { useSettings } from "@/lib/settings";
 import { SettingsSheet } from "./settings";
 import { announceSoon } from "./soon";
-import { HANDLE } from "@/lib/user";
-import { markAsked, useProfile } from "@/lib/profile";
+import { useProfile } from "@/lib/profile";
 import { cn } from "@/lib/utils";
 import { hasAuth, useAccount } from "./auth";
 import { CopyAddress } from "./copy";
 import { DepositSheet } from "./deposit";
-import { NamePrompt } from "./name-prompt";
+import { PlayerOnboarding, Buddy } from "./player-onboarding";
+import { usePlayer } from "@/lib/social";
 import { NetworkBadge } from "./network-badge";
 import { SignInButton } from "./sign-in";
 
-/** Mock, like the balance. DiceBear's "shapes" set is CC0: abstract, no face. */
-const AVATAR = `https://api.dicebear.com/9.x/shapes/svg?seed=${HANDLE}&backgroundColor=0a0a0a&shape1Color=3b82f6,10b981&shape2Color=f5f5f5&shape3Color=ef4444,f59e0b`;
-
-export function AppBar({ account }: { account: Account }) {
+export function AppBar() {
   const [{ blurred }, set] = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const me = useAccount();
   const profile = useProfile(me.address);
+  const social = usePlayer(me.address, me.signMessage);
   const [askName, setAskName] = useState(false);
   const [depositing, setDepositing] = useState(false);
   /* Signed out with auth available, the only thing in the corner is the way in. */
@@ -57,13 +55,16 @@ export function AppBar({ account }: { account: Account }) {
     it does not know who you are, so it asks once, the first time somebody
     signs in without a name on file.
   */
-  const name = profile.name ?? me.handle ?? HANDLE;
-  const opened = useRef(false);
+  const name = social.player?.username ?? profile.name ?? me.handle ?? "Your profile";
+  const opened = useRef<string | null>(null);
   useEffect(() => {
-    if (!me.signedIn || !profile.needsName || opened.current) return;
-    opened.current = true;
+    if (!me.signedIn || !me.address || !social.ready || opened.current === me.address) return;
+    opened.current = me.address;
+    try { if (localStorage.getItem(`skech.onboarding.${me.address.toLowerCase()}`)) return; } catch {}
+    // Reconcile the external wallet session and browser onboarding preference.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAskName(true);
-  }, [me.signedIn, profile.needsName]);
+  }, [me.signedIn, me.address, social.ready]);
 
   /*
     What the account is worth, from the venue rather than from a constant.
@@ -71,7 +72,7 @@ export function AppBar({ account }: { account: Account }) {
     made, and that is the figure a reader means by "my balance".
   */
   const perp = profile.balance;
-  const cash = perp ? perp.equity : account.balance;
+  const cash = perp?.equity ?? null;
   const funded = perp !== null && perp.accountIndex !== null;
   return (
     <>
@@ -107,7 +108,7 @@ export function AppBar({ account }: { account: Account }) {
         {anonymous ? null : (
           <span className="hidden max-w-40 items-center gap-1 truncate px-1 font-medium text-sm lg:inline-flex">
             <span className="sr-only">Perp balance: </span>
-            <span className="figures">${usd(cash)}</span>
+            <span className="figures">{cash === null ? "—" : `$${usd(cash)}`}</span>
             {/* Nothing deposited yet, so the zero is a fact rather than a loss. */}
             {perp && !funded ? <span className="font-normal text-muted-foreground text-xs">to deposit</span> : null}
           </span>
@@ -137,7 +138,7 @@ export function AppBar({ account }: { account: Account }) {
                 phone. Left at seven it was a small disc adrift in a large
                 circle. */}
             <Avatar className="size-8 sm:size-7">
-              <AvatarImage alt="" src={AVATAR} />
+              <Buddy color={social.player?.buddy} className="size-full"/>
               <AvatarFallback>
                 <UserIcon className="size-4 sm:size-3.5" />
               </AvatarFallback>
@@ -146,7 +147,7 @@ export function AppBar({ account }: { account: Account }) {
           <MenuPopup align="end" className="w-64">
             <div className="flex items-center gap-3 px-2 py-2">
               <Avatar className="size-10">
-                <AvatarImage alt="" src={AVATAR} />
+                <Buddy color={social.player?.buddy} className="size-full"/>
                 <AvatarFallback>{name.slice(0, 2)}</AvatarFallback>
               </Avatar>
               {/* The address appeared twice when nobody had set a name: once
@@ -155,11 +156,11 @@ export function AppBar({ account }: { account: Account }) {
                   both lines, because a name runs to 24 characters and an
                   address to 42. */}
               <div className="min-w-0 flex-1 leading-tight">
-                <p className="truncate font-medium">{me.address && !profile.name ? "Your wallet" : `Hola, ${name}`}</p>
+                <p className="truncate font-medium">{social.player ? `@${name}` : name}</p>
                 {me.address ? (
                   <CopyAddress address={me.address} className="text-muted-foreground text-xs" />
                 ) : (
-                  <p className="figures truncate text-muted-foreground text-xs">${usd(cash)}</p>
+                  <p className="figures truncate text-muted-foreground text-xs">{cash === null ? "—" : `$${usd(cash)}`}</p>
                 )}
               </div>
             </div>
@@ -171,10 +172,11 @@ export function AppBar({ account }: { account: Account }) {
                 <p className="px-2 py-2 text-muted-foreground text-xs">
                   {funded ? (
                     <>
-                      <span className="figures text-foreground">${usd(perp.collateral)}</span> on Lighter
+                      <span className="figures text-foreground">${usd(perp.equity)}</span> total equity
+                      <span className="block mt-1">${usd(perp.available)} available to trade</span>
                       {perp.positions > 0 ? (
                         <>
-                          , <span className={cn("figures", perp.unrealised >= 0 ? "text-up" : "text-down")}>{signedUsd(perp.unrealised)}</span> open
+                          <span className={cn("figures", perp.unrealised >= 0 ? "text-up" : "text-down")}>{signedUsd(perp.unrealised)}</span> open
                         </>
                       ) : null}
                     </>
@@ -199,6 +201,7 @@ export function AppBar({ account }: { account: Account }) {
             <MenuCheckboxItem checked={blurred} onCheckedChange={(next) => set({ blurred: next })}>
               Privacy
             </MenuCheckboxItem>
+            <MenuItem onClick={() => setAskName(true)}><UserIcon />{social.player ? "Your profile" : "Finish setup"}</MenuItem>
             <MenuItem onClick={() => setSettingsOpen(true)}>
               <SettingsIcon />
               Settings
@@ -219,15 +222,11 @@ export function AppBar({ account }: { account: Account }) {
     </header>
     <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen} />
     <DepositSheet address={me.address} onDone={profile.refresh} onOpenChange={setDepositing} open={depositing} />
-    <NamePrompt address={me.address} onOpenChange={(next) => {
-        // Closing without saving is still an answer. Remember it, or the
-        // prompt greets them again on the next visit.
-        if (!next && me.address) markAsked(me.address);
-        setAskName(next);
-      }}
-      onSave={profile.setName}
-      open={askName}
-    />
+    <PlayerOnboarding key={`${me.address}:${askName}`} social={social} open={askName} onDeposit={() => setDepositing(true)} onOpenChange={(next) => {
+      if (!next && me.address) { try { localStorage.setItem(`skech.onboarding.${me.address.toLowerCase()}`, "seen"); } catch {} }
+      setAskName(next);
+    }}/>
+
     </>
   );
 }

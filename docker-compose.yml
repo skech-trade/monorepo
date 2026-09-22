@@ -1,6 +1,6 @@
 # Everything that is not the browser.
 #
-#   docker compose --env-file .env.local up db        Postgres, on :5432
+#   docker compose --env-file .env.local up db        Postgres, on :5440
 #   docker compose --env-file .env.local up feed      the market, on :3210
 #   docker compose --env-file .env.local --profile trade up
 #
@@ -12,7 +12,7 @@
 # The app reads the feed from the browser, so its URL is the host's, not this
 # network's.
 services:
-  # Postgres for local work. On AWS this is RDS or Aurora Serverless and this
+  # Postgres for local work, on host port 5440. On AWS this is RDS or Aurora Serverless and this
   # service goes away; nothing in the schema ties it to either.
   db:
     image: postgres:17-alpine
@@ -20,7 +20,7 @@ services:
       POSTGRES_USER: skech
       POSTGRES_PASSWORD: skech
       POSTGRES_DB: skech
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5440:5432"]
     volumes: ["db:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U skech"]
@@ -29,11 +29,12 @@ services:
       retries: 10
 
   api:
-    build: { context: ./services/api }
+    build: { context: ., dockerfile: services/api/Dockerfile }
     ports: ["3230:3230"]
     environment:
       SKECH_NETWORK: ${SKECH_NETWORK:-testnet}
-      DATABASE_URL: ${DATABASE_URL:-postgres://skech:skech@db:5432/skech}
+      SOCIAL_FEED_URL: http://feed:3210
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgres://skech:skech@db:5432/skech}
       ALLOW_ORIGIN: ${ALLOW_ORIGIN:-*}
     depends_on:
       db: { condition: service_healthy }
@@ -43,14 +44,13 @@ services:
     build: { context: ./services/feed }
     ports: ["3210:3210"]
     environment:
-      LIGHTER_WS: ${LIGHTER_WS:-wss://mainnet.zklighter.elliot.ai/stream}
-      LIGHTER_MARKET_ID: ${LIGHTER_MARKET_ID:-1}
+      SKECH_NETWORK: ${SKECH_NETWORK:-testnet}
       ALLOW_ORIGIN: ${ALLOW_ORIGIN:-*}
     restart: unless-stopped
 
   trader:
     profiles: ["trade"]
-    build: { context: ./services/trader }
+    build: { context: ., dockerfile: services/trader/Dockerfile }
     ports: ["3220:3220"]
     # The trading key is the crown jewel. It arrives as an environment
     # variable here and belongs in a secrets manager in production, decrypted
@@ -59,6 +59,8 @@ services:
       # One switch, here too. It picks the venue, the chain, the market and
       # which of the two key sets below gets used.
       SKECH_NETWORK: ${SKECH_NETWORK:-testnet}
+      TRADE_FEED_URL: http://feed:3210
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgres://skech:skech@db:5432/skech}
       LIGHTER_ACCOUNT_INDEX: ${LIGHTER_ACCOUNT_INDEX}
       LIGHTER_API_KEY_INDEX: ${LIGHTER_API_KEY_INDEX}
       LIGHTER_PRIVATE_KEY: ${LIGHTER_PRIVATE_KEY}

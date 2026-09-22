@@ -55,27 +55,28 @@ export type DepositAddress = {
  * The one address that credits this wallet's Lighter account. Unchanging, so
  * it is fetched once and kept.
  */
-export function useDepositAddress(address: string | null): DepositAddress | NoDeposits | null {
-  const [found, setFound] = useState<DepositAddress | NoDeposits | null>(null);
+export function useDepositAddress(address: string | null) {
+  const [result, setResult] = useState<{owner: string; found: DepositAddress | NoDeposits | null; error: string | null} | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!URL_API || !address) return;
     let live = true;
-    fetch(`${URL_API}/deposit/address?address=${address}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!live) return;
-        // Either an address to send to, or a reason there is none.
-        const got = d as Record<string, unknown> | null;
-        if (typeof got?.address === "string") setFound(got as unknown as DepositAddress);
-        else if (got?.canDeposit === false) setFound(got as unknown as NoDeposits);
-        else setFound(null);
+    fetch(`${URL_API}/deposit/address?address=${encodeURIComponent(address)}`, {signal: AbortSignal.timeout(15000)})
+      .then(async r => {
+        if (!r.ok) throw Error("Deposit details are unavailable. Please try again.");
+        const got = await r.json();
+        if (got?.canDeposit !== false && !(typeof got?.address === "string" && Array.isArray(got.chains) && ["mainnet","testnet"].includes(got.network))) throw Error("Deposit details are unavailable. Please try again.");
+        if (live) setResult({owner: address, found: got, error: null});
       })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [address]);
-  return found;
+      .catch(() => {if(live) setResult({owner: address, found: null, error: "Couldn’t load deposit details. Check your connection and try again."});});
+    return () => { live = false; };
+  }, [address, attempt]);
+  const current = result?.owner === address ? result : null;
+  return {
+    found: current?.found ?? null,
+    error: !address ? "Sign in to see your funding options." : !URL_API ? "Funding is unavailable right now." : current?.error ?? null,
+    retry: () => {setResult(null);setAttempt(n => n+1);},
+  };
 }
 
 export function useDepositChains(): Chain[] {
@@ -119,7 +120,7 @@ export function useDepositQuote(address: string | null, chain: Chain | null, nat
           const quote = (d as DepositQuote | null)?.transactions ? (d as DepositQuote) : null;
           setAnswer({ key: asking, quote });
         })
-        .catch(() => undefined);
+        .catch(() => {if(live) setAnswer({key:asking,quote:null});});
     }, 350);
     return () => {
       live = false;

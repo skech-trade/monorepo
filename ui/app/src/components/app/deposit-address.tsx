@@ -20,7 +20,8 @@ import { ChainMark, UsdcMark } from "./marks";
  * in a place that is neither their own wallet nor their position.
  */
 export function DepositAddress({ address, chains, minimum, network }: { address: string; chains: readonly SendTo[]; minimum: number; network: "mainnet" | "testnet" }) {
-  const [qr, setQr] = useState<string | null>(null);
+  const [image, setImage] = useState<{address: string; url: string} | null>(null);
+  const qr = image?.address === address ? image.url : null;
   const { copied, copy } = useCopy(address);
 
   useEffect(() => {
@@ -28,7 +29,7 @@ export function DepositAddress({ address, chains, minimum, network }: { address:
     // Drawn here, so no image is fetched and nothing about the address leaves
     // the page to be rendered somewhere else.
     QRCode.toDataURL(address, { margin: 1, width: 320, errorCorrectionLevel: "M", color: { dark: "#000000ff", light: "#ffffffff" } })
-      .then((url) => live && setQr(url))
+      .then((url) => live && setImage({address,url}))
       .catch(() => undefined);
     return () => {
       live = false;
@@ -53,49 +54,22 @@ export function DepositAddress({ address, chains, minimum, network }: { address:
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-muted-foreground text-sm leading-snug">
-        Send <span className="font-medium text-foreground">USDC</span> here from anywhere: Coinbase, an exchange, another wallet. It arrives as collateral,
-        usually within a few minutes.
-      </p>
-
-      {/* White whatever the theme, because a dark QR on a dark ground does not scan. */}
-      <div className="flex items-center gap-3 rounded-xl border bg-white p-3">
-        {/* biome-ignore lint/performance/noImgElement: a data URI made on this page, with nothing to optimise */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {qr ? <img alt="" className="size-24 shrink-0" src={qr} /> : <div className="size-24 shrink-0 animate-pulse rounded bg-black/5" />}
-        <div className="min-w-0 flex-1">
-          <p className="break-all font-mono text-[11px] text-black leading-snug">{address}</p>
-          {/* The card is white whatever the theme, so this button cannot take
-              its colours from the theme: in dark mode it came out white on
-              white and read as missing. */}
-          <Button
-            className="mt-2 border-black/15 bg-white text-black hover:border-black/25 hover:bg-black/5"
-            onClick={() => void copy()}
-            size="xs"
-            variant="outline"
-          >
-            {copied ? <CheckIcon /> : <CopyIcon />}
-            {copied ? "Copied" : "Copy address"}
-          </Button>
+    <div className="space-y-5">
+      <div className="rounded-3xl border bg-muted/20 p-5 text-center">
+        <div className="mb-4 flex items-center justify-center gap-2 text-sm font-medium"><UsdcMark className="size-5"/> Receive USDC</div>
+        <div className="mx-auto flex size-44 items-center justify-center rounded-2xl bg-white p-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {qr ? <img alt="Deposit address QR code" className="size-full" src={qr}/> : <div role="status" aria-label="Preparing QR code" className="size-full animate-pulse rounded bg-black/5"/>}
         </div>
+        <p className="mt-4 text-xs text-muted-foreground">Scan from another wallet</p>
       </div>
-
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-muted-foreground text-xs">
-        <span className="inline-flex items-center gap-1">
-          <UsdcMark className="size-4" /> USDC only
-        </span>
-        {chains.map((c) => (
-          <span className="inline-flex items-center gap-1" key={c.id}>
-            <ChainMark className="size-4" id={c.id} /> {c.name}
-          </span>
-        ))}
+      <div className="space-y-3">
+        <p className="text-xs font-medium text-muted-foreground">Your deposit address</p>
+        <p className="break-all rounded-xl border bg-muted/20 p-4 font-mono text-xs leading-relaxed">{address}</p>
+        <Button className="h-12 sm:h-12 w-full" onClick={() => void copy()}>{copied ? <CheckIcon/> : <CopyIcon/>}{copied ? "Address copied" : "Copy deposit address"}</Button>
       </div>
-
-      <p className="text-muted-foreground text-xs leading-snug">
-        At least ${minimum}, and it has to be Circle&rsquo;s own USDC on one of those three chains. Any other token, any other chain, or a bridged
-        lookalike will not arrive and cannot be recovered.
-      </p>
+      <div className="space-y-3"><p className="text-xs font-medium text-muted-foreground">Supported networks</p><div className="flex flex-wrap gap-2">{chains.map(c => <span key={c.id} className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs"><ChainMark className="size-4" id={c.id}/>{c.name}</span>)}</div></div>
+      <div className="rounded-2xl border p-4 text-xs leading-relaxed text-muted-foreground"><p className="mb-1 font-medium text-foreground">Minimum deposit · ${minimum}</p>Send only native USDC issued by Circle on a supported network. Other tokens and bridged USDC may be lost. Funds usually arrive within a few minutes.</div>
     </div>
   );
 }

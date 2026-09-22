@@ -20,6 +20,7 @@ export const hasApi = URL_API !== "";
 export type Balance = {
   /** USDC on the perp account: what can be traded with. */
   collateral: number;
+  available: number;
   /** Marked profit and loss on anything open. */
   unrealised: number;
   /** Collateral plus unrealised. What the account is actually worth. */
@@ -92,10 +93,13 @@ export function useProfile(address: string | null): Profile {
     };
     void load();
     // The venue moves, so the balance is worth asking again now and then.
-    const again = setInterval(load, 20_000);
+    const again = setInterval(load, 3000);
+    const changed=()=>void load();
+    window.addEventListener("skech-balance",changed);
     return () => {
       live = false;
       clearInterval(again);
+      window.removeEventListener("skech-balance",changed);
     };
   }, [address, token]);
 
@@ -118,5 +122,5 @@ export function useProfile(address: string | null): Profile {
 
   if (!hasApi || !address) return EMPTY;
   const ready = answered === address;
-  return { name, balance, ready, needsName: ready && !name && !alreadyAsked(address), setName, refresh: () => setToken((n) => n + 1) };
+  return { name: ready ? name : null, balance: ready ? balance : null, ready, needsName: ready && !name && !alreadyAsked(address), setName, refresh: () => setToken((n) => n + 1) };
 }

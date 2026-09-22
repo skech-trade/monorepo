@@ -167,3 +167,13 @@ export function shapeOf(pts: Pt[], entry: number): Shape | null {
     floor,
   };
 }
+
+/** Scheduled position at a candle, using the same rounded boundaries as settlement. */
+export function directionAt(legs: Leg[], candle: number, runBars: number): 1 | -1 | 0 {
+  let direction: 1 | -1 | 0 = 0;
+  for (const leg of legs) {
+    if (Math.round((leg.from / (SAMPLES - 1)) * runBars) > candle) break;
+    direction = leg.dir;
+  }
+  return direction;
+}

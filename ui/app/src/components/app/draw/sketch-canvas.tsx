@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/button";
 import { type Candle, price as fmtPrice, signedUsd } from "@/lib/market";
 import { usePhone } from "@/lib/phone";
 import { type CandleStyle, candleStyle, useSettings } from "@/lib/settings";
-import { curvePath, lineAt, type Pt, type Shape, legPath } from "@/lib/sketch";
+import { curvePath, type Pt, type Shape, legPath } from "@/lib/sketch";
+import { CANDLE_MS, CANDLE_SECONDS } from "@/lib/feed";
 import { cn } from "@/lib/utils";
 
 /** The chart you draw on: our own SVG, history left, future right, now between them. */
@@ -26,8 +27,7 @@ const PAD_L = 8;
 const PAD_R = 8;
 /** Where now sits across the plot. Half and half, as asked. */
 const HISTORY_SHARE = 0.5;
-/** The hint, as fractions of plot height above (+) or below (-) the price. */
-const HINT = [0, 0.02, -0.02, -0.07, -0.12, -0.14, -0.1, -0.03, 0.05, 0.13, 0.2, 0.26] as const;
+const PAN_BARS = 6 / CANDLE_SECONDS;
 
 function useSize(ref: React.RefObject<HTMLElement | null>) {
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -152,6 +152,7 @@ export function SketchCanvas({
   price,
   shape,
   pnl,
+  fills = [],
   onDown: onDownPt,
   onMove: onMovePt,
   onUp: onUpPt,
@@ -159,7 +160,7 @@ export function SketchCanvas({
   onRemove,
   editableFrom,
   headLabel,
-  horizonSeconds,
+  horizonBars,
   ghost,
   ribbon,
   className,
@@ -173,6 +174,7 @@ export function SketchCanvas({
   price: number;
   shape: Shape | null;
   pnl: number | null;
+  fills?: {id:string;at:number;buy:boolean;price:number;size:number}[];
   onDown: (pt: Pt) => void;
   onMove: (pt: Pt) => void;
   onUp: () => void;
@@ -185,7 +187,7 @@ export function SketchCanvas({
   /** What the line is worth where it ends, shown at the head while drawing. */
   headLabel?: string | null;
   /** How much future the right half shows, in seconds. The round may grow past it. */
-  horizonSeconds: number;
+  horizonBars: number;
   /** Your last line, faint, so you notice your habits. */
   ghost: Pt[] | null;
   /** Half the ribbon's height, in price. */
@@ -200,6 +202,7 @@ export function SketchCanvas({
   /** Held against the right edge, so the round should be opening up. */
   const [pushing, setPushing] = useState(false);
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
+  const [lockedScale, setLockedScale] = useState<Band | null>(null);
   /** The handle the pointer is over, so it can offer to remove itself. */
   const [overPt, setOverPt] = useState<number | null>(null);
   /**
@@ -234,12 +237,12 @@ export function SketchCanvas({
 
   /**
    * Bars have a fixed width and now is pinned to the split, so each candle slides the picture left
-   * and opens a bar of canvas on the right. The right half is always `horizonSeconds` ahead.
+   * and opens a bar of canvas on the right. The right half is always `horizonBars` ahead.
    */
   // Settled, widen the bars just enough that the first candle clears the left edge; a round that
   // fit keeps its scale.
   const fit = phase === "settled" ? (runBars * (plotR - split)) / Math.max(1, split - plotL) : 0;
-  const VIEW = Math.max(1, horizonSeconds, fit);
+  const VIEW = Math.max(1, horizonBars, fit);
   const baseStep = (plotR - split) / VIEW;
   const runStep = baseStep * view.zoom;
   const elapsed = phase === "running" || phase === "settled" ? run.length : 0;
@@ -252,16 +255,9 @@ export function SketchCanvas({
   const xOfT = (t: number) => xOfBar(t * runBars);
   const tOfX = (x: number) => barOfX(x) / runBars;
 
-  /**
-   * The price scale follows what is on screen once you zoom in.
-   *
-   * Bar positions scale with the zoom and this did not, so at the far end
-   * eight candles sat in a band sized for ninety and collapsed to a line
-   * across the middle: the chart read as empty. Left alone at zoom 1 and
-   * below, where the given band already covers everything in view.
-   */
-  const scale = (() => {
-    if (view.zoom <= 1) return band;
+  /** Scale visible history and the prediction at every zoom level. Freeze
+      that mapping during a pointer gesture so prices stay under the hand. */
+  const scale = lockedScale ?? (() => {
     const first = anchor + (plotL - split) / runStep;
     const last = anchor + (plotR - split) / runStep;
     let lo = Number.POSITIVE_INFINITY;
@@ -286,8 +282,14 @@ export function SketchCanvas({
     // The line you drew has to stay on screen too, and so does the price.
     for (const p of pts) if (inView(p.t * runBars)) take(p.price);
     if (inView(elapsed)) take(price);
-    if (!Number.isFinite(lo) || hi <= lo) return band;
-    const pad = (hi - lo) * 0.18 || price * 0.0004;
+    if (!Number.isFinite(lo)) return band;
+    const pad = Math.max((hi - lo) * 0.18, price * 0.00002);
+    // Keep the live starting point centered while preparing a prediction.
+    // A running round still fits its history and prediction together.
+    if (phase === "live" || phase === "drawn") {
+      const radius = Math.max(price - lo, hi - price) + pad;
+      return { lo: price - radius, hi: price + radius };
+    }
     return { lo: lo - pad, hi: hi + pad };
   })();
   const span = scale.hi - scale.lo || 1;
@@ -297,7 +299,7 @@ export function SketchCanvas({
   const xNow = xOfBar(elapsed);
   /* Seconds until the axis would read past 120s, then minutes. */
   const label = (bars: number) => {
-    const s = Math.round(bars);
+    const s = Math.round(bars * CANDLE_SECONDS * 2) / 2;
     if (Math.abs(s) < 90) return `${s > 0 ? "+" : ""}${s}s`;
     const m = Math.round(s / 6) / 10;
     return `${m > 0 ? "+" : ""}${m}m`;
@@ -344,7 +346,7 @@ export function SketchCanvas({
   }
   const reset = () => setView({ zoom: 1, anchor: null });
   // Points can still be placed while it runs, ahead of the candles, never behind.
-  const canDraw = phase === "live" || phase === "drawn" || phase === "running";
+  const canDraw = phase === "live" || phase === "drawn";
 
   const local = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
@@ -359,12 +361,11 @@ export function SketchCanvas({
   /** Within this of the right edge counts as pushing against it. */
   const EDGE = 18;
   /** Candles a second the view runs forward while the pen holds the edge. */
-  const PAN_BARS = 6;
   const track = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
     if (!r) return;
     at.current = { x: e.clientX - r.left, y: e.clientY - r.top };
-    setPushing(active.current && phase === "drawing" && at.current.x > pivot);
+    setPushing(active.current);
   };
 
   const onDown = (e: ReactPointerEvent) => {
@@ -387,6 +388,7 @@ export function SketchCanvas({
     if (!p) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     active.current = true;
+    setLockedScale(scale);
     onDownPt(p);
     track(e);
   };
@@ -421,6 +423,7 @@ export function SketchCanvas({
     }
     if (!active.current) return;
     active.current = false;
+    setLockedScale(null);
     setPushing(false);
     onUpPt();
   };
@@ -429,7 +432,9 @@ export function SketchCanvas({
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
     active.current = true;
+    setLockedScale(scale);
     onGrab(index);
+    track(e);
   };
 
   useEffect(() => {
@@ -462,9 +467,9 @@ export function SketchCanvas({
 
   /* The handlers as of this render, for the loop below to call. It is started
      once per push and must not be torn down every time the round grows. */
-  const now = useRef({ advance, move: onMovePt, price: priceAtY, edgeT: 1, step: 1, pivot: 0, right: 0 });
+  const now = useRef({ advance, move: onMovePt, price: priceAtY, time: tOfX, scale, top: plotT, bottom: plotB, freehand: phase === "drawing", edgeT: 1, step: 1, pivot: 0, right: 0 });
   useEffect(() => {
-    now.current = { advance, move: onMovePt, price: priceAtY, edgeT: tOfX(plotR), step: runStep, pivot, right: plotR };
+    now.current = { advance, move: onMovePt, price: priceAtY, time: tOfX, scale, top: plotT, bottom: plotB, freehand: phase === "drawing", edgeT: tOfX(plotR), step: runStep, pivot, right: plotR };
   });
 
   /**
@@ -475,25 +480,41 @@ export function SketchCanvas({
   useEffect(() => {
     if (!pushing) return;
     let last = performance.now();
-    const id = setInterval(() => {
-      const t = performance.now();
+    let frame = 0;
+    const tick = (t: number) => {
       // By elapsed time rather than per tick, so the speed is the same whatever
       // rate the browser actually gives us.
       const seconds = Math.min(0.12, (t - last) / 1000);
       last = t;
       const here = at.current;
-      if (!here) return;
+      if (!here) { frame = requestAnimationFrame(tick); return; }
       /*
         The view runs forward to bring the tip back to the middle, at most PAN_BARS a second, on a
         clock so pointer moves cannot compound the correction.
       */
       const over = (here.x - now.current.pivot) / now.current.step;
-      if (over > 0) now.current.advance(Math.min(over, seconds * PAN_BARS));
+      if (now.current.freehand && over > 0) now.current.advance(Math.min(over, seconds * PAN_BARS));
       // Held right against the edge, keep laying points down: that is someone
       // asking for more room rather than drawing a flat line.
-      if (here.x >= now.current.right - EDGE) now.current.move({ t: now.current.edgeT, price: now.current.price(here.y) });
-    }, 50);
-    return () => clearInterval(id);
+      const current = now.current;
+      const up = here.y <= current.top + EDGE;
+      const down = here.y >= current.bottom - EDGE;
+      if (up || down) {
+        const amount = (current.scale.hi - current.scale.lo) * seconds * 0.4;
+        const expanded = up
+          ? { lo: current.scale.lo, hi: current.scale.hi + amount }
+          : { lo: current.scale.lo - amount, hi: current.scale.hi };
+        setLockedScale(expanded);
+        const pointerY = Math.max(current.top, Math.min(current.bottom, here.y));
+        const price = expanded.hi - ((pointerY - current.top) / (current.bottom - current.top)) * (expanded.hi - expanded.lo);
+        current.move({ t: current.time(Math.min(current.right, here.x)), price });
+      } else if (current.freehand && here.x >= current.right - EDGE) {
+        current.move({ t: current.edgeT, price: current.price(here.y) });
+      }
+    frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
   }, [pushing]);
 
   const plotted = pts.map((pt) => ({ x: xOfT(pt.t), y: y(pt.price) }));
@@ -501,12 +522,6 @@ export function SketchCanvas({
   const drawing = phase === "drawing";
   const hasLine = plotted.length > 1;
   const head = plotted.at(-1);
-  const hint = legPath(
-    HINT.map((f, i) => ({
-      x: xNow + (i / (HINT.length - 1)) * (plotR - xNow),
-      y: Math.min(plotB - 22, Math.max(plotT + 22, y(price) - f * (plotB - plotT))),
-    })),
-  );
 
   /* The live price only. Aiming and out levels described exits this product does not have. */
   const tags: TagSpec[] = [{ key: "now", price, y: y(price) }];
@@ -526,21 +541,31 @@ export function SketchCanvas({
           onPointerLeave={() => setHover(null)}
           onPointerMove={onMove}
           onPointerUp={onUp}
-          role="img"
+          role="group"
           viewBox={`0 0 ${w} ${h}`}
         >
           <defs>
-            <pattern height="16" id="sk-grid" patternUnits="userSpaceOnUse" width="16">
+            <pattern height="32" id="sk-grid" patternUnits="userSpaceOnUse" width="32">
               {grid === "dots" ? (
                 <circle cx="8" cy="8" fill="var(--muted-foreground)" fillOpacity="0.32" r="1" />
               ) : (
-                <path d="M16 0 H0 V16" fill="none" stroke="var(--border)" strokeWidth="1" />
+                <path d="M32 0 H0 V32" fill="none" stroke="var(--border)" strokeWidth="1" />
               )}
             </pattern>
           </defs>
           {grid === "off" ? null : (
-            <rect fill="url(#sk-grid)" height={plotB - plotT} width={Math.max(0, plotR - Math.max(plotL, xNow))} x={Math.max(plotL, xNow)} y={plotT} />
+            <rect fill="url(#sk-grid)" opacity="0.5" height={plotB - plotT} width={Math.max(0, plotR - Math.max(plotL, xNow))} x={Math.max(plotL, xNow)} y={plotT} />
           )}
+          {[0.15, 0.35, 0.65, 0.85].map((fraction) => {
+            const yy = plotT + fraction * (plotB - plotT);
+            if (Math.abs(yy - y(price)) < 24 || (hover && Math.abs(yy - hover.y) < 24)) return null;
+            return (
+              <g key={fraction} pointerEvents="none">
+                <line stroke="var(--border)" strokeOpacity="0.6" x1={plotL} x2={plotR} y1={yy} y2={yy} />
+                <text fill="var(--foreground)" fillOpacity="0.75" fontSize="11" textAnchor="end" x={plotR - 4} y={yy - 5}>{fmtPrice(priceAtY(yy))}</text>
+              </g>
+            );
+          })}
           {xNow > plotL && xNow < plotR ? (
             <>
               <line stroke="var(--muted-foreground)" strokeDasharray="2 5" strokeOpacity="0.5" x1={xNow} x2={xNow} y1={plotT} y2={plotB} />
@@ -559,7 +584,8 @@ export function SketchCanvas({
             const away = barOfX(x) - elapsed;
             return (
               <text
-                fill="var(--muted-foreground)"
+                fill="var(--foreground)"
+                fillOpacity="0.75"
                 fontSize="11"
                 key={f}
                 style={{ fontFamily: "var(--font-sans)" }}
@@ -623,29 +649,7 @@ export function SketchCanvas({
                   of every turn, which is the one place the band should come to a
                   point: a turn is where one position ends and the next begins. */}
               <path d={legPath(plotted)} fill="none" stroke="var(--brand)" strokeLinecap="butt" strokeLinejoin="miter" strokeMiterlimit={2} strokeOpacity="0.12" strokeWidth={Math.max(4, ribbonPx * 2)} />
-              {/*
-                Shaded by what each candle made (line direction times candle move), not by whether
-                it landed in the ribbon. Inside is not right.
-              */}
-              {run.map((candle, i) => {
-                const was = lineAt(shape.prices, i / runBars);
-                const goes = lineAt(shape.prices, (i + 1) / runBars);
-                const made = (goes >= was ? 1 : -1) * (candle.c - candle.o);
-                return (
-                  <rect
-                    className={phase === "settled" ? "sk-in" : undefined}
-                    fill={made >= 0 ? "var(--success)" : "var(--destructive)"}
-                    height={Math.max(4, ribbonPx * 2)}
-                    // biome-ignore lint/suspicious/noArrayIndexKey: positional
-                    key={i}
-                    fillOpacity={0.26}
-                    style={phase === "settled" ? { animationDelay: `${i * 35}ms` } : undefined}
-                    width={runStep}
-                    x={xOfBar(i)}
-                    y={y(goes) - Math.max(2, ribbonPx)}
-                  />
-                );
-              })}
+
             </g>
           ) : null}
 
@@ -674,7 +678,29 @@ export function SketchCanvas({
                     const live = pts[index].t > editableFrom;
                     return (
                       <circle
-                        className={cn(live && "cursor-move hover:fill-brand")}
+                        className={cn(live && "cursor-move hover:fill-brand focus-visible:stroke-foreground focus-visible:stroke-[3]")}
+                        aria-label={live ? `Prediction point ${index}: ${fmtPrice(pts[index].price)} at ${Math.round(pts[index].t * runBars * CANDLE_SECONDS * 2) / 2} seconds. Use arrow keys to move, Delete to remove.` : undefined}
+                        role={live ? "button" : undefined}
+                        tabIndex={live ? 0 : undefined}
+                        onKeyDown={live ? (event) => {
+                          if (event.key === "Delete" || event.key === "Backspace") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onRemove(index);
+                            return;
+                          }
+                          if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const point = pts[index];
+                          const step = event.shiftKey ? 5 : 1;
+                          onGrab(index);
+                          onMovePt({
+                            t: point.t + (event.key === "ArrowRight" ? step / (runBars * CANDLE_SECONDS) : event.key === "ArrowLeft" ? -step / (runBars * CANDLE_SECONDS) : 0),
+                            price: point.price + (event.key === "ArrowUp" ? span * 0.01 * step : event.key === "ArrowDown" ? -span * 0.01 * step : 0),
+                          });
+                          onUpPt();
+                        } : undefined}
                         cx={p.x}
                         cy={p.y}
                         fill={live ? "var(--card)" : "var(--brand)"}
@@ -696,15 +722,14 @@ export function SketchCanvas({
             </g>
           ) : null}
 
-          {/* Until you have drawn anything. After that your last line is the
-              hint, and the two of them faint and dashed in the same space read
-              as a smudge. */}
+          {/* Explain the first action without drawing a fictitious forecast. */}
           {phase === "live" && !(ghost && ghost.length > 1) ? (
             <g pointerEvents="none">
-              <path className="sk-march" d={hint} fill="none" stroke="var(--brand)" strokeDasharray="3 8" strokeLinecap="round" strokeOpacity="0.35" strokeWidth="2" />
-              <circle cx={xNow} cy={y(price)} fill="var(--brand)" r="3.5" />
-              <text fill="var(--muted-foreground)" fontSize="12" style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={(xNow + plotR) / 2} y={plotB - 10}>
-                click to place your points
+              <circle cx={xNow} cy={y(price)} fill="var(--brand)" fillOpacity="0.15" r="12" />
+              <circle cx={xNow} cy={y(price)} fill="var(--brand)" r="5" />
+              <text fill="var(--foreground)" fontSize={phone ? "11" : "14"} style={{ fontFamily: "var(--font-sans)" }} textAnchor="middle" x={(xNow + plotR) / 2} y={Math.max(plotT + 45, Math.min(plotB - 65, y(price) - 48))}>
+                <tspan x={(xNow + plotR) / 2}>{phone ? "Draw your prediction" : "Draw your prediction of where the chart goes next"}</tspan>
+                <tspan dy="21" fill="var(--muted-foreground)" fontSize="11" x={(xNow + plotR) / 2}>Click to add points, or drag</tspan>
               </text>
             </g>
           ) : null}
@@ -811,38 +836,14 @@ export function SketchCanvas({
         </span>
       ) : null}
 
-      {/*
-        Buy and sell marks where a turn the candles have reached closes one position and opens the
-        next. Only behind the candles; ahead, the handles say it.
-      */}
-      {showMarks && (phase === "running" || phase === "settled") && pts.length > 1
-        ? plotted.map((p, i) => {
-            const next = pts[i + 1];
-            // Settled, the whole round is behind us; `editableFrom` is zero then and must not be
-            // read as the boundary.
-            const behind = phase === "settled" ? 1 : editableFrom;
-            if (!next || pts[i].t > behind) return null;
-            const buy = next.price > pts[i].price;
-            /* Only where direction changes: a bend inside a rise is one long. */
-            const prev = pts[i - 1];
-            if (prev && buy === pts[i].price > prev.price) return null;
-            return (
-              <span
-                className={cn(
-                  // Same plate as the price tags; a grey chip made the two moments that cost money
-                  // the quietest thing on the chart.
-                  "pointer-events-none absolute -translate-x-1/2 rounded-full border bg-popover px-2 py-0.5 font-semibold text-xs leading-4 shadow-xs/5",
-                  buy ? "border-up/40 text-up" : "border-down/40 text-down",
-                )}
-                // biome-ignore lint/suspicious/noArrayIndexKey: positional
-                key={i}
-                style={{ left: p.x, top: buy ? p.y + 12 : p.y - 32 }}
-              >
-                {buy ? "Buy" : "Sell"}
-              </span>
-            );
-          })
-        : null}
+      {/* Confirmed venue fills only; drawn turns are intentions, not executions. */}
+      {showMarks && (phase === "running" || phase === "settled") ? fills.map(fill => {
+        const candleIndex=run.findIndex(c=>fill.at>=c.t&&fill.at<c.t+CANDLE_MS);
+        if(candleIndex<0)return null;
+        const candle=run[candleIndex], candleX=xOfBar(candleIndex+0.5);
+        const candleTop=Math.max(plotT,Math.min(plotB-18,fill.buy?y(candle.l)+6:y(candle.h)-24));
+        return candleX>=plotL+9&&candleX<=plotR-9 ? <span key={fill.id} role="img" aria-label={`${fill.buy?"Buy":"Sell"} fill at ${fill.price}`} className={cn("pointer-events-none absolute flex size-[18px] -translate-x-1/2 items-center justify-center rounded-full border bg-popover font-bold text-[10px]",fill.buy?"border-up text-up":"border-down text-down")} style={{left:candleX,top:candleTop}}>{fill.buy?"B":"S"}</span>:null;
+      }):null}
 
       {/* What the line is worth where the finger is. */}
       {head && headLabel && (phase === "drawing" || phase === "drawn") ? (

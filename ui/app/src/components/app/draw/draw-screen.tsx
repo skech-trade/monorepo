@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useFeed } from "@/lib/feed";
-import { closeRound, hasTrader, keyFor, openRound, prepareKey, registerKey, useVenueRound } from "@/lib/round";
+import { CANDLE_SECONDS, useFeed } from "@/lib/feed";
+import { closeExistingPosition, closeRound, hasTrader, keyFor, openRound, prepareKey, registerKey, useVenueRound, useVenueHistory, type VenueRound } from "@/lib/round";
 import { usePhone } from "@/lib/phone";
+import { usePlayer } from "@/lib/social";
 import { useProfile } from "@/lib/profile";
 import { useAccount } from "../auth";
 import { useSettings } from "@/lib/settings";
-import { type Candle, candlesFor, type Market, signedUsd } from "@/lib/market";
-import { accuracyOf, type Exits, extend, nextCandle, type Outcome, type Pt, quote as quoteFor, ribbonFor, SAMPLES, settle, shapeOf, simplify } from "@/lib/sketch";
+import { type Candle, type Market } from "@/lib/market";
+import { accuracyOf, type Exits, type Outcome, type Pt, quote as quoteFor, ribbonFor, shapeOf, simplify } from "@/lib/sketch";
 import { MarketHeader } from "../market-header";
 import { PlaceTicket } from "./place-ticket";
 import { DrawTools, type Preset, PRESETS } from "./draw-tools";
@@ -17,32 +18,20 @@ import { HistoryIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { type Band, type Phase, SketchCanvas } from "./sketch-canvas";
 import { SketchBar } from "./sketch-tray";
-import { RoundsSheet, seedSketches, type Sketch } from "./sketches";
+import { RoundsSheet, type Sketch } from "./sketches";
 
-/**
- * Draw: the chart, the line you put on it, what the line is worth. The feed is simulated, one
- * candle a second, pulled toward the line by a factor rolled once per sketch.
- */
+/** Draw against real venue candles and show only confirmed venue P&L. */
 
-export const HISTORY = 90;
-/** A candle is a second and a round starts at a minute of them. Drawing off the right edge lengthens it. */
-const RUN_BARS = 60;
-/** The shortest a round can be, in candles. Five seconds is a coin toss, not a call. */
-const MIN_BARS = 5;
+export const HISTORY = 180;
+/** A candle spans 500ms; 120 candles make a minute. Drawing off the right edge lengthens it. */
+const RUN_BARS = 120;
+/** The shortest round is ten candles. Five seconds is a coin toss, not a call. */
+const MIN_BARS = 10;
 
 /** How long a round this line makes: its last second, never shorter than MIN_BARS. */
-const barsFor = (pts: Pt[], horizon: number) => Math.max(MIN_BARS, Math.round((pts[pts.length - 1]?.t ?? 1) * horizon));
+const barsFor = (pts: Pt[], horizon: number) => Math.max(MIN_BARS, Math.round((pts[pts.length - 1]?.t ?? 1) * horizon * CANDLE_SECONDS) / CANDLE_SECONDS);
 /** As long as a sketch may get. Five minutes is already a long wait. */
-export const RUN_MAX = 300;
-/** A bar a second, in real time, with the forming one moving twice a second. */
-const TICK_MS = 1000;
-const SUB_MS = 500;
-/**
- * Per-second move as a share of price. Bitcoin near 50% annualised is about 0.01% a second, six
- * dollars on $64k. The old 0.0016 was a market having the worst day of its life, forever.
- */
-const VOL = 0.0002;
-
+export const RUN_MAX = 600;
 function bandFor(candles: Candle[], center: number, extra: number[] = []): Band {
   /* A floor on the vertical scale so a quiet market still has visible bodies: 0.06% either side. */
   let reach = center * 0.0006;
@@ -66,19 +55,6 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
   const setLeverage = (next: number) => setSettings({ leverage: next });
   /** Where to get out, in dollars. Both optional; empty means neither. */
   const [exits, setExits] = useState<Exits>({ lose: null, gain: null });
-  /* History from the same process as the live feed, so its bars are the same height as the live ones. */
-  /*
-    Real Bitcoin where there is a feed to reach, the simulation otherwise.
-
-    `services/feed` holds one socket to Lighter and builds a bar a second from
-    the trade stream. With NEXT_PUBLIC_FEED_URL unset nothing changes: the
-    walk below runs, which is what every screenshot and test still uses.
-  */
-  /* `stream` arrives from Terminal, which holds the one socket: the app bar
-     shows the same live price on a phone, and two connections to one market
-     saying the same thing is one too many. */
-  const seed = useMemo(() => candlesFor(market, "1m", HISTORY, VOL), [market]);
-
   const [phase, setPhase] = useState<Phase>("live");
   /**
    * How long this sketch is, in candles. State because the line decides it: draw past the edge and
@@ -93,11 +69,11 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
    */
   const [viewBars, setViewBars] = useState(RUN_BARS);
   const [pts, setPts] = useState<Pt[]>([]);
-  const [feed, setFeed] = useState<Candle[]>(seed);
+  const [feed, setFeed] = useState<Candle[]>(() => stream?.bars.slice(-HISTORY) ?? []);
   const [run, setRun] = useState<Candle[]>([]);
   const [entry, setEntry] = useState(market.price);
-  const [band, setBand] = useState<Band>(() => bandFor(seed, market.price));
-  const [sketches, setSketches] = useState<Sketch[]>(() => seedSketches(market));
+  const [band, setBand] = useState<Band>(() => bandFor([], market.price || 1));
+  const [sketches, setSketches] = useState<Sketch[]>([]);
   const [listOpen, setListOpen] = useState(false);
   /*
     The round on the venue, when there is a trader to run one.
@@ -108,12 +84,12 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
   const [venueId, setVenueId] = useState<string | null>(null);
   /* Which drawn round the venue round belongs to, so the settled card can
      show what the venue booked rather than what the simulation worked out. */
-  const [venueSketch, setVenueSketch] = useState<string | null>(null);
   const [venueProblem, setVenueProblem] = useState<string | null>(null);
   const venue = useVenueRound(venueId);
   /* Whose account the orders land on, against whose balance is on the screen. */
   const me = useAccount();
   const profile = useProfile(me.address);
+  const social = usePlayer(me.address, me.signMessage);
   const mine = profile.balance?.accountIndex ?? null;
   /* A round that landed on any account but the reader's own would be a bug,
      not a mode. This is the check that says so if it ever happens again. */
@@ -124,12 +100,15 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
   /** Where the finger landed, for a tap that becomes a point. */
   const tapAt = useRef<Pt | null>(null);
 
-  /** Whether bars come from the market. Read by the loop, which must not re-make itself. */
-  const fromMarket = useRef(false);
+  /** A configured market must never fall back to simulated prices on disconnect. */
+  const marketConfigured = useRef(stream !== null);
   /** Where a bar goes when it arrives, whoever made it. */
   const arriving = useRef<(bar: Candle) => void>(() => undefined);
 
-  const follow = useRef(0);
+  const [placing, setPlacing] = useState(false);
+  const [closeRequested, setCloseRequested] = useState(false);
+  const placementLock = useRef(false);
+  const history = useVenueHistory(mine);
   const lastT = useRef(-1);
   const kept = useRef(0);
   const anchor = useRef(0);
@@ -149,19 +128,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
   }, [riding, pts, price]);
   const shape = useMemo(() => shapeOf(view, entryView), [view, entryView]);
   const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage, exits) : null), [shape, entryView, stake, leverage, exits]);
-  const book = useMemo(
-    () => (shape && run.length > 0 ? settle(run, shape, entry, stake, leverage, runBars, exits) : null),
-    [run, shape, entry, stake, leverage, runBars, exits],
-  );
-  /*
-    What the round is worth, and who says so.
-
-    With a position on the venue the answer is the venue's: its mark, its
-    fees, its fills. The local settlement still runs, because it draws the
-    ribbon and decides when the round is over, but it does not get to name
-    the number when real money is on it.
-  */
-  const net = venue ? (venue.status === "done" ? venue.realised : venue.unrealised) : (book?.net ?? null);
+  const net = venue?.pnlReady ? venue.net : null;
   const ribbon = useMemo(() => ribbonFor(feed), [feed]);
   /** Your last line, moved to today's price. */
   const ghost = useMemo(
@@ -170,25 +137,25 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
   );
 
   const live = useRef({ phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, exits });
-  const onMarket = Boolean(stream?.connected && stream.bars.length > 0);
   useEffect(() => {
     live.current = { phase, shape, run, feed, entry, stake, leverage, ribbon, runBars, exits };
-    fromMarket.current = onMarket;
+    marketConfigured.current = stream !== null;
   });
 
-  const finish = useCallback((bars: Candle[], early: boolean) => {
-    const { shape: sh, entry: en, stake: st, leverage: lev, runBars: rbars, exits: ex } = live.current;
-    if (!sh) return;
-    const bk = settle(bars, sh, en, st, lev, rbars, ex);
+  const finish = useCallback((bars: Candle[], result: VenueRound) => {
+    const { shape: sh, runBars: rbars } = live.current;
+    if (!sh) { setPhase("settled");setListOpen(true);return; }
+
     const acc = accuracyOf(bars, sh.prices, rbars);
-    const outcome: Outcome | "closed" = early && bk.done === null ? "closed" : (bk.done ?? "time");
+    const outcome: Outcome = result.outcome === "stop" || result.outcome === "target" ? result.outcome : "time";
     // The round is kept whole on its record: what arrived, how long it was, how it ended. That is what replays and exports.
-    const settled = (s: Sketch): Sketch => ({ ...s, status: "settled", net: bk.net, exit: bk.exit, right: acc.right, outcome, run: bars, runBars: rbars });
+    const settled = (s: Sketch): Sketch => ({ ...s, status: "settled", net: result.realised, pnlReady:result.pnlReady, exit: result.exit, venueId: result.id, right: acc.right, outcome, run: bars, runBars: rbars });
     setSketches((list) => list.map((s) => (s.status === "running" ? settled(s) : s)));
     setLastSketch((s) => (s ? settled(s) : s));
     // The round stays on screen: dashed line, coloured ribbon, the gap. It
     // folds into history when the next line starts. And the rounds sheet
     // opens on it, where every earlier round already is.
+    live.current = { ...live.current, phase: "settled" };
     setPhase("settled");
     setListOpen(true);
   }, []);
@@ -211,64 +178,30 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
     // A bar the market actually printed, or one the walk invented. Everything
     // after this line is the same either way.
     const arrive = (bar: Candle) => {
-      const { phase: ph, shape: sh, run: rn, feed: fd, entry: en } = live.current;
+      const { phase: ph, shape: sh, run: rn, feed: fd } = live.current;
       if (ph === "settled") return;
       if (ph !== "running" || !sh) {
-        const next = [...fd.slice(1), bar];
+        const next = [...fd, bar].slice(-HISTORY);
+        live.current = { ...live.current, feed: next };
         setFeed(next);
-        setBand((b) => easeBand(b, bandFor(next, bar.c, sh ? sh.prices : [])));
+        if (ph !== "drawing") setBand((b) => easeBand(b, bandFor(next, bar.c, sh ? sh.prices : [])));
         return;
       }
       const next = [...rn, bar];
+      live.current = { ...live.current, run: next };
       setRun(next);
       setBand((b) => easeBand(b, bandFor([...fd, ...next].slice(-HISTORY), bar.c, sh.prices)));
-      const bk = settle(next, sh, en, live.current.stake, live.current.leverage, live.current.runBars, live.current.exits);
-      if (bk.done !== null || next.length >= live.current.runBars) finish(next, false);
+      // Only venue confirmation can finish a trade or book its result.
     };
     arriving.current = arrive;
 
-    /*
-      The walk, for when there is no feed.
-
-      It used to bail out of this effect when the feed was already connected,
-      and start when it was not. The effect runs once, so a feed that connected
-      a moment after mount left the walk running: the market's bars and the
-      invented ones both arrived, the chart moved at twice the speed, and a
-      round that said sixty-eight seconds was over in thirty-four. Worse, half
-      the tape a round was judged against was made up.
-
-      So the interval always exists and asks on every tick whether the market
-      is answering, which is a thing that changes while it runs.
-    */
-    const tick = setInterval(() => {
-      if (fromMarket.current) return;
-      const { phase: ph, shape: sh, run: rn, feed: fd, entry: en } = live.current;
-      if (ph === "settled") return;
-      const open = ph === "running" && sh ? (rn.at(-1)?.c ?? en) : (fd.at(-1)?.c ?? en);
-      const along = ph === "running" && sh ? sh.prices[Math.min(SAMPLES - 1, Math.round(((rn.length + 1) / live.current.runBars) * (SAMPLES - 1)))] : null;
-      arrive(nextCandle(open, VOL, Date.now(), along, along === null ? 0 : follow.current));
-    }, TICK_MS);
-    const sub = setInterval(() => {
-      const { phase: ph, run: rn } = live.current;
-      if (ph === "settled" || fromMarket.current) return;
-      if (ph === "running" && rn.length) setRun((r) => (r.length ? [...r.slice(0, -1), extend(r[r.length - 1], VOL)] : r));
-      else setFeed((f) => (f.length ? [...f.slice(0, -1), extend(f[f.length - 1], VOL)] : f));
-    }, SUB_MS);
-    return () => {
-      clearInterval(tick);
-      clearInterval(sub);
-    };
+    return () => { arriving.current = () => undefined; };
   }, [finish]);
 
-  /*
-    The market's own bars, handed to the same loop the walk feeds.
-
-    Keyed on the newest second, so each bar goes through once. The first one
-    that arrives also replaces the seeded history, because a chart of invented
-    candles with real ones landing on the end is two markets in one picture.
-  */
+  /* Market history includes forming-bar corrections. Only new timestamps
+     advance a running round; reconnect snapshots can also repair history. */
   const seededFromMarket = useRef(false);
-  const lastSecond = useRef(0);
+  const lastBucket = useRef(0);
   const latest = stream?.latest ?? null;
   useEffect(() => {
     if (!latest || !stream) return;
@@ -279,16 +212,36 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
       const price = history.at(-1)?.c ?? latest.c;
       setEntry(price);
       setBand(bandFor(history, price));
-      lastSecond.current = latest.t;
+      lastBucket.current = latest.t;
       return;
     }
-    if (latest.t <= lastSecond.current) return;
-    lastSecond.current = latest.t;
-    arriving.current(latest);
+    const current = live.current;
+    if (current.phase === "settled") return;
+    // The stream owns history, including reconnect snapshots and corrections.
+    // A forming-bar update must never advance a round's clock.
+    if (current.phase !== "running") {
+      const history = stream.bars.slice(-HISTORY);
+      live.current = { ...current, feed: history };
+      setFeed(history);
+      if (current.phase !== "drawing") setBand((b) => easeBand(b, bandFor(history, latest.c, current.shape?.prices ?? [])));
+      lastBucket.current = latest.t;
+      return;
+    }
+    const byTime = new Map(stream.bars.map((bar) => [bar.t, bar]));
+    const corrected = current.run.map((bar) => byTime.get(bar.t) ?? bar);
+    live.current = { ...current, run: corrected };
+    setRun(corrected);
+    if (latest.t <= lastBucket.current) return;
+    const fresh = stream.bars.filter((bar) => bar.t > lastBucket.current);
+    lastBucket.current = latest.t;
+    for (const bar of fresh) {
+      arriving.current(bar);
+      if (live.current.phase === "settled") break;
+    }
   }, [latest, stream]);
 
   /** Points at or before this time have already happened. */
-  const editableFrom = phase === "running" ? run.length / runBars + 0.01 : 0;
+  const editableFrom = phase === "running" || placing ? Infinity : 0;
 
 
   /**
@@ -338,11 +291,13 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
 
   /** A point taken hold of. */
   const onGrab = (index: number) => {
+    if(phase === "running" || placing) return;
     dragIndex.current = index;
   };
 
   /** A point removed. Two points is the least that is still a line. */
   const onRemove = (index: number) => {
+    if(phase === "running" || placing) return;
     setPts((p) => {
       if (p.length <= 2) return p;
       return p.filter((_, i) => i !== index);
@@ -350,6 +305,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
   };
 
   const onDown = (pt: Pt) => {
+    if(placing)return;
     if ((phase === "drawn" || phase === "running") && pts.length > 1) {
       // Another point, where you clicked, in time order. Ahead of now only.
       if (pt.t <= editableFrom) return;
@@ -403,20 +359,22 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
     // The stroke itself. A point every hundredth or so of the round, which is
     // finer than a bar and far finer than anything that can be traded, the
     // shape is what is being captured, not the samples.
-    if (pt.t - lastT.current < 0.008) return;
+    // A vertical stroke (including holding either edge) changes the tip even
+    // when time has not advanced enough to append another point.
+    if (pt.t - lastT.current < 0.008) {
+      const nextPrice = pt.price + anchor.current;
+      stretchTo(nextPrice);
+      setPts((p) => p.length < 2 ? p : [...p.slice(0, -1), { ...p[p.length - 1], price: nextPrice }]);
+      return;
+    }
     const t = coverTo(pt.t);
     lastT.current = t;
     kept.current += 1;
-    // The line lags the finger a little, so a shaky hand draws a calm one.
-    // Only a little: at much less than this every peak is rounded off before
-    // the line is even simplified, and a sharp turn is usually the point.
+    // Follow input directly. Simplification happens after release, so it
+    // does not make the live stroke trail the pointer.
     const target = { t, price: pt.price + anchor.current };
     stretchTo(target.price);
-    setPts((p) => {
-      const last = p[p.length - 1];
-      const eased = last ? last.price + (target.price - last.price) * 0.85 : target.price;
-      return [...p, { t: target.t, price: eased }];
-    });
+    setPts((p) => [...p, target]);
   };
 
   const onUp = () => {
@@ -483,71 +441,46 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
     somebody trades, and never again: it authorises a key that can trade their
     Lighter account and nothing else. It cannot move money off the venue.
   */
-  const trade = async (address: string, sketchId: string, spec: Omit<Parameters<typeof openRound>[0], "address">) => {
+  const trade = async (address: string, spec: Omit<Parameters<typeof openRound>[0], "address">) => {
+    const {registered} = await keyFor(address);
+    if(!registered){
+      const prep=await prepareKey(address);
+      if(prep.error)throw Error(prep.error);
+      if(prep.messageToSign){const signature=await me.signMessage(prep.messageToSign);if(!signature)throw Error("Signature cancelled. No trade was placed.");const done=await registerKey(address,signature);if(done.error)throw Error(done.error);}
+    }
+    const result=await openRound({address,...spec});
+    if("error" in result)throw Error(result.error);
+    return result;
+  };
+
+  const onPlace = async () => {
+    if(placementLock.current || !shape || !hasTrader || !me.address || !stream?.connected || !stream.latest) return;
+    placementLock.current=true;setPlacing(true);setVenueProblem(null);
     try {
-      const { registered } = await keyFor(address);
-      if (!registered) {
-        setVenueProblem("Sign the prompt to trade your own account.");
-        const prep = await prepareKey(address);
-        if (prep.error) return setVenueProblem(prep.error);
-        if (prep.messageToSign) {
-          const signature = await me.signMessage(prep.messageToSign);
-          if (!signature) return setVenueProblem("The wallet did not sign, so nothing was traded.");
-          const done = await registerKey(address, signature);
-          if (done.error) return setVenueProblem(done.error);
-        }
-        setVenueProblem(null);
-      }
-      const round = await openRound({ address, ...spec });
-      if ("error" in round) return setVenueProblem(round.error);
-      setVenueProblem(null);
-      setVenueId(round.id);
-      setVenueSketch(sketchId);
-    } catch (e) {
-      setVenueProblem((e as Error).message.slice(0, 140));
-    }
+      const end=view.at(-1)?.t??1, horizon=barsRef.current, bars=barsFor(view,horizon);
+      const moved=end>0?view.map(p=>({...p,t:Math.min(1,p.t/end)})):view;
+      const result=await trade(me.address,{pts:moved,stake,leverage,seconds:bars*CANDLE_SECONDS,exits});
+      const sketch:Sketch={id:result.id,venueId:result.id,author:social.player?.username??profile.name??undefined,long:shape.long,stake,leverage,entry:result.entry,pts:moved,placedAt:result.startedAt,status:"running",net:0};
+      setVenueId(result.id);setPts(moved);setRunBars(bars);barsRef.current=bars;setEntry(result.chartEntry??result.entry);setLastSketch(sketch);setSketches(list=>[sketch,...list]);setRun(live.current.feed.filter(c=>c.t>=result.startedAt));setFeed(live.current.feed.filter(c=>c.t<result.startedAt));setViewBars(horizon);setPhase("running");
+      void social.startPrediction(moved,bars*CANDLE_SECONDS);
+    } catch(error){setVenueProblem((error as Error).message.slice(0,180));}
+    finally{placementLock.current=false;setPlacing(false);}
   };
 
-  const onPlace = () => {
-    if (!shape) return;
-    // The round is as long as the line. A line that stops at ten minutes is
-    // a ten minute call, so the clock stops where the drawing does, and the
-    // points are rescaled so the line spans the whole round.
-    const end = view[view.length - 1]?.t ?? 1;
-    const horizon = barsRef.current;
-    const bars = barsFor(view, horizon);
-    const moved = end > 0 ? view.map((p) => ({ ...p, t: Math.min(1, p.t / end) })) : view;
-    setPts(moved);
-    setRunBars(bars);
-    barsRef.current = bars;
-    setEntry(price);
-    follow.current = -0.12 + Math.random() * 0.62;
-    const sketch: Sketch = { id: `sk-${Date.now()}`, long: shape.long, stake, leverage, entry: price, pts: moved, placedAt: Date.now(), status: "running", net: 0 };
-    setLastSketch(sketch);
-    setSketches((list) => [sketch, ...list]);
-    setRun([]);
-    // The window stays where it was while you drew. A short round ends part
-    // way across it; zooming in to fit would yank the picture the moment you
-    // press the button.
-    setViewBars(horizon);
-    setPhase("running");
-    /*
-      And on the venue, if there is one wired up.
+  useEffect(()=>{
+    const active=history.find(r=>r.status!=="done");
+    if(!active || venueId)return;
+    // Restore a server-owned active round after a refresh; never invent its P&L.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setVenueId(active.id);setPts(active.pts??[]);setEntry(active.chartEntry??active.entry);setRunBars(Math.max(MIN_BARS,active.seconds/CANDLE_SECONDS));setPhase("running");
+  },[history,venueId]);
 
-      Fired rather than awaited: the screen has already started moving, and a
-      round that takes a second to open should not hold the picture still.
-      A refusal is said on the screen rather than swallowed, because a round
-      that quietly did not trade is the worst of both.
-    */
-    setVenueId(null);
-    setVenueSketch(null);
-    setVenueProblem(null);
-    if (hasTrader && me.address) {
-      void trade(me.address, sketch.id, { pts: moved, stake, leverage, seconds: bars, exits });
+  useEffect(()=>{
+    if(venue?.status === "done" && phase === "running") {
+      finish(live.current.run,venue);
+      window.dispatchEvent(new Event("skech-balance"));
     }
-    // No toast. The header turns into "Close trade", the bar starts counting
-    // candles and the chart starts moving: three things already say it.
-  };
+  },[venue,phase,finish]);
 
   // Escape clears, Z or Backspace undoes. Only while the line is yours.
   useEffect(() => {
@@ -569,7 +502,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
   /* Signed, because net of fees this goes negative: at fifty times a hundred
      dollars they are $4.50, and a line that only reaches for four dollars is a
      trade that costs money to be right about. It read "+$-4" before. */
-  const headLabel = shape && quote ? `${signedUsd(quote.ifWorks, 0)} if it gets here` : null;
+  const headLabel = null;
 
   /*
     What each round is worth, on the cards and in the sheet.
@@ -580,15 +513,15 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
     venue read $0.00, because the simulation had nothing to settle after an
     early close. Two numbers for one round, and the wrong one on screen.
   */
-  const shown = useMemo(
-    () =>
-      sketches.map((s) => {
-        if (venue && s.id === venueSketch) return { ...s, net: venue.status === "done" ? venue.realised : venue.unrealised };
-        if (phase === "running" && net !== null && s.status === "running") return { ...s, net };
-        return s;
-      }),
-    [sketches, net, phase, venue, venueSketch],
-  );
+  const shown = useMemo(() => {
+    const byId = new Map(sketches.map(s=>[s.id,s]));
+    for(const r of history){
+      const previous=byId.get(r.id);
+      byId.set(r.id,{...previous,id:r.id,venueId:r.id,pts:r.pts??[],entry:r.entry,stake:r.stake,leverage:r.leverage,placedAt:r.startedAt,long:shapeOf(r.pts??[],r.chartEntry??r.entry)?.long??true,status:r.status==="done"?"settled":"running",net:r.pnlReady?r.net??r.realised:0,pnlReady:r.pnlReady,exit:r.exit,run:previous?.run??r.bars,runBars:r.seconds/CANDLE_SECONDS});
+    }
+    if(venue){const s=byId.get(venue.id);if(s)byId.set(venue.id,{...s,status:venue.status==="done"?"settled":"running",net:venue.pnlReady?venue.net??venue.realised:0,pnlReady:venue.pnlReady,exit:venue.exit});}
+    return [...byId.values()].sort((a,b)=>b.placedAt-a.placedAt);
+  },[sketches,history,venue]);
 
   const phone = usePhone();
 
@@ -650,15 +583,44 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
     every other control has somewhere quieter to live, and a row of five
     asks somebody to read five things before pressing one.
   */
+  const blockingRound = history.find(r => r.status !== "done" && r.id !== venueId);
+  const needsRecovery = !!me.address && hasTrader && !venueId && ((profile.balance?.positions ?? 0) > 0 || !!blockingRound);
+  const recoverPosition = async () => {
+    if (!me.address || placementLock.current) return;
+    placementLock.current = true;
+    setPlacing(true);
+    setVenueProblem(null);
+    try {
+      const result = blockingRound ? await closeRound(blockingRound.id) : await closeExistingPosition(me.address);
+      if (!result) throw new Error("Close request failed. Your position may still be open; retry.");
+      setVenueId(result.id);
+      setPhase(result.status === "done" ? "settled" : "running");
+      if (result.status === "done") setListOpen(true);
+      setVenueProblem(result.problem);
+      window.dispatchEvent(new Event("skech-balance"));
+    } catch (error) {
+      setVenueProblem((error as Error).message);
+    } finally {
+      placementLock.current = false;
+      setPlacing(false);
+    }
+  };
+
   const controls = (
     <div className="flex w-full items-center gap-1.5 sm:w-auto sm:gap-2">
       <PlaceTicket
+        recovery={needsRecovery ? { onClose: () => { void recoverPosition(); }, pending: placing } : undefined}
         exits={exits}
         leverage={leverage}
         market={market}
+        closing={closeRequested || (venue?.status === "closing" && !venue.problem)}
         onCloseNow={() => {
-          if (venueId) void closeRound(venueId);
-          if (run.length) finish(run, true);
+          if (!venueId || closeRequested) return;
+          setCloseRequested(true);
+          void closeRound(venueId).then(result => {
+            if (!result) setVenueProblem("Close request failed. Retry; the position may still be open.");
+            else setVenueProblem(result.problem);
+          }).finally(() => setCloseRequested(false));
         }}
         onDrawAgain={() => {
           fold();
@@ -670,6 +632,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
         onStake={setStake}
         phase={phase}
         quote={quote}
+        unavailableReason={placing ? "Opening trade…" : !me.address ? "Sign in to trade" : !hasTrader ? "Trading unavailable" : !stream?.connected || !stream.latest ? "Waiting for live prices…" : (profile.balance?.positions ?? 0)>0 || history.some(r=>r.status!=="done"&&r.id!==venueId) ? "Finish your open trade" : undefined}
         shape={shape}
         stake={stake}
       />
@@ -696,7 +659,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
           the app bar and the controls are in the footer, so this was an empty
           bordered strip putting a gap between the bar and the chart. */}
       <div className="hidden flex-wrap items-center gap-1.5 border-b px-2 py-2 sm:flex sm:gap-2 sm:px-3">
-        {/* The day comes from the venue when there is one; the mock's own
+        {/* The day comes from the live venue; the descriptor’s own
             figures are about a price that is no longer on the screen. */}
         <MarketHeader
           /* In the app bar on a phone, so this one is the desk's. */
@@ -711,6 +674,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
       </div>
       {/* The chart runs to the edges on a phone: there is no panel beside it
           for the gutter to separate it from. */}
+      {stream?.network ? <div className="px-4 pt-2 text-xs text-muted-foreground">{stream.network === "mainnet" ? "Lighter BTC · Mainnet trade candles · Execution and P&L use your account’s network" : "Testnet · Mark-price candles"}<span className="ml-2">{stream.connected ? "Live venue prices" : "Waiting for venue prices…"}</span></div> : null}
       <div className="flex min-h-0 flex-1 gap-2 sm:px-2 sm:pt-2">
         {/* Always present. What it holds changes with the phase; the chart
             settings are in it whatever is happening to the money. */}
@@ -723,16 +687,21 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
 
           A nav bar is for the app: the logo and the way in. A price belongs
           with the picture of it, and over the chart it costs no layout at all
-          where a row of its own cost a band of chrome. Top right, clear of
-          the column of controls down the left.
+          where a row of its own cost a band of chrome. Left aligned above
+          the column of chart controls.
         */}
         {phone ? (
-          <div className="absolute top-4 right-3 z-10">
-            <MarketHeader market={market} />
+          <div className="absolute top-4 left-3 z-10">
+            <MarketHeader market={{ ...market, price }} />
           </div>
         ) : null}
         {shelf}
-        <SketchCanvas
+        {stream && !stream.connected ? (
+          <div className="pointer-events-none absolute top-3 left-3 z-10 rounded-md border bg-background/95 px-2.5 py-1 text-xs text-foreground max-sm:top-auto max-sm:right-3 max-sm:bottom-8 max-sm:left-auto" role="status">
+            Waiting for live market data…
+          </div>
+        ) : null}
+        {price > 0 && feed.length > 0 ? <SketchCanvas
           band={band}
           feed={feed}
           headLabel={headLabel}
@@ -740,7 +709,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
             A fixed window while drawing: the round grows as you draw, and fitting it shrank the
             bars under the hand. Only `drawn` fits the whole plan.
           */
-          horizonSeconds={phase === "drawn" ? runBars : viewBars}
+          horizonBars={phase === "drawn" ? runBars : viewBars}
           editableFrom={editableFrom}
           onDown={onDown}
           onGrab={onGrab}
@@ -749,6 +718,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
           onUp={onUp}
           phase={phase}
           pnl={net}
+          fills={venue?.fills ?? []}
           price={price}
           pts={view}
           run={run}
@@ -756,9 +726,15 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
           shape={shape}
           ghost={ghost}
           ribbon={ribbon}
-        />
+        /> : <div role="status" className="flex h-full items-center justify-center text-sm text-muted-foreground">Waiting for live candles…</div>}
         </div>
       </div>
+      {phase === "running" && venue?.queue ? <div role="status" aria-live="polite" className="border-t px-4 py-2 text-sm text-muted-foreground">{(() => {
+        const pending=venue.queue.find(order=>order.status==="submitting"||order.status==="submitted");
+        const next=venue.queue.find(order=>order.status==="queued");
+        const filled=venue.fills?.length??0;
+        return pending ? `${pending.want>0?"Buy":"Sell"} ${pending.status==="submitting"?"submitting…":"submitted · awaiting fill confirmation"}` : next ? `Next ${next.want>0?"buy":"sell"} scheduled · ${filled} confirmed fills` : `${filled} confirmed fills`;
+      })()}</div> : null}
       {/* The bar takes its row; the plot above it is never covered. */}
       <div className="flex flex-col gap-2 border-t px-3 py-3">
         <SketchBar
@@ -767,8 +743,8 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
           phone={phone}
           onVenue={venue !== null}
           venueAccount={notMine ? venue.accountIndex : null}
-          venueProblem={venueProblem}
-          openCount={sketches.length}
+          venueProblem={venueProblem ?? venue?.problem}
+          openCount={shown.length}
           phase={phase}
           quote={quote}
           runCount={run.length}
@@ -779,7 +755,10 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
         {/* Within reach on a phone, and the only row that has to be. */}
         {phone ? controls : null}
       </div>
+      {needsRecovery ? <p className="border-t px-4 py-3 text-sm text-muted-foreground">You have an open position on Lighter. Use {phone ? "Close position" : "Close open position"} above to close it before starting another trade.</p> : null}
+      {venueProblem ? <p role="alert" className="px-4 py-2 text-sm text-down">{venueProblem}</p> : null}
       <RoundsSheet
+        social={social}
         market={market}
         onNext={() => {
           setListOpen(false);

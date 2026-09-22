@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { type Market, signedUsd } from "@/lib/market";
 import { type Clip, recordCanvas } from "@/lib/share";
-import { accuracyOf, lineAt, resample } from "@/lib/sketch";
 import { type Palette, readPalette, subscribePalette } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { cardStory, type Seg } from "./round-copy";
+import { BUDDY_COLORS, DEFAULT_SHARE_STYLE, paintBuddy, type ShareStyle } from "./share-style";
 import type { Sketch } from "./sketches";
 
 /**
@@ -127,23 +127,40 @@ const ease = (u: number) => 1 - (1 - u) ** 4;
  * the mark and the address sit along its foot. The top corners stay empty
  * because X puts its own controls there on a video.
  */
-function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market: Market, frame: number, look: Look, streak = 0) {
-  const { W, H, M } = CARD;
-  const { p } = look;
+function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market: Market, frame: number, look: Look, streak = 0, chartOnly = false, style: ShareStyle = DEFAULT_SHARE_STYLE) {
+  const { W, M } = CARD;
+  const H = ctx.canvas.height;
+  const p = chartOnly ? look.p : { ...look.p,
+    bg: style.theme === "night" ? "#121110" : "#fbfaf9",
+    fg: style.theme === "night" ? "#fafaf9" : "#343433",
+    fgMuted: style.theme === "night" ? "#b3ada6" : "#5f5c59",
+    grid: style.theme === "night" ? "#292724" : "#e9e6e1",
+    up: style.theme === "night" ? "#4ade80" : "#15803d",
+    down: style.theme === "night" ? "#fb7185" : "#c4291d",
+    brand: style.theme === "night" ? "#8fb0ff" : "#2b62de",
+  };
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = p.bg;
   ctx.fillRect(0, 0, W, H);
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = "left";
 
+  if (!chartOnly) {
+    ctx.fillStyle = p.fgMuted;
+    ctx.font = `500 22px ${look.sans}`;
+    ctx.fillText("SKECH / PREDICTION REPLAY", M, 36);
+    ctx.textAlign = "right";
+    ctx.fillText("Unverified result", W - M, 36);
+    ctx.textAlign = "left";
+  }
   // The foot is measured first so the chart knows its floor.
   const won = sketch.net >= 0;
-  const money = signedUsd(sketch.net);
+  const money = style.showMoney ? signedUsd(sketch.net) : "My prediction";
   ctx.font = `400 22px ${look.sans}`;
   const tag = "Draw yours at skech.trade";
   const tagW = ctx.measureText(tag).width;
-  const storyLines = wrap(ctx, cardStory(sketch, market, streak), 24, look, W - 2 * M - tagW - 88);
-  const footTop = H - M - storyLines.length * 32 - 96;
+  const storyLines = wrap(ctx, style.showMoney ? cardStory(sketch, market, streak) : [{ text: `${sketch.author || "A skecher"} drew ${market.name}. The line was the prediction. The candles tell the story.` }], 24, look, W - 2 * M - tagW - 88);
+  const footTop = chartOnly ? H - M + 24 : H - M - storyLines.length * 32 - 96;
 
   const box = { x: M, y: M, w: W - 2 * M, h: footTop - M - 24 };
   const { run, runBars, line, y, x, step } = layout(sketch, box.w, box.h, { t: 16, b: 16, l: 0, r: 24 });
@@ -176,12 +193,9 @@ function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market: Marke
 
   // Candles, each shaded by whether that second paid, the same rule the chart and the score use.
   const shown = Math.round(arrived * run.length);
-  const prices = resample(line, sketch.entry);
-  const paid = accuracyOf(run, prices, runBars).flags;
   for (let i = 0; i < shown; i++) {
     const c = run[i];
-    ctx.fillStyle = paid[i] ? p.upSoft : p.downSoft;
-    ctx.fillRect(X(i / runBars), Y(lineAt(prices, (i + 1) / runBars)) - 9, step, 18);
+
     const cx = X((i + 0.5) / runBars);
     const col = c.c >= c.o ? p.upMark : p.downMark;
     ctx.strokeStyle = col;
@@ -206,7 +220,7 @@ function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market: Marke
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(pts[0].x, pts[0].y);
+  if (pts.length) ctx.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length && budget > 0; i++) {
     const seg = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
     if (seg <= budget) {
@@ -219,6 +233,10 @@ function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market: Marke
     }
   }
   ctx.stroke();
+
+  if (chartOnly) return;
+
+  paintBuddy(ctx, W - M - 72, footTop + 62, BUDDY_COLORS[style.buddy], sketch.net >= 0, frame);
 
   // The money and the sentence, once it is over.
   if (landed > 0) {
@@ -249,18 +267,18 @@ function blankCard(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D
 }
 
 /** The round as a picture. */
-export async function exportPng(sketch: Sketch, market: Market, streak = 0): Promise<Blob> {
+export async function exportPng(sketch: Sketch, market: Market, streak = 0, style: ShareStyle = DEFAULT_SHARE_STYLE): Promise<Blob> {
   const look = await prepareLook();
   const { canvas, ctx } = blankCard();
-  paintRound(ctx, sketch, market, 1, look, streak);
+  paintRound(ctx, sketch, market, 1, look, streak, false, style);
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("no blob"))), "image/png"));
 }
 
 /** The round as a clip. */
-export async function recordClip(sketch: Sketch, market: Market, streak = 0): Promise<Clip> {
+export async function recordClip(sketch: Sketch, market: Market, streak = 0, style: ShareStyle = DEFAULT_SHARE_STYLE): Promise<Clip> {
   const look = await prepareLook();
   const { canvas, ctx } = blankCard();
-  return recordCanvas(canvas, (f) => paintRound(ctx, sketch, market, f, look, streak), CLIP_SECONDS);
+  return recordCanvas(canvas, (f) => paintRound(ctx, sketch, market, f, look, streak, false, style), CLIP_SECONDS);
 }
 
 /**
@@ -268,7 +286,7 @@ export async function recordClip(sketch: Sketch, market: Market, streak = 0): Pr
  * Bump `play` to run the animation from the start; a theme change repaints
  * the finished frame in place.
  */
-export function RoundCanvas({ sketch, market, streak = 0, play = 0, className }: { sketch: Sketch; market: Market; streak?: number; play?: number; className?: string }) {
+export function RoundCanvas({ sketch, market, streak = 0, play = 0, chartOnly = false, style = DEFAULT_SHARE_STYLE, className }: { sketch: Sketch; market: Market; streak?: number; play?: number; chartOnly?: boolean; style?: ShareStyle; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [look, setLook] = useState<Look | null>(null);
   const [theme, setTheme] = useState(0);
@@ -285,7 +303,7 @@ export function RoundCanvas({ sketch, market, streak = 0, play = 0, className }:
     const ctx = ref.current?.getContext("2d");
     if (!ctx || !look) return;
     if (!play || played.current === play) {
-      paintRound(ctx, sketch, market, 1, look, streak);
+      paintRound(ctx, sketch, market, 1, look, streak, chartOnly, style);
       return;
     }
     played.current = play;
@@ -293,11 +311,11 @@ export function RoundCanvas({ sketch, market, streak = 0, play = 0, className }:
     const start = performance.now();
     const tick = (now: number) => {
       const f = Math.min(1, (now - start) / (CLIP_SECONDS * 1000));
-      paintRound(ctx, sketch, market, f, look, streak);
+      paintRound(ctx, sketch, market, f, look, streak, chartOnly, style);
       if (f < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [look, play, sketch, market, streak]);
-  return <canvas aria-label="The round, as the card that gets posted" className={cn("block aspect-video w-full", className)} height={CARD.H} ref={ref} width={CARD.W} />;
+  }, [look, play, sketch, market, streak, chartOnly, style]);
+  return <canvas aria-label={chartOnly ? "Prediction compared with market prices" : "The round, as the card that gets posted"} className={cn("block w-full", className)} height={chartOnly ? 440 : CARD.H} ref={ref} width={CARD.W} />;
 }

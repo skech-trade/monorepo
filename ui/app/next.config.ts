@@ -35,6 +35,7 @@ function rootEnv(): Record<string, string> {
 }
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   env: rootEnv(),
 };
 

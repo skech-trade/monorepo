@@ -9,7 +9,7 @@
 
 import type { Candle } from "./market";
 import { FEE as VENUE_FEE, LATENCY_BARS, liquidationPrice, MARGIN, roundSize, tradeable } from "./venue";
-import { type Leg, legsFrom, type Pt, priceAt, resample, SAMPLES, type Shape, shapeOf, TURN_GAP, turnTol } from "@skech/core/shape";
+import { directionAt, type Leg, legsFrom, type Pt, priceAt, resample, SAMPLES, type Shape, shapeOf, TURN_GAP, turnTol } from "@skech/core/shape";
 
 /** What a round trip costs, per side. Zero on Lighter Standard. See `venue.ts`. */
 export const FEE = VENUE_FEE.taker;
@@ -139,6 +139,7 @@ export function settle(
   leverage: number,
   runBars: number,
   exits: Exits = { lose: null, gain: null },
+  candleSeconds = 1,
 ): Book {
   const last = bars.length;
   if (last === 0) return { net: 0, done: null, exit: entry };
@@ -149,7 +150,7 @@ export function settle(
    * snapped to one.
    */
   const fillAt = (i: number) => {
-    const at = i + LATENCY_BARS;
+    const at = i + LATENCY_BARS / candleSeconds;
     const whole = Math.floor(at);
     const part = at - whole;
     return priceAt(whole) + (priceAt(whole + 1) - priceAt(whole)) * part;
@@ -346,7 +347,7 @@ export type Accuracy = {
 };
 
 /**
- * Weighted by money, not by minutes: the line's direction at each candle is the position, the
+ * Weighted by money, not by minutes: the compiled leg at each candle is the position, the
  * candle's move is the market, their product is what that second made. The same test the chart
  * shades with.
  */
@@ -355,11 +356,11 @@ export function accuracyOf(bars: Candle[], prices: number[], runBars: number): A
   let sum = 0;
   let forYou = 0;
   let against = 0;
+  const legs = legsFrom(prices);
   const flags = bars.map((bar, i) => {
-    const was = lineAt(prices, i / runBars);
     const goes = lineAt(prices, (i + 1) / runBars);
     sum += goes - bar.c;
-    const made = (goes >= was ? 1 : -1) * (bar.c - bar.o);
+    const made = directionAt(legs, i, runBars) * (bar.c - bar.o);
     if (made >= 0) forYou += made;
     else against -= made;
     return made >= 0;

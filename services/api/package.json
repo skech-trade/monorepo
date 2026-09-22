@@ -9,5 +9,12 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
-  "devDependencies": { "@types/bun": "^1.4.2", "typescript": "^5" }
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@skech/core": "workspace:*",
+    "viem": "2.56.8"
+  }
 }

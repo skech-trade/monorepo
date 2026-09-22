@@ -109,25 +109,7 @@ export function marketFor(address: string): Market | null {
   const base = KNOWN[address.toLowerCase()];
   if (!base) return null;
 
-  const rand = mulberry32(hash(address) ^ 0x9e3779b9);
-
-  const changePct = (rand() - 0.42) * 9.4;
-  const change = (base.price * changePct) / 100;
-  const prev = base.price - change;
-
-  return {
-    address,
-    symbol: base.symbol,
-    name: base.name,
-    price: base.price,
-    change,
-    changePct,
-    high24h: Math.max(base.price, prev) * (1 + rand() * 0.018),
-    low24h: Math.min(base.price, prev) * (1 - rand() * 0.018),
-    volume24h: base.price * (1_400 + rand() * 42_000) * 120,
-    openInterest: base.price * (900 + rand() * 12_000) * 40,
-    funding: (rand() - 0.5) * 0.00018,
-  };
+  return {address,symbol:base.symbol,name:base.name,price:0,change:0,changePct:0,high24h:0,low24h:0,volume24h:0,openInterest:0,funding:0};
 }
 
 // --- the series ------------------------------------------------------------

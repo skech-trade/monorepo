@@ -28,16 +28,22 @@ bun run dev:app      # app on its own
 
 ## Ports
 
-Both apps run with `--port ${PORT:-0}`. Port 0 tells Next to take a random free
-one, so a second worktree, a second checkout, or a server you forgot to stop
-can never collide.
+Both apps use fixed default ports for `dev` and `start`:
 
-The URL changes each run, so read it off the terminal rather than bookmarking
-it. When you need a fixed port — a webhook, an OAuth callback — set `PORT`:
+- Landing: http://localhost:3100
+- App: http://localhost:3101
+
+Stop an existing server before restarting it. Keep `http://localhost:3101`
+in your Coinbase CDP development project's allowed origins.
+
+To override a port for an individual app, set `PORT`:
 
 ```bash
 PORT=3000 bun run dev:landing
 ```
+
+Leave `PORT` unset when running `bun run dev` or `bun run start` for the whole
+monorepo so the two apps use different ports.
 
 ## Scripts
 
