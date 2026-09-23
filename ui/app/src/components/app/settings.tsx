@@ -93,7 +93,7 @@ export function ChartSettings({ className }: { className?: string }) {
   );
 }
 
-/** What Draw paints around the line you drew. Not on the Desk, which draws none of it. */
+/** What Draw paints around the line you drew. */
 export function PlotSettings({ className }: { className?: string }) {
   const [settings, set] = useSettings();
   return (

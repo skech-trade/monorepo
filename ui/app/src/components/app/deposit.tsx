@@ -94,18 +94,28 @@ function Testnet({ address, onDone, amount = 10000, available = true }: { addres
         <p className="mt-6 text-4xl font-semibold tracking-tight tabular-nums">${usd(amount)}</p>
         <p className="mt-2 text-sm text-muted-foreground">Practice funds. No real money needed.</p>
       </div>
-      <div className="space-y-3"><p className="text-sm font-medium">Get a feel for Skech.</p><p className="text-sm leading-relaxed text-muted-foreground">Draw your first prediction and explore the trading experience with test funds. They have no cash value.</p></div>
-      <Button className="h-12 sm:h-12 w-full" disabled={!address || busy || !available} loading={busy} onClick={() => void ask()}>{worked ? "Request again" : `Get $${usd(amount)} in test funds`}</Button>
+      <div className="space-y-3">
+        <p className="text-sm font-medium">Get a feel for Skech.</p>
+        <p className="text-sm leading-relaxed text-muted-foreground">Draw your first prediction and explore the trading experience with test funds. They have no cash value.</p>
+      </div>
+      <Button className="h-12 sm:h-12 w-full" disabled={!address || busy || !available} loading={busy} onClick={() => void ask()}>
+        {worked ? "Request again" : `Get $${usd(amount)} in test funds`}
+      </Button>
       {!available ? <p className="text-sm text-muted-foreground">Test funds are temporarily unavailable.</p> : null}
       {said ? <p role="status" className={cn("rounded-xl border p-3 text-sm leading-relaxed", worked ? "text-up" : "text-muted-foreground")}>{said}</p> : null}
-      {address ? <div className="flex items-center justify-between gap-2 border-t pt-4"><span className="text-xs text-muted-foreground">Your wallet</span><CopyAddress address={address} className="text-xs"/></div> : null}
+      {address ? (
+        <div className="flex items-center justify-between gap-2 border-t pt-4">
+          <span className="text-xs text-muted-foreground">Your wallet</span>
+          <CopyAddress address={address} className="text-xs" />
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export function DepositSheet({ address, open, onOpenChange, onDone }: { address: string | null; open: boolean; onOpenChange: (open: boolean) => void; onDone: () => void }) {
   const chains = useDepositChains();
-  const {found, error, retry} = useDepositAddress(address);
+  const { found, error, retry } = useDepositAddress(address);
   const off = found && "canDeposit" in found && found.canDeposit === false ? (found as NoDeposits) : null;
   const deposit = off ? null : (found as Exclude<typeof found, NoDeposits> | null);
   /* Sending from the skech wallet is the second way, not the first: a wallet
@@ -161,88 +171,102 @@ export function DepositSheet({ address, open, onOpenChange, onDone }: { address:
           <SheetDescription>{off ? "Your first prediction starts here." : "Choose how you’d like to fund your Lighter account."}</SheetDescription>
         </SheetHeader>
         <SheetPanel className="flex flex-col gap-6 px-6 pb-8 sm:px-8">
-          {!found ? error ? <div role="status" className="space-y-4 rounded-2xl border p-5"><p className="text-sm text-muted-foreground">{error}</p>{address ? <Button variant="outline" onClick={retry}>Try again</Button> : null}</div> : <div role="status" className="rounded-2xl border p-8 text-center text-sm text-muted-foreground">Loading your funding options…</div> : null}
-          {off ? <Testnet address={address} onDone={onDone} amount={off.amount} available={off.canFaucet !== false}/> : null}
+          {found ? null : error ? (
+            <div role="status" className="space-y-4 rounded-2xl border p-5">
+              <p className="text-sm text-muted-foreground">{error}</p>
+              {address ? (
+                <Button variant="outline" onClick={retry}>
+                  Try again
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            <div role="status" className="rounded-2xl border p-8 text-center text-sm text-muted-foreground">
+              Loading your funding options…
+            </div>
+          )}
+          {off ? <Testnet address={address} onDone={onDone} amount={off.amount} available={off.canFaucet !== false} /> : null}
           {deposit && (!bridging || deposit.network !== "mainnet") ? (
             <>
               <DepositAddress address={deposit.address} chains={deposit.chains} minimum={deposit.minimum} network={deposit.network} />
-              {deposit.network === "mainnet" ? <Button className="h-12 sm:h-12 w-full" onClick={() => setBridging(true)} variant="outline">
-                Send from my Skech wallet
-              </Button> : null}
+              {deposit.network === "mainnet" ? (
+                <Button className="h-12 sm:h-12 w-full" onClick={() => setBridging(true)} variant="outline">
+                  Send from my Skech wallet
+                </Button>
+              ) : null}
             </>
           ) : null}
 
           {!deposit || deposit.network !== "mainnet" || off || !bridging ? null : (
-          <>
-          {deposit ? (
-            <Button className="-mt-1 self-start" onClick={() => setBridging(false)} size="xs" variant="ghost">
-              Back to the address
-            </Button>
-          ) : null}
-          {/* A grid, not a strip: six chains will not sit in one row, and a
-              mark is quicker to find than a word. */}
-          <div>
-            <p className="pb-2 font-medium text-muted-foreground text-xs">From</p>
-            <div className="grid grid-cols-3 gap-1.5" role="group">
-              {chains.map((c) => (
-                <Button
-                  aria-pressed={chain?.id === c.id}
-                  className={cn("min-w-0 justify-start gap-1.5 px-2 text-xs", chain?.id === c.id && "border-foreground/24 bg-accent")}
-                  key={c.id}
-                  onClick={() => setChainId(c.id)}
-                  size="sm"
-                  variant="outline"
-                >
-                  <ChainMark className="size-4" id={c.id} />
-                  <span className="truncate">{c.name}</span>
-                </Button>
-              ))}
-            </div>
-          </div>
+            <>
+              <Button className="-mt-1 self-start" onClick={() => setBridging(false)} size="xs" variant="ghost">
+                Back to the address
+              </Button>
+              {/* A grid, not a strip: six chains will not sit in one row, and a
+                  mark is quicker to find than a word. */}
+              <div>
+                <p className="pb-2 font-medium text-muted-foreground text-xs">From</p>
+                <div className="grid grid-cols-3 gap-1.5" role="group">
+                  {chains.map((c) => (
+                    <Button
+                      aria-pressed={chain?.id === c.id}
+                      className={cn("min-w-0 justify-start gap-1.5 px-2 text-xs", chain?.id === c.id && "border-foreground/24 bg-accent")}
+                      key={c.id}
+                      onClick={() => setChainId(c.id)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <ChainMark className="size-4" id={c.id} />
+                      <span className="truncate">{c.name}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
 
-          <div>
-            <p className="pb-2 font-medium text-muted-foreground text-xs">Send</p>
-            <div className="flex gap-1.5">
-              {[false, true].map((isNative) => (
-                <Button
-                  aria-pressed={native === isNative}
-                  className={cn("flex-1 gap-1.5 px-2 text-xs", native === isNative && "border-foreground/24 bg-accent")}
-                  key={String(isNative)}
-                  onClick={() => setNative(isNative)}
-                  size="sm"
-                  variant="outline"
-                >
-                  <TokenMark chainId={chain?.id ?? 8453} className="size-4" native={isNative} />
-                  <span className="truncate">{isNative ? (chain?.nativeSymbol ?? "ETH") : "USDC"}</span>
-                </Button>
-              ))}
-            </div>
-          </div>
+              <div>
+                <p className="pb-2 font-medium text-muted-foreground text-xs">Send</p>
+                <div className="flex gap-1.5">
+                  {[false, true].map((isNative) => (
+                    <Button
+                      aria-pressed={native === isNative}
+                      className={cn("flex-1 gap-1.5 px-2 text-xs", native === isNative && "border-foreground/24 bg-accent")}
+                      key={String(isNative)}
+                      onClick={() => setNative(isNative)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <TokenMark chainId={chain?.id ?? 8453} className="size-4" native={isNative} />
+                      <span className="truncate">{isNative ? (chain?.nativeSymbol ?? "ETH") : "USDC"}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
 
-          <label className="space-y-2 text-sm font-medium">Amount
-          <Input
-            className="h-16 text-2xl tabular-nums"
-            autoComplete="off"
-            inputMode="decimal"
-            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-            placeholder={native ? "0.01" : "25"}
-            value={amount}
-          />
-          </label>
+              <label className="space-y-2 text-sm font-medium">
+                Amount
+                <Input
+                  className="h-16 text-2xl tabular-nums"
+                  autoComplete="off"
+                  inputMode="decimal"
+                  onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                  placeholder={native ? "0.01" : "25"}
+                  value={amount}
+                />
+              </label>
 
-          <Line busy={busy} quote={quote} ready={chains.length > 0} typed={smallest !== null} />
+              <Line busy={busy} quote={quote} ready={chains.length > 0} typed={smallest !== null} />
 
-          {problem ? <p className="text-down text-xs">{problem}</p> : null}
-          {sent ? <p className="text-muted-foreground text-xs">Sent. It shows up as collateral once it lands.</p> : null}
+              {problem ? <p className="text-down text-xs">{problem}</p> : null}
+              {sent ? <p className="text-muted-foreground text-xs">Sent. It shows up as collateral once it lands.</p> : null}
 
-          <Button className="h-12 sm:h-12 w-full" disabled={!quote || busy || sending} loading={sending} onClick={() => void send()}>
-            {quote ? `Add $${usd(Number(quote.outAmount))}` : "Enter an amount"}
-          </Button>
+              <Button className="h-12 sm:h-12 w-full" disabled={!quote || busy || sending} loading={sending} onClick={() => void send()}>
+                {quote ? `Add $${usd(Number(quote.outAmount))}` : "Enter an amount"}
+              </Button>
 
-          <p className="text-muted-foreground text-xs leading-snug">
-            Review the amount above before confirming in your wallet. Funds arrive as USDC collateral on Lighter.
-          </p>
-          </>
+              <p className="text-muted-foreground text-xs leading-snug">
+                Review the amount above before confirming in your wallet. Funds arrive as USDC collateral on Lighter.
+              </p>
+            </>
           )}
         </SheetPanel>
       </SheetPopup>

@@ -275,3 +275,13 @@ test("jitter on a nearly flat line is still not a turn", () => {
   const shape = shapeOf(pts, 86000);
   expect(shape === null || shape.flat).toBe(true);
 });
+
+test("a small dip between two rises is a turn, and it trades where it was drawn", () => {
+  // The round that lost two flips: an $18 dip read as $12 by a 32-sample reading, under the wobble filter.
+  const pts = [[0, 85772], [0.22, 85831], [0.294, 85814], [0.396, 85854], [0.5, 85836], [0.572, 85876], [0.7, 85858], [0.783, 85887], [0.906, 85867], [1, 85925]].map(([t, price]) => ({ t, price }));
+  const shape = shapeOf(pts, 85772)!;
+  expect(shape.legs.map((l) => l.dir)).toEqual([1, -1, 1, -1, 1, -1, 1, -1, 1]);
+  // Each turn within half a percent of the round of where it was drawn.
+  const drawn = [0.22, 0.294, 0.396, 0.5, 0.572, 0.7, 0.783, 0.906];
+  shape.legs.slice(1).forEach((l, i) => expect(Math.abs(l.from / (SAMPLES - 1) - drawn[i])).toBeLessThan(0.005));
+});

@@ -25,7 +25,9 @@ export type Faucet = { ok: true; amount: number } | { ok: false; reason: string 
 export const FAUCET_AMOUNT = 10_000;
 
 export async function askFaucet(address: string): Promise<Faucet> {
-  const res = await fetch(`${VENUE.testnet.url}/api/v1/faucet?l1_address=${address}`, { signal: AbortSignal.timeout(25_000) }).catch(() => null);
+  const res = await fetch(`${VENUE.testnet.url}/api/v1/faucet?l1_address=${address}`, {
+    signal: AbortSignal.timeout(25_000),
+  }).catch(() => null);
   if (!res) return { ok: false, reason: "The faucet did not answer. Try again in a moment." };
   const body = (await res.json().catch(() => null)) as { code?: number; message?: string } | null;
   if (body?.code === 200) return { ok: true, amount: FAUCET_AMOUNT };

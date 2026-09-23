@@ -1,5 +1,5 @@
 import { SQL } from "bun";
-import { Lighter } from "./lighter";
+import { type Lighter, TX } from "./lighter";
 import { generateApiKey, Signer } from "./signer";
 import { timing } from "./timing";
 
@@ -150,7 +150,7 @@ export class Keys {
 
     const tx = JSON.parse(waiting.txInfo) as Record<string, unknown>;
     tx.L1Sig = signature;
-    await this.venue.send(8, JSON.stringify(tx));
+    await this.venue.send(TX.changePubKey, JSON.stringify(tx));
 
     /*
       The venue takes a few seconds to accept a new key, and until it has,

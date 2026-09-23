@@ -247,6 +247,21 @@ test("drawing past the end mid-round adds positions and lengthens the round", as
   expect(r.timing.closedAt! - r.startedAt).toBeGreaterThan(700);
 });
 
+test("a line that stops short of the round's length closes where the line ends", async () => {
+  const x = new FakeExec();
+  const book = rounds();
+  const r = await book.open({ ...up, seconds: 0.5 }, x);
+  await Bun.sleep(100);
+  // Draw more held the round to 1.6s, but the stroke ended at half of that.
+  await book.edit(r.id, [{ t: 0, price: 100 }, { t: 0.25, price: 105 }, { t: 0.5, price: 95 }], 1.6);
+  expect(r.seconds).toBeCloseTo(0.8);
+  expect(r.pts.at(-1)!.t).toBe(1);
+  await until(() => r.status === "done", 3000);
+  expect(r.trades.map((t) => t.dir)).toEqual([1, -1]);
+  // Closed at the line's end, not the held 1.6s.
+  expect(r.timing.closedAt! - r.startedAt).toBeLessThan(1300);
+});
+
 test("a round interrupted by a restart resumes its plan against the venue's position", async () => {
   const x = new FakeExec();
   const before = rounds();
@@ -277,4 +292,31 @@ test("a restored round past its end just closes what is held", async () => {
   await after.resume(saved, x);
   await until(() => saved.status === "done", 3000);
   expect(x.pos.size).toBe(0);
+});
+
+test("an Ethereum round is sized on Ethereum's market and says so", async () => {
+  const eth = { id: 0, last: 2000, symbol: "ETH", minBase: 0.002, minQuote: 10, sizeDecimals: 4, priceDecimals: 2 };
+  const x = new FakeExec();
+  const r = await new Rounds((s) => (s === "ETH" ? eth : market), { feedUrl: null, settleMs: 50, flatMs: 300 }).open({ ...up, market: "ETH", stake: 101, leverage: 3 }, x);
+  expect(r.market).toBe("ETH");
+  // $303 of ETH at $2,000, to ETH's four decimals.
+  expect(r.quantity).toBe(0.1515);
+  expect(r.entry).toBe(2000);
+  await until(() => r.status === "done");
+});
+
+test("a retry that throws fails the round instead of escaping as an unhandled rejection", async () => {
+  const x = new FakeExec();
+  let broken = false;
+  const book = new Rounds(() => {
+    if (broken) throw Error("market details unavailable");
+    return market;
+  }, { feedUrl: null, settleMs: 50, flatMs: 300 });
+  const r = await book.open({ ...upThenDown, seconds: 1.2 }, x);
+  x.reject.push("busy");
+  // The turn is refused and a retry is scheduled; by the time it runs, the market cannot be read.
+  expect(await until(() => r.orders.some((o) => o.status === "rejected"), 3000)).toBe(true);
+  broken = true;
+  expect(await until(() => r.outcome === "failed", 3000)).toBe(true);
+  expect(r.problem).toContain("market details unavailable");
 });

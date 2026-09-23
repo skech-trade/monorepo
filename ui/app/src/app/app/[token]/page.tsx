@@ -7,7 +7,7 @@ import { Terminal } from "@/components/app/terminal";
  * The trading screen, at `/app/<token address>`.
  *
  * The address is the route, so a link pasted from a block explorer opens the
- * market. There is one listed market for now, and an address that is not it is
+ * market. Bitcoin and Ethereum are listed, and an address that is neither is
  * a 404 rather than a generated placeholder: inventing a ticker and a price
  * for an unknown token would make it look like a market we run.
  */
@@ -29,5 +29,6 @@ export default async function TokenPage({ params }: Props) {
   const market = marketFor(token);
   if (!market) notFound();
 
-  return <Terminal market={market} />;
+  // Keyed by market, so switching one starts a fresh chart, feed and drawing rather than carrying the last.
+  return <Terminal key={market.address} market={market} />;
 }

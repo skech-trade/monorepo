@@ -2,8 +2,8 @@
 
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useState } from "react";
+import { shortAddress } from "@/lib/market";
 import { cn } from "@/lib/utils";
-import { shortAddress } from "./auth";
 
 /**
  * Copying, in the four places that needed it.

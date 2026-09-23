@@ -1,16 +1,8 @@
 "use client";
 
-import {
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  ChevronUpIcon,
-} from "lucide-react";
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 /** Small shared pieces. Everything here is a coss component with a job. */
@@ -100,125 +92,5 @@ export function Pill({
     >
       {children}
     </Badge>
-  );
-}
-
-/** A label and a figure on one line. */
-export function Stat({
-  label,
-  value,
-  tone,
-  className,
-}: {
-  label: string;
-  value: ReactNode;
-  tone?: string;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex items-baseline justify-between gap-4 text-sm", className)}>
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("figures", tone ?? "text-foreground")}>{value}</span>
-    </div>
-  );
-}
-
-
-function FoldButton({
-  collapsed,
-  onCollapsed,
-  title,
-  direction = "row",
-  className,
-}: {
-  collapsed: boolean;
-  onCollapsed: (collapsed: boolean) => void;
-  title: string;
-  direction?: "column" | "row";
-  className?: string;
-}) {
-  const Chevron = collapsed
-    ? direction === "column"
-      ? ChevronLeftIcon
-      : ChevronDownIcon
-    : direction === "column"
-      ? ChevronRightIcon
-      : ChevronUpIcon;
-  const words = `${collapsed ? "Show" : "Hide"} ${title.toLowerCase()}`;
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            aria-expanded={!collapsed}
-            aria-label={words}
-            className={className}
-            onClick={() => onCollapsed(!collapsed)}
-            size="icon-xs"
-            variant="ghost"
-          />
-        }
-      >
-        <Chevron />
-      </TooltipTrigger>
-      <TooltipPopup>{words}</TooltipPopup>
-    </Tooltip>
-  );
-}
-
-/**
- * A desk panel: a coss Card with a one-row header holding the panel's control and the fold. The
- * header is eleven deep so the pill clears the 2xl corner.
- */
-export function Pane({
-  title,
-  header,
-  collapsed = false,
-  onCollapsed,
-  direction = "row",
-  children,
-  className,
-  bodyClassName,
-  label,
-}: {
-  title: string;
-  header?: ReactNode;
-  collapsed?: boolean;
-  onCollapsed?: (collapsed: boolean) => void;
-  direction?: "column" | "row";
-  children: ReactNode;
-  className?: string;
-  bodyClassName?: string;
-  label?: string;
-}) {
-  if (collapsed && direction === "column" && onCollapsed) {
-    return (
-      <aside aria-label={label ?? title} className={cn("flex flex-col items-center gap-3 rounded-2xl border bg-background py-2", className)}>
-        <FoldButton collapsed direction="column" onCollapsed={onCollapsed} title={title} />
-        <span
-          className="whitespace-nowrap text-muted-foreground text-xs"
-          style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
-        >
-          {title}
-        </span>
-      </aside>
-    );
-  }
-  return (
-    <section aria-label={label ?? title} className={cn("flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-background", className)}>
-      <div className="flex h-11 min-w-0 shrink-0 items-center gap-2 px-2">
-        {header ?? <h2 className="flex-1 truncate px-1 font-medium text-sm">{title}</h2>}
-        {onCollapsed ? (
-          <FoldButton
-            className="ml-auto shrink-0"
-            collapsed={collapsed}
-            direction={direction}
-            onCollapsed={onCollapsed}
-            title={title}
-          />
-        ) : null}
-      </div>
-      {collapsed ? null : <div className={cn("min-h-0 flex-1", bodyClassName)}>{children}</div>}
-    </section>
   );
 }

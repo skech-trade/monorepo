@@ -1,3 +1,5 @@
+import type { Symbol as VenueSymbol } from "./venue";
+
 export type Candle = {
   /** Unix ms of the bar's open. */
   t: number;
@@ -28,164 +30,52 @@ export type Market = {
   funding: number;
 };
 
-export type Position = {
-  id: string;
-  symbol: string;
-  side: "long" | "short";
-  /** Position size in quote currency. */
-  notional: number;
-  leverage: number;
-  entry: number;
-  liquidation: number;
-  pnl: number;
-  pnlPct: number;
-};
-
-import { liquidationPrice } from "./venue";
-
-export const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1D", "1W"] as const;
-export type Timeframe = (typeof TIMEFRAMES)[number];
-
-/** Bar length in ms, used to lay the series out along a real time axis. */
-const SPAN: Record<Timeframe, number> = {
-  "1m": 60_000,
-  "5m": 300_000,
-  "15m": 900_000,
-  "1h": 3_600_000,
-  "4h": 14_400_000,
-  "1D": 86_400_000,
-  "1W": 604_800_000,
-};
-
-// --- seeds -----------------------------------------------------------------
-
-function mulberry32(seed: number) {
-  let a = seed;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** FNV-1a over the lowercased string. Stable across runtimes. */
-function hash(s: string) {
-  let h = 0x811c9dc5;
-  const lower = s.toLowerCase();
-  for (let i = 0; i < lower.length; i++) {
-    h ^= lower.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
 // --- the market ------------------------------------------------------------
 
 /**
- * One market: WBTC's mainnet address, named BTC. A second market is a row in `KNOWN` plus its
- * address in `LISTED`.
+ * The markets: WBTC's and WETH's mainnet addresses, named for what Lighter trades. Another market
+ * is a row in `KNOWN`, its address in `LISTED`, and its symbol in `@skech/core/venue`.
  */
-const KNOWN: Record<string, { symbol: string; name: string; price: number }> = {
-  "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599": {
-    symbol: "BTC",
-    name: "Bitcoin",
-    price: 64_180,
-  },
+const KNOWN: Record<string, { symbol: VenueSymbol; name: string }> = {
+  "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599": { symbol: "BTC", name: "Bitcoin" },
+  "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": { symbol: "ETH", name: "Ethereum" },
 };
 
 /**
  * Listing order, checksummed as a block explorer prints it; `KNOWN` is keyed lowercase so either
  * spelling resolves.
  */
-export const LISTED = ["0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"];
+export const LISTED = ["0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"];
 
-/** The one market, for the redirects that have to name it. */
+/** Bitcoin, for the redirects that have to name a market. */
 export const DEFAULT_MARKET = LISTED[0];
 
-/** Null, never a placeholder: an unknown address must not look like a market we run. */
+/** A listed market by its symbol, for pointing at a round that runs on another one. */
+export function marketBySymbol(symbol: string): Market | null {
+  const address = LISTED.find((a) => KNOWN[a.toLowerCase()]?.symbol === symbol);
+  return address ? marketFor(address) : null;
+}
+
+/**
+ * Null, never a placeholder: an unknown address must not look like a market we run. The figures
+ * start at zero and the live feed fills them in.
+ */
 export function marketFor(address: string): Market | null {
   const base = KNOWN[address.toLowerCase()];
   if (!base) return null;
-
-  return {address,symbol:base.symbol,name:base.name,price:0,change:0,changePct:0,high24h:0,low24h:0,volume24h:0,openInterest:0,funding:0};
-}
-
-// --- the series ------------------------------------------------------------
-
-/** Built backwards from the close so the last bar lands exactly on the header price. */
-export function candlesFor(
-  market: Market,
-  timeframe: Timeframe,
-  count = 400,
-  /** Per-bar volatility, when the caller runs its own clock. Draw does. */
-  volOverride?: number,
-): Candle[] {
-  const rand = mulberry32(hash(market.address + timeframe));
-  const span = SPAN[timeframe];
-
-  // Longer bars carry more of a move. Roughly the square root of the span, in
-  // units of the 1m bar, which is how volatility actually scales with horizon.
-  const vol = volOverride ?? 0.0016 * Math.sqrt(span / SPAN["1m"]);
-
-  // Bars are laid out on a whole-bar grid ending at the most recent open, so
-  // two timeframes of the same market line up rather than each starting at an
-  // arbitrary offset.
-  const now = Math.floor(Date.now() / span) * span;
-
-  const closes: number[] = [market.price];
-  for (let i = 0; i < count; i++) {
-    const prev = closes[0] / (1 + (rand() - 0.5) * 2 * vol);
-    closes.unshift(prev);
-  }
-
-  const out: Candle[] = [];
-  for (let i = 0; i < count; i++) {
-    const o = closes[i];
-    const c = closes[i + 1];
-    const wick = (Math.max(o, c) - Math.min(o, c)) * (0.4 + rand() * 1.8) + o * vol * 0.35;
-    // Volume tracks the size of the move, as it does on a real tape.
-    const move = Math.abs(c - o) / o;
-    out.push({
-      t: now - (count - 1 - i) * span,
-      o,
-      c,
-      h: Math.max(o, c) + rand() * wick,
-      l: Math.min(o, c) - rand() * wick,
-      v: (0.6 + rand() * 0.9 + move / vol / 6) * (span / SPAN["1m"]) * 7.4,
-    });
-  }
-  return out;
-}
-
-// --- open positions --------------------------------------------------------
-
-/** Two open positions by default; some addresses get one or none, so all three states show. */
-export function positionsFor(market: Market): Position[] {
-  const rand = mulberry32(hash(market.address) ^ 0x2545f491);
-  const n = [2, 1, 2, 0][Math.floor(rand() * 4)];
-
-  return Array.from({ length: n }, (_, i) => {
-    const side: "long" | "short" = rand() > 0.42 ? "long" : "short";
-    const leverage = [2, 3, 5, 10, 20][Math.floor(rand() * 5)];
-    const notional = Math.round((240 + rand() * 4_800) / 10) * 10;
-    const entry = market.price * (1 + (rand() - 0.5) * 0.06);
-    const move = (market.price - entry) / entry;
-    const pnlPct = (side === "long" ? move : -move) * leverage * 100;
-
-    return {
-      id: `${market.address.slice(2, 8)}-${i}`,
-      symbol: market.symbol,
-      side,
-      notional,
-      leverage,
-      entry,
-      liquidation: liquidationPrice(entry, notional / leverage, leverage, side === "long" ? 1 : -1),
-      pnl: (notional * pnlPct) / 100,
-      pnlPct,
-    };
-  });
+  return {
+    address,
+    symbol: base.symbol,
+    name: base.name,
+    price: 0,
+    change: 0,
+    changePct: 0,
+    high24h: 0,
+    low24h: 0,
+    volume24h: 0,
+    openInterest: 0,
+    funding: 0,
+  };
 }
 
 // --- formatting ------------------------------------------------------------
@@ -223,193 +113,7 @@ export function signedPct(n: number, dp = 2): string {
   return `${n > 0 ? "+" : n < 0 ? "−" : ""}${usd(Math.abs(n), dp)}%`;
 }
 
-/** Large figures in the header, where four digits of volume is noise. */
-export function compactUsd(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1e9) return `$${usd(n / 1e9, 2)}B`;
-  if (abs >= 1e6) return `$${usd(n / 1e6, 2)}M`;
-  if (abs >= 1e3) return `$${usd(n / 1e3, 1)}K`;
-  return `$${usd(n, 2)}`;
-}
-
 /** `0x1234…cdef`. Long enough to compare two by eye, short enough for a chip. */
 export function shortAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
-
-/**
- * The wallet's collateral balance. Mock, like everything else here, it exists
- * so the percentage chips in the ticket have something to be a percentage of.
- */
-export const BALANCE = 12_480.55;
-
-// --- the book, the tape, the account -----------------------------------------
-
-export type BookLevel = {
-  price: number;
-  /** Size at this price, base currency. */
-  size: number;
-  /** Everything resting at this price or better, for the depth bar. */
-  total: number;
-};
-
-export type Trade = {
-  id: string;
-  price: number;
-  size: number;
-  side: "buy" | "sell";
-  /** Unix ms. */
-  t: number;
-};
-
-export type RestingOrder = {
-  id: string;
-  symbol: string;
-  side: "long" | "short";
-  type: "limit" | "stop";
-  price: number;
-  size: number;
-  /** Fraction of the order already filled, 0 to 1. */
-  filled: number;
-  t: number;
-};
-
-export type Fill = {
-  id: string;
-  symbol: string;
-  side: "long" | "short";
-  price: number;
-  size: number;
-  fee: number;
-  t: number;
-};
-
-export type Account = {
-  /** Collateral plus unrealised P&L. */
-  equity: number;
-  balance: number;
-  /** Collateral committed to open positions. */
-  used: number;
-  free: number;
-  unrealised: number;
-  /** Equity over used margin. Below ~1.1 is where liquidation lives. */
-  health: number;
-};
-
-/**
- * Size thins away from the touch with the odd wall; both sides from one seed so they stay plausible
- * together.
- */
-export function bookFor(market: Market, depth = 12): {
-  bids: BookLevel[];
-  asks: BookLevel[];
-  spread: number;
-} {
-  const rand = mulberry32(hash(market.address) ^ 0x85ebca6b);
-  const tick = 10 ** -priceDp(market.price) * (market.price > 1000 ? 100 : 1);
-
-  const side = (direction: 1 | -1): BookLevel[] => {
-    const out: BookLevel[] = [];
-    let total = 0;
-    for (let i = 0; i < depth; i++) {
-      // Thins with distance, with a fat level every so often.
-      const wall = rand() > 0.86 ? 4.5 : 1;
-      const size = (0.35 + rand() * 1.5) * wall * (1 - i / (depth * 1.7));
-      total += size;
-      out.push({
-        price: market.price + direction * tick * (i + 1),
-        size,
-        total,
-      });
-    }
-    return out;
-  };
-
-  return { asks: side(1), bids: side(-1), spread: tick * 2 };
-}
-
-/**
- * Newest first, with gaps accumulating so times stay ordered. Colour is the aggressor, so buys
- * print at or above mid and sells at or below.
- */
-export function tradesFor(market: Market, count = 28): Trade[] {
-  const rand = mulberry32(hash(market.address) ^ 0xc2b2ae35);
-  const tick = 10 ** -priceDp(market.price) * (market.price > 1000 ? 100 : 1);
-
-  const out: Trade[] = [];
-  let t = Date.now();
-  let mid = market.price;
-
-  for (let i = 0; i < count; i++) {
-    const buy = rand() > 0.5;
-    // Size is heavily skewed: most prints are dust, a few are real.
-    const size = 0.002 + rand() ** 3.2 * 1.4;
-
-    out.push({
-      id: `${market.address.slice(2, 6)}-t${i}`,
-      // Buys take the offer, sells hit the bid. One tick of spread either way.
-      price: mid + (buy ? tick : -tick) * (0.5 + rand() * 0.5),
-      side: buy ? "buy" : "sell",
-      size,
-      t,
-    });
-
-    // Walking backwards through time, so the gap comes off the clock and the
-    // mid drifts against the direction of the print that moved it.
-    t -= 700 + rand() * 4_800;
-    mid -= (buy ? 1 : -1) * tick * rand() * 0.8;
-  }
-  return out;
-}
-
-/** Two resting orders, so the orders tab is reviewable as a list. */
-export function ordersFor(market: Market): RestingOrder[] {
-  const rand = mulberry32(hash(market.address) ^ 0x27d4eb2f);
-  const now = Date.now();
-  return Array.from({ length: 2 }, (_, i) => {
-    const side: "long" | "short" = rand() > 0.5 ? "long" : "short";
-    return {
-      id: `${market.address.slice(2, 6)}-o${i}`,
-      symbol: market.symbol,
-      side,
-      type: rand() > 0.65 ? ("stop" as const) : ("limit" as const),
-      price: market.price * (1 + (rand() - 0.5) * 0.08),
-      size: Math.round((180 + rand() * 2_400) / 10) * 10,
-      filled: rand() > 0.7 ? rand() * 0.6 : 0,
-      t: now - (i + 1) * 1_800_000,
-    };
-  });
-}
-
-/** Filled trades, newest first. */
-export function fillsFor(market: Market, count = 6): Fill[] {
-  const rand = mulberry32(hash(market.address) ^ 0x165667b1);
-  const now = Date.now();
-  return Array.from({ length: count }, (_, i) => {
-    const size = Math.round((120 + rand() * 3_100) / 10) * 10;
-    return {
-      id: `${market.address.slice(2, 6)}-f${i}`,
-      symbol: market.symbol,
-      side: rand() > 0.5 ? ("long" as const) : ("short" as const),
-      price: market.price * (1 + (rand() - 0.5) * 0.05),
-      size,
-      fee: size * 0.0005,
-      t: now - (i + 1) * (3_600_000 + rand() * 9_000_000),
-    };
-  });
-}
-
-/** Margin and equity, derived from the open positions so the two agree. */
-export function accountFor(positions: Position[]): Account {
-  const unrealised = positions.reduce((sum, p) => sum + p.pnl, 0);
-  const used = positions.reduce((sum, p) => sum + p.notional / p.leverage, 0);
-  const equity = BALANCE + unrealised;
-  return {
-    equity,
-    balance: BALANCE,
-    used,
-    free: Math.max(0, equity - used),
-    unrealised,
-    health: used > 0 ? equity / used : Number.POSITIVE_INFINITY,
-  };
 }

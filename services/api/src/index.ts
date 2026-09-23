@@ -8,10 +8,11 @@
 
 import { hasDb, migrate, rename, sql, userFor } from "./db";
 import { CHAINS, Deposits, NATIVE, SEND_TO } from "./deposit";
-import { CAN_FAUCET, FAUCET_AMOUNT, askFaucet } from "./faucet";
+import { askFaucet, CAN_FAUCET, FAUCET_AMOUNT } from "./faucet";
+import { addressOf, readJson } from "./http";
+import { type Balance, Lighter } from "./lighter";
 import { CAN_DEPOSIT, LIGHTER, NETWORK } from "./network";
 import { migrateSocial, settlePredictions, socialRoute } from "./social";
-import { Lighter } from "./lighter";
 
 const PORT = Number(process.env.PORT ?? 3230);
 
@@ -19,14 +20,20 @@ const venue = new Lighter(LIGHTER);
 const deposits = new Deposits(LIGHTER);
 
 await migrate().catch((e) => console.error("migrate failed:", (e as Error).message));
-
 await migrateSocial().catch((e) => console.error("social migration failed:", (e as Error).message));
+
+// Settles finished predictions every few seconds, one pass at a time.
 let scoring = false;
 setInterval(async () => {
   if (scoring) return;
   scoring = true;
-  try { await settlePredictions(); } catch (e) { console.error("prediction scoring:", (e as Error).message); }
-  finally { scoring = false; }
+  try {
+    await settlePredictions();
+  } catch (e) {
+    console.error("prediction scoring:", (e as Error).message);
+  } finally {
+    scoring = false;
+  }
 }, 3000);
 
 /*
@@ -34,15 +41,24 @@ setInterval(async () => {
   each ask was a Lighter REST read, against a limit of sixty a minute per IP:
   twenty tabs and the venue starts refusing. Concurrent asks share one read.
 */
-const balances = new Map<string, { at: number; value: Promise<Awaited<ReturnType<Lighter["balanceForAddress"]>> | null> }>();
+const BALANCE_MS = 2000;
+type Held = { at: number; value: Promise<Balance | null> };
+const balances = new Map<string, Held>();
 function balanceOf(address: string) {
   const held = balances.get(address);
-  if (held && Date.now() - held.at < 2000) return held.value;
+  if (held && Date.now() - held.at < BALANCE_MS) return held.value;
   const value = venue.balanceForAddress(address).catch(() => null);
-  balances.set(address, { at: Date.now(), value });
-  // A failed read is not kept: the next ask tries again.
+  const entry: Held = { at: Date.now(), value };
+  balances.set(address, entry);
+  // Only ever this read's own entry: a newer one may have replaced it by then.
+  const forget = () => {
+    if (balances.get(address) === entry) balances.delete(address);
+  };
+  // A failed read is not kept: the next ask tries again. A good one is kept
+  // only as long as it is served, or every wallet ever seen stays in memory.
   void value.then((v) => {
-    if (!v) balances.delete(address);
+    if (!v) forget();
+    else setTimeout(forget, BALANCE_MS);
   });
   return value;
 }
@@ -52,10 +68,8 @@ const cors = {
   "access-control-allow-headers": "content-type, authorization",
   "access-control-allow-methods": "GET, POST, OPTIONS",
 };
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...cors } });
-
-/** An address, or nothing. Anything that is not one is not worth a query. */
-const address = (v: string | null) => (v && /^0x[0-9a-fA-F]{40}$/.test(v) ? v.toLowerCase() : null);
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...cors } });
 
 Bun.serve({
   port: PORT,
@@ -66,9 +80,11 @@ Bun.serve({
     if (url.pathname.startsWith("/social/")) {
       try {
         const response = await socialRoute(req);
-        for (const [key,value] of Object.entries(cors)) response.headers.set(key,value);
+        for (const [key, value] of Object.entries(cors)) response.headers.set(key, value);
         return response;
-      } catch { return json({ error: "Player service unavailable. Please try again." },503); }
+      } catch {
+        return json({ error: "Player service unavailable. Please try again." }, 503);
+      }
     }
 
     if (url.pathname === "/health") {
@@ -82,7 +98,7 @@ Bun.serve({
       the row being made: the wallet is the identity and the name is optional.
     */
     if (url.pathname === "/me") {
-      const at = address(url.searchParams.get("address"));
+      const at = addressOf(url.searchParams.get("address"));
       if (!at) return json({ error: "address required" }, 400);
       const user = await userFor(at).catch(() => null);
       return json({ address: at, name: user?.name ?? null });
@@ -90,9 +106,9 @@ Bun.serve({
 
     /** What they want to be called. */
     if (url.pathname === "/me/name" && req.method === "POST") {
-      const body = (await req.json().catch(() => ({}))) as { address?: string; name?: string };
-      const at = address(body.address ?? null);
-      const name = (body.name ?? "").trim().slice(0, 24);
+      const body = (await readJson(req)) ?? {};
+      const at = addressOf(body.address);
+      const name = typeof body.name === "string" ? body.name.trim().slice(0, 24) : "";
       if (!at) return json({ error: "address required" }, 400);
       if (name.length < 2) return json({ error: "a name is at least two characters" }, 400);
       await userFor(at).catch(() => null);
@@ -106,7 +122,7 @@ Bun.serve({
       not from us, so there is one answer and it is theirs.
     */
     if (url.pathname === "/balance") {
-      const at = address(url.searchParams.get("address"));
+      const at = addressOf(url.searchParams.get("address"));
       if (!at) return json({ error: "address required" }, 400);
       const balance = await balanceOf(at);
       if (!balance) return json({ error: "venue unreachable" }, 502);
@@ -121,11 +137,19 @@ Bun.serve({
       way. This is the path that asks nothing of a new wallet.
     */
     if (url.pathname === "/deposit/address") {
-      const at = address(url.searchParams.get("address"));
+      const at = addressOf(url.searchParams.get("address"));
       if (!at) return json({ error: "address required" }, 400);
       // No address at all rather than one that cannot work: testnet money
       // comes from a faucet, and its endpoint errors anyway.
-      if (!CAN_DEPOSIT) return json({ network: NETWORK, canDeposit: false, canFaucet: CAN_FAUCET, amount: FAUCET_AMOUNT, reason: "Testnet money comes from Lighter's faucet, not from a deposit." });
+      if (!CAN_DEPOSIT) {
+        return json({
+          network: NETWORK,
+          canDeposit: false,
+          canFaucet: CAN_FAUCET,
+          amount: FAUCET_AMOUNT,
+          reason: "Testnet money comes from Lighter's faucet, not from a deposit.",
+        });
+      }
       const intent = await deposits.intentAddress(at).catch(() => null);
       if (!intent) return json({ error: "venue unreachable" }, 502);
       /*
@@ -145,8 +169,8 @@ Bun.serve({
     */
     if (url.pathname === "/faucet" && req.method === "POST") {
       if (!CAN_FAUCET) return json({ error: "no faucet on mainnet" }, 409);
-      const body = (await req.json().catch(() => ({}))) as { address?: string };
-      const at = address(body.address ?? null);
+      const body = (await readJson(req)) ?? {};
+      const at = addressOf(body.address);
       if (!at) return json({ error: "address required" }, 400);
       const out = await askFaucet(at);
       return json(out, out.ok ? 200 : 409);
@@ -164,7 +188,7 @@ Bun.serve({
     */
     if (url.pathname === "/deposit/quote") {
       if (!CAN_DEPOSIT) return json({ error: "no deposits on testnet" }, 409);
-      const at = address(url.searchParams.get("address"));
+      const at = addressOf(url.searchParams.get("address"));
       const fromChain = Number(url.searchParams.get("fromChain") ?? 8453);
       const token = url.searchParams.get("token") ?? CHAINS[0].usdc;
       const amount = url.searchParams.get("amount") ?? "";

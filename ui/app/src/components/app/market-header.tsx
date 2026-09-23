@@ -25,12 +25,14 @@ import {
 } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import { BitcoinMark } from "./bitcoin-mark";
+import { EthereumMark } from "./marks";
 import { Pill } from "./controls";
 import { NetworkBadge } from "./network-badge";
 
-/** The token's mark. Bitcoin's own; a monogram for anything we have no art for. */
+/** The token's mark. Bitcoin's and Ether's own; a monogram for anything we have no art for. */
 export function TokenAvatar({ symbol, className }: { symbol: string; className?: string }) {
   if (symbol === "BTC") return <BitcoinMark className={cn("size-9 shrink-0", className)} />;
+  if (symbol === "ETH") return <EthereumMark className={cn("size-9 shrink-0", className)} />;
   return (
     <Avatar className={cn("size-9 rounded-full", className)}>
       <AvatarFallback className="font-semibold text-xs">{symbol.slice(0, 3)}</AvatarFallback>
@@ -72,10 +74,9 @@ export function MarketPicker({
   current: Market;
 }) {
   /*
-    The one on screen carries the live price; the mock's own figure is about a
-    market that is no longer there. The picker listed $64,180 under a header
-    reading $81,133, which is the app disagreeing with itself in two places a
-    thumb apart.
+    The one on screen carries the live price; a listing on its own has none.
+    The picker once listed a stale $64,180 under a header reading $81,133,
+    which is the app disagreeing with itself in two places a thumb apart.
   */
   const markets = LISTED.map(marketFor)
     .filter((m): m is Market => m !== null)
@@ -85,14 +86,14 @@ export function MarketPicker({
       <DialogPopup className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Markets</DialogTitle>
-          <DialogDescription>One listed today. The list is the shape it keeps at two hundred.</DialogDescription>
+          <DialogDescription>Bitcoin and Ethereum, both on Lighter.</DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex flex-col gap-3">
           <InputGroup>
             <InputGroupAddon>
               <SearchIcon />
             </InputGroupAddon>
-            <InputGroupInput aria-label="Search markets" disabled placeholder="Search. Bitcoin only, for now" type="search" />
+            <InputGroupInput aria-label="Search markets" disabled placeholder="Search. Bitcoin and Ethereum, for now" type="search" />
           </InputGroup>
           <ul className="-mx-2 flex flex-col">
             {markets.map((m) => {
@@ -106,6 +107,7 @@ export function MarketPicker({
                   key={m.address}
                 >
                   <DialogClose
+                    aria-current={here ? "page" : undefined}
                     aria-label={`Open ${m.name}`}
                     className="absolute inset-0 rounded-lg"
                     nativeButton={false}
@@ -113,10 +115,7 @@ export function MarketPicker({
                   />
                   <TokenAvatar symbol={m.symbol} />
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-2 font-medium">
-                      {m.name}
-                      {here ? <Pill>Open</Pill> : null}
-                    </p>
+                    <p className="font-medium">{m.name}</p>
                     <CopyAddress address={m.address} />
                   </div>
                   <div className="text-right">

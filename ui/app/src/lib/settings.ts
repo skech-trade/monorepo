@@ -1,6 +1,4 @@
 import { useSyncExternalStore } from "react";
-import type { ChartKind, Overlay, Study } from "./chart-options";
-import type { Timeframe } from "./market";
 
 /**
  * What the reader has set, kept in this browser.
@@ -12,7 +10,7 @@ import type { Timeframe } from "./market";
 
 /** Green and red, or blue and orange for readers who cannot separate the two. */
 export type Palette = "classic" | "colourblind";
-/** How Draw draws the market. Fewer than the Desk: a round is sixty seconds. */
+/** How Draw draws the market. */
 export type CandleStyle = "candles" | "bars" | "line";
 export type GridStyle = "lines" | "dots" | "off";
 
@@ -37,16 +35,6 @@ export type Settings = {
   leverage: number;
   /** Blur every figure, for reading the screen in company. */
   blurred: boolean;
-  timeframe: Timeframe;
-  kind: ChartKind;
-  overlays: Overlay[];
-  studies: Study[];
-  logScale: boolean;
-  /** Study panes folded away, and the desk panels shut. */
-  folded: Study[];
-  bookShut: boolean;
-  ticketShut: boolean;
-  positionsShut: boolean;
 };
 
 export const DEFAULTS: Settings = {
@@ -66,15 +54,6 @@ export const DEFAULTS: Settings = {
   */
   leverage: 10,
   blurred: false,
-  timeframe: "15m",
-  kind: "candles",
-  overlays: ["ma"],
-  studies: ["volume"],
-  logScale: false,
-  folded: [],
-  bookShut: false,
-  ticketShut: false,
-  positionsShut: false,
 };
 
 const KEY = "skech:settings";

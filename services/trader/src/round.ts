@@ -1,15 +1,13 @@
-import { Lighter, type MarketInfo, TX } from "./lighter";
-import { type Signed, Signer } from "./signer";
+import { type Lighter, type MarketInfo, TX } from "./lighter";
+import type { Signed, Signer } from "./signer";
 
 /**
- * A round, as the venue sees it: one position, opened at the start, reversed
- * at every turn the line takes, closed when the clock runs out.
+ * Order sizes and prices in the venue's units, and the REST path that came
+ * before the executor.
  *
- * The drawn shape is compiled to legs by the same code the browser uses, so
- * the client cannot lie about what it drew; this only turns legs into orders.
+ * Rounds trade through `executor.ts` now. `Trader` is kept for `prove.ts`, the
+ * by-hand check that a key can open and close a position over plain HTTP.
  */
-
-export type Leg = { dir: 1 | -1 };
 
 /** Round a size down to the market's step, the way the venue will. */
 export const sizeStep = (m: MarketInfo, btc: number) => Math.floor(btc * 10 ** m.sizeDecimals) / 10 ** m.sizeDecimals;
@@ -19,8 +17,6 @@ export const priceUnits = (m: MarketInfo, usd: number) => Math.round(usd * 10 **
 
 /** Whether the venue would take an order of this size at this price. */
 export const tradeable = (m: MarketInfo, btc: number, price: number) => sizeStep(m, btc) >= m.minBase && sizeStep(m, btc) * price >= m.minQuote;
-
-export type Ticket = { stake: number; leverage: number; marketId: number };
 
 export class Trader {
   constructor(
@@ -32,11 +28,6 @@ export class Trader {
   /** Send a signed thing and hand back the venue's hash. */
   private async send(tx: Signed, type: number) {
     return this.venue.send(type, tx.txInfo);
-  }
-
-  /** Isolated margin at the round's leverage. A signed transaction, so do it once, not per order. */
-  async setLeverage(marketId: number, leverage: number) {
-    return this.send(this.signer.updateLeverage(marketId, leverage), TX.updateLeverage);
   }
 
   /**
@@ -83,14 +74,6 @@ export class Trader {
       reduceOnly: want === 0,
     });
     return this.send(tx, TX.createOrder);
-  }
-
-  /** Read-only account history token; never returned to the browser. */
-  readToken() { return this.signer.authToken(BigInt(Math.floor(Date.now()/1000)+600)); }
-
-  /** The size a round opens at: the stake, boosted, in BTC at the mark. */
-  sizeFor(t: Ticket, mark: number) {
-    return (t.stake * t.leverage) / mark;
   }
 
   /** Close whatever is open, reduce-only so it can never flip by accident. */

@@ -16,8 +16,16 @@ export type Pt = { t: number; price: number };
 
 export type Leg = { from: number; to: number; dir: 1 | -1 };
 
-/** Samples of the drawn shape, evenly spaced across the window. */
-export const SAMPLES = 32;
+/**
+ * Samples of the drawn shape, evenly spaced across the window.
+ *
+ * It was 32, a sample every 1.2 seconds on a 38-second round. Drawn corners
+ * fell between samples and came back shaved: an $18 dip was read as $12,
+ * under the wobble filter, and the short and the long after it never traded.
+ * The turns that did trade were moved to the nearest sample, up to 0.6s off.
+ * At 256 a corner lands within a sixth of a second and keeps its size.
+ */
+export const SAMPLES = 256;
 
 /** A move smaller than this fraction of entry is not a level worth marking. */
 const TOL = 0.0002;
@@ -33,7 +41,6 @@ const REVERSAL = 0.08;
 export const TURN_GAP = 0.03;
 /** Under this total travel the drawing says nothing worth trading. */
 const FLAT = 0.0002;
-
 
 /** Price of the drawn line at a moment, flat past either end. */
 export function priceAt(pts: Pt[], t: number, entry: number): number {

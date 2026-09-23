@@ -33,7 +33,8 @@ export const newId = () => `s${Date.now().toString(36)}${(counter++ % 1296).toSt
 
 /** Legs to segments, over the round's real clock. Adjacent legs facing the same way are merged. */
 export function segmentsFrom(shape: Pick<Shape, "legs">, startedAt: number, seconds: number, id: () => string = newId): Segment[] {
-  const at = (sample: number) => startedAt + (sample / (SAMPLES - 1)) * seconds * 1000;
+  // Whole milliseconds: the scheduler never needs finer, and exact times compare cleanly.
+  const at = (sample: number) => startedAt + Math.round((sample / (SAMPLES - 1)) * seconds * 1000);
   const end = startedAt + seconds * 1000;
   const out: Segment[] = [];
   shape.legs.forEach((leg, i) => {

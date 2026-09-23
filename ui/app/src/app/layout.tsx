@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   title: { default: TITLE, template: "%s · skech" },
   description: DESCRIPTION,
   applicationName: "skech",
-  keywords: ["skech", "draw to trade", "bitcoin", "trading", "charting"],
+  keywords: ["skech", "draw to trade", "bitcoin", "ethereum", "trading", "charting"],
   openGraph: { title: TITLE, description: DESCRIPTION, type: "website", url: "/", siteName: "skech" },
   twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, site: "@skechtrade", creator: "@skechtrade" },
   // og:image and the icon come from src/app/opengraph-image.tsx and

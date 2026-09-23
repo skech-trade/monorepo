@@ -19,8 +19,9 @@ export type Bar = {
   v: number;
 };
 
-/** The second a moment falls in. */
+/** How long a candle lasts. */
 export const CANDLE_MS = 500;
+/** The candle a moment falls in, as the second it opens on (with .5 for the second half). */
 export const secondOf = (ms: number, intervalMs = CANDLE_MS) => Math.floor(ms / intervalMs) * intervalMs / 1000;
 
 /**
@@ -65,11 +66,19 @@ export class Bars {
     if (!head || t > head.t) {
       this.fillTo(t, head?.c ?? trade.price);
       const open = head?.c ?? trade.price;
-      const bar = { t, o: open, h: Math.max(open, trade.price), l: Math.min(open, trade.price), c: trade.price, v: trade.size };
+      const bar = {
+        t,
+        o: open,
+        h: Math.max(open, trade.price),
+        l: Math.min(open, trade.price),
+        c: trade.price,
+        v: trade.size,
+      };
       this.bars.push(bar);
       this.lastTradeAt.set(bar, trade.at);
     } else {
-      const index = t === head.t ? this.bars.length - 1 : this.bars.findIndex((b) => b.t === t);
+      // A late print is nearly always for a bar just behind the front, so look from there.
+      const index = t === head.t ? this.bars.length - 1 : this.bars.findLastIndex((b) => b.t === t);
       const bar = this.bars[index];
       if (!bar) return;
       bar.h = Math.max(bar.h, trade.price);
@@ -99,7 +108,8 @@ export class Bars {
     const head = this.open;
     if (!head) return;
     const close = price ?? head.c;
-    for (let s = head.t + this.intervalMs / 1000; s < t; s += this.intervalMs / 1000) this.bars.push({ t: s, o: close, h: close, l: close, c: close, v: 0 });
+    const step = this.intervalMs / 1000;
+    for (let s = head.t + step; s < t; s += step) this.bars.push({ t: s, o: close, h: close, l: close, c: close, v: 0 });
     this.trim();
   }
 

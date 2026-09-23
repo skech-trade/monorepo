@@ -93,7 +93,7 @@ export function AppBar() {
         <InputGroupAddon>
           <SearchIcon />
         </InputGroupAddon>
-        <InputGroupInput aria-label="Search markets" disabled placeholder="Search markets. Bitcoin only, for now" type="search" />
+        <InputGroupInput aria-label="Search markets" disabled placeholder="Search markets. Bitcoin and Ethereum, for now" type="search" />
         <InputGroupAddon align="inline-end">
           <Kbd>/</Kbd>
         </InputGroupAddon>

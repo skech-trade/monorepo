@@ -159,7 +159,10 @@ function paintRound(ctx: CanvasRenderingContext2D, sketch: Sketch, market: Marke
   ctx.font = `400 22px ${look.sans}`;
   const tag = "Draw yours at skech.trade";
   const tagW = ctx.measureText(tag).width;
-  const storyLines = wrap(ctx, style.showMoney ? cardStory(sketch, market, streak) : [{ text: `${sketch.author || "A skecher"} drew ${market.name}. The line was the prediction. The candles tell the story.` }], 24, look, W - 2 * M - tagW - 88);
+  const story = style.showMoney
+    ? cardStory(sketch, market, streak)
+    : [{ text: `${sketch.author || "A skecher"} drew ${market.name}. The line was the prediction. The candles tell the story.` }];
+  const storyLines = wrap(ctx, story, 24, look, W - 2 * M - tagW - 88);
   const footTop = chartOnly ? H - M + 24 : H - M - storyLines.length * 32 - 96;
 
   const box = { x: M, y: M, w: W - 2 * M, h: footTop - M - 24 };

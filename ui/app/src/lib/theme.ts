@@ -94,31 +94,15 @@ export function readPalette(): Palette {
   return { ...out, upSoft: alpha(out.upMark, 0.32), downSoft: alpha(out.downMark, 0.32) };
 }
 
-let cached: Palette | null = null;
-
-export function paletteSnapshot(): Palette {
-  if (cached === null) cached = readPalette();
-  return cached;
-}
-
-/** Null through the server render and hydration, so the two agree. */
-export function paletteServerSnapshot(): Palette | null {
-  return null;
-}
-
 export function subscribePalette(onChange: () => void): () => void {
-  const invalidate = () => {
-    cached = null;
-    onChange();
-  };
-  const observer = new MutationObserver(invalidate);
+  const observer = new MutationObserver(onChange);
   // The class carries the theme, `data-palette` the colour pair. The canvas
   // charts read their colours out of CSS, so both have to invalidate them.
   observer.observe(document.documentElement, { attributeFilter: ["class", "data-palette"], attributes: true });
   const media = window.matchMedia("(prefers-color-scheme: dark)");
-  media.addEventListener("change", invalidate);
+  media.addEventListener("change", onChange);
   return () => {
     observer.disconnect();
-    media.removeEventListener("change", invalidate);
+    media.removeEventListener("change", onChange);
   };
 }

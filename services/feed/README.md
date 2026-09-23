@@ -1,23 +1,26 @@
 # feed
 
-Real Bitcoin, one bar a second.
+Real Bitcoin and Ethereum, a bar every half second.
 
 Lighter's smallest candle is a minute and a round in Draw is sixty seconds, so
-this holds one socket to the venue, builds the bars itself from the trade
-stream, and hands them to browsers over server-sent events.
+this holds one socket to the venue per market, builds the bars itself from
+the trade stream, and hands them to browsers over WebSockets (server-sent
+events still work). Every route takes `?market=BTC` or `?market=ETH`, and
+Bitcoin when it says neither. The chart is always mainnet's.
 
 ```
 bun run dev:feed          # from the repo root, port 3210
 curl localhost:3210/health
-curl 'localhost:3210/bars?n=90'
-curl -N localhost:3210/stream
+curl 'localhost:3210/bars?n=90&market=ETH'
+curl -N 'localhost:3210/stream?market=ETH'
 ```
 
 | Route | What it gives |
 |---|---|
-| `/health` | whether bars are arriving, how many, the mark, how many are watching |
+| `/health` | whether bars are arriving, how many, the mark, how many are watching, and each market's connection |
 | `/bars?n=90` | the last `n` bars, oldest first, plus the day's figures |
-| `/stream` | `seed` once, then `bar` and `stats` as they happen |
+| `/ws` | WebSocket: `seed` once, then `bar`, `quote` and `stats` as they happen; send `ping` for `pong` |
+| `/stream` | the same as server-sent events |
 
 Reads need no credential of any kind. The socket carries trades, the book and
 account state to anyone who asks, which is why this exists rather than a
@@ -27,14 +30,11 @@ would reach.
 | Variable | Default |
 |---|---|
 | `PORT` | `3210` |
-| `LIGHTER_WS` | `wss://mainnet.zklighter.elliot.ai/stream` |
-| `LIGHTER_MARKET_ID` | `1` (BTC) |
 | `ALLOW_ORIGIN` | `*` |
 
 To point the app at it, set `NEXT_PUBLIC_FEED_URL=http://localhost:3210`.
-Unset, Draw runs on its simulation, which is what every test and screenshot
-still uses.
+Unset, Draw waits for real data rather than inventing any.
 
-Seconds with no trades still get a bar, flat at the last close, because a gap
+Half-seconds with no trades still get a bar, flat at the last close, because a gap
 would draw as a jump and the chart counts bars to place your line against
 them. A market that has not printed is a market that has not moved.

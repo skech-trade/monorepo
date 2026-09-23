@@ -21,6 +21,7 @@ const asNum = (v: unknown, fallback = 0) => {
 export class Lighter {
   constructor(private readonly base: string) {}
 
+  /** Null when the venue answers `null`, which is valid JSON and not an account. */
   private async get<T>(path: string): Promise<T | null> {
     const res = await fetch(`${this.base}${path}`);
     if (!res.ok) throw Error("Venue account lookup failed");
@@ -50,15 +51,22 @@ export class Lighter {
     const collateral = asNum(a.collateral);
     const equity = Number(a.total_asset_value);
     if (!Number.isFinite(equity)) throw Error("Venue equity unavailable");
-    return { collateral, available: asNum(a.available_balance), unrealised, equity, positions: positions.length, accountIndex: index };
+    return {
+      collateral,
+      available: asNum(a.available_balance),
+      unrealised,
+      equity,
+      positions: positions.length,
+      accountIndex: index,
+    };
   }
 
   /** Straight from a wallet address, which is what the app has. */
   async balanceForAddress(address: string): Promise<Balance> {
     const index = await this.accountIndexFor(address);
     if (index === null) return { collateral: 0, available: 0, unrealised: 0, equity: 0, positions: 0, accountIndex: null };
-    const balance=await this.balanceOf(index);
-    if(!balance)throw Error("Venue balance unavailable");
+    const balance = await this.balanceOf(index);
+    if (!balance) throw Error("Venue balance unavailable");
     return balance;
   }
 }

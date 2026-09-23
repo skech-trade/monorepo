@@ -69,6 +69,7 @@ monorepo so the two apps use different ports.
 | [docs/CDP-SETUP.md](docs/CDP-SETUP.md) | Coinbase embedded wallets, and the portal page with three names |
 | [docs/VERCEL.md](docs/VERCEL.md) | the env the app needs, and the three things that are not env |
 | [docs/HOSTING.md](docs/HOSTING.md) | running all of it for free on testnet, and when to stop |
+| [docs/BOOSTED-ROUNDS.md](docs/BOOSTED-ROUNDS.md) | skech's money behind the user's: the maths, per coin, and what it risks |
 
 ## Adding a workspace
 

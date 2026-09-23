@@ -53,16 +53,45 @@ test("streams forming-bar corrections and the final previous bar without waiting
   }
 });
 
-test("answers upstream pings and deduplicates replayed trade IDs",async()=>{
-  let send:((data:unknown)=>void)|undefined;let pong=false;
-  const server=Bun.serve({port:0,fetch(req,server){if(server.upgrade(req))return;return new Response(null,{status:400});},websocket:{open(ws){send=d=>ws.send(JSON.stringify(d));},message(_ws,data){if(JSON.parse(String(data)).type==="pong")pong=true;}}});
-  const feed=new LighterFeed({url:`ws://localhost:${server.port}`,marketId:1});
-  const wait=async(fn:()=>boolean)=>{for(let i=0;i<100&&!fn();i++)await Bun.sleep(5);expect(fn()).toBe(true);};
-  try{feed.start();await wait(()=>!!send);send!({type:"ping"});await wait(()=>pong);
-    const t=Date.now()+10000;const trade={trade_id:42,timestamp:t,price:"100",size:"2"};
-    send!({channel:"trade:1",trades:[trade]});await wait(()=>!!feed.bars.open);
-    send!({channel:"trade:1",trades:[trade]});await Bun.sleep(20);expect(feed.bars.open?.v).toBe(2);
-  }finally{feed.stop();server.stop(true);}
+test("answers upstream pings and deduplicates replayed trade IDs", async () => {
+  let send: ((data: unknown) => void) | undefined;
+  let pong = false;
+  const server = Bun.serve({
+    port: 0,
+    fetch(req, server) {
+      if (server.upgrade(req)) return;
+      return new Response(null, { status: 400 });
+    },
+    websocket: {
+      open(ws) {
+        send = (d) => ws.send(JSON.stringify(d));
+      },
+      message(_ws, data) {
+        if (JSON.parse(String(data)).type === "pong") pong = true;
+      },
+    },
+  });
+  const feed = new LighterFeed({ url: `ws://localhost:${server.port}`, marketId: 1 });
+  const wait = async (fn: () => boolean) => {
+    for (let i = 0; i < 100 && !fn(); i++) await Bun.sleep(5);
+    expect(fn()).toBe(true);
+  };
+  try {
+    feed.start();
+    await wait(() => !!send);
+    send!({ type: "ping" });
+    await wait(() => pong);
+    const t = Date.now() + 10000;
+    const trade = { trade_id: 42, timestamp: t, price: "100", size: "2" };
+    send!({ channel: "trade:1", trades: [trade] });
+    await wait(() => !!feed.bars.open);
+    send!({ channel: "trade:1", trades: [trade] });
+    await Bun.sleep(20);
+    expect(feed.bars.open?.v).toBe(2);
+  } finally {
+    feed.stop();
+    server.stop(true);
+  }
 });
 
 test("mark candles keep moving without testnet trades and never mix execution prices", async () => {
@@ -86,4 +115,36 @@ test("mark candles keep moving without testnet trades and never mix execution pr
     expect(feed.connected).toBe(true);
     expect(feed.bars.all().every(bar => bar.v === 0 && bar.h <= 86410)).toBe(true);
   } finally { feed.stop(); server.stop(true); }
+});
+
+test("a message that is valid JSON but not an object is ignored, not thrown", async () => {
+  let send: ((raw: string) => void) | undefined;
+  const server = Bun.serve({
+    port: 0,
+    fetch(req, server) {
+      if (server.upgrade(req)) return;
+      return new Response(null, { status: 400 });
+    },
+    websocket: {
+      open(ws) {
+        send = (raw) => ws.send(raw);
+      },
+      message() {},
+    },
+  });
+  const feed = new LighterFeed({ url: `ws://localhost:${server.port}`, marketId: 1 });
+  const wait = async (fn: () => boolean) => {
+    for (let i = 0; i < 100 && !fn(); i++) await Bun.sleep(5);
+    expect(fn()).toBe(true);
+  };
+  try {
+    feed.start();
+    await wait(() => !!send);
+    for (const raw of ["null", "7", '"trade"', `{"channel":"trade:1","trades":[null,7]}`]) send!(raw);
+    send!(JSON.stringify({ channel: "trade:1", trades: [{ timestamp: Date.now() + 10_000, price: "100", size: "1" }] }));
+    await wait(() => feed.bars.open?.c === 100);
+  } finally {
+    feed.stop();
+    server.stop(true);
+  }
 });

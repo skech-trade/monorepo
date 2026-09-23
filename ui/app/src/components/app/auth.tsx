@@ -3,6 +3,7 @@
 import { useCurrentUser, useEvmAddress, useIsSignedIn, useSignEvmMessage, useSignOut } from "@coinbase/cdp-hooks";
 import { CDPReactProvider, type Config, type Theme } from "@coinbase/cdp-react";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
+import { shortAddress } from "@/lib/market";
 
 /**
  * Signing in.
@@ -57,9 +58,6 @@ export type Account = {
 
 const SIGNED_OUT: Account = { signedIn: false, address: null, handle: null, signOut: () => undefined, signMessage: async () => null };
 const Ctx = createContext<Account>(SIGNED_OUT);
-
-/** An address, short enough to sit in a menu. */
-export const shortAddress = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 /** Reads Coinbase's hooks. Only ever mounted inside their provider. */
 function Publish({ children }: { children: ReactNode }) {

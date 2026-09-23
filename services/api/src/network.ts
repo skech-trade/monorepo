@@ -26,16 +26,14 @@ export type Network = "mainnet" | "testnet";
 
 export const NETWORK: Network = process.env.SKECH_NETWORK === "mainnet" ? "mainnet" : "testnet";
 
+/** Market ids and order floors live in `@skech/core/venue`; this is only where to call. */
 export const VENUE = {
-  mainnet: { url: "https://mainnet.zklighter.elliot.ai", chainId: 304, btc: 1, minBase: 0.00007 },
-  testnet: { url: "https://testnet.zklighter.elliot.ai", chainId: 300, btc: 4096, minBase: 0.0002 },
+  mainnet: { url: "https://mainnet.zklighter.elliot.ai" },
+  testnet: { url: "https://testnet.zklighter.elliot.ai" },
 } as const;
 
 /** Where this process reads from. An explicit URL still wins, for a one-off. */
 export const LIGHTER = process.env.LIGHTER_API_URL ?? VENUE[NETWORK].url;
-
-/** Prices always come from mainnet, because testnet does not trade. */
-export const PRICES = VENUE.mainnet.url;
 
 /** Whether money can actually be put in. Not on testnet, whatever the UI wants. */
 export const CAN_DEPOSIT = NETWORK === "mainnet";

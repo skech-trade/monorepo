@@ -37,7 +37,14 @@ export class VenueSocket {
   private heard = 0;
   private closed = false;
   private sequence = 0;
+  /**
+   * Settles when the socket next opens. Pending whenever it is down, backoff
+   * included: it used to stay resolved from the previous connection, so a
+   * send during a reconnect found it "ready", skipped the HTTP fallback and
+   * was refused as not connected.
+   */
   private opened: Promise<void> | null = null;
+  private markOpen: (() => void) | null = null;
   private clock: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly url: string, private readonly timeoutMs = 4000) {}
@@ -69,6 +76,10 @@ export class VenueSocket {
     if (this.connected) return true;
     if (!this.opened) return false;
     return Promise.race([this.opened.then(() => true), Bun.sleep(ms).then(() => false)]);
+  }
+
+  private down() {
+    this.opened = new Promise((r) => (this.markOpen = r));
   }
 
   /** Channel names come back with a colon where they were subscribed with a slash. */
@@ -119,13 +130,13 @@ export class VenueSocket {
     if (this.closed) return;
     const ws = new WebSocket(this.url);
     this.ws = ws;
-    let open!: () => void;
-    this.opened = new Promise((r) => (open = r));
+    if (!this.markOpen) this.down();
     ws.addEventListener("open", () => {
       this.backoff = 250;
       this.heard = Date.now();
       for (const key of this.handlers.keys()) ws.send(JSON.stringify({ type: "subscribe", channel: key.replace(":", "/") }));
-      open();
+      this.markOpen?.();
+      this.markOpen = null;
     });
     ws.addEventListener("message", (e) => {
       this.heard = Date.now();
@@ -155,6 +166,7 @@ export class VenueSocket {
         w.reject(new VenueTimeout("venue socket closed before answering"));
         this.waiting.delete(id);
       }
+      if (!this.markOpen) this.down();
       if (this.closed) return;
       setTimeout(() => this.connect(), this.backoff + Math.random() * 100);
       this.backoff = Math.min(10_000, this.backoff * 2);

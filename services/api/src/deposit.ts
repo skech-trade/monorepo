@@ -24,18 +24,14 @@ const RELAY = process.env.RELAY_URL ?? "https://api.relay.link";
 /**
  * Where money can come from.
  *
- * Every chain a Coinbase embedded wallet can sign on, which is the real
- * limit: Relay bridges from almost anywhere, but the wallet has to be able to
- * send the transaction. `network` is CDP's own name for it, so a chain listed
- * here is a chain the wallet can sign on by construction.
+ * Every chain a Coinbase embedded wallet can sign on, which is the whole list
+ * and not a selection. Relay bridges from sixty, so it was never the limit:
+ * the wallet has to be able to send the transaction, and it signs on base,
+ * ethereum, avalanche, polygon, optimism, arbitrum and world. `network` is
+ * CDP's own name for each, so a chain listed here is a chain the wallet can
+ * sign on by construction. Each USDC address below was read off its own chain
+ * with a `symbol()` call rather than copied.
  */
-/*
-  Every chain the wallet can sign on, which is the whole list and not a
-  selection. Relay bridges from sixty, so it was never the limit: a Coinbase
-  embedded wallet signs on base, ethereum, avalanche, polygon, optimism,
-  arbitrum and world, and that is the ceiling. Each USDC address below was
-  read off its own chain with a `symbol()` call rather than copied.
-*/
 export const CHAINS = [
   { id: 8453, name: "Base", network: "base", nativeSymbol: "ETH", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
   { id: 42161, name: "Arbitrum", network: "arbitrum", nativeSymbol: "ETH", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" },
@@ -51,7 +47,7 @@ export const CHAINS = [
  * Base is the cheapest of them, so everything is routed there whatever it
  * started as.
  */
-export const LANDS_ON = CHAINS[0];
+const LANDS_ON = CHAINS[0];
 
 /**
  * Where a plain USDC transfer to the deposit address is watched for. Lighter's
@@ -127,8 +123,8 @@ export class Deposits {
    * `amount` is in the token's own smallest unit, because that is what a
    * wallet signs and rounding it here would be rounding somebody's money.
    */
-  async quote(opts: { address: string; fromChain: number; token: string; amount: string; toChain?: number; usdc?: string }): Promise<Quote | null> {
-    const to = CHAINS.find((c) => c.id === (opts.toChain ?? LANDS_ON.id)) ?? LANDS_ON;
+  async quote(opts: { address: string; fromChain: number; token: string; amount: string }): Promise<Quote | null> {
+    const to = LANDS_ON;
     const intent = await this.intentAddress(opts.address, to.id);
     if (!intent) return null;
 
@@ -140,7 +136,7 @@ export class Deposits {
         originChainId: opts.fromChain,
         originCurrency: opts.token,
         destinationChainId: to.id,
-        destinationCurrency: opts.usdc ?? to.usdc,
+        destinationCurrency: to.usdc,
         recipient: intent,
         amount: opts.amount,
         tradeType: "EXACT_INPUT",
@@ -167,7 +163,12 @@ export class Deposits {
       ((step as { items?: { data?: Record<string, unknown> }[] }).items ?? [])
         .map((item) => item.data)
         .filter((tx): tx is Record<string, unknown> => Boolean(tx?.to))
-        .map((tx) => ({ to: String(tx.to), data: String(tx.data ?? "0x"), value: String(tx.value ?? "0"), chainId: Number(tx.chainId) })),
+        .map((tx) => ({
+          to: String(tx.to),
+          data: String(tx.data ?? "0x"),
+          value: String(tx.value ?? "0"),
+          chainId: Number(tx.chainId),
+        })),
     );
     return {
       inAmount: d.details.currencyIn?.amountFormatted ?? "0",

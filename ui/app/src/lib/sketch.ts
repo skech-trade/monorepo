@@ -384,42 +384,6 @@ export function verdictWord(outcome: Outcome | "closed", right: number, net: num
 }
 
 /**
- * One candle of a random walk pulled toward the line by `follow`, rolled once per sketch: near zero
- * ignores the drawing, negative walks away from it.
- */
-export function nextCandle(
-  open: number,
-  vol: number,
-  t: number,
-  toward: number | null = null,
-  follow = 0,
-): Candle {
-  /*
-    The lean is capped at two bars' move: a negative pull compounds the gap otherwise and the market
-    leaves the solar system.
-  */
-  const lean = toward === null ? 0 : (toward - open) * follow;
-  const most = open * vol * 2;
-  const pull = Math.min(most, Math.max(-most, lean));
-  const close = open + pull + open * vol * (Math.random() - 0.5) * 2;
-  const wick = open * vol * (0.3 + Math.random() * 0.8);
-  return {
-    t,
-    o: open,
-    c: close,
-    h: Math.max(open, close) + Math.random() * wick,
-    l: Math.min(open, close) - Math.random() * wick,
-    v: 0.5 + Math.random(),
-  };
-}
-
-/** Extend the candle still forming, so the right edge is never static. */
-export function extend(c: Candle, vol: number): Candle {
-  const close = c.c * (1 + (Math.random() - 0.5) * vol * 0.55);
-  return { ...c, c: close, h: Math.max(c.h, close), l: Math.min(c.l, close) };
-}
-
-/**
  * Straight segments. A position is a straight run from open to close; a spline lied about the trade
  * and softened the corners that decide it.
  */

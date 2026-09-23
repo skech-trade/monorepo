@@ -1,5 +1,5 @@
 import type { Fill } from "./pnl";
-import { type Lighter, type MarketInfo, TX } from "./lighter";
+import { asNum, type Lighter, type MarketInfo, TX } from "./lighter";
 import { priceUnits, sizeUnits } from "./round";
 import type { Signer } from "./signer";
 import { hashesOf, VenueError, type VenueSocket, VenueTimeout } from "./venue-socket";
@@ -38,19 +38,45 @@ export interface Exec {
   latency(): number;
 }
 
-const num = (v: unknown) => {
-  const n = typeof v === "string" ? Number.parseFloat(v) : typeof v === "number" ? v : Number.NaN;
-  return Number.isFinite(n) ? n : 0;
-};
+/** Nothing held, keeping the margin settings the venue last reported. */
+const flat = (at: number, was?: Position): Position => ({ size: 0, avgEntry: 0, unrealised: 0, imf: was?.imf ?? null, marginMode: was?.marginMode ?? null, at });
 
-export class Executor implements Exec {
-  private held: Position | null = null;
+type Pushes = { position: Position; fill: VenueFill };
+type Listeners = { [K in keyof Pushes]: Map<number, Set<(x: Pushes[K]) => void>> };
+
+/** One market as the scheduler sees it: the account's shared nonce and socket, this market's position, fills and leverage. */
+export class MarketExec implements Exec {
+  constructor(
+    private readonly account: Executor,
+    readonly market: () => MarketInfo,
+    readonly quote: () => Quote | null,
+  ) {}
+  get accountIndex() { return this.account.accountIndex; }
+  get marketId() { return this.market().id; }
+  position() { return this.account.positionIn(this.marketId); }
+  latency() { return this.account.latency(); }
+  onPosition(fn: (p: Position) => void) { return this.account.listen("position", this.marketId, fn); }
+  onFill(fn: (f: VenueFill) => void) { return this.account.listen("fill", this.marketId, fn); }
+  prepare(leverage: number) { return this.account.prepare(this, leverage); }
+  submit(orders: OrderRequest[], leverage?: number) { return this.account.submit(this, orders, leverage); }
+  fillsSince(since: number) { return this.account.fillsSince(this.marketId, since); }
+}
+
+/**
+ * One account. Nonces are per account, so every market it trades signs
+ * through the same counter and the same queue; positions, fills and
+ * leverage are per market, which is how the venue keeps them.
+ */
+export class Executor {
+  private readonly held = new Map<number, Position>();
+  /** When the account's first position push arrived. After it, a market it did not list is flat. */
+  private syncedAt = 0;
   private nonce: bigint | null = null;
-  /** Leverage the account is on, as far as we know: pushed, or what we last set. */
-  private leverage: number | null = null;
+  /** Leverage each market is on, as far as we know: pushed, or what we last set. */
+  private readonly leverage = new Map<number, number>();
   private chain: Promise<unknown> = Promise.resolve();
-  private readonly positionFns = new Set<(p: Position) => void>();
-  private readonly fillFns = new Set<(f: VenueFill) => void>();
+  private readonly listeners: Listeners = { position: new Map(), fill: new Map() };
+  private readonly views = new Map<number, MarketExec>();
   private unsubscribe: (() => void)[] = [];
   private ewma = 350;
 
@@ -61,8 +87,6 @@ export class Executor implements Exec {
       signer: Signer;
       accountIndex: number;
       apiKeyIndex: number;
-      market: () => MarketInfo;
-      quote: () => Quote | null;
       slippage?: number;
     },
   ) {}
@@ -71,22 +95,28 @@ export class Executor implements Exec {
     return this.o.accountIndex;
   }
 
-  position() {
-    return this.held;
+  /** This account on one market. The same view each time, so the scheduler can tell it is attached. */
+  on(market: () => MarketInfo, quote: () => Quote | null): MarketExec {
+    const id = market().id;
+    let view = this.views.get(id);
+    if (!view) this.views.set(id, (view = new MarketExec(this, market, quote)));
+    return view;
+  }
+
+  positionIn(marketId: number): Position | null {
+    return this.held.get(marketId) ?? (this.syncedAt ? flat(this.syncedAt) : null);
   }
 
   latency() {
     return this.ewma;
   }
 
-  onPosition(fn: (p: Position) => void) {
-    this.positionFns.add(fn);
-    return () => this.positionFns.delete(fn);
-  }
-
-  onFill(fn: (f: VenueFill) => void) {
-    this.fillFns.add(fn);
-    return () => this.fillFns.delete(fn);
+  listen<K extends keyof Pushes>(kind: K, marketId: number, fn: (x: Pushes[K]) => void): () => void {
+    const all: Map<number, Set<(x: Pushes[K]) => void>> = this.listeners[kind];
+    let set = all.get(marketId);
+    if (!set) all.set(marketId, (set = new Set()));
+    set.add(fn);
+    return () => set.delete(fn);
   }
 
   /** Subscribe to this account's pushes. Idempotent. */
@@ -96,26 +126,41 @@ export class Executor implements Exec {
     this.unsubscribe.push(
       this.o.socket.subscribe(`account_all_positions/${id}`, (m) => {
         const all = (m.positions ?? {}) as Record<string, Record<string, unknown>>;
-        const p = all[String(this.o.market().id)];
         const now = Date.now();
-        this.held = p
-          ? {
-              size: num(p.position) * (Number(p.sign) < 0 ? -1 : 1),
-              avgEntry: num(p.avg_entry_price),
-              unrealised: num(p.unrealized_pnl),
-              imf: p.initial_margin_fraction === undefined ? null : num(p.initial_margin_fraction),
-              marginMode: p.margin_mode === undefined ? null : Number(p.margin_mode),
-              at: now,
-            }
-          : { size: 0, avgEntry: 0, unrealised: 0, imf: this.held?.imf ?? null, marginMode: this.held?.marginMode ?? null, at: now };
-        // The venue reports initial margin in percent: 3.33 is 30x. Isolated is mode 1.
-        if (this.held.imf && this.held.marginMode === 1) this.leverage = Math.round(100 / this.held.imf);
-        for (const fn of this.positionFns) fn(this.held);
+        this.syncedAt ||= now;
+        // Every market this account is watched on: one missing from the push is flat.
+        const markets = new Set([...this.views.keys(), ...Object.keys(all).map(Number)]);
+        for (const market of markets) {
+          const p = all[String(market)];
+          const was = this.held.get(market);
+          const held: Position = p
+            ? {
+                size: asNum(p.position) * (Number(p.sign) < 0 ? -1 : 1),
+                avgEntry: asNum(p.avg_entry_price),
+                unrealised: asNum(p.unrealized_pnl),
+                imf: p.initial_margin_fraction === undefined ? null : asNum(p.initial_margin_fraction),
+                marginMode: p.margin_mode === undefined ? null : Number(p.margin_mode),
+                at: now,
+              }
+            : flat(now, was);
+          this.held.set(market, held);
+          // The venue reports initial margin in percent: 3.33 is 30x. Isolated is mode 1.
+          if (held.imf && held.marginMode === 1) this.leverage.set(market, Math.round(100 / held.imf));
+          for (const fn of this.listeners.position.get(market) ?? []) fn(held);
+        }
       }),
       this.o.socket.subscribe(`account_all_trades/${id}`, (m) => {
         const byMarket = (m.trades ?? {}) as Record<string, Fill[]>;
         const now = Date.now();
-        for (const f of byMarket[String(this.o.market().id)] ?? []) for (const fn of this.fillFns) fn({ ...f, receivedAt: now });
+        for (const [market, fills] of Object.entries(byMarket)) {
+          const fns = this.listeners.fill.get(Number(market));
+          if (!fns) continue;
+          for (const f of fills) {
+            // One stamped copy per fill, shared by every listener: none of them writes to it.
+            const fill = { ...f, receivedAt: now };
+            for (const fn of fns) fn(fill);
+          }
+        }
       }),
     );
   }
@@ -127,15 +172,15 @@ export class Executor implements Exec {
 
   /**
    * Everything that can happen before the trade: subscribe, read the nonce,
-   * and put the account on this leverage. Called while somebody draws, so
+   * and put the market on this leverage. Called while somebody draws, so
    * none of it is on the clock when they press the button.
    */
-  async prepare(leverage: number) {
+  async prepare(view: MarketExec, leverage: number) {
     this.start();
     await this.serial(async () => {
       if (this.nonce === null) this.nonce = await this.o.http.nextNonce(this.o.accountIndex, this.o.apiKeyIndex);
     });
-    if (this.leverage !== leverage) await this.submit([], leverage);
+    if (this.leverage.get(view.marketId) !== leverage) await this.submit(view, [], leverage);
   }
 
   /**
@@ -144,25 +189,25 @@ export class Executor implements Exec {
    * again and the batch re-signed once. A send with no answer is not retried:
    * the venue may have it, and the position push will say.
    */
-  submit(orders: OrderRequest[], leverage?: number): Promise<Sent> {
+  submit(view: MarketExec, orders: OrderRequest[], leverage?: number): Promise<Sent> {
     return this.serial(async () => {
       try {
-        return await this.send(orders, leverage);
+        return await this.send(view, orders, leverage);
       } catch (e) {
         if (!(e instanceof VenueError && e.badNonce) && (e as { code?: number }).code !== 21104) throw e;
         this.nonce = await this.o.http.nextNonce(this.o.accountIndex, this.o.apiKeyIndex);
-        return this.send(orders, leverage);
+        return this.send(view, orders, leverage);
       }
     });
   }
 
-  private async send(orders: OrderRequest[], leverage?: number): Promise<Sent> {
+  private async send(view: MarketExec, orders: OrderRequest[], leverage?: number): Promise<Sent> {
     if (this.nonce === null) this.nonce = await this.o.http.nextNonce(this.o.accountIndex, this.o.apiKeyIndex);
-    const m = this.o.market();
-    const q = this.o.quote();
+    const m = view.market();
+    const q = view.quote();
     if (orders.length && !q) throw Error("No live venue price yet; not trading blind.");
     const slip = this.o.slippage ?? 0.01;
-    const withLeverage = leverage !== undefined && this.leverage !== leverage;
+    const withLeverage = leverage !== undefined && this.leverage.get(m.id) !== leverage;
     const types: number[] = [];
     const infos: string[] = [];
     const worst: number[] = [];
@@ -179,7 +224,10 @@ export class Executor implements Exec {
       types.push(TX.createOrder);
       infos.push(this.o.signer.createOrder({ marketIndex: m.id, clientOrderIndex: o.clientOrderIndex, baseAmount: sizeUnits(m, o.size), price: priceUnits(m, price), isAsk: o.isAsk, reduceOnly: o.reduceOnly, nonce: nonce++ }).txInfo);
     }
-    if (!types.length) return { signedAt: Date.now(), sentAt: Date.now(), ackAt: Date.now(), hashes: [], via: "ws", withLeverage: false, worst };
+    if (!types.length) {
+      const now = Date.now();
+      return { signedAt: now, sentAt: now, ackAt: now, hashes: [], via: "ws", withLeverage: false, worst };
+    }
     const signedAt = Date.now();
     let via: Sent["via"] = "ws";
     let hashes: string[];
@@ -199,19 +247,68 @@ export class Executor implements Exec {
     }
     const ackAt = Date.now();
     this.nonce = nonce;
-    if (withLeverage) this.leverage = leverage;
+    if (withLeverage) this.leverage.set(m.id, leverage);
     this.ewma = this.ewma * 0.7 + (ackAt - sentAt) * 0.3;
     return { signedAt, sentAt, ackAt, hashes, via, withLeverage, worst };
   }
 
-  fillsSince(since: number) {
+  fillsSince(marketId: number, since: number) {
     const token = this.o.signer.authToken(BigInt(Math.floor(Date.now() / 1000) + 600));
-    return this.o.http.fills(this.o.accountIndex, this.o.market().id, token, since);
+    return this.o.http.fills(this.o.accountIndex, marketId, token, since);
   }
 
   private serial<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.chain.then(fn, fn);
     this.chain = run.catch(() => undefined);
     return run;
+  }
+}
+
+/**
+ * One executor per wallet, opened at most once.
+ *
+ * Opening one reads the wallet's key and loads its signer, which is long
+ * enough for a second request to arrive in the meantime: the open right behind
+ * a prepare, or the page's close while a restarted round is being resumed.
+ * Each used to open its own, and two executors on one account count its nonce
+ * separately and both subscribe to its pushes. So the opening is what is
+ * shared. A wallet with no key, or one whose signer failed, is not remembered,
+ * so the next request tries again.
+ */
+export class Accounts<T extends { stop(): void }> {
+  private readonly opened = new Map<string, Promise<T | null>>();
+
+  constructor(private readonly open: (address: string) => Promise<T | null>) {}
+
+  get(address: string): Promise<T | null> {
+    const at = address.toLowerCase();
+    const known = this.opened.get(at);
+    if (known) return known;
+    const drop = () => {
+      if (this.opened.get(at) === opening) this.opened.delete(at);
+    };
+    const opening = this.open(at).then(
+      (exec) => {
+        if (!exec) drop();
+        return exec;
+      },
+      (e) => {
+        drop();
+        throw e;
+      },
+    );
+    this.opened.set(at, opening);
+    return opening;
+  }
+
+  /** Stop a wallet's executor and let the next `get` open one with its current key. */
+  forget(address: string) {
+    const at = address.toLowerCase();
+    const was = this.opened.get(at);
+    this.opened.delete(at);
+    void was?.then(
+      (exec) => exec?.stop(),
+      () => undefined,
+    );
   }
 }

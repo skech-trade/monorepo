@@ -26,10 +26,10 @@ const COLORS = ["blue", "mint", "coral"] as const;
 const STEPS = [
   { title: "Pick a username", copy: "It goes on your predictions and the cards you share." },
   { title: "Choose your buddy", copy: "It comes along on your cards and replays." },
-  { title: "You’re set", copy: "Draw where Bitcoin goes next, then watch it play out." },
+  { title: "You’re set", copy: "Draw where the price goes next, then watch it play out." },
 ] as const;
 const HOW = [
-  [PencilLineIcon, "Draw your prediction", "Sketch where you think Bitcoin goes next."],
+  [PencilLineIcon, "Draw your prediction", "Sketch where you think the price goes next."],
   [PlayIcon, "Watch it unfold", "Your line trades against the live market."],
   [Share2Icon, "Share the story", "Save a card or replay with your buddy."],
 ] as const;

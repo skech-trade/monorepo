@@ -39,7 +39,7 @@ export function SketchBar({
   openCount: number;
   runCount: number;
   /** The round's P&L as it moves, and the open trade's. Ticks with the price. */
-  live?: { net: number | null; note?: string; open: { dir: 1 | -1; pnl: number } | null; trades: number };
+  live?: { net: number | null; open: { dir: 1 | -1; pnl: number } | null; trades: number };
   runBars: number;
   sketches: Sketch[];
   onOpenList: () => void;
@@ -84,7 +84,14 @@ export function SketchBar({
   }
 
   if (phase === "drawn" && shape && quote) {
-    return <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">Target <F>${fmtPrice(shape.target)}</F> · <F>{Math.round(runBars*CANDLE_SECONDS)}</F>s. Execution and P&L come from Lighter.</p>{lines}</div>;
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          Target <F>${fmtPrice(shape.target)}</F> · <F>{Math.round(runBars * CANDLE_SECONDS)}</F>s. Execution and P&L come from Lighter.
+        </p>
+        {lines}
+      </div>
+    );
   }
 
   if (phase === "running" && shape) {
@@ -102,7 +109,6 @@ export function SketchBar({
             <span className={cn("figures font-semibold text-2xl tabular-nums leading-none", live.net === null ? "text-muted-foreground" : tone(live.net))}>
               {live.net === null ? "—" : signedUsd(live.net)}
             </span>
-            {live.note ? <span className="text-muted-foreground text-xs">{live.note}</span> : null}
             {live.open ? (
               <span className="text-muted-foreground text-sm">
                 {live.open.dir > 0 ? "Long" : "Short"} <F tone={tone(live.open.pnl)}>{signedUsd(live.open.pnl)}</F>
@@ -120,9 +126,9 @@ export function SketchBar({
           </span>
           {/* Whether there is money behind this. A round that did not reach
               the venue has to say so: the chart looks identical either way. */}
-          {/* "On the venue" is true and not the whole truth while the trader
-              holds one key for one account: the orders are real and they are
-              not on the account whose balance is in the header. */}
+          {/* And if the orders ever land on an account other than the one
+              whose balance is in the header, the round says so rather than
+              claiming them as yours. */}
           {onVenue && venueAccount === null ? <span className="text-up">On the venue</span> : null}
           {onVenue && venueAccount !== null ? (
             <span className="text-warning">

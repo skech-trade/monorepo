@@ -50,7 +50,7 @@ export type Feed = {
 /**
  * Null when no feed is configured. The app must not invent market data.
  */
-export function useFeed(keep = 1200): Feed | null {
+export function useFeed(keep = 1200, market = "BTC"): Feed | null {
   const [bars, setBars] = useState<Candle[]>([]);
   const [stats, setStats] = useState<FeedStats | null>(null);
   const [connected, setConnected] = useState(false);
@@ -60,6 +60,8 @@ export function useFeed(keep = 1200): Feed | null {
   useEffect(() => {
     if (!hasFeed) return;
     const url = new URL(`${URL_FEED.replace(/\/$/, "")}/ws`);
+    // The page remounts on another market, so nothing of the last one's chart carries over.
+    url.searchParams.set("market", market);
     url.protocol = url.protocol === "https:" || url.protocol === "wss:" ? "wss:" : "ws:";
     let socket: WebSocket | null = null;
     let stopped = false;
@@ -99,13 +101,30 @@ export function useFeed(keep = 1200): Feed | null {
       ws.addEventListener("message", (event) => {
         if (stopped || socket !== ws) return;
         let message: { event: string; data: unknown };
-        try { message = JSON.parse(String(event.data)); } catch { return; }
+        try {
+          message = JSON.parse(String(event.data));
+        } catch {
+          return;
+        }
         if (!message || typeof message.data !== "object" || message.data === null) return;
         heard = Date.now();
         if (message.event === "seed") {
-          const data = message.data as { bars: Wire[]; stats: FeedStats | null; intervalMs: number; network?: "mainnet" | "testnet"; priceSource?: "trades" | "mark"; connected: boolean };
+          const data = message.data as {
+            bars: Wire[];
+            stats: FeedStats | null;
+            intervalMs: number;
+            network?: "mainnet" | "testnet";
+            priceSource?: "trades" | "mark";
+            connected: boolean;
+            quote?: FeedQuote | null;
+          };
           if (!Array.isArray(data.bars)) return;
-          if (data.intervalMs !== CANDLE_MS) { setConnected(false); ws.close(); return; }
+          // A feed on another candle length would put every round on the wrong clock.
+          if (data.intervalMs !== CANDLE_MS) {
+            setConnected(false);
+            ws.close();
+            return;
+          }
           cancelAnimationFrame(frame);
           frame = 0;
           pending.clear();
@@ -114,8 +133,7 @@ export function useFeed(keep = 1200): Feed | null {
           setNetwork(data.network);
           setPriceSource(data.priceSource === "mark" ? "mark" : "trades");
           setConnected(data.connected === true);
-          const q = (data as { quote?: FeedQuote | null }).quote;
-          if (q && Number.isFinite(q.mid)) setQuote(q);
+          if (data.quote && Number.isFinite(data.quote.mid)) setQuote(data.quote);
           backoff = 500;
         } else if (message.event === "bar") {
           const bar = toCandle(message.data as Wire);
@@ -158,9 +176,10 @@ export function useFeed(keep = 1200): Feed | null {
       cancelAnimationFrame(frame);
       socket?.close();
     };
-  }, [keep]);
+  }, [keep, market]);
 
-  return useMemo(() => hasFeed
-    ? { bars, latest: bars[bars.length - 1] ?? null, stats, connected, quote, priceSource, network }
-    : null, [bars, stats, connected, quote, priceSource, network]);
+  return useMemo(
+    () => (hasFeed ? { bars, latest: bars[bars.length - 1] ?? null, stats, connected, quote, priceSource, network } : null),
+    [bars, stats, connected, quote, priceSource, network],
+  );
 }

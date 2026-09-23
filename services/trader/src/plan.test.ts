@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { SAMPLES } from "@skech/core/shape";
 import { desiredAt, nextChange, replan, runsOf, type Segment, segmentsFrom, setSkipped } from "./plan";
+
+/** A second of a 31-second round, in samples. The tests read in seconds; the plan counts samples. */
+const sec = (n: number) => (n * (SAMPLES - 1)) / 31;
 
 let n = 0;
 const id = () => `x${n++}`;
-// Four legs over a 31-second round: long, short, long, short. Sample i lands at i seconds.
-const shape = { legs: [{ from: 0, to: 8, dir: 1 as const }, { from: 8, to: 16, dir: -1 as const }, { from: 16, to: 24, dir: 1 as const }, { from: 24, to: 31, dir: -1 as const }] };
+// Four legs over a 31-second round: long, short, long, short.
+const shape = { legs: [{ from: sec(0), to: sec(8), dir: 1 as const }, { from: sec(8), to: sec(16), dir: -1 as const }, { from: sec(16), to: sec(24), dir: 1 as const }, { from: sec(24), to: sec(31), dir: -1 as const }] };
 const lsls = () => segmentsFrom(shape, 0, 31, id);
 
 describe("a drawing becomes segments with their own ids", () => {
@@ -15,7 +19,7 @@ describe("a drawing becomes segments with their own ids", () => {
   });
 
   test("long after long is one position, not a close and a reopen", () => {
-    const s = segmentsFrom({ legs: [{ from: 0, to: 10, dir: 1 }, { from: 10, to: 31, dir: 1 }] }, 0, 31, id);
+    const s = segmentsFrom({ legs: [{ from: sec(0), to: sec(10), dir: 1 }, { from: sec(10), to: sec(31), dir: 1 }] }, 0, 31, id);
     expect(s).toHaveLength(1);
     expect(runsOf(s)).toHaveLength(1);
   });
@@ -64,14 +68,14 @@ describe("editing a running round", () => {
   test("the past is untouched and the open trade keeps its id", () => {
     const s = lsls();
     // At 10s the drawer turns everything after 12s into one long.
-    const next = replan(s, redraw([{ from: 0, to: 12, dir: -1 }, { from: 12, to: 31, dir: 1 }]), 12000, id);
+    const next = replan(s, redraw([{ from: sec(0), to: sec(12), dir: -1 }, { from: sec(12), to: sec(31), dir: 1 }]), 12000, id);
     expect(next.slice(0, 2).map((x) => x.id)).toEqual([s[0].id, s[1].id]);
     expect(next.map((x) => [x.dir, x.startAt, x.endAt])).toEqual([[1, 0, 8000], [-1, 8000, 12000], [1, 12000, 31000]]);
   });
 
   test("changing short to long mid-round continues rather than duplicating", () => {
     const s = lsls();
-    const next = replan(s, redraw([{ from: 0, to: 31, dir: 1 }]), 4000, id);
+    const next = replan(s, redraw([{ from: sec(0), to: sec(31), dir: 1 }]), 4000, id);
     expect(runsOf(next)).toHaveLength(1);
     expect(runsOf(next)[0].id).toBe(s[0].id);
   });
@@ -79,12 +83,12 @@ describe("editing a running round", () => {
   test("a cut survives an edit elsewhere", () => {
     const s = lsls();
     const cut = setSkipped(s, s[2].id, true, -1);
-    const next = replan(cut, redraw([{ from: 0, to: 8, dir: 1 }, { from: 8, to: 16, dir: -1 }, { from: 16, to: 24, dir: 1 }, { from: 24, to: 31, dir: -1 }]), 1000, id);
+    const next = replan(cut, redraw([{ from: sec(0), to: sec(8), dir: 1 }, { from: sec(8), to: sec(16), dir: -1 }, { from: sec(16), to: sec(24), dir: 1 }, { from: sec(24), to: sec(31), dir: -1 }]), 1000, id);
     expect(next.find((x) => x.id === cut[2].id)?.skipped).toBe(true);
   });
 
   test("segments stay ordered and contiguous", () => {
-    const next: Segment[] = replan(lsls(), redraw([{ from: 0, to: 20, dir: -1 }, { from: 20, to: 31, dir: 1 }]), 5000, id);
+    const next: Segment[] = replan(lsls(), redraw([{ from: sec(0), to: sec(20), dir: -1 }, { from: sec(20), to: sec(31), dir: 1 }]), 5000, id);
     for (let i = 1; i < next.length; i++) expect(next[i].startAt).toBe(next[i - 1].endAt);
   });
 });

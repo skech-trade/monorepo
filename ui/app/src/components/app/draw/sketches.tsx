@@ -79,6 +79,15 @@ function XMark() {
   );
 }
 
+/** How a round ended, in words. */
+function outcomeLabel(outcome: Sketch["outcome"]): string {
+  if (outcome === "closed") return "Closed early";
+  if (outcome === "stop") return "Stop loss reached";
+  if (outcome === "target") return "Take profit reached";
+  if (outcome === "liquidated") return "Liquidated";
+  return "Round complete";
+}
+
 /** The latest round as a card: the canvas, the buttons, nothing else. */
 function RoundCard({ sketch, market, streak, onNext, buddy }: { sketch: Sketch; market: Market; streak: number; onNext?: () => void; buddy?: ShareStyle["buddy"] }) {
   const [play, setPlay] = useState(0);
@@ -173,30 +182,67 @@ function RoundCard({ sketch, market, streak, onNext, buddy }: { sketch: Sketch; 
       <div>
         <p className="text-sm text-muted-foreground">Latest result · {market.name}</p>
         <p className={cn("mt-2 text-5xl font-semibold tracking-[-0.045em] tabular-nums", sketch.net >= 0 ? "text-up" : "text-down")}>{signedUsd(sketch.net)}</p>
-        <p className="mt-2 text-sm text-muted-foreground">{sketch.outcome === "closed" ? "Closed early" : sketch.outcome === "stop" ? "Stop loss reached" : sketch.outcome === "target" ? "Take profit reached" : sketch.outcome === "liquidated" ? "Liquidated" : "Round complete"}</p>
+        <p className="mt-2 text-sm text-muted-foreground">{outcomeLabel(sketch.outcome)}</p>
       </div>
       {/* The card is the whole story: what you see here is what gets posted. */}
-      <div className="overflow-hidden rounded-2xl bg-background/60">{!sketch.run?.length ? <p className="p-6 text-sm text-muted-foreground">Chart replay wasn’t saved for this round. The result comes from venue fills.</p> : clip ? <ClipPlayer src={clip.url} /> : <RoundCanvas chartOnly={!studio} style={style} market={market} play={play} sketch={sketch} streak={streak} />}</div>
+      <div className="overflow-hidden rounded-2xl bg-background/60">
+        {!sketch.run?.length ? (
+          <p className="p-6 text-sm text-muted-foreground">Chart replay wasn’t saved for this round. The result comes from venue fills.</p>
+        ) : clip ? (
+          <ClipPlayer src={clip.url} />
+        ) : (
+          <RoundCanvas chartOnly={!studio} style={style} market={market} play={play} sketch={sketch} streak={streak} />
+        )}
+      </div>
 
       <Button className="self-start" disabled={!sketch.run?.length || !sketch.pts.length} onClick={() => setStudio(!studio)} variant="outline" aria-expanded={studio}>
         <Share2Icon /> {studio ? "Close card studio" : "Make it yours"}
       </Button>
       {studio ? (
         <div className="space-y-4 rounded-2xl border bg-muted/30 p-4">
-          <div><p className="text-sm font-medium">Your share card</p><p className="mt-1 text-xs text-muted-foreground">{sketch.author ? `Made by ${sketch.author}` : "Guest prediction · set a display name after signing in."}</p></div>
+          <div>
+            <p className="text-sm font-medium">Your share card</p>
+            <p className="mt-1 text-xs text-muted-foreground">{sketch.author ? `Made by ${sketch.author}` : "Guest prediction · set a display name after signing in."}</p>
+          </div>
           <fieldset disabled={busy !== null || clip !== null} className="space-y-3 disabled:opacity-60">
             <legend className="sr-only">Card appearance</legend>
-            <div className="flex flex-wrap items-center gap-2"><span className="mr-auto text-xs text-muted-foreground">Background</span>{(["night", "paper"] as const).map(theme => <Button key={theme} size="sm" variant={style.theme === theme ? "default" : "outline"} aria-pressed={style.theme === theme} onClick={() => setStyle(s => ({ ...s, theme }))}>{theme === "night" ? "Midnight" : "Paper"}</Button>)}</div>
-            <div className="flex flex-wrap items-center gap-2"><span className="mr-auto text-xs text-muted-foreground">Sketch buddy</span>{(["blue", "mint", "coral"] as const).map(buddy => <Button key={buddy} size="sm" variant={style.buddy === buddy ? "default" : "outline"} aria-pressed={style.buddy === buddy} onClick={() => setStyle(s => ({ ...s, buddy }))}>{buddy[0].toUpperCase() + buddy.slice(1)}</Button>)}</div>
-            <label className="flex items-center justify-between text-xs"><span>Include money amounts</span><input type="checkbox" checked={style.showMoney} onChange={e => setStyle(s => ({ ...s, showMoney: e.target.checked }))} className="size-4 accent-primary" /></label>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-auto text-xs text-muted-foreground">Background</span>
+              {(["night", "paper"] as const).map((theme) => (
+                <Button key={theme} size="sm" variant={style.theme === theme ? "default" : "outline"} aria-pressed={style.theme === theme} onClick={() => setStyle((s) => ({ ...s, theme }))}>
+                  {theme === "night" ? "Midnight" : "Paper"}
+                </Button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-auto text-xs text-muted-foreground">Sketch buddy</span>
+              {(["blue", "mint", "coral"] as const).map((buddy) => (
+                <Button key={buddy} size="sm" variant={style.buddy === buddy ? "default" : "outline"} aria-pressed={style.buddy === buddy} onClick={() => setStyle((s) => ({ ...s, buddy }))}>
+                  {buddy[0].toUpperCase() + buddy.slice(1)}
+                </Button>
+              ))}
+            </div>
+            <label className="flex items-center justify-between text-xs">
+              <span>Include money amounts</span>
+              <input type="checkbox" checked={style.showMoney} onChange={(e) => setStyle((s) => ({ ...s, showMoney: e.target.checked }))} className="size-4 accent-primary" />
+            </label>
           </fieldset>
           {busy === "clip" ? <p role="status" className="text-xs text-muted-foreground">Making your replay… prediction, market, then result.</p> : <p className="text-xs text-muted-foreground">Preview above. Save a picture or make an animated clip below.</p>}
         </div>
       ) : null}
       <dl className="grid grid-cols-3 gap-3 text-sm">
-        <div><dt className="text-xs text-muted-foreground">Size</dt><dd className="mt-1 font-medium tabular-nums">${usd(sketch.stake, 0)}</dd></div>
-        <div><dt className="text-xs text-muted-foreground">Boost</dt><dd className="mt-1 font-medium tabular-nums">{sketch.leverage}×</dd></div>
-        <div><dt className="text-xs text-muted-foreground">Return</dt><dd className="mt-1 font-medium tabular-nums">{sketch.stake > 0 ? `${sketch.net >= 0 ? "+" : ""}${(sketch.net / sketch.stake * 100).toFixed(2)}%` : "—"}</dd></div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Size</dt>
+          <dd className="mt-1 font-medium tabular-nums">${usd(sketch.stake, 0)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Boost</dt>
+          <dd className="mt-1 font-medium tabular-nums">{sketch.leverage}×</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Return</dt>
+          <dd className="mt-1 font-medium tabular-nums">{sketch.stake > 0 ? `${sketch.net >= 0 ? "+" : ""}${((sketch.net / sketch.stake) * 100).toFixed(2)}%` : "—"}</dd>
+        </div>
       </dl>
       {onNext ? (
         <Button className="h-12 w-full rounded-full sm:h-12" onClick={onNext}>
@@ -262,7 +308,15 @@ function RoundCard({ sketch, market, streak, onNext, buddy }: { sketch: Sketch; 
 function SketchList({ sketches, market }: { sketches: Sketch[]; market: Market }) {
   const settled = sketches.filter((s) => s.status === "settled" && s.pnlReady !== false);
   const total = settled.reduce((sum, s) => sum + s.net, 0);
-  if (!sketches.length) return <Empty className="py-8"><EmptyHeader><EmptyDescription>Nothing drawn yet.</EmptyDescription></EmptyHeader></Empty>;
+  if (!sketches.length) {
+    return (
+      <Empty className="py-8">
+        <EmptyHeader>
+          <EmptyDescription>Nothing drawn yet.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
   return (
     <section className="px-6 py-6 sm:px-7" aria-label="Round history">
       <div className="mb-3 flex items-center justify-between">
@@ -282,7 +336,12 @@ function SketchList({ sketches, market }: { sketches: Sketch[]; market: Market }
           </div>
         ))}
       </div>
-      {settled.length ? <div className="mt-2 flex items-center justify-between rounded-xl bg-muted/40 px-4 py-3 text-sm"><span className="text-muted-foreground">Total result</span><span className={cn("font-semibold tabular-nums", total >= 0 ? "text-up" : "text-down")}>{signedUsd(total)}</span></div> : null}
+      {settled.length ? (
+        <div className="mt-2 flex items-center justify-between rounded-xl bg-muted/40 px-4 py-3 text-sm">
+          <span className="text-muted-foreground">Total result</span>
+          <span className={cn("font-semibold tabular-nums", total >= 0 ? "text-up" : "text-down")}>{signedUsd(total)}</span>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -322,7 +381,19 @@ export function RoundsSheet({
         <SheetPanel className="p-0">
           {latest ? (
             <div className="border-b">
-              {latest.pnlReady === false ? <div className="space-y-4 px-6 pb-6"><p className="font-medium">Position closed</p><p className="text-sm text-muted-foreground">The original round’s fill history is incomplete. Its P&L is unavailable and excluded from the total.</p>{onNext?<Button className="w-full" onClick={onNext}>New trade</Button>:null}</div> : <RoundCard buddy={social.player?.buddy} key={latest.id} market={market} onNext={onNext} sketch={latest} streak={streak} />}
+              {latest.pnlReady === false ? (
+                <div className="space-y-4 px-6 pb-6">
+                  <p className="font-medium">Position closed</p>
+                  <p className="text-sm text-muted-foreground">The original round’s fill history is incomplete. Its P&L is unavailable and excluded from the total.</p>
+                  {onNext ? (
+                    <Button className="w-full" onClick={onNext}>
+                      New trade
+                    </Button>
+                  ) : null}
+                </div>
+              ) : (
+                <RoundCard buddy={social.player?.buddy} key={latest.id} market={market} onNext={onNext} sketch={latest} streak={streak} />
+              )}
             </div>
           ) : null}
           <PlayerCard social={social} />

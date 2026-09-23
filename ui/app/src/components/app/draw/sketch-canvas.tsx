@@ -161,7 +161,6 @@ export function SketchCanvas({
   pnl,
   marks = [],
   tradeBands = [],
-  pnlNote,
   segments = [],
   onSkip,
   onDown: onDownPt,
@@ -170,7 +169,6 @@ export function SketchCanvas({
   onGrab,
   onRemove,
   editableFrom,
-  headLabel,
   horizonBars,
   ghost,
   ribbon,
@@ -189,8 +187,6 @@ export function SketchCanvas({
   marks?: TradeMark[];
   /** Each trade's stretch of the line and what it made, labelled above it. */
   tradeBands?: TradeBand[];
-  /** Said after the P&L figure, when it is not the venue's own. */
-  pnlNote?: string;
   /** The scheduled plan, so each part of the line can be cut or kept. */
   segments?: SegmentMark[];
   onSkip?: (id: string, skipped: boolean) => void;
@@ -203,8 +199,6 @@ export function SketchCanvas({
   onRemove: (index: number) => void;
   /** Points at or before this time are fixed: they have already happened. */
   editableFrom: number;
-  /** What the line is worth where it ends, shown at the head while drawing. */
-  headLabel?: string | null;
   /** How much future the right half shows, in seconds. The round may grow past it. */
   horizonBars: number;
   /** Your last line, faint, so you notice your habits. */
@@ -224,14 +218,14 @@ export function SketchCanvas({
   const [lockedScale, setLockedScale] = useState<Band | null>(null);
   /** The handle the pointer is over, so it can offer to remove itself. */
   const [overPt, setOverPt] = useState<number | null>(null);
-  /**
-   * How the chart is looked at. Display only. `anchor` is the candle held on the split; null
-   * follows the live one.
-   */
   const [{ candles: chosenStyle, grid, ribbon: showRibbon, marks: showMarks, crosshair: showCrosshair }] = useSettings();
   /* Candles on a desk, a line on a phone, unless somebody has said otherwise. */
   const phone = usePhone();
   const candles = candleStyle(chosenStyle, phone);
+  /**
+   * How the chart is looked at. Display only. `anchor` is the candle held on the split; null
+   * follows the live one.
+   */
   const [view, setView] = useState<{ zoom: number; anchor: number | null }>({ zoom: 1, anchor: null });
   /** The view being dragged, from where it was grabbed. */
   const pan = useRef<{ x: number; anchor: number; moved: boolean } | null>(null);
@@ -379,7 +373,7 @@ export function SketchCanvas({
   };
   /** Within this of the right edge counts as pushing against it. */
   const EDGE = 18;
-  /** Candles a second the view runs forward while the pen holds the edge. */
+  /** Where the pointer is, and whether it is down, for the loop that runs while it holds an edge. */
   const track = (e: ReactPointerEvent) => {
     const r = box.current?.getBoundingClientRect();
     if (!r) return;
@@ -506,7 +500,10 @@ export function SketchCanvas({
       const seconds = Math.min(0.12, (t - last) / 1000);
       last = t;
       const here = at.current;
-      if (!here) { frame = requestAnimationFrame(tick); return; }
+      if (!here) {
+        frame = requestAnimationFrame(tick);
+        return;
+      }
       /*
         The view runs forward to bring the tip back to the middle, at most PAN_BARS a second, on a
         clock so pointer moves cannot compound the correction.
@@ -530,7 +527,7 @@ export function SketchCanvas({
       } else if (current.freehand && here.x >= current.right - EDGE) {
         current.move({ t: current.edgeT, price: current.price(here.y) });
       }
-    frame = requestAnimationFrame(tick);
+      frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
@@ -553,7 +550,7 @@ export function SketchCanvas({
     <div className={cn("relative h-full w-full touch-none select-none overflow-hidden", canDraw && "cursor-crosshair", className)} ref={box}>
       {w > 0 && h > 0 ? (
         <svg
-          aria-label="A Bitcoin price chart you can draw on. Drag across the right-hand side to draw where you think the price goes."
+          aria-label="A price chart you can draw on. Drag across the right-hand side to draw where you think the price goes."
           className="block h-full w-full"
           onPointerCancel={onUp}
           onPointerDown={onDown}
@@ -952,21 +949,11 @@ export function SketchCanvas({
           })
         : null}
 
-      {/* What the line is worth where the finger is. */}
-      {head && headLabel && (phase === "drawing" || phase === "drawn") ? (
-        <span
-          className="figures pointer-events-none absolute -translate-x-full -translate-y-full whitespace-nowrap rounded-full bg-brand px-2 py-0.5 font-medium text-[11px] text-white leading-4"
-          style={{ left: head.x - 8, top: Math.max(plotT + 20, head.y - 14) }}
-        >
-          {headLabel}
-        </span>
-      ) : null}
-
       {/* A pill with the money and only the money; the ribbon already says inside by colour. */}
       {phase === "running" && pnl !== null && run.length > 0 ? (
         <span
           className={cn(
-            // The same plate the price tags wear, a dark fill and a hairline , 
+            // The same plate the price tags wear, a dark fill and a hairline,
             // so the figure is what carries the colour. A solid green lozenge
             // shouted the sign twice and drowned the number doing it.
             "figures pointer-events-none absolute rounded-full border bg-popover px-2 py-0.5 font-semibold text-[11px] leading-4 shadow-xs/5",
@@ -980,7 +967,6 @@ export function SketchCanvas({
           }}
         >
           {signedUsd(pnl)}
-          {pnlNote ? <span className="ml-1 font-normal text-muted-foreground">{pnlNote}</span> : null}
         </span>
       ) : null}
     </div>

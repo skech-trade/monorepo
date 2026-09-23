@@ -56,26 +56,35 @@ export type DepositAddress = {
  * it is fetched once and kept.
  */
 export function useDepositAddress(address: string | null) {
-  const [result, setResult] = useState<{owner: string; found: DepositAddress | NoDeposits | null; error: string | null} | null>(null);
+  const [result, setResult] = useState<{ owner: string; found: DepositAddress | NoDeposits | null; error: string | null } | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!URL_API || !address) return;
     let live = true;
-    fetch(`${URL_API}/deposit/address?address=${encodeURIComponent(address)}`, {signal: AbortSignal.timeout(15000)})
-      .then(async r => {
+    fetch(`${URL_API}/deposit/address?address=${encodeURIComponent(address)}`, { signal: AbortSignal.timeout(15000) })
+      .then(async (r) => {
         if (!r.ok) throw Error("Deposit details are unavailable. Please try again.");
         const got = await r.json();
-        if (got?.canDeposit !== false && !(typeof got?.address === "string" && Array.isArray(got.chains) && ["mainnet","testnet"].includes(got.network))) throw Error("Deposit details are unavailable. Please try again.");
-        if (live) setResult({owner: address, found: got, error: null});
+        // Either an explicit "no deposits here", or an address with chains on a known network.
+        const usable = typeof got?.address === "string" && Array.isArray(got.chains) && ["mainnet", "testnet"].includes(got.network);
+        if (got?.canDeposit !== false && !usable) throw Error("Deposit details are unavailable. Please try again.");
+        if (live) setResult({ owner: address, found: got, error: null });
       })
-      .catch(() => {if(live) setResult({owner: address, found: null, error: "Couldn’t load deposit details. Check your connection and try again."});});
-    return () => { live = false; };
+      .catch(() => {
+        if (live) setResult({ owner: address, found: null, error: "Couldn’t load deposit details. Check your connection and try again." });
+      });
+    return () => {
+      live = false;
+    };
   }, [address, attempt]);
   const current = result?.owner === address ? result : null;
   return {
     found: current?.found ?? null,
     error: !address ? "Sign in to see your funding options." : !URL_API ? "Funding is unavailable right now." : current?.error ?? null,
-    retry: () => {setResult(null);setAttempt(n => n+1);},
+    retry: () => {
+      setResult(null);
+      setAttempt((n) => n + 1);
+    },
   };
 }
 
@@ -110,8 +119,6 @@ export function useDepositQuote(address: string | null, chain: Chain | null, nat
   useEffect(() => {
     if (!URL_API || !asking || !address || !chain || !token || !smallest) return;
     let live = true;
-    // A route is priced live, so asking on every keystroke would be a request
-    // per digit. Wait until the typing stops.
     const wait = setTimeout(() => {
       fetch(`${URL_API}/deposit/quote?address=${address}&fromChain=${chain.id}&token=${token}&amount=${smallest}`)
         .then((r) => (r.ok ? r.json() : null))
@@ -120,7 +127,9 @@ export function useDepositQuote(address: string | null, chain: Chain | null, nat
           const quote = (d as DepositQuote | null)?.transactions ? (d as DepositQuote) : null;
           setAnswer({ key: asking, quote });
         })
-        .catch(() => {if(live) setAnswer({key:asking,quote:null});});
+        .catch(() => {
+          if (live) setAnswer({ key: asking, quote: null });
+        });
     }, 350);
     return () => {
       live = false;
