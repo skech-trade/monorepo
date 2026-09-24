@@ -83,8 +83,6 @@ type Palette = { ink: Rgb; fg: Rgb; bg: Rgb; muted: Rgb; up: Rgb; upMark: Rgb; d
 const CANDLE_MS = 500;
 const rgba = (c: Rgb, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
-/** The multiples written along the map. */
-const LEVELS = [2, 5, 10, 25, 50];
 /** How many pixels a slice gets in the map's own picture, before it is blurred and scaled onto the screen. */
 const MAP_PX = 12;
 
@@ -197,7 +195,7 @@ export function Stage({
     let centre = 0;
     let at = 0;
     const phone = () => w < 640;
-    const nowX = () => Math.round(w * (phone() ? 0.26 : 0.36));
+    const nowX = () => Math.round(w * (phone() ? 0.32 : 0.36));
     const pxMs = () => (w - nowX() - (phone() ? 10 : 24)) / ((RULES.horizon + 1.5) * 1000);
     /**
      * How tall a price step is on screen. Eased towards whatever fits the
@@ -244,7 +242,7 @@ export function Stage({
           img.data[o] = pal.ink[0];
           img.data[o + 1] = pal.ink[1];
           img.data[o + 2] = pal.ink[2];
-          img.data[o + 3] = Math.round(255 * (pal.dark ? 0.22 : 0.15) * (1 - k) ** 1.2);
+          img.data[o + 3] = Math.round(255 * (pal.dark ? 0.3 : 0.2) * (1 - k) ** 1.2);
         }
       blurAlpha(img.data, fl.seconds, fl.rows, pal.ink);
       s.putImageData(img, 0, 0);
@@ -257,31 +255,22 @@ export function Stage({
       b.imageSmoothingQuality = "high";
       // Softened at its own size already, so scaling it up smoothly is all it needs: a canvas blur at full size held the page up once a second.
       b.drawImage(map.small, 0, 0, map.big.width, map.big.height);
-      // The first slice out from the price, above and below, that pays each level, at three moments ahead.
+      /*
+        The multiples, written on the map: what the rows around the price
+        actually pay, at a few moments ahead. The real numbers, not round
+        levels, so a map that jumps from the price's own row straight to 12x
+        says so rather than showing nothing.
+      */
       map.labels = [];
       const here = rowOf(fl.f.price, fl.step);
-      // Three columns of multiples on a wide screen; two on a phone, where three crowd each other.
-      for (const j of phone() ? [9, 24] : [7, 16, 26]) {
-        if (j > fl.seconds) continue;
-        const t = fl.openAt + j * 1000;
-        for (const dir of [1, -1]) {
-          let last = Number.NEGATIVE_INFINITY;
-          for (const level of phone() ? [5, 25, 50] : LEVELS) {
-            for (let r = here; Math.abs(r - here) < fl.rows; r += dir) {
-              const m = multipleOf(fl, { t, row: r });
-              if (m === null) {
-                if (Math.abs(r - here) > 3) break;
-                continue;
-              }
-              if (m < level) continue;
-              // Only where the map is near this level, and never on top of the last label: a jump from 2x straight to 9x is not a 5x.
-              if (m < level * 1.6 && Math.abs(r - here) - last >= 2) {
-                map.labels.push({ t: t + 500, row: r, m: level });
-                last = Math.abs(r - here);
-              }
-              break;
-            }
-          }
+      // Spread over the whole of what can be drawn: every seven seconds on a phone, every five on a wider screen.
+      const cols: number[] = [];
+      for (let c = phone() ? 5 : 4; c <= fl.seconds; c += phone() ? 7 : 5) cols.push(c);
+      for (const jj of cols) {
+        const t = fl.openAt + jj * 1000;
+        for (let d = -3; d <= 3; d++) {
+          const m = multipleOf(fl, { t, row: here + d });
+          if (m !== null) map.labels.push({ t: t + 500, row: here + d, m });
         }
       }
     };
@@ -480,8 +469,8 @@ export function Stage({
       centre += (p - centre) * (Math.abs(off) > rowsOnScreen * 0.3 ? 0.12 : Math.abs(off) > rowsOnScreen * 0.12 ? 0.03 : 0.006);
       const fl = g.field;
       if (fl) {
-        // Three typical moves over twenty seconds, either side, in the middle 90% of the screen.
-        const reach = (3 * fl.f.sigma * fl.f.price * Math.sqrt(20)) / g.step;
+        // A bit more than two typical moves over twenty seconds, either side: close enough that the price is seen to move, with the cone of odds still on screen.
+        const reach = (2.4 * fl.f.sigma * fl.f.price * Math.sqrt(20)) / g.step;
         const want = Math.max(8, Math.min(44, (h * 0.45) / Math.max(1, reach)));
         pitchY += (want - pitchY) * 0.05;
         if (map.field !== fl || map.pal !== pal) paintMap(fl, pal);
@@ -577,19 +566,22 @@ export function Stage({
         const x1 = x(fl.openAt + shift + (fl.seconds + 1) * 1000);
         c.drawImage(map.big, x0, y((fl.row0 + fl.rows) * fl.step), x1 - x0, y(fl.row0 * fl.step) - y((fl.row0 + fl.rows) * fl.step));
         c.restore();
-        // The multiples, written where the map reaches them: the further out, the more it pays.
-        c.font = `600 10px ${MONO}`;
+        // The multiples, written where the map reaches them, on a halo of the page so they read over ink and candles.
+        c.font = `600 11px ${MONO}`;
         c.textAlign = "center";
+        c.textBaseline = "middle";
         const placed: { x: number; y: number }[] = [];
         for (const l of map.labels) {
           const lx = x(l.t + shift);
           const ly = y((l.row + 0.5) * fl.step);
-          if (lx < x(first) + 12 || lx > w - 12 || ly < 14 || ly > h - 22) continue;
-          if (placed.some((q) => Math.abs(q.x - lx) < 30 && Math.abs(q.y - ly) < 16)) continue;
+          if (lx < x(first) + 12 || lx > w - 14 || ly < 70 || ly > h - 22) continue;
+          if (placed.some((q) => Math.abs(q.x - lx) < 30 && Math.abs(q.y - ly) < 14)) continue;
           placed.push({ x: lx, y: ly });
-          c.fillStyle = rgba(pal.muted, 0.85);
-          // The multiple there; the pen says what that is in dollars at the price set.
-          c.fillText(`${l.m}×`, lx, ly);
+          c.strokeStyle = rgba(pal.bg, 0.85);
+          c.lineWidth = 3;
+          c.strokeText(fmtMultiple(l.m), lx, ly);
+          c.fillStyle = rgba(pal.muted, 0.95);
+          c.fillText(fmtMultiple(l.m), lx, ly);
         }
       }
 
@@ -602,8 +594,8 @@ export function Stage({
       for (let r = rowOf(pAt(h), step) - 1; r <= rowOf(pAt(0), step) + 1; r++) {
         if (r % every) continue;
         const py = Math.round(y(r * step)) + 0.5;
-        // Not under the market's name and price, top left.
-        if (py < 66) continue;
+        // Not under the market's name and price, top left, the buttons bottom left on a phone, or the price's own tag.
+        if (py < 66 || (phone() && py > h - 128) || Math.abs(py - 7 - y(p)) < 16) continue;
         c.fillStyle = `rgba(${rgb},0.04)`;
         c.fillRect(0, py, nx, 1);
         c.fillStyle = `rgba(${rgb},0.32)`;
@@ -690,12 +682,16 @@ export function Stage({
       c.font = `600 11px ${MONO}`;
       c.textAlign = "center";
       const label = fmtPrice(p, true);
+      // On the axis, at the left, with a faint line across to now: never on top of the live candle.
       const lw = c.measureText(label).width + 14;
-      roundRect(c, nx - lw - 10, py - 10, lw, 20, 10);
+      c.fillStyle = `rgba(${rgb},0.22)`;
+      for (let dx = 6 + lw + 4; dx < nx - 6; dx += 6) c.fillRect(dx, Math.round(py), 3, 1);
+      roundRect(c, 6, py - 10, lw, 20, 10);
       c.fillStyle = `rgb(${rgb})`;
       c.fill();
       c.fillStyle = rgba(pal.bg);
-      c.fillText(label, nx - 10 - lw / 2, py + 0.5);
+      c.textBaseline = "middle";
+      c.fillText(label, 6 + lw / 2, py + 0.5);
 
       /*
         Where betting starts: a drawing opens on the next second, and the one
