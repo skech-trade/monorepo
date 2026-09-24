@@ -282,14 +282,27 @@ export function Stage({
       for (let jj = 1; jj <= fl.seconds; jj++) {
         const t = fl.openAt + jj * 1000;
         const col = (jj - 1) % every === Math.floor(every / 2);
-        for (let r = 0; r < fl.rows; r++) {
-          const m = multipleOf(fl, { t, row: fl.row0 + r });
-          if (m === null) continue;
-          if (jj > fl.seconds / 2) {
-            lo = Math.min(lo, (fl.row0 + r) * fl.step);
-            hi = Math.max(hi, (fl.row0 + r + 1) * fl.step);
+        /*
+          Out from the price, each way, as far as the rows run on unbroken.
+          Near the cap a row can be offered, the next not and the one after
+          again; those strays are left out, so the ladder has a clean edge.
+          A row or two by the price may be too likely to offer, and is stepped over.
+        */
+        const here = rowOf(fl.f.price, fl.step);
+        for (const dir of [1, -1]) {
+          let gap = 0;
+          for (let r = dir > 0 ? here : here - 1; Math.abs(r - here) < fl.rows / 2; r += dir) {
+            const m = multipleOf(fl, { t, row: r });
+            if (m === null) {
+              if (Math.abs(r - here) > 2 || ++gap > 2) break;
+              continue;
+            }
+            if (jj > fl.seconds / 2) {
+              lo = Math.min(lo, r * fl.step);
+              hi = Math.max(hi, (r + 1) * fl.step);
+            }
+            if (col) map.labels.push({ t: t + 500, row: r, m });
           }
-          if (col) map.labels.push({ t: t + 500, row: fl.row0 + r, m });
         }
       }
       // How far the ladder reaches from the price, the further way doubled: the zoom centres on the price, so both sides must fit.
@@ -509,7 +522,8 @@ export function Stage({
           hiP = Math.max(hiP, g.bars[k].h);
           loP = Math.min(loP, g.bars[k].l);
         }
-        const lived = (2.1 * Math.max(hiP - centre, centre - loP)) / g.step;
+        // Just enough for the line's last minutes to stay on screen: the ladder fills what is left.
+        const lived = (2 * Math.max(hiP - centre, centre - loP)) / g.step;
         // The ladder fills the chart top to bottom; the line's last minutes only widen it when they would run off.
         const want = Math.max(8, Math.min(120, (h * 0.94) / Math.max(1, reach, lived)));
         pitchY += (want - pitchY) * 0.05;
