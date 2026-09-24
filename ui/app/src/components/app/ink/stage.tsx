@@ -39,8 +39,8 @@ export type Game = {
   field: Field | null;
   step: number;
   perDot: number;
-  /** The pen's radius, in CSS pixels. */
-  brush: number;
+  /** The pen's width, and the height of the cells its ink is judged in, as a share of `step`. */
+  cell: number;
   bets: InkBet[];
   /** Price a stroke as if it were placed now. Set by the screen, which has the paths and the market. */
   quote: ((st: Stroke) => Preview | null) | null;
@@ -165,6 +165,8 @@ export function Stage({
     const tAt = (px: number) => at + (px - nowX()) / pxMs();
     const y = (p: number) => h / 2 - ((p - centre) / game.current!.step) * pitchY;
     const pAt = (py: number) => centre + ((h / 2 - py) * game.current!.step) / pitchY;
+    /** The pen's radius on screen: half its cell, so the ink is exactly as tall as what it is judged on. */
+    const radius = () => (game.current!.cell * pitchY) / 2;
 
     /*
       The map, redrawn only when the field changes: one pixel per slice,
@@ -277,7 +279,7 @@ export function Stage({
       } catch {
         /* A pointer the browser no longer tracks: drawing still works while it stays over the canvas. */
       }
-      pen = { id: e.pointerId, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: g.brush / pxMs(), rp: (g.brush * g.step) / pitchY }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
+      pen = { id: e.pointerId, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: (g.cell * g.step) / 2 }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
       requote(pen, true);
     };
     const move = (e: PointerEvent) => {
@@ -438,7 +440,7 @@ export function Stage({
       for (const bet of g.bets) {
         const st = bet.stroke;
         if (bet.status === "void") continue;
-        if (x(st.t0 + Math.max(...st.pts.map((q) => q.t))) + g.brush < nx - pxMs() * 2500) continue;
+        if (x(st.t0 + Math.max(...st.pts.map((q) => q.t))) + radius() < nx - pxMs() * 2500) continue;
         const breathe = bet.status === "opening" ? 0.65 + 0.3 * Math.sin(ms / 110) : 1;
         ink(st, rgba(pal.ink, 0.96 * breathe));
         if (bet.status !== "opening") {
@@ -509,7 +511,7 @@ export function Stage({
         c.clip();
         const x0 = x(fl.openAt + 1000);
         const x1 = x(fl.openAt + (fl.seconds + 1) * 1000);
-        c.drawImage(map.big, x0, y((fl.row0 + fl.rows) * step), x1 - x0, y(fl.row0 * step) - y((fl.row0 + fl.rows) * step));
+        c.drawImage(map.big, x0, y((fl.row0 + fl.rows) * fl.step), x1 - x0, y(fl.row0 * fl.step) - y((fl.row0 + fl.rows) * fl.step));
         c.restore();
         // The multiples, written where the map reaches them: the further out, the more it pays.
         c.font = `600 10px ${MONO}`;
@@ -517,7 +519,7 @@ export function Stage({
         const placed: { x: number; y: number }[] = [];
         for (const l of map.labels) {
           const lx = x(l.t);
-          const ly = y((l.row + 0.5) * step);
+          const ly = y((l.row + 0.5) * fl.step);
           if (lx < x(first) + 12 || lx > w - 12 || ly < 14 || ly > h - 22) continue;
           if (placed.some((q) => Math.abs(q.x - lx) < 30 && Math.abs(q.y - ly) < 16)) continue;
           placed.push({ x: lx, y: ly });
@@ -614,20 +616,20 @@ export function Stage({
       const tip = pen ? pen.last : hover && hover.x > nx ? hover : null;
       if (tip) {
         c.beginPath();
-        c.arc(tip.x, tip.y, g.brush, 0, Math.PI * 2);
+        c.arc(tip.x, tip.y, radius(), 0, Math.PI * 2);
         c.fillStyle = `rgba(${rgb},${pen ? 0.08 : 0.06})`;
         c.fill();
         c.strokeStyle = `rgba(${rgb},0.4)`;
         c.lineWidth = 1;
         c.stroke();
-        const m = g.field ? offered({ t: Math.floor(tAt(tip.x) / 1000) * 1000, row: rowOf(pAt(tip.y), step) }) : null;
+        const m = g.field ? offered({ t: Math.floor(tAt(tip.x) / 1000) * 1000, row: rowOf(pAt(tip.y), g.field.step) }) : null;
         const text = m !== null ? fmtMultiple(m) : tAt(tip.x) < first ? "Too soon" : "—";
         c.font = `700 12px ${MONO}`;
         const tw = c.measureText(text).width + 14;
         // Beside a mouse; well above a finger, which would cover it.
         const finger = pen?.finger ?? false;
-        const bx = finger ? Math.min(w - tw - 6, Math.max(6, tip.x - tw / 2)) : Math.min(w - tw - 6, tip.x + g.brush + 8);
-        const by = Math.max(14, tip.y - g.brush - (finger ? 52 : 16));
+        const bx = finger ? Math.min(w - tw - 6, Math.max(6, tip.x - tw / 2)) : Math.min(w - tw - 6, tip.x + radius() + 8);
+        const by = Math.max(14, tip.y - radius() - (finger ? 52 : 16));
         roundRect(c, bx, by - 11, tw, 22, 11);
         c.fillStyle = m !== null ? rgba(pal.fg) : rgba(pal.fg, 0.12);
         c.fill();
@@ -650,7 +652,7 @@ export function Stage({
           else c.lineTo(q.px, q.py);
         }
         c.strokeStyle = rgba(pal.ink, 0.25);
-        c.lineWidth = g.brush * 2;
+        c.lineWidth = radius() * 2;
         c.lineCap = "round";
         c.lineJoin = "round";
         c.stroke();

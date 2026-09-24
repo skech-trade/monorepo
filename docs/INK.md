@@ -1,6 +1,6 @@
 # Ink: draw ahead of the price
 
-The main app (`/app/<bitcoin>`) is one game: draw with a pen ahead of the
+The game at `/fun` is: draw with a pen ahead of the
 Bitcoin price, and the ink the price runs through pays. It is practice money
 for now: $1,000 in the browser, no sign-in needed.
 
@@ -11,9 +11,15 @@ Lighter trading code is untouched and unused by it.
 
 ## The rules
 
-- **The ink is the bet, exactly as drawn.** Pick a pen (fine, medium, thick)
-  and what ink costs (10¢, 25¢, 50¢ or $1 a unit; a unit is one price step
-  of ink for one second).
+- **The ink is the bet, exactly as drawn.** Two settings, the two buttons
+  under the chart on a phone: the **pen** (fine, medium, wide) and what a
+  **point** of ink costs (10¢, 25¢, 50¢ or $1; a point is one price step of
+  ink for one second). Deposit sits in the app bar, left of sign-in.
+- **The pen changes the multiples; the amount does not.** Each pen's ink is
+  judged in cells as tall as the pen is wide (half a step, one step, a step
+  and a half), so wider ink catches the price more often and pays less for
+  it, and the map redraws its multiples for the pen in hand. The amount only
+  scales the dollars: a hit pays the ink's cost times its multiple.
 - **It costs its area.** Longer or thicker ink costs more.
 - **Only the ink the price touches pays.** Each second, the prices Bitcoin
   trades across in that second are checked against your ink in that second;
@@ -30,8 +36,9 @@ Lighter trading code is untouched and unused by it.
 
 ## How a chance is measured
 
-Underneath, ink is measured on cells one second wide and half a price step
-tall (a step is about 1.2 of the market's typical one-second moves). Each
+Underneath, ink is measured on cells one second wide and as tall as the pen
+is wide: 0.5, 1 or 1.5 price steps (a step is about 1.2 of the market's
+typical one-second moves). Each
 cell's chance is the share of 16,000 real 30-second stretches of Binance
 BTCUSDT (1–16 September 2026) that passed through it, taken from moments
 like this one:
@@ -63,6 +70,18 @@ the engine the page runs, strokes of every kind and bots:
 | bot, drawing the way the last 3 s moved | 0.99 |
 | bot, chasing a jump | 0.91 |
 | bot, drawing against the last 3 s | 0.89 |
+
+That table is for pens of every width on the finest cells. Each pen, drawn
+as the page draws it (ink as wide as its cells), on the same week:
+
+| Pen | Cell | Cell hit | Worst stroke | Best stroke | Best day |
+| --- | --- | --- | --- | --- | --- |
+| Fine | 0.5 step | 9% | 0.87 | 0.95 | 0.99 |
+| Medium | 1 step | 14% | 0.88 | 0.97 | 1.00 |
+| Wide | 1.5 steps | 19% | 0.86 | 0.94 | 0.96 |
+
+No pen and no stroke got back more than it cost. `PEN=fine|medium|wide` on
+the check draws with that pen.
 
 By day it ran 0.80 to 1.14: the market changes from day to day, and one day
 of seven paid players more than it took. Fine for practice money. Before real

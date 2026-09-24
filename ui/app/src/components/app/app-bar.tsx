@@ -39,7 +39,8 @@ import { usePlayer } from "@/lib/social";
 import { NetworkBadge } from "./network-badge";
 import { SignInButton } from "./sign-in";
 
-export function AppBar() {
+/** `lead`: a page's own button, just left of the way in (the game's practice deposit, say). */
+export function AppBar({ lead }: { lead?: React.ReactNode } = {}) {
   const [{ blurred }, set] = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const me = useAccount();
@@ -127,6 +128,7 @@ export function AppBar() {
             the logo, the market and the way in, and nothing else fits. */}
         <ThemeToggle className="max-sm:hidden" />
 
+        {lead}
         {anonymous ? <SignInButton /> : null}
         {anonymous ? null : (
         <Menu>

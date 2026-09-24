@@ -14,8 +14,6 @@ import type { InkBet } from "@skech/core/ink";
  */
 
 export type Brush = "fine" | "medium" | "wide";
-/** The pen's radius on screen, in CSS pixels. A thicker pen covers more area, and costs more. */
-export const BRUSH_PX: Record<Brush, number> = { fine: 5, medium: 10, wide: 18 };
 
 export type DrawingResult = { id: string; at: number; cost: number; won: number; hits: number; dots: number; best: number };
 

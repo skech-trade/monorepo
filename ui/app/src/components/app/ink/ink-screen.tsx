@@ -3,7 +3,7 @@
 import { CircleHelpIcon, HistoryIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOT_BETS, type Features, features, field, type Library, openFor, readLibrary, RULES, START_BALANCE, stepFor } from "@skech/core/dots";
-import { type Cell, cost, decided, hitShare, judge, open, place, quote, refund, type Stroke, won } from "@skech/core/ink";
+import { type Cell, cost, decided, hitShare, judge, open, PEN_CELLS, place, quote, refund, type Stroke, won } from "@skech/core/ink";
 import { MarketHeader } from "@/components/app/market-header";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
@@ -11,10 +11,10 @@ import { type Market, marketBySymbol } from "@/lib/market";
 import { usePhone } from "@/lib/phone";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { useBinance } from "@/lib/binance";
-import { BRUSH_PX, buzz, cents, practice, record, setPractice, sound, usePractice } from "@/lib/practice";
+import { buzz, cents, practice, record, setPractice, sound, usePractice } from "@/lib/practice";
 import { cn } from "@/lib/utils";
 import { fmtMultiple, type Game, type Preview, Stage } from "./stage";
-import { MoneyButtons, penFor, PenPicker } from "./ink-controls";
+import { InkControls } from "./ink-controls";
 
 /**
  * skech. Draw ahead of the Bitcoin price; wherever it runs through your ink
@@ -102,7 +102,7 @@ export function InkScreen() {
     return () => clearTimeout(t);
   }, [result]);
   const [fresh, setFresh] = useState(false);
-  const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, perDot: state.perDot, brush: BRUSH_PX[state.brush], bets: [], quote: null, fx: [], hint: !state.taught, dark: false });
+  const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, perDot: state.perDot, cell: PEN_CELLS[state.brush], bets: [], quote: null, fx: [], hint: !state.taught, dark: false });
   /** The market as the last quarter-second read it, for pricing a stroke while it is drawn. */
   const market = useRef<Features | null>(null);
 
@@ -113,8 +113,8 @@ export function InkScreen() {
 
   useEffect(() => {
     const g = game.current;
-    g.perDot = penFor(state.brush).perUnit;
-    g.brush = BRUSH_PX[state.brush];
+    g.perDot = state.perDot;
+    g.cell = PEN_CELLS[state.brush];
     g.hint = !state.taught;
   }, [state.perDot, state.brush, state.taught]);
 
@@ -151,7 +151,8 @@ export function InkScreen() {
       const want = stepFor(f.sigma, f.price);
       if (g.field === null || Math.abs(Math.log(want / g.step)) > Math.log(1.6)) g.step = want;
       const t0 = performance.now();
-      g.field = field(lib, f, at, g.step);
+      // Mapped in the pen's own cells, so the multiples shown are what this pen's ink pays.
+      g.field = field(lib, f, at, g.step * g.cell);
       slow("field", t0, `rows ${g.field.rows} step ${g.step}`);
     };
     tick();
@@ -162,7 +163,7 @@ export function InkScreen() {
       const f = market.current;
       if (!lib || !f) return null;
       const t0 = performance.now();
-      const q = quote(lib, st, Date.now() + g.skew, g.step, f);
+      const q = quote(lib, st, Date.now() + g.skew, g.step, f, g.cell);
       slow("quote", t0, `cells ${q.cells.length} pts ${st.pts.length} rt ${Math.round(st.rt)} rp ${st.rp.toFixed(2)} step ${g.step}`);
       let spend = 0;
       let low = Number.POSITIVE_INFINITY;
@@ -272,8 +273,7 @@ export function InkScreen() {
       const nowMs = Date.now() + g.skew;
       const q = g.quote?.(stroke);
       if (!q || !q.inPlay.length) return "Draw where the map is coloured";
-      // What ink costs is the pen's: a small dot, a dime a unit; a large one, half a dollar.
-      const bet = place(stroke, penFor(s.brush).perUnit, g.step, nowMs, crypto.randomUUID());
+      const bet = place(stroke, s.perDot, g.step, nowMs, crypto.randomUUID(), g.cell);
       if (!bet) return "Draw further ahead";
       if (cost(bet) > s.balance + 1e-9) return "Not enough practice money";
       g.bets.push(bet);
@@ -316,15 +316,18 @@ export function InkScreen() {
     : null;
 
   /*
-    The pen where the trading screen has size and pace, and the money beside
-    it. Picking a pen picks what its ink costs. Drawing places itself when the
-    pen lifts, straight from the balance, so there is no button to press for it.
+    The pen and what a point of ink costs, where the trading screen has size
+    and pace. Drawing places itself when the pen lifts, straight from the
+    balance, so there is no button to press for it.
   */
   const controls = (
-    <div className="flex w-full items-center gap-1.5 sm:w-auto sm:gap-2">
-      <PenPicker className="max-sm:flex-[1.4]" onPen={(id) => setPractice({ brush: id, perDot: penFor(id).perUnit })} pen={state.brush} />
-      <MoneyButtons className="flex items-center gap-1.5 max-sm:contents sm:gap-2" onDeposit={(amount) => setPractice((st) => ({ balance: cents(st.balance + amount) }))} />
-    </div>
+    <InkControls
+      amount={state.perDot}
+      className="w-full sm:w-auto"
+      onAmount={(n) => setPractice({ perDot: n })}
+      onPen={(id) => setPractice({ brush: id })}
+      pen={state.brush}
+    />
   );
 
   /* The practice balance: beside the controls on a desk, over the chart's top right on a phone, in the same coat as the market beside it. */
@@ -519,7 +522,7 @@ export function InkScreen() {
           <SheetPanel className="flex flex-col gap-4 px-6 pb-8 text-sm leading-relaxed">
             <p>Ahead of the price is a map of the odds. Draw on it. Your ink is your bet, and it is priced by area: every bit of ink costs the same, so a longer or thicker stroke costs more.</p>
             <p>Wherever the price runs through your ink, that part pays what the map shows there. Near the price is likely and pays a little. Far from it, in price or in time, pays a lot: the multiples are written on the map.</p>
-            <p>Ink drawn too soon or outside the priced map stays faint and costs nothing. One unit is one price step of ink for one second.</p>
+            <p>Ink drawn too soon or outside the priced map stays faint and costs nothing. One point is one price step of ink for one second, and costs what you set under Per point.</p>
             <p>A drawing starts on the next second. The first second after that is never part of it, and it reaches {RULES.horizon} seconds ahead.</p>
             <p className="text-muted-foreground">
               Payouts are based on real Bitcoin paths from similar moments, starting from {Math.round(RULES.rtp * 100)}% of fair odds and adjusted for momentum. Only the part of your ink touched by the price pays. Your balance is practice money saved in this browser.

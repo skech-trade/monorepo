@@ -27,8 +27,16 @@ export { RULES } from "./dots";
 /** A pen stroke: points in time (ms, the feed's clock) and price, from `t0` and `p0`; the pen's half-width in each. */
 export type Stroke = { t0: number; p0: number; pts: { t: number; p: number }[]; rt: number; rp: number };
 
-/** How tall a cell of ink is, as a share of the price step. */
+/**
+ * How tall a cell of ink is, as a share of the price step: the finest the
+ * ink is judged at, and the default. Each pen judges its ink in cells as
+ * tall as the pen is wide, so a bigger pen catches the price more easily
+ * and pays less for it; see `PEN_CELLS`.
+ */
 export const CELL = 0.5;
+/** Each pen's cell, in price steps: its width. */
+export const PEN_CELLS = { fine: 0.5, medium: 1, wide: 1.5 } as const;
+export type Pen = keyof typeof PEN_CELLS;
 
 export type CellStatus = "live" | "hit" | "miss";
 /** A cell of ink: its second, its prices from `lo` up to `hi`, and how much ink is in it, in step-seconds. */
@@ -49,6 +57,8 @@ export type InkBet = {
   /** What a unit of ink costs: one price step, for one second. */
   perUnit: number;
   step: number;
+  /** How tall its cells are, as a share of `step`. Missing on drawings from before pens had their own: `CELL`. */
+  cell?: number;
   stroke: Stroke;
   /** As drawn, before it opened. */
   drawn: Cell[];
@@ -104,8 +114,8 @@ const MIN_COVER = 0.04;
  * the second after it to the horizon. A cell's area is how much of it the
  * ink covers, averaged across its second.
  */
-export function cellsOf(st: Stroke, openAt: number, step: number): Cell[] {
-  const size = step * CELL;
+export function cellsOf(st: Stroke, openAt: number, step: number, cell: number = CELL): Cell[] {
+  const size = step * cell;
   const ts = st.pts.map((q) => st.t0 + q.t);
   const from = Math.min(...ts) - st.rt;
   const to = Math.max(...ts) + st.rt;
@@ -124,7 +134,7 @@ export function cellsOf(st: Stroke, openAt: number, step: number): Cell[] {
         }
       }
     }
-    for (const [r, c] of [...cover].sort((x, y) => x[0] - y[0])) if (c >= MIN_COVER) out.push({ t, lo: r * size, hi: (r + 1) * size, area: Math.min(1, c) * CELL });
+    for (const [r, c] of [...cover].sort((x, y) => x[0] - y[0])) if (c >= MIN_COVER) out.push({ t, lo: r * size, hi: (r + 1) * size, area: Math.min(1, c) * cell });
   }
   return out;
 }
@@ -174,9 +184,9 @@ export function chances(lib: Library, cells: Cell[], openAt: number, f: Features
 }
 
 /** What a stroke would pay, cell by cell, if it were placed now: null for a cell not in play. */
-export function quote(lib: Library, st: Stroke, now: number, step: number, f: Features): { cells: Cell[]; multiples: (number | null)[] } {
+export function quote(lib: Library, st: Stroke, now: number, step: number, f: Features, cell: number = CELL): { cells: Cell[]; multiples: (number | null)[] } {
   const openAt = openFor(now);
-  const cells = cellsOf(st, openAt, step);
+  const cells = cellsOf(st, openAt, step, cell);
   return { cells, multiples: chances(lib, cells, openAt, f).map((p, i) => multipleFor(p, rtpAt(f, (cells[i].lo + cells[i].hi) / 2))) };
 }
 
@@ -198,11 +208,11 @@ export const hitShare = (bet: InkBet) => {
 export const decided = (bet: InkBet) => bet.status === "done" || bet.status === "void";
 
 /** A stroke, as a drawing: not priced yet. It costs all its ink; what is not in play when it opens comes back. */
-export function place(st: Stroke, perUnit: number, step: number, now: number, id: string): InkBet | null {
+export function place(st: Stroke, perUnit: number, step: number, now: number, id: string, cell: number = CELL): InkBet | null {
   const openAt = openFor(now);
-  const drawn = cellsOf(st, openAt, step);
+  const drawn = cellsOf(st, openAt, step, cell);
   if (!drawn.length) return null;
-  return { id, placedAt: now, openAt, perUnit, step, stroke: st, drawn, cells: [], status: "opening" };
+  return { id, placedAt: now, openAt, perUnit, step, cell, stroke: st, drawn, cells: [], status: "opening" };
 }
 
 /** Price a drawing on the second it opened, from the bars before it. */
