@@ -125,7 +125,7 @@ export function InkScreen() {
 
   // For tests and debugging in development: the live game, and the engine and paths it prices on, from the console.
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production") Object.assign(window, { __dots: game.current, __engine: { lib, open, judge, features } });
+    if (process.env.NODE_ENV !== "production") Object.assign(window, { __dots: game.current, __engine: { lib, open, judge, features }, __practice: { get: practice, set: setPractice }, __rules: RULES });
   }, [lib]);
 
   useEffect(() => {

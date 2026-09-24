@@ -204,7 +204,8 @@ export function AppBar({ lead, practice = false }: { lead?: React.ReactNode; pra
       </div>
     </header>
     <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen} />
-    <DepositSheet address={me.address} onDone={profile.refresh} onOpenChange={setDepositing} open={depositing} />
+    {/* Only where it can be used: it needs the wallet provider, which a page without sign-in set up does not have, and the practice game has its own deposit. */}
+    {practice || !hasAuth ? null : <DepositSheet address={me.address} onDone={profile.refresh} onOpenChange={setDepositing} open={depositing} />}
     <PlayerOnboarding key={`${me.address}:${askName}`} social={social} open={askName} onDeposit={() => setDepositing(true)} onOpenChange={(next) => {
       if (!next && me.address) { try { localStorage.setItem(`skech.onboarding.${me.address.toLowerCase()}`, "seen"); } catch {} }
       setAskName(next);
