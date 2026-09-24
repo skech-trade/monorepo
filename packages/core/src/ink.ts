@@ -221,8 +221,12 @@ export function quoteOn(fl: Field, st: Stroke, now: number, step: number, cell: 
 /* ------------------------------------------------------------------ */
 
 const cents = (n: number) => Math.round(n * 100) / 100;
+/** What a line costs: every point in play at the same price. The one place it is worked out, with `payoutOf`; `odds.ts` states both. */
+export const costOf = (perPoint: number, points: number) => cents(perPoint * points);
+/** What a hit pays: the point times its multiple, rounded down to the cent. */
+export const payoutOf = (perPoint: number, multiple: number) => Math.floor(perPoint * multiple * 100 + 1e-9) / 100;
 const areaOf = (cells: Cell[]) => cells.reduce((s, g) => s + g.area, 0);
-export const cost = (bet: InkBet) => cents(bet.perUnit * areaOf(bet.drawn));
+export const cost = (bet: InkBet) => costOf(bet.perUnit, areaOf(bet.drawn));
 /** What comes back when it opens: the ink no longer in play, or all of it when it is voided. */
 export const refund = (bet: InkBet) => (bet.status === "void" ? cost(bet) : bet.status === "opening" ? 0 : cents(cost(bet) - bet.perUnit * areaOf(bet.cells)));
 export const won = (bet: InkBet) => cents(bet.cells.reduce((s, g) => s + (g.paid ?? 0), 0));
@@ -294,7 +298,7 @@ export function judge(bet: InkBet, bar: Bar, closed: boolean): InkBet {
     if (s.status !== "live") return s;
     if (s.t === bar.t && bar.h >= s.lo && bar.l < s.hi) {
       changed = true;
-      return { ...s, status: "hit" as const, paid: Math.floor(bet.perUnit * s.area * s.multiple * 100) / 100, range: [bar.l, bar.h] as [number, number] };
+      return { ...s, status: "hit" as const, paid: payoutOf(bet.perUnit * s.area, s.multiple), range: [bar.l, bar.h] as [number, number] };
     }
     if (closed && s.t <= bar.t) {
       changed = true;

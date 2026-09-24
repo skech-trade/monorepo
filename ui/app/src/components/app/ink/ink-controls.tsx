@@ -1,6 +1,7 @@
 "use client";
 
-import { DOT_BETS } from "@skech/core/dots";
+import { POINT_CENTS } from "@skech/core/odds";
+import { AmountWheel } from "@/components/app/draw/draw-controls";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverClose, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import type { Brush } from "@/lib/practice";
@@ -12,8 +13,9 @@ import { cn } from "@/lib/utils";
  *
  * The pen is how wide the ink is, and so how easily the price catches it: a
  * wider pen is caught more often and pays less for it, and the map redraws
- * its multiples for the pen in hand. The amount is what one point of ink
- * costs, so what a hit pays in dollars; the multiples stay as they are.
+ * its multiples for the pen in hand. The amount is what one point costs,
+ * on the trading screen's own wheel, so what a hit pays in dollars: the
+ * chart shows those dollars, and the multiples stay as they are.
  */
 
 export const PENS: { id: Brush; name: string; dot: number; says: string }[] = [
@@ -22,7 +24,7 @@ export const PENS: { id: Brush; name: string; dot: number; says: string }[] = [
   { id: "wide", name: "Wide", dot: 15, says: "Easiest to hit" },
 ];
 export const penFor = (id: Brush) => PENS.find((p) => p.id === id) ?? PENS[1];
-export const amountLabel = (n: number) => (n < 1 ? `${Math.round(n * 100)}¢` : `$${n}`);
+export const amountLabel = (n: number) => (n < 1 ? `${Math.round(n * 100)}¢` : `$${n.toFixed(2)}`);
 
 /* The label goes on a phone and the value stays, as on the trading screen's buttons. */
 function Setting({ label, children }: { label: string; children: React.ReactNode }) {
@@ -77,20 +79,23 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
             <span className="text-muted-foreground sm:hidden">a point</span>
           </Setting>
         </PopoverTrigger>
-        <PopoverPopup align="end" className="w-60 max-sm:w-56">
-          <PopoverTitle>Per point</PopoverTitle>
-          <PopoverDescription>What each point of ink costs. A hit pays this times its multiple.</PopoverDescription>
-          <div className="grid grid-cols-2 gap-1.5 pt-3">
-            {DOT_BETS.map((a) => (
-              <PopoverClose
-                aria-pressed={a === amount}
-                className={cn("figures h-11 rounded-lg border text-sm transition-colors hover:bg-accent", a === amount && "border-foreground bg-accent font-medium")}
-                key={a}
-                onClick={() => onAmount(a)}
-              >
-                {amountLabel(a)}
-              </PopoverClose>
-            ))}
+        {/* The trading screen's size wheel, in cents: what a point costs, and so what every hit pays. */}
+        <PopoverPopup align="end" className="w-56 max-sm:w-48">
+          <PopoverTitle>
+            <span className="sm:hidden">Per point</span>
+            <span className="max-sm:hidden">Pick your price</span>
+          </PopoverTitle>
+          <PopoverDescription className="max-sm:hidden">What each point costs. A hit pays it times the multiple.</PopoverDescription>
+          <div className="pt-3 sm:pt-4">
+            <AmountWheel
+              format={(c) => amountLabel(c / 100)}
+              label="What a point costs"
+              max={POINT_CENTS.max}
+              min={POINT_CENTS.min}
+              onChange={(c) => onAmount(c / 100)}
+              step={POINT_CENTS.step}
+              value={Math.round(amount * 100)}
+            />
           </div>
         </PopoverPopup>
       </Popover>

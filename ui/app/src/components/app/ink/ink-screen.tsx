@@ -3,7 +3,8 @@
 import { CircleHelpIcon, HistoryIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOT_BETS, features, type Field, type Library, readLibrary, RULES, START_BALANCE, stepFor } from "@skech/core/dots";
-import { type Cell, cost, decided, judge, open, openOn, PEN_CELLS, placePoints, quoteOn, refund, type Stroke, won } from "@skech/core/ink";
+import { cost, decided, judge, open, openOn, PEN_CELLS, placePoints, refund, type Stroke, won } from "@skech/core/ink";
+import { terms } from "@skech/core/odds";
 import { MarketHeader } from "@/components/app/market-header";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
@@ -115,7 +116,7 @@ export function InkScreen() {
     return () => clearTimeout(t);
   }, [result]);
   const [fresh, setFresh] = useState(false);
-  const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, perDot: state.perDot, cell: PEN_CELLS[state.brush], bets: [], quote: null, fx: [], hint: !state.taught, dark: false });
+  const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, perDot: state.perDot, pen: state.brush, cell: PEN_CELLS[state.brush], bets: [], quote: null, fx: [], hint: !state.taught, dark: false });
 
   // For tests and debugging in development: the live game, from the console.
   useEffect(() => {
@@ -125,6 +126,7 @@ export function InkScreen() {
   useEffect(() => {
     const g = game.current;
     g.perDot = state.perDot;
+    g.pen = state.brush;
     g.cell = PEN_CELLS[state.brush];
     g.hint = !state.taught;
   }, [state.perDot, state.brush, state.taught]);
@@ -193,27 +195,14 @@ export function InkScreen() {
     tick();
     // Often, so a second's map is asked for soon after the second is over: the tick itself is a fraction of a millisecond.
     const timer = setInterval(tick, 100);
-    // What the stroke being drawn would cost and pay, read off the map: cheap enough for every move of the pen.
+    // What the stroke being drawn would cost and pay: the terms of the game, read off the map, cheap enough for every move of the pen.
     game.current.quote = (st: Stroke) => {
       const g = game.current;
       if (!g.field) return null;
       const t0 = performance.now();
-      const q = quoteOn(g.field, st, Date.now() + g.skew, g.step, g.cell);
-      slow("quote", t0, `cells ${q.cells.length} pts ${st.pts.length} rt ${Math.round(st.rt)} rp ${st.rp.toFixed(2)} step ${g.step}`);
-      let spend = 0;
-      let low = Number.POSITIVE_INFINITY;
-      let high = 0;
-      const inPlay: Cell[] = [];
-      const out: Cell[] = [];
-      q.cells.forEach((s, i) => {
-        const m = q.multiples[i];
-        if (m === null) return void out.push(s);
-        spend += g.perDot * s.area;
-        low = Math.min(low, m);
-        high = Math.max(high, m);
-        inPlay.push(s);
-      });
-      return { cost: cents(spend), low: Number.isFinite(low) ? low : 0, high, inPlay, out };
+      const l = terms(g.field, Date.now() + g.skew, g.step, g.pen, g.perDot).line(st);
+      slow("quote", t0, `points ${l.points.length} pts ${st.pts.length} step ${g.step}`);
+      return { cost: l.cost, low: l.low, high: l.high, inPlay: l.inPlay, out: l.out };
     };
     return () => {
       clearInterval(timer);
@@ -377,7 +366,10 @@ export function InkScreen() {
   );
 
 
-  if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") (window as unknown as { __place?: typeof onPlace }).__place = onPlace;
+  // For tests in development: place a line from the console, as the pen does.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __place?: typeof onPlace }).__place = onPlace;
+  }, [onPlace]);
 
   /* A soft tick as the ink grows, so drawing is heard as well as seen. */
   const painted = useRef(0);
@@ -501,7 +493,7 @@ export function InkScreen() {
                   <span>
                     a hit pays{" "}
                     <span className="figures tabular-nums">
-                      {preview.low === preview.high ? money(state.perDot * preview.high) : `${money(state.perDot * preview.low)}–${money(state.perDot * preview.high)}`}
+                      {preview.low === preview.high ? money(preview.high) : `${money(preview.low)}–${money(preview.high)}`}
                     </span>
                   </span>
                 </>

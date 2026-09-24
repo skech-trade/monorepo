@@ -13,7 +13,7 @@ Lighter trading code is untouched and unused by it.
 
 - **A line is points.** Every second your line passes through a row of
   prices is one point. Each point costs what you set under **Per point**
-  (10¢, 25¢, 50¢ or $1), so a longer line, or one that climbs through more
+  (5¢ to $5, on the trading screen's wheel), so a longer line, or one that climbs through more
   rows, costs more. Deposit sits in the app bar, left of sign-in.
 - **Points are placed as you draw them.** The moment the pen covers a new
   point it is bet and comes off the balance; lifting the pen places nothing
@@ -34,6 +34,52 @@ Lighter trading code is untouched and unused by it.
   The second after that is never part of it, so nobody can react faster than
   the bet. It reaches 30 seconds ahead. Ink that is too soon or too far out
   to measure stays faint and costs nothing.
+
+## One place for the odds
+
+`packages/core/src/odds.ts` is the one place the game's numbers come from.
+`terms(map, now, step, pen, perPoint)` answers everything for a drawing
+placed now:
+
+| | |
+| --- | --- |
+| a row | `step × PEN_CELLS[pen]` dollars tall: a wider pen, taller rows |
+| a point | each second a line passes through a row, once (`cellsOf`) |
+| cost | `perPoint × points in play` (`costOf`) |
+| chance | how often the price trades in that row in that second, measured on real paths (below) |
+| multiple | `rtp ÷ chance`, rounded down, 1.01× to 50×, else not offered |
+| a hit pays | `perPoint × multiple`, rounded down to the cent (`payoutOf`) |
+| the house | keeps `1 − rtp` of every point on average |
+
+The chart's labels (what a hit pays there, in dollars), the pen's
+"10× · $2.50", the ticket while drawing, the cost taken, and the payout on a
+hit all read from it; `judge` pays with the same `payoutOf`. So the pen
+changes the multiples, and what a point costs changes the dollars on the
+chart, never the multiple: if it did, a bigger bet would be a worse one.
+Tests hold the chart, the pen, the charge and the payout to the same figures.
+
+## A formula for the odds, and why it is not used
+
+The chance could be a formula instead of a measurement, and one was fitted
+(`packages/core/scripts/odds-formula.ts`, fitted by `fit-odds.ts`): the price as a random walk, touching
+a row within a second by the reflection principle, with a share of jumps,
+drift from momentum, and a chance the price has not moved off its tick yet,
+which fades over the seconds and faster in a busy market. Nine constants,
+fitted to 19,000 measured points; on average it was within a few percent in
+every band of multiples.
+
+On the week it never saw it lost on both ends:
+
+| | Got back per $1 |
+| --- | --- |
+| ordinary lines | 0.45–0.75 |
+| a bot that knows the measured odds and draws only where the formula is at least 10% generous | 1.00–1.21 |
+| a bot chasing jumps | 0.91–1.08 |
+
+Unfair to players, and beatable by anyone who notices where. Bitcoin a
+second at a time sits on its tick, jumps, and carries on after a jump, and a
+smooth formula gets each of those wrong somewhere a player can find. The
+measured chance has no such gap: it is what happened.
 
 ## How a chance is measured
 
