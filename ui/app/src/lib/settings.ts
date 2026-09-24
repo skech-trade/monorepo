@@ -10,49 +10,14 @@ import { useSyncExternalStore } from "react";
 
 /** Green and red, or blue and orange for readers who cannot separate the two. */
 export type Palette = "classic" | "colourblind";
-/** How Draw draws the market. */
-export type CandleStyle = "candles" | "bars" | "line";
-export type GridStyle = "lines" | "dots" | "off";
-
 export type Settings = {
   palette: Palette;
-  /**
-   * How Draw draws the market, or null for whatever suits the screen.
-   *
-   * Null rather than a value, because the right default is not the same on
-   * both: a phone shows the chart about a quarter as wide, and ninety candles
-   * in that space are slivers with no bodies worth reading. A line says the
-   * same thing legibly. Once somebody picks one it is kept, on either screen.
-   */
-  candles: CandleStyle | null;
-  grid: GridStyle;
-  /** What Draw paints around and along the line you drew. */
-  ribbon: boolean;
-  marks: boolean;
-  crosshair: boolean;
-  /** What you put in last, so a round starts where the last one left off. */
-  stake: number;
-  leverage: number;
   /** Blur every figure, for reading the screen in company. */
   blurred: boolean;
 };
 
 export const DEFAULTS: Settings = {
   palette: "classic",
-  candles: null,
-  grid: "lines",
-  ribbon: true,
-  marks: true,
-  crosshair: true,
-  stake: 100,
-  /*
-    Ten, not fifty. At fifty a 0.81% move takes the whole stake and Bitcoin
-    does that several times on an ordinary day; at ten it takes 8.9%. Fifty was
-    chosen against a simulated tape set to a calm average, where it almost
-    never bites. It will bite constantly against the real feed. Anyone who
-    wants it can still pick it.
-  */
-  leverage: 10,
   blurred: false,
 };
 
@@ -115,12 +80,4 @@ export function setSettings(patch: Partial<Settings>) {
 
 export function useSettings(): [Settings, typeof setSettings] {
   return [useSyncExternalStore(subscribe, snapshot, serverSnapshot), setSettings];
-}
-
-/**
- * The chart style to actually draw with: what was picked, else what suits the
- * screen. Phones get a line, everything else candles.
- */
-export function candleStyle(chosen: CandleStyle | null, phone: boolean): CandleStyle {
-  return chosen ?? (phone ? "line" : "candles");
 }

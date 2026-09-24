@@ -1,7 +1,7 @@
 "use client";
 
 import { POINT_PRICES } from "@skech/core/odds";
-import { AmountWheel } from "@/components/app/draw/draw-controls";
+import { AmountWheel } from "./amount-wheel";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverClose, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import type { Brush } from "@/lib/practice";

@@ -1,11 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { CheckIcon } from "lucide-react";
-import { Popover, PopoverClose, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
-import { usd } from "@/lib/market";
-import { cn } from "@/lib/utils";
+import { PopoverClose } from "@/components/ui/popover";
 import styles from "./amount-wheel.module.css";
 
 const STEP = 5;
@@ -201,80 +198,6 @@ export function AmountWheel({
         <CheckIcon />
       </PopoverClose>
       ) : null}
-    </div>
-  );
-}
-
-/* The label goes on a phone and the figure stays: "$100" beside a wheel of
-   dollars needs no word, and the row it is in has four other things in it. */
-function Setting({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <span className="hidden text-muted-foreground sm:inline">{label}</span>
-      <span className="figures">{value}</span>
-    </>
-  );
-}
-
-/** Size and leverage, each a button wearing its value, each opening a popover. */
-export function DrawControls({
-  stake,
-  leverage,
-  onStake,
-  onLeverage,
-  className,
-}: {
-  stake: number;
-  leverage: number;
-  onStake: (stake: number) => void;
-  onLeverage: (leverage: number) => void;
-  className?: string;
-}) {
-  return (
-    /* On a phone these two sit either side of the button rather than beside
-       each other, so the box around them steps out of the way. */
-    <div className={cn("flex items-center gap-1.5 max-sm:contents sm:gap-2", className)}>
-      <Popover>
-        {/* Square on a phone, the same as the two on the other side of the
-            button, so the footer reads as two, one, two rather than a row of
-            odd widths. The value still fits: the label beside it is already
-            dropped at this size. */}
-        {/* Right of the button, as the wireframe has it: what you put in on
-            one side, what it is multiplied by on the other. */}
-        <PopoverTrigger render={<Button className="max-sm:order-3 max-sm:h-13 max-sm:flex-1" variant="outline" />}>
-          <Setting label="Size" value={`$${usd(stake, 0)}`} />
-        </PopoverTrigger>
-        <PopoverPopup align="start" className="w-56 max-sm:w-44">
-          {/* One word on a phone. The wheel under it is a column of dollar
-              figures with one lit: there is nothing left to explain, and a
-              title and a sentence over it is a panel twice the height doing
-              the same job. */}
-          <PopoverTitle>
-            <span className="sm:hidden">Size</span>
-            <span className="max-sm:hidden">Pick your size</span>
-          </PopoverTitle>
-          <PopoverDescription className="max-sm:hidden">How much you put in.</PopoverDescription>
-          <div className="pt-3 sm:pt-4">
-            <AmountWheel onChange={onStake} value={stake} />
-          </div>
-        </PopoverPopup>
-      </Popover>
-      <Popover>
-        <PopoverTrigger render={<Button className="max-sm:order-1 max-sm:h-13 max-sm:flex-1" variant="outline" />}>
-          <Setting label="Boost" value={`${leverage}×`} />
-        </PopoverTrigger>
-        <PopoverPopup align="start" className="w-56 max-sm:w-44">
-          {/* Draw does not say leverage anywhere else, and the word is the
-              single biggest piece of jargon left on this screen. */}
-          <PopoverTitle>
-            <span className="sm:hidden">Boost</span>
-            <span className="max-sm:hidden">Set your boost</span>
-          </PopoverTitle>
-          <div className="pt-3 sm:pt-4">
-            <AmountWheel format={(n) => `${n}\u00d7`} label="Boost" max={50} min={1} onChange={onLeverage} step={1} value={leverage} />
-          </div>
-        </PopoverPopup>
-      </Popover>
     </div>
   );
 }

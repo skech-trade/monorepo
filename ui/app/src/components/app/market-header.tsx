@@ -27,7 +27,6 @@ import { cn } from "@/lib/utils";
 import { BitcoinMark } from "./bitcoin-mark";
 import { EthereumMark } from "./marks";
 import { Pill } from "./controls";
-import { NetworkBadge } from "./network-badge";
 
 /** The token's mark. Bitcoin's and Ether's own; a monogram for anything we have no art for. */
 export function TokenAvatar({ symbol, className }: { symbol: string; className?: string }) {
@@ -203,10 +202,6 @@ export function MarketHeader({ market, className, fixed = false }: { market: Mar
             <Pill className="shrink-0 max-sm:hidden" tone={up ? "up" : "down"}>
               <span className="figures">{market.price > 0 ? signedPct(market.changePct) : "—"}</span>
             </Pill>
-            {/* Which venue this price is from, said where it means something.
-                On a phone this pill is the whole of the app bar's middle, and
-                the badge beside it in the bar left no room to centre it. */}
-            <NetworkBadge className="sm:hidden" compact />
             <ChevronDownIcon className="size-3.5 shrink-0 self-center text-muted-foreground sm:hidden" />
           </span>
         </span>
