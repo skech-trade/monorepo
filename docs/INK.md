@@ -11,20 +11,21 @@ Lighter trading code is untouched and unused by it.
 
 ## The rules
 
-- **The ink is the bet, exactly as drawn.** Two settings, the two buttons
-  under the chart on a phone: the **pen** (fine, medium, wide) and what a
-  **point** of ink costs (10¢, 25¢, 50¢ or $1; a point is one price step of
-  ink for one second). Deposit sits in the app bar, left of sign-in.
-- **The pen changes the multiples; the amount does not.** Each pen's ink is
-  judged in cells as tall as the pen is wide (half a step, one step, a step
-  and a half), so wider ink catches the price more often and pays less for
-  it, and the map redraws its multiples for the pen in hand. The amount only
-  scales the dollars: a hit pays the ink's cost times its multiple.
-- **It costs its area.** Longer or thicker ink costs more.
-- **Only the ink the price touches pays.** Each second, the prices Bitcoin
-  trades across in that second are checked against your ink in that second;
-  the ink inside that range pays, the rest does not. A tall stroke crossed at
-  one point pays for that point.
+- **A line is points.** Every second your line passes through a row of
+  prices is one point. Each point costs what you set under **Per point**
+  (10¢, 25¢, 50¢ or $1), so a longer line, or one that climbs through more
+  rows, costs more. Deposit sits in the app bar, left of sign-in.
+- **Points are placed as you draw them.** The moment the pen covers a new
+  point it is bet and comes off the balance; lifting the pen places nothing
+  more. The ticket while drawing says how many points so far and what they
+  cost.
+- **A hit pays the point times its multiple.** A point the price trades in
+  during its second pays what you set times the multiple there: 25¢ at 10×
+  is $2.50. The pen shows both ("10× · $2.50"), and the hit shows the same
+  figure. A line's result says how many of its points were hit.
+- **The pen changes the multiples; the amount does not.** Rows are as tall
+  as the pen is wide (0.4, 0.7 or 1 price step), so a wider pen's points are
+  hit more often and pay less, and the map redraws for the pen in hand.
 - **What it pays depends on where it is.** Ink near the price is likely to
   be hit and pays a little (from 1.01×); ink far from it, in price or time,
   pays a lot (up to 50×). The map on screen shows it: a soft glow where the
@@ -36,8 +37,8 @@ Lighter trading code is untouched and unused by it.
 
 ## How a chance is measured
 
-Underneath, ink is measured on cells one second wide and as tall as the pen
-is wide: 0.4, 0.7 or 1 price step (a step is about 1.2 of the market's
+Underneath, a point is a cell one second wide and as tall as the pen is
+wide: 0.4, 0.7 or 1 price step (a step is about 1.2 of the market's
 typical one-second moves). Each
 cell's chance is the share of 16,000 real 30-second stretches of Binance
 BTCUSDT (1–16 September 2026) that passed through it, taken from moments
@@ -59,7 +60,10 @@ on a noisy p overpays on average.
 
 Checked with `packages/core/scripts/check-ink.ts` on 17–23 September, with
 the engine the page runs, each pen drawn as the page draws it, strokes of
-every kind and bots. What they got back per $1 of ink:
+every kind and bots. What they got back per $1 (these are the numbers for
+ink priced by area, just before points; with points every day and every
+stroke came out within a cent or two of them: no day over 0.89, no stroke
+over 0.86):
 
 | Stroke | Fine | Medium | Wide |
 | --- | --- | --- | --- |
@@ -114,3 +118,8 @@ cp packages/core/src/dots-lib.bin ui/app/public/dots-lib.bin   # a test checks t
 # the check, on days the library did not see
 bun packages/core/scripts/check-ink.ts packages/core/src/dots-lib.bin <csv folder> 2026-09-17 … 2026-09-23
 ```
+
+Before points, ink was priced by area: each sliver of ink a bet of its own,
+at a share of a unit. It was fair, but a hit paid for the sliver the price
+touched, and nothing on the screen said how big that was: the map read 10×
+and the hit paid 17¢.

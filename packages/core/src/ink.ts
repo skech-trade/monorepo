@@ -1,23 +1,26 @@
 /**
- * skech: draw ahead of the Bitcoin price. The ink the price runs through pays.
+ * skech: draw ahead of the Bitcoin price. Every point of your line the price
+ * touches pays.
  *
- * A drawing is a pen stroke: a path in time and price, and a pen with a
- * width. The ink is the bet, exactly as drawn, and only the ink the price
- * touches pays. To make that exact on data that comes a second at a time,
- * the ink is measured on a fine grid, one second wide and half a price step
- * tall, and each cell of it is a bet of its own:
+ * A drawing is a line in time and price. Each second it passes through a
+ * row of prices is one point: a bet of its own, costing the same as every
+ * other point (what you set, 25¢ say). A point pays that times its multiple
+ * if the price trades in its row during its second, so a 10x point at 25¢
+ * pays $2.50: the number under the pen is the number you get.
  *
- *   - it costs its area: the share of the cell the ink covers, in units of
- *     one price step for one second, times what a unit costs;
- *   - it is hit if that second's trades reach the cell's prices;
- *   - it pays its cost times `rtp / chance`, where the chance is measured on
+ *   - rows are as tall as the pen is wide, so a wider pen's points are
+ *     easier to hit and pay less;
+ *   - a point's multiple is `rtp / chance`, the chance measured on
  *     thousands of real stretches of Bitcoin from moments like this one, as
- *     in `dots.ts`.
+ *     in `dots.ts`;
+ *   - a longer line, or one that climbs or falls through more rows in a
+ *     second, has more points and costs more;
+ *   - a point too unlikely to measure, or too sure to pay anything, is not in
+ *     play and costs nothing.
  *
- * So thicker and longer ink costs more; ink near the price is likely and
- * pays a little; ink far from it, in price or in time, pays a lot; and a
- * stroke the price crosses pays for the part it crossed, not all of it.
- * Ink too unlikely to measure is not in play: it costs nothing.
+ * Before this, ink was priced by area: every sliver of ink its own bet at a
+ * share of a unit. It was fair, but nothing on the screen could be checked
+ * against it: the map said 10x and a hit paid 17 cents.
  */
 
 import { type Bar, chanceOf, type Features, features, type Field, type Library, LIB_SCALE, multipleFor, openFor, RULES, rtpAt, SWING_SCALE, weightsFor } from "./dots";
@@ -39,7 +42,7 @@ export const PEN_CELLS = { fine: 0.4, medium: 0.7, wide: 1 } as const;
 export type Pen = keyof typeof PEN_CELLS;
 
 export type CellStatus = "live" | "hit" | "miss";
-/** A cell of ink: its second, its prices from `lo` up to `hi`, and how much ink is in it, in step-seconds. */
+/** A point: its second, its row of prices from `lo` up to (not including) `hi`, and how many points it is: one. */
 export type Cell = { t: number; lo: number; hi: number; area: number };
 export type BetCell = Cell & {
   multiple: number;
@@ -54,12 +57,14 @@ export type InkBet = {
   id: string;
   placedAt: number;
   openAt: number;
-  /** What a unit of ink costs: one price step, for one second. */
+  /** What a point costs. */
   perUnit: number;
   step: number;
   /** How tall its cells are, as a share of `step`. Missing on drawings from before pens had their own: `CELL`. */
   cell?: number;
   stroke: Stroke;
+  /** The line it is part of: a line is placed as it is drawn, a few points at a time, each its own bet. */
+  group?: string;
   /** As drawn, before it opened. */
   drawn: Cell[];
   /** As priced: the ink in play when it opened, each cell with its multiple. */
@@ -104,39 +109,35 @@ export function crossSection(st: Stroke, t: number): [number, number][] {
   return union(spans);
 }
 
-/** Moments a second of ink is measured at. */
-const SAMPLES = 20;
-/** Less ink than this share of a cell is not a bet: a sliver at the edge of the pen. */
-const MIN_COVER = 0.04;
-
 /**
- * The cells of ink a stroke makes, for a drawing opening at `openAt`: from
- * the second after it to the horizon. A cell's area is how much of it the
- * ink covers, averaged across its second.
+ * The points a line makes, for a drawing opening at `openAt`: from the
+ * second after it to the horizon, every row the line passes through in each
+ * second, once. Walked finely enough, in time and in price, that no row it
+ * crosses is skipped. A point's `area` is one point.
  */
 export function cellsOf(st: Stroke, openAt: number, step: number, cell: number = CELL): Cell[] {
   const size = step * cell;
-  const ts = st.pts.map((q) => st.t0 + q.t);
-  const from = Math.min(...ts) - st.rt;
-  const to = Math.max(...ts) + st.rt;
-  const out: Cell[] = [];
-  for (let j = 1; j <= RULES.horizon; j++) {
-    const t = openAt + j * 1000;
-    if (t + 1000 <= from || t > to) continue;
-    const cover = new Map<number, number>();
-    for (let k = 0; k < SAMPLES; k++) {
-      for (const [a, b] of crossSection(st, t + ((k + 0.5) * 1000) / SAMPLES)) {
-        // A pen taller than 400 cells is not a stroke anyone drew: leave it out rather than count it.
-        if ((b - a) / size > 400) continue;
-        for (let r = Math.floor(a / size); r * size < b; r++) {
-          const overlap = Math.min(b, (r + 1) * size) - Math.max(a, r * size);
-          if (overlap > 0) cover.set(r, (cover.get(r) ?? 0) + overlap / size / SAMPLES);
-        }
-      }
+  const pts = st.pts.map((q) => ({ t: st.t0 + q.t, p: st.p0 + q.p }));
+  const seen = new Map<string, Cell>();
+  const visit = (t: number, p: number) => {
+    const sec = Math.floor(t / 1000) * 1000;
+    const j = (sec - openAt) / 1000;
+    if (j < 1 || j > RULES.horizon) return;
+    const r = Math.floor(p / size);
+    const key = `${sec}:${r}`;
+    if (!seen.has(key)) seen.set(key, { t: sec, lo: r * size, hi: (r + 1) * size, area: 1 });
+  };
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    if (!b) {
+      visit(a.t, a.p);
+      continue;
     }
-    for (const [r, c] of [...cover].sort((x, y) => x[0] - y[0])) if (c >= MIN_COVER) out.push({ t, lo: r * size, hi: (r + 1) * size, area: Math.min(1, c) * cell });
+    const n = Math.max(1, Math.ceil(Math.abs(b.t - a.t) / 50), Math.ceil(Math.abs(b.p - a.p) / (size / 2)));
+    for (let k = 0; k < n; k++) visit(a.t + ((b.t - a.t) * k) / n, a.p + ((b.p - a.p) * k) / n);
   }
-  return out;
+  return [...seen.values()].sort((x, y) => x.t - y.t || x.lo - y.lo);
 }
 
 /* ------------------------------------------------------------------ */
@@ -238,6 +239,14 @@ export function place(st: Stroke, perUnit: number, step: number, now: number, id
   const drawn = cellsOf(st, openAt, step, cell);
   if (!drawn.length) return null;
   return { id, placedAt: now, openAt, perUnit, step, cell, stroke: st, drawn, cells: [], status: "opening" };
+}
+
+/** Some points of a line, as a drawing of their own: placed now, not priced yet. */
+export function placePoints(points: Cell[], st: Stroke, group: string, perUnit: number, step: number, now: number, id: string, cell: number = CELL): InkBet | null {
+  const openAt = openFor(now);
+  const drawn = points.filter((c) => c.t >= openAt + 1000 && c.t <= openAt + RULES.horizon * 1000);
+  if (!drawn.length) return null;
+  return { id, group, placedAt: now, openAt, perUnit, step, cell, stroke: st, drawn, cells: [], status: "opening" };
 }
 
 /** Price a drawing on the second it opened, from the bars before it. */

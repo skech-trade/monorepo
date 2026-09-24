@@ -111,6 +111,8 @@ function blurAlpha(d: Uint8ClampedArray, w: number, h: number, rgb: readonly num
   }
 }
 
+const dollars = (n: number) => `$${(Math.floor(n * 100) / 100).toFixed(2)}`;
+
 export const fmtMultiple = (m: number) => `${m >= 10 ? Math.round(m) : m.toFixed(1)}×`;
 const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 
@@ -132,8 +134,12 @@ export function Stage({
   className,
 }: {
   game: React.RefObject<Game>;
-  /** A finished stroke. The screen answers with why not, or null when it is placed. */
-  onPlace: (stroke: Stroke) => string | null;
+  /**
+   * The stroke so far, while it is drawn and once more when the pen lifts
+   * (`done`): the screen places whatever points of it are new, then and
+   * there, and answers with why not, or null.
+   */
+  onPlace: (stroke: Stroke, drawing: string, done: boolean) => string | null;
   onPreview: (p: Preview | null) => void;
   className?: string;
 }) {
@@ -272,7 +278,7 @@ export function Stage({
     };
 
     /* The pen: the stroke so far, and what it would cost and pay. */
-    type Pen = { id: number; last: { x: number; y: number }; stroke: Stroke; quote: Preview | null; quotedAt: number; finger: boolean };
+    type Pen = { id: number; drawing: string; last: { x: number; y: number }; stroke: Stroke; quote: Preview | null; quotedAt: number; finger: boolean; why: string | null };
     let pen: Pen | null = null;
     let hover: { x: number; y: number } | null = null;
     let flash: { text: string; x: number; y: number; born: number } | null = null;
@@ -292,6 +298,10 @@ export function Stage({
       const began = t;
       p.quotedAt = t;
       p.quote = game.current!.quote?.(p.stroke) ?? null;
+      // Placed as it is drawn: every new point is bet, and paid for, the moment the pen covers it.
+      const why = place.current(p.stroke, p.drawing, false);
+      if (why && why !== p.why) flash = { text: why, x: p.last.x, y: p.last.y, born: performance.now() };
+      p.why = why;
       preview.current(p.quote);
       const ms = performance.now() - began;
       if (process.env.NODE_ENV !== "production" && ms > 50) console.warn(`[ink] slow requote: ${Math.round(ms)} ms`);
@@ -310,7 +320,7 @@ export function Stage({
       } catch {
         /* A pointer the browser no longer tracks: drawing still works while it stays over the canvas. */
       }
-      pen = { id: e.pointerId, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: (g.cell * g.step) / 2 }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
+      pen = { id: e.pointerId, drawing: crypto.randomUUID(), why: null, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: (g.cell * g.step) / 2 }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
       requote(pen, true);
     };
     const move = (e: PointerEvent) => {
@@ -331,8 +341,8 @@ export function Stage({
       const q = point(e);
       p.stroke.pts.push({ t: tAt(q.x) - p.stroke.t0, p: pAt(q.y) - p.stroke.p0 });
       preview.current(null);
-      const why = place.current(p.stroke);
-      if (why) flash = { text: why, x: q.x, y: q.y, born: performance.now() };
+      const why = place.current(p.stroke, p.drawing, true);
+      if (why && why !== p.why) flash = { text: why, x: q.x, y: q.y, born: performance.now() };
     };
     const cancel = () => {
       pen = null;
@@ -472,12 +482,15 @@ export function Stage({
       */
       const faint: Cell[] = [];
       const bands: [number, number][] = [];
+      // A line is placed as it is drawn, a few points at a time: each of those bets shares the line, and it is drawn once.
+      const drawnOnce = new Set<string>(pen ? [pen.drawing] : []);
       for (const bet of g.bets) {
         const st = bet.stroke;
         if (bet.status === "void") continue;
         if (x(st.t0 + Math.max(...st.pts.map((q) => q.t))) + radius() < nx - pxMs() * 2500) continue;
-        const breathe = bet.status === "opening" ? 0.65 + 0.3 * Math.sin(ms / 110) : 1;
-        ink(st, rgba(pal.ink, 0.96 * breathe));
+        const line = bet.group ?? bet.id;
+        if (!drawnOnce.has(line)) ink(st, solid);
+        drawnOnce.add(line);
         if (bet.status !== "opening") {
           const inPlay = new Set(bet.cells.map((q) => `${q.t}:${q.lo}`));
           for (const q of bet.drawn) if (!inPlay.has(`${q.t}:${q.lo}`)) faint.push(q);
@@ -660,7 +673,8 @@ export function Stage({
         c.lineWidth = 1;
         c.stroke();
         const m = g.field ? offered({ t: Math.floor(tAt(tip.x) / 1000) * 1000, row: rowOf(pAt(tip.y), g.field.step) }) : null;
-        const text = m !== null ? fmtMultiple(m) : tAt(tip.x) < first ? "Too soon" : "—";
+        // The multiple and what a hit there pays at the amount set: the same figure a hit shows.
+        const text = m !== null ? `${fmtMultiple(m)} · ${dollars(g.perDot * m)}` : tAt(tip.x) < first ? "Too soon" : "—";
         c.font = `700 12px ${MONO}`;
         const tw = c.measureText(text).width + 14;
         // Beside a mouse; well above a finger, which would cover it.

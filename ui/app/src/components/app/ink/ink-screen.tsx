@@ -3,7 +3,7 @@
 import { CircleHelpIcon, HistoryIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DOT_BETS, features, type Field, type Library, readLibrary, RULES, START_BALANCE, stepFor } from "@skech/core/dots";
-import { type Cell, cost, decided, hitShare, judge, open, openOn, PEN_CELLS, place, quoteOn, refund, type Stroke, won } from "@skech/core/ink";
+import { type Cell, cost, decided, judge, open, openOn, PEN_CELLS, placePoints, quoteOn, refund, type Stroke, won } from "@skech/core/ink";
 import { MarketHeader } from "@/components/app/market-header";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
@@ -20,8 +20,9 @@ import { InkControls } from "./ink-controls";
  * skech. Draw ahead of the Bitcoin price; wherever it runs through your ink
  * pays.
  *
- * Ink is priced by area: every bit of it costs the same, and pays what the
- * map of the odds says there. The rules are `@skech/core/dots`, the same
+ * A line is points: each second it passes through a row of prices, one
+ * point, costing what you set, placed as the pen covers it. A point the
+ * price touches pays that times the multiple the map shows there. The rules are `@skech/core/dots`, the same
  * code the server will run once there is money in it. This screen keeps the
  * practice money, prices the map, opens each drawing on its second, and
  * judges every second's trades as they arrive.
@@ -107,7 +108,7 @@ export function InkScreen() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [help, setHelp] = useState(false);
   const [live, setLive] = useState(0);
-  const [result, setResult] = useState<{ key: string; won: number; cost: number; share: number; voided: boolean } | null>(null);
+  const [result, setResult] = useState<{ key: string; won: number; cost: number; hits: number; points: number; voided: boolean } | null>(null);
   useEffect(() => {
     if (!result) return;
     const t = setTimeout(() => setResult(null), 2600);
@@ -225,6 +226,25 @@ export function InkScreen() {
     before a reload come back once there are prices to judge them on; dots
     older than those prices cannot be judged either way, and come back.
   */
+  /** Each line's points already placed, and the line being drawn now. */
+  const placed = useRef(new Map<string, Set<string>>());
+  const drawing = useRef<string | null>(null);
+  const lines = useRef(new Map<string, { at: number; open: number; won: number; cost: number; hits: number; points: number; best: number }>());
+  const tally = (line: string, at: number) => {
+    let t = lines.current.get(line);
+    if (!t) lines.current.set(line, (t = { at, open: 0, won: 0, cost: 0, hits: 0, points: 0, best: 0 }));
+    return t;
+  };
+  /** A line is over once the pen has lifted and every point of it is decided: say what it came to, once. */
+  const closeLine = (line: string) => {
+    const t = lines.current.get(line);
+    if (!t || t.open > 0) return;
+    lines.current.delete(line);
+    placed.current.delete(line);
+    if (!t.points) return setResult({ key: line, won: 0, cost: 0, hits: 0, points: 0, voided: true });
+    setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false });
+    record({ id: line, at: t.at, cost: cents(t.cost), won: cents(t.won), hits: t.hits, dots: t.points, best: t.best });
+  };
   const restored = useRef(false);
   const { bars, ticks, skew, version } = feed;
   useEffect(() => {
@@ -242,6 +262,7 @@ export function InkScreen() {
       for (const bet of practice().open) {
         if (bet.openAt >= firstBar) {
           g.bets.push(bet);
+          if (!decided(bet)) tally(bet.group ?? bet.id, bet.placedAt).open++;
           continue;
         }
         // Too old to judge: what is still riding on it comes back. Ink already hit was paid when it was.
@@ -286,54 +307,77 @@ export function InkScreen() {
           if (bet.status !== "live") break;
         }
       }
-      if (bet.status === "done" || bet.status === "void") {
-        if (g.bets[i].status !== bet.status) {
-          const got = won(bet);
-          const paidFor = cost(bet) - refund(bet);
-          if (bet.status === "done") {
-            const hitCells = bet.cells.filter((d) => d.status === "hit");
-            setResult({ key: bet.id, won: got, cost: paidFor, share: hitShare(bet), voided: false });
-            record({ id: bet.id, at: bet.placedAt, cost: paidFor, won: got, hits: hitCells.length, dots: bet.cells.length, best: Math.max(0, ...hitCells.map((d) => d.multiple)) });
-          } else setResult({ key: bet.id, won: 0, cost: 0, share: 0, voided: true });
+      if (decided(bet) && !decided(g.bets[i])) {
+        const line = bet.group ?? bet.id;
+        const t = tally(line, bet.placedAt);
+        t.open--;
+        if (bet.status === "done") {
+          const hitCells = bet.cells.filter((d) => d.status === "hit");
+          t.won += won(bet);
+          t.cost += cost(bet) - refund(bet);
+          t.hits += hitCells.length;
+          t.points += bet.cells.length;
+          t.best = Math.max(t.best, ...hitCells.map((d) => d.multiple));
         }
+        if (t.open <= 0 && drawing.current !== line) closeLine(line);
       }
       g.bets[i] = bet;
     }
     if (credit) setPractice((s) => ({ balance: cents(s.balance + credit) }));
     if (changed || credit) setPractice({ open: g.bets.filter((b) => !decided(b)) });
-    setLive(g.bets.filter((b) => !decided(b)).length);
+    setLive(new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size);
     // Keep finished drawings only as long as their dots are still fading.
     g.bets = g.bets.filter((b) => !decided(b) || b.cells.some((d) => d.t + 3000 > nowMs));
   }, [bars, ticks, skew, version, lib]);
 
+  /*
+    A line is bet as it is drawn: every point the pen covers is placed, and
+    paid for, the moment it is covered, a few at a time, each batch a
+    drawing of its own opening on its own second. What a line came to is
+    told once, when the last of them is decided.
+  */
   const onPlace = useCallback(
-    (stroke: Stroke): string | null => {
+    (stroke: Stroke, line: string, done: boolean): string | null => {
       const g = game.current;
+      drawing.current = done ? null : line;
+      const keys = placed.current.get(line) ?? new Set<string>();
+      const finish = (why: string | null) => {
+        if (done) closeLine(line);
+        return why;
+      };
       const latest = g.bars.at(-1);
-      if (!latest || !fresh || !g.field) return "Waiting for live prices";
-      if (g.bets.filter((b) => !decided(b)).length >= RULES.maxOpen) return `${RULES.maxOpen} drawings at a time`;
+      if (!latest || !fresh || !g.field) return finish("Waiting for live prices");
+      const open = new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id));
+      if (!open.has(line) && open.size >= RULES.maxOpen) return finish(`${RULES.maxOpen} drawings at a time`);
+      const q = g.quote?.(stroke);
+      if (!q) return finish(null);
+      const due = q.inPlay.filter((c) => !keys.has(`${c.t}:${c.lo}`));
+      if (!due.length) return finish(done && !keys.size ? "Draw where the chart glows" : null);
       const s = practice();
       const nowMs = Date.now() + g.skew;
-      const q = g.quote?.(stroke);
-      if (!q || !q.inPlay.length) return "Draw where the map is coloured";
-      const bet = place(stroke, s.perDot, g.step, nowMs, crypto.randomUUID(), g.cell);
-      if (!bet) return "Draw further ahead";
-      if (cost(bet) > s.balance + 1e-9) return "Not enough practice money";
+      const bet = placePoints(due, stroke, line, s.perDot, g.step, nowMs, crypto.randomUUID(), g.cell);
+      if (!bet) return finish(null);
+      if (cost(bet) > s.balance + 1e-9) return finish("Not enough practice money");
+      for (const c of bet.drawn) keys.add(`${c.t}:${c.lo}`);
+      const first = keys.size === bet.drawn.length;
+      placed.current.set(line, keys);
+      tally(line, bet.placedAt).open++;
       g.bets.push(bet);
       if (process.env.NODE_ENV !== "production") (window as unknown as { __lastBet?: unknown }).__lastBet = bet;
-      const mid = bet.drawn[Math.floor(bet.drawn.length / 2)];
-      g.fx.push({ kind: "placed", t: mid.t + 500, price: (mid.lo + mid.hi) / 2, born: performance.now() });
       setPractice((st) => ({ balance: cents(st.balance - cost(bet)), taught: true, open: g.bets.filter((b) => !decided(b)) }));
-      setLive(g.bets.filter((b) => !decided(b)).length);
-      if (s.sound) {
+      setLive(new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size);
+      if (first && s.sound) {
         sound.wake();
         sound.place();
       }
-      buzz(8);
-      return null;
+      buzz(first ? 8 : 3);
+      return finish(null);
     },
     [fresh],
   );
+
+
+  if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") (window as unknown as { __place?: typeof onPlace }).__place = onPlace;
 
   /* A soft tick as the ink grows, so drawing is heard as well as seen. */
   const painted = useRef(0);
@@ -445,15 +489,20 @@ export function InkScreen() {
             </div>
           ) : null}
 
-          {/* While drawing: what the ink costs, and what it pays. */}
+          {/* While drawing: the points placed so far and what they cost (already off the balance), and what one hit pays. */}
           {preview ? (
             <div className="-translate-x-1/2 pointer-events-none absolute top-16 left-1/2 z-10 flex items-center gap-2 whitespace-nowrap rounded-full bg-foreground px-4 py-2 font-medium text-background text-sm shadow-lg sm:top-3" role="status">
               {preview.inPlay.length ? (
                 <>
-                  <span className="figures tabular-nums">{money(preview.cost)}</span>
+                  <span className="figures tabular-nums">
+                    {preview.inPlay.length} {preview.inPlay.length === 1 ? "point" : "points"} · {money(preview.cost)}
+                  </span>
                   <span className="opacity-40">·</span>
                   <span>
-                    pays <span className="figures tabular-nums">{preview.low === preview.high ? fmtMultiple(preview.high) : `${fmtMultiple(preview.low)} to ${fmtMultiple(preview.high)}`}</span>
+                    a hit pays{" "}
+                    <span className="figures tabular-nums">
+                      {preview.low === preview.high ? money(state.perDot * preview.high) : `${money(state.perDot * preview.low)}–${money(state.perDot * preview.high)}`}
+                    </span>
                   </span>
                 </>
               ) : (
@@ -474,7 +523,7 @@ export function InkScreen() {
             >
               {!result.voided ? (
                 <>
-                  <span>{result.share > 0 ? `Hit ${Math.max(1, Math.round(100 * result.share))}% of it` : "Missed"}</span>
+                  <span className="figures">{result.hits > 0 ? `${result.hits} of ${result.points} points hit` : "Missed"}</span>
                   <span className="opacity-50">·</span>
                   <span className="figures font-semibold tabular-nums">{signed(cents(result.won - result.cost))}</span>
                 </>
@@ -563,9 +612,9 @@ export function InkScreen() {
             <SheetDescription>Practice money, on the real Bitcoin price.</SheetDescription>
           </SheetHeader>
           <SheetPanel className="flex flex-col gap-4 px-6 pb-8 text-sm leading-relaxed">
-            <p>Ahead of the price is a map of the odds. Draw on it. Your ink is your bet, and it is priced by area: every bit of ink costs the same, so a longer or thicker stroke costs more.</p>
-            <p>Wherever the price runs through your ink, that part pays what the map shows there. Near the price is likely and pays a little. Far from it, in price or in time, pays a lot: the multiples are written on the map.</p>
-            <p>Ink drawn too soon or outside the priced map stays faint and costs nothing. One point is one price step of ink for one second, and costs what you set under Per point.</p>
+            <p>Ahead of the price is a map of the odds. Draw on it. Every second your line passes through a row of prices is one point, and each point costs what you set under Per point. Points are placed, and paid for, as you draw them.</p>
+            <p>Near the price is likely and pays a little. Far from it, in price or in time, pays a lot: the multiples are written on the map.</p>
+            <p>A point the price touches pays what you set times its multiple: 25¢ at 10× is $2.50. The pen shows both as you draw. Ink too soon, or outside the map, stays faint and costs nothing.</p>
             <p>A drawing starts on the next second. The first second after that is never part of it, and it reaches {RULES.horizon} seconds ahead.</p>
             <p className="text-muted-foreground">
               Payouts are based on real Bitcoin paths from similar moments, starting from {Math.round(RULES.rtp * 100)}% of fair odds and adjusted for momentum. Only the part of your ink touched by the price pays. Your balance is practice money saved in this browser.

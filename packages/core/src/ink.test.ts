@@ -25,18 +25,35 @@ test("the ink at an instant is the pen's height there, as ranges", () => {
   expect(crossSection(st, 20_000)).toEqual([]);
 });
 
-test("a stroke is measured in cells of a second by half a step, each costing the ink in it", () => {
+test("a line is a point for every row it passes through, each second, once", () => {
   const openAt = 1_000_000;
-  // Level, from 99 to 101, from second 2 to second 6, on a step of 1: four half-step cells a second, full.
-  const st = line(openAt + 2000, 100, [[0, 0], [4000, 0]], 1, 1);
-  const cells = cellsOf(st, openAt, 1);
-  expect([...new Set(cells.map((s) => (s.t - openAt) / 1000))]).toEqual([2, 3, 4, 5]);
-  const second = cells.filter((s) => s.t === openAt + 3000);
-  expect(second.map((s) => [s.lo, s.hi])).toEqual([[99, 99.5], [99.5, 100], [100, 100.5], [100.5, 101]]);
-  for (const s of second) expect(s.area).toBeCloseTo(CELL, 2);
-  // Twice as thick is twice the ink.
-  const thick = cellsOf(line(openAt + 2000, 100, [[0, 0], [4000, 0]], 1, 2), openAt, 1).filter((s) => s.t === openAt + 3000);
-  expect(thick.reduce((a, s) => a + s.area, 0)).toBeCloseTo(4, 1);
+  // Level at 100.2 from second 2 to second 6, on rows half a dollar tall: one point a second, in the row from 100 to 100.5.
+  const level = cellsOf(line(openAt + 2000, 100.2, [[0, 0], [4000, 0]]), openAt, 1, 0.5);
+  expect(level.map((s) => [(s.t - openAt) / 1000, s.lo, s.hi, s.area])).toEqual([2, 3, 4, 5, 6].map((j) => [j, 100, 100.5, 1]));
+  // Straight up from 99.2 to 101.2 inside second 3: every row it crosses, from 99 to 101, is a point.
+  const up = cellsOf(line(openAt + 3100, 99.2, [[0, 0], [500, 2]]), openAt, 1, 0.5);
+  expect(up.map((s) => s.lo)).toEqual([99, 99.5, 100, 100.5, 101]);
+  expect(new Set(up.map((s) => s.t))).toEqual(new Set([openAt + 3000]));
+  // Back over the same row in the same second is the same point, not a second one.
+  expect(cellsOf(line(openAt + 3100, 100.2, [[0, 0], [300, 0.1], [600, 0]]), openAt, 1, 0.5)).toHaveLength(1);
+  // The second it opens in is never part of it.
+  expect(cellsOf(line(openAt + 200, 100.2, [[0, 0]]), openAt, 1, 0.5)).toHaveLength(0);
+});
+
+test("a point costs what a point costs, and a hit pays that times its multiple", () => {
+  const { bars, at } = history(84_000);
+  const f = features(bars, at)!;
+  const unit = f.sigma * f.price;
+  const step = stepFor(f.sigma, f.price);
+  // Half the paths reach two volatilities up by second 2 and stay there.
+  const l = lib(2000, [1, 2, 2, 2, 2, 2], 0.5, Math.log(f.sigma));
+  let bet = place(line(at + 2000, f.price + 2 * unit, [[0, 0], [3000, 0]]), 0.25, step, at - 400, "flat", 1)!;
+  expect(cost(bet)).toBeCloseTo(0.25 * bet.drawn.length, 9);
+  bet = open(bet, l, bars);
+  const first = bet.cells[0];
+  bet = judge(bet, { t: first.t, h: first.lo + 0.01, l: f.price, c: f.price }, true);
+  expect(bet.cells[0].status).toBe("hit");
+  expect(bet.cells[0].paid).toBe(Math.floor(0.25 * first.multiple * 100) / 100);
 });
 
 test("a cell's chance is the share of like paths whose second reaches it", () => {
