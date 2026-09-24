@@ -1,0 +1,78 @@
+import { type Bar, features, readLibrary, RULES, stepFor } from "../src/dots";
+import { type InkBet, judge, open, place, type Stroke } from "../src/ink";
+/*
+  Draw strokes on days the paths never saw, with the engine the page runs,
+  and report what every kind of stroke got back per dollar of ink. Fair
+  pricing pays about RULES.rtp (0.94) whoever draws.
+
+    bun packages/core/scripts/check-ink.ts <dots-lib.bin> <folder of BTCUSDT-1s CSVs> 2026-09-17 [more days]
+*/
+const [libPath, dataDir, ...days] = process.argv.slice(2);
+const lib = readLibrary(new Uint8Array(await Bun.file(libPath).arrayBuffer()));
+const STEP = Number(process.env.STEP ?? 60);
+let seed = 5;
+const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+type Acc = { n: number; staked: number; paid: number; hits: number; segs: number; implied: number; won: number };
+const tables: Record<string, Record<string, Acc>> = { stroke: {}, multiple: {}, day: {} };
+const acc = (t: string, k: string) => (tables[t][k] ??= { n: 0, staked: 0, paid: 0, hits: 0, segs: 0, implied: 0, won: 0 });
+const bucket = (m: number) => (m < 2 ? "a  1.1-2x" : m < 5 ? "b  2-5x" : m < 15 ? "c  5-15x" : m < 40 ? "d  15-40x" : "e  40-100x");
+
+for (const day of days) {
+  const bars: Bar[] = (await Bun.file(`${dataDir}/BTCUSDT-1s-${day}.csv`).text()).trim().split("\n").map((r) => {
+    const f = r.split(",");
+    return { t: Math.floor(Number(f[0]) / 1000), h: +f[2], l: +f[3], c: +f[4] };
+  });
+  for (let i = 320; i < bars.length - RULES.horizon - 3; i += STEP) {
+    const now = bars[i].t + 1000 + Math.floor(rand() * 1000);
+    const openAt = bars[i + 1].t + 1000;
+    const hist = bars.slice(i - 305, i + 2);
+    const f = features(hist, openAt);
+    if (!f) continue;
+    const step = stepFor(f.sigma, f.price);
+    const unit = f.sigma * f.price;
+    const up = Math.sign(f.momentum) || 1;
+    const pen = (k: number) => ({ rt: 250 + k * 500, rp: unit * (0.3 + k * 1.5) });
+    const stroke = (pts: { t: number; p: number }[], k: number): Stroke => ({ t0: openAt, p0: f.price, pts, ...pen(k) });
+    const wander = (start: number, z0: number, len: number) => {
+      const pts: { t: number; p: number }[] = [];
+      let z = z0;
+      let v = (rand() - 0.5) * 0.6;
+      for (let s = start; s <= start + len; s += 0.5) (v += (rand() - 0.5) * 0.3), (z += v * 0.3), pts.push({ t: s * 1000, p: z * unit * Math.sqrt(s) });
+      return pts;
+    };
+    const strokes: [string, Stroke][] = [
+      ["wander from near the price", stroke(wander(1.5, (rand() - 0.5), 5 + rand() * 25), rand())],
+      ["wander, far out", stroke(wander(5 + rand() * 10, (rand() < 0.5 ? -1 : 1) * (1.5 + rand() * 2), 3 + rand() * 12), rand())],
+      ["a flick, anywhere", stroke(wander(2 + rand() * 25, (rand() - 0.5) * 6, 1 + rand() * 2), rand())],
+      ["thick blob near the price", stroke([{ t: 3000, p: 0 }, { t: 6000, p: 0 }], 1)],
+      ["thin level line", stroke([{ t: 2000, p: 2 * unit * up }, { t: 30000, p: 2 * unit * up }], 0)],
+      ["bot, with the last 3s", stroke([{ t: 2000, p: up * 1.5 * unit }, { t: 8000, p: up * 3 * unit }], 0.3)],
+      ["bot, against the last 3s", stroke([{ t: 2000, p: -up * 1.5 * unit }, { t: 8000, p: -up * 3 * unit }], 0.3)],
+    ];
+    if (Math.abs(f.momentum) > 1.5) strokes.push(["bot, chase a jump", stroke([{ t: 2000, p: up * unit }, { t: 6000, p: up * 3 * unit }], 0.4)]);
+    for (const [who, st] of strokes) {
+      let bet: InkBet | null = place(st, 0.1, step, now, who);
+      if (!bet) continue;
+      bet = open(bet, lib, hist);
+      for (let j = i + 2; j < bars.length && bet.status === "live"; j++) bet = judge(bet, bars[j], true);
+      if (bet.status === "void") continue;
+      const staked = bet.cells.reduce((s, g) => s + bet!.perUnit * g.area, 0);
+      const paid = bet.cells.reduce((s, g) => s + (g.paid ?? 0), 0);
+      for (const [t, k] of [["stroke", who], ["day", day]] as const) {
+        const a = acc(t, k);
+        a.n++, (a.staked += staked), (a.paid += paid), (a.won += paid > staked ? 1 : 0);
+        for (const g of bet.cells) (a.segs++, (a.hits += g.status === "hit" ? 1 : 0), (a.implied += 1 / g.multiple));
+      }
+      for (const g of bet.cells) {
+        const a = acc("multiple", bucket(g.multiple));
+        a.segs++, (a.staked += bet.perUnit * g.area), (a.paid += g.paid ?? 0), (a.hits += g.status === "hit" ? 1 : 0), (a.implied += 1 / g.multiple);
+      }
+    }
+  }
+}
+for (const [title, t] of Object.entries(tables)) {
+  console.log(`\nBy ${title}`);
+  console.log("  " + "".padEnd(30) + "drawings".padStart(9) + "    cells" + "  pays back" + "    cell hit" + "  priced" + "  drawing won");
+  for (const [k, a] of Object.entries(t).sort())
+    console.log("  " + k.padEnd(30) + String(a.n || "").padStart(9) + String(a.segs).padStart(9) + (a.paid / a.staked).toFixed(3).padStart(11) + ((100 * a.hits) / a.segs).toFixed(1).padStart(11) + "%" + ((100 * a.implied) / a.segs).toFixed(1).padStart(7) + "%" + (a.n ? ((100 * a.won) / a.n).toFixed(0) + "%" : "").padStart(13));
+}

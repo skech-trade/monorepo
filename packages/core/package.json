@@ -6,7 +6,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./venue": "./src/venue.ts",
-    "./shape": "./src/shape.ts"
+    "./shape": "./src/shape.ts",
+    "./dots": "./src/dots.ts",
+    "./ink": "./src/ink.ts"
   },
   "scripts": {
     "test": "bun test"
