@@ -11,12 +11,16 @@ export const asNum = (v: unknown, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+/** Error text in one short line: tags and runs of space taken out, so an HTML error page reads as its title. */
+export const brief = (text: string, max = 120) => text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+
 export class Lighter {
   constructor(private readonly base: string) {}
 
   private async get<T>(path: string): Promise<T> {
     const res = await fetch(`${this.base}${path}`, { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) throw new Error(`lighter ${path}: ${res.status} ${(await res.text()).slice(0, 160)}`);
+    // An outage answers with an HTML page: its text, in one line, rather than the markup.
+    if (!res.ok) throw new Error(`lighter ${path}: ${res.status} ${brief(await res.text())}`);
     return (await res.json()) as T;
   }
 
