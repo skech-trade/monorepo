@@ -276,7 +276,7 @@ export function Stage({
         sooner, the way the odds are.
       */
       map.labels = [];
-      const every = Math.max(1, Math.ceil((phone() ? 50 : 52) / (pxMs() * 1000)));
+      const every = Math.max(1, Math.ceil((phone() ? 50 : 96) / (pxMs() * 1000)));
       let lo = Number.POSITIVE_INFINITY;
       let hi = Number.NEGATIVE_INFINITY;
       for (let jj = 1; jj <= fl.seconds; jj++) {
@@ -620,8 +620,8 @@ export function Stage({
         const x1 = x(fl.openAt + shift + (fl.seconds + 1) * 1000);
         c.drawImage(map.big, x0, y((fl.row0 + fl.rows) * fl.step), x1 - x0, y(fl.row0 * fl.step) - y((fl.row0 + fl.rows) * fl.step));
         c.restore();
-        // The ladder's numbers: quiet by the price, in the ink's blue as they grow, on a halo of the page so they read over ink and candles.
-        c.font = `600 11px ${MONO}`;
+        // The ladder's numbers: quiet by the price, in the ink's blue as they grow, on a halo of the page so they read over ink and the line.
+        c.font = `500 12px ${MONO}`;
         c.textAlign = "center";
         c.textBaseline = "middle";
         const rowPx = pitchY * (fl.step / g.step);
@@ -641,7 +641,7 @@ export function Stage({
           c.strokeStyle = rgba(pal.bg, 0.8);
           c.lineWidth = 3;
           c.strokeText(text, lx, ly);
-          c.fillStyle = `rgba(${quiet.map((v, n) => Math.round(v + (blue[n] - v) * k)).join(",")},${0.75 + 0.25 * k})`;
+          c.fillStyle = `rgba(${quiet.map((v, n) => Math.round(v + (blue[n] - v) * k * 0.8)).join(",")},${0.7 + 0.2 * k})`;
           c.fillText(text, lx, ly);
         }
       }
@@ -693,8 +693,8 @@ export function Stage({
           c.lineJoin = "round";
           c.lineCap = "round";
           // The fade under the line, down to the foot.
-          const fill = c.createLinearGradient(0, y(p) - 120, 0, h);
-          fill.addColorStop(0, rgba(pal.ink, pal.dark ? 0.16 : 0.1));
+          const fill = c.createLinearGradient(0, y(p) - 60, 0, Math.min(h, y(p) + 220));
+          fill.addColorStop(0, rgba(pal.ink, pal.dark ? 0.12 : 0.07));
           fill.addColorStop(1, rgba(pal.ink, 0));
           c.save();
           c.lineTo(nx, h);
