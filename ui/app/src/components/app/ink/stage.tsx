@@ -292,7 +292,8 @@ export function Stage({
           if (col) map.labels.push({ t: t + 500, row: fl.row0 + r, m });
         }
       }
-      map.extent = Number.isFinite(lo) ? hi - lo : 0;
+      // How far the ladder reaches from the price, the further way doubled: the zoom centres on the price, so both sides must fit.
+      map.extent = Number.isFinite(lo) ? 2 * Math.max(hi - fl.f.price, fl.f.price - lo) : 0;
     };
 
     /* The pen: the stroke so far, and what it would cost and pay. */
@@ -508,8 +509,9 @@ export function Stage({
           hiP = Math.max(hiP, g.bars[k].h);
           loP = Math.min(loP, g.bars[k].l);
         }
-        const lived = (2.4 * Math.max(hiP - centre, centre - loP)) / g.step;
-        const want = Math.max(8, Math.min(90, (h * 0.8) / Math.max(1, reach, lived)));
+        const lived = (2.1 * Math.max(hiP - centre, centre - loP)) / g.step;
+        // The ladder fills the chart top to bottom; the line's last minutes only widen it when they would run off.
+        const want = Math.max(8, Math.min(120, (h * 0.94) / Math.max(1, reach, lived)));
         pitchY += (want - pitchY) * 0.05;
         if (map.field !== fl || map.pal !== pal) paintMap(fl, pal);
       }
