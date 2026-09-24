@@ -1,80 +1,121 @@
 "use client";
 
-import { Segmented } from "@/components/app/controls";
-import { announceSoon } from "@/components/app/soon";
+import { DOT_BETS } from "@skech/core/dots";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverClose, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import type { Brush } from "@/lib/practice";
+import { cn } from "@/lib/utils";
 
 /**
- * The game's controls, in the places the trading screen keeps size and pace.
+ * The game's two settings, in the places the trading screen keeps size and
+ * pace, each a button wearing its value and opening a popover, as those are.
  *
- * One choice before you draw: the pen, as three dots. The dot is the pen's
- * size and what its ink costs together, so there is one thing to pick
- * rather than two: a small dot draws thin ink at 10¢ a unit, a large one
- * thick ink at 50¢. What any of it pays is the chart's to say, the same for
- * every pen.
- *
- * Drawing places itself when the pen lifts, straight from the balance, so
- * the only buttons are the ones that move money: deposit and withdraw.
+ * The pen is how wide the ink is, and so how easily the price catches it: a
+ * wider pen is caught more often and pays less for it, and the map redraws
+ * its multiples for the pen in hand. The amount is what one point of ink
+ * costs, so what a hit pays in dollars; the multiples stay as they are.
  */
 
-export const PENS: { id: Brush; name: string; perUnit: number; dot: number }[] = [
-  { id: "fine", name: "Small", perUnit: 0.1, dot: 6 },
-  { id: "medium", name: "Medium", perUnit: 0.25, dot: 10 },
-  { id: "wide", name: "Large", perUnit: 0.5, dot: 15 },
+export const PENS: { id: Brush; name: string; dot: number; says: string }[] = [
+  { id: "fine", name: "Fine", dot: 6, says: "Pays most" },
+  { id: "medium", name: "Medium", dot: 10, says: "In between" },
+  { id: "wide", name: "Wide", dot: 15, says: "Easiest to hit" },
 ];
 export const penFor = (id: Brush) => PENS.find((p) => p.id === id) ?? PENS[1];
-export const perUnitLabel = (n: number) => (n < 1 ? `${Math.round(n * 100)}¢` : `$${n}`);
+export const amountLabel = (n: number) => (n < 1 ? `${Math.round(n * 100)}¢` : `$${n}`);
 
-/** The pen, as three dots in the app's segmented control. The price shows beside each dot on a desk. */
-export function PenPicker({ pen, onPen, className }: { pen: Brush; onPen: (id: Brush) => void; className?: string }) {
+/* The label goes on a phone and the value stays, as on the trading screen's buttons. */
+function Setting({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className={className}>
-      <Segmented
-        grow
-        label="Pen"
-        onChange={onPen}
-        options={PENS.map((p) => ({
-          value: p.id,
-          label: (
-            <span className="flex items-center gap-1.5" title={`${p.name} pen, ${perUnitLabel(p.perUnit)} of ink a unit`}>
-              <span aria-hidden="true" className="block rounded-full bg-current" style={{ width: p.dot, height: p.dot }} />
-              <span className="sr-only">{p.name}</span>
-              <span className="figures max-sm:hidden">{perUnitLabel(p.perUnit)}</span>
-            </span>
-          ),
-        }))}
-        size="lg"
-        value={pen}
-      />
-    </div>
+    <>
+      <span className="hidden text-muted-foreground sm:inline">{label}</span>
+      {children}
+    </>
   );
 }
 
-const AMOUNTS = [100, 500, 1000];
+const Dot = ({ size }: { size: number }) => <span aria-hidden="true" className="block shrink-0 rounded-full bg-current" style={{ width: size, height: size }} />;
 
-/** Deposit and withdraw. Practice money for now: deposit tops it up, and withdraw says when it will be real. */
-export function MoneyButtons({ onDeposit, className }: { onDeposit: (amount: number) => void; className?: string }) {
+export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: Brush; amount: number; onPen: (id: Brush) => void; onAmount: (n: number) => void; className?: string }) {
+  const current = penFor(pen);
   return (
-    <div className={className}>
+    <div className={cn("flex items-center gap-1.5 sm:gap-2", className)}>
       <Popover>
-        <PopoverTrigger render={<Button className="max-sm:h-13 max-sm:flex-1 max-sm:text-base" />}>Deposit</PopoverTrigger>
-        <PopoverPopup align="end" className="w-60">
-          <PopoverTitle>Add practice money</PopoverTitle>
-          <PopoverDescription>It lands in your balance at once, and every drawing takes its ink from there.</PopoverDescription>
-          <div className="grid grid-cols-3 gap-1.5 pt-3">
-            {AMOUNTS.map((a) => (
-              <Button className="figures" key={a} onClick={() => onDeposit(a)} variant="outline">
-                ${a.toLocaleString("en-US")}
-              </Button>
+        <PopoverTrigger render={<Button aria-label={`Pen: ${current.name}`} className="max-sm:h-13 max-sm:flex-1 max-sm:text-base" variant="outline" />}>
+          <Setting label="Pen">
+            <span className="flex items-center gap-2">
+              <Dot size={current.dot} />
+              <span>{current.name}</span>
+            </span>
+          </Setting>
+        </PopoverTrigger>
+        <PopoverPopup align="start" className="w-60 max-sm:w-56">
+          <PopoverTitle>Pen</PopoverTitle>
+          <PopoverDescription>Wider ink catches the price more often and pays less. The chart shows what each pen pays.</PopoverDescription>
+          <div className="flex flex-col gap-1 pt-3">
+            {PENS.map((p) => (
+              <PopoverClose
+                aria-pressed={p.id === pen}
+                className={cn("flex h-11 items-center gap-3 rounded-lg px-3 text-left text-sm transition-colors hover:bg-accent", p.id === pen && "bg-accent font-medium")}
+                key={p.id}
+                onClick={() => onPen(p.id)}
+              >
+                <span className="flex w-4 justify-center">
+                  <Dot size={p.dot} />
+                </span>
+                <span className="flex-1">{p.name}</span>
+                <span className="text-muted-foreground text-xs">{p.says}</span>
+              </PopoverClose>
             ))}
           </div>
         </PopoverPopup>
       </Popover>
-      <Button className="max-sm:h-13 max-sm:flex-1 max-sm:text-base" onClick={() => announceSoon("Practice money stays in the game. Withdrawals open with real money.")} variant="outline">
-        Withdraw
-      </Button>
+      <Popover>
+        <PopoverTrigger render={<Button aria-label={`${amountLabel(amount)} a point`} className="max-sm:h-13 max-sm:flex-1 max-sm:text-base" variant="outline" />}>
+          <Setting label="Per point">
+            <span className="figures">{amountLabel(amount)}</span>
+            <span className="text-muted-foreground sm:hidden">a point</span>
+          </Setting>
+        </PopoverTrigger>
+        <PopoverPopup align="end" className="w-60 max-sm:w-56">
+          <PopoverTitle>Per point</PopoverTitle>
+          <PopoverDescription>What each point of ink costs. A hit pays this times its multiple.</PopoverDescription>
+          <div className="grid grid-cols-2 gap-1.5 pt-3">
+            {DOT_BETS.map((a) => (
+              <PopoverClose
+                aria-pressed={a === amount}
+                className={cn("figures h-11 rounded-lg border text-sm transition-colors hover:bg-accent", a === amount && "border-foreground bg-accent font-medium")}
+                key={a}
+                onClick={() => onAmount(a)}
+              >
+                {amountLabel(a)}
+              </PopoverClose>
+            ))}
+          </div>
+        </PopoverPopup>
+      </Popover>
     </div>
+  );
+}
+
+const DEPOSITS = [100, 500, 1000];
+
+/** Practice money in: it lands in the balance at once. Beside the way in, in the app bar. */
+export function DepositButton({ onDeposit }: { onDeposit: (amount: number) => void }) {
+  return (
+    <Popover>
+      <PopoverTrigger render={<Button variant="secondary" />}>Deposit</PopoverTrigger>
+      <PopoverPopup align="end" className="w-60">
+        <PopoverTitle>Add practice money</PopoverTitle>
+        <PopoverDescription>It lands in your balance at once, and every drawing takes its ink from there.</PopoverDescription>
+        <div className="grid grid-cols-3 gap-1.5 pt-3">
+          {DEPOSITS.map((a) => (
+            <PopoverClose className="figures h-10 rounded-lg border text-sm transition-colors hover:bg-accent" key={a} onClick={() => onDeposit(a)}>
+              ${a.toLocaleString("en-US")}
+            </PopoverClose>
+          ))}
+        </div>
+      </PopoverPopup>
+    </Popover>
   );
 }

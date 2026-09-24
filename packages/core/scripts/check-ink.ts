@@ -1,15 +1,21 @@
 import { type Bar, features, readLibrary, RULES, stepFor } from "../src/dots";
-import { type InkBet, judge, open, place, type Stroke } from "../src/ink";
+import { CELL, type InkBet, judge, open, PEN_CELLS, type Pen, place, type Stroke } from "../src/ink";
 /*
   Draw strokes on days the paths never saw, with the engine the page runs,
   and report what every kind of stroke got back per dollar of ink. Fair
   pricing pays about RULES.rtp (0.94) whoever draws.
 
     bun packages/core/scripts/check-ink.ts <dots-lib.bin> <folder of BTCUSDT-1s CSVs> 2026-09-17 [more days]
+
+  PEN=fine|medium|wide draws every stroke with that pen, as the page does:
+  as wide as its cells are tall. Without it, pens of every width on the
+  finest cells.
 */
 const [libPath, dataDir, ...days] = process.argv.slice(2);
 const lib = readLibrary(new Uint8Array(await Bun.file(libPath).arrayBuffer()));
 const STEP = Number(process.env.STEP ?? 60);
+const PEN = process.env.PEN as Pen | undefined;
+const cell = PEN ? PEN_CELLS[PEN] : CELL;
 let seed = 5;
 const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 type Acc = { n: number; staked: number; paid: number; hits: number; segs: number; implied: number; won: number };
@@ -31,7 +37,7 @@ for (const day of days) {
     const step = stepFor(f.sigma, f.price);
     const unit = f.sigma * f.price;
     const up = Math.sign(f.momentum) || 1;
-    const pen = (k: number) => ({ rt: 250 + k * 500, rp: unit * (0.3 + k * 1.5) });
+    const pen = (k: number) => (PEN ? { rt: 250 + cell * 300, rp: (cell * step) / 2 } : { rt: 250 + k * 500, rp: unit * (0.3 + k * 1.5) });
     const stroke = (pts: { t: number; p: number }[], k: number): Stroke => ({ t0: openAt, p0: f.price, pts, ...pen(k) });
     const wander = (start: number, z0: number, len: number) => {
       const pts: { t: number; p: number }[] = [];
@@ -51,7 +57,7 @@ for (const day of days) {
     ];
     if (Math.abs(f.momentum) > 1.5) strokes.push(["bot, chase a jump", stroke([{ t: 2000, p: up * unit }, { t: 6000, p: up * 3 * unit }], 0.4)]);
     for (const [who, st] of strokes) {
-      let bet: InkBet | null = place(st, 0.1, step, now, who);
+      let bet: InkBet | null = place(st, 0.1, step, now, who, cell);
       if (!bet) continue;
       bet = open(bet, lib, hist);
       for (let j = i + 2; j < bars.length && bet.status === "live"; j++) bet = judge(bet, bars[j], true);
