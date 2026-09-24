@@ -27,6 +27,7 @@ class FakeExec implements Exec {
   onPosition(fn: (p: Position) => void) { this.pf.add(fn); return () => this.pf.delete(fn); }
   onFill(fn: (f: VenueFill) => void) { this.ff.add(fn); return () => this.ff.delete(fn); }
   async fillsSince() { return this.fills; }
+  async heldNow() { return this.pos?.size ?? 0; }
   async submit(orders: OrderRequest[], leverage?: number): Promise<Sent> {
     const sentAt = Date.now();
     this.sent.push({ orders, leverage, at: sentAt });
@@ -214,7 +215,11 @@ test("a push without P&L is estimated from fill prices, then booked at the venue
   await until(() => r.orders[0]?.status === "filled");
   await book.close(r.id);
   expect(r.status).toBe("done");
-  // Fill prices are equal in the fake, so the estimate is 0; the venue booked -1.
+  // The round ends on the estimate rather than wait on the venue's history: fill prices are equal in the fake, so 0.
+  expect(r.pnlFrom).toBe("estimate");
+  expect(r.realised).toBe(0);
+  // Then the venue's own figure, -1, replaces it.
+  await until(() => r.pnlFrom === "venue", 4000);
   expect(r.realised).toBe(-1);
   expect(r.net).toBe(-1);
   expect(r.pnlFrom).toBe("venue");
@@ -319,4 +324,43 @@ test("a retry that throws fails the round instead of escaping as an unhandled re
   broken = true;
   expect(await until(() => r.outcome === "failed", 3000)).toBe(true);
   expect(r.problem).toContain("market details unavailable");
+});
+
+test("on testnet the stop is judged on chart prices, not the venue's spread", async () => {
+  // Every close the fake venue books loses $1, the way testnet's spread does whichever way a trade faced.
+  const x = new FakeExec();
+  let chart = 100;
+  const book = new Rounds(() => market, { feedUrl: null, settleMs: 50, flatMs: 300, chartPrice: () => chart });
+  const r = await book.open({ ...lsl, exits: { lose: 1.5, gain: null } }, x);
+  await until(() => r.status === "done", 3000);
+  // Two closes booked −$2 at the venue, past the $1.50 stop, but the chart never moved: it ran to time.
+  expect(r.outcome).toBe("time");
+  expect(r.trades).toHaveLength(3);
+  expect(book.chartNet(r)).toBe(0);
+
+  // A chart move against the open trade stops it, with no venue push needed to notice.
+  const y = new FakeExec();
+  chart = 100;
+  const s = await book.open({ ...up, seconds: 5, exits: { lose: 1, gain: null } }, y);
+  await until(() => s.orders[0].status === "filled");
+  chart = 99; // a long of 2 is down $2 on the chart
+  book.onChart("BTC");
+  await until(() => s.status === "done", 3000);
+  expect(s.outcome).toBe("stop");
+  expect(s.timing.closedAt! - s.startedAt).toBeLessThan(2000);
+});
+
+test("a finished round's net is what it booked, not that plus the last open mark", async () => {
+  const x = new FakeExec();
+  const book = rounds();
+  const r = await book.open(up, x);
+  await until(() => r.status === "done");
+  // A late push of the old mark, the way the venue's last position update can arrive after flat.
+  r.unrealised = -5.38;
+  expect(r.net).toBe(r.realised);
+  // A record saved with the stale figure reads right when it loads.
+  const saved = { ...structuredClone(r), id: "old", net: r.realised - 5.38, unrealised: -5.38 };
+  rounds().restore(saved);
+  expect(saved.net).toBe(saved.realised);
+  expect(saved.unrealised).toBe(0);
 });

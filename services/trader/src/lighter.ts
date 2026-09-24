@@ -71,11 +71,45 @@ export class Lighter {
     };
   }
 
-  /** The Lighter account a wallet owns, or null if it has never had one. */
-  async accountForAddress(l1: string): Promise<number | null> {
+  /** Every account a wallet owns: its master first, then its sub-accounts, by index. */
+  async accountsFor(l1: string): Promise<number[]> {
     const d = await this.get<{ sub_accounts?: { index: number }[] }>(`/api/v1/accountsByL1Address?l1_address=${l1}`).catch(() => null);
-    const first = d?.sub_accounts?.[0];
-    return first ? Number(first.index) : null;
+    return (d?.sub_accounts ?? []).map((a) => Number(a.index)).sort((a, b) => a - b);
+  }
+
+  /**
+   * What an account holds in USDC, as the venue counts it: `collateral` is the
+   * cash balance, and `equity` adds what open positions are worth. A flat
+   * account's two are the same number, which is when a boosted round settles.
+   */
+  async balance(index: number): Promise<{ collateral: number; equity: number; positions: number }> {
+    const d = await this.get<{ accounts: Record<string, unknown>[] }>(`/api/v1/account?by=index&value=${index}`);
+    const a = d.accounts?.[0];
+    if (!a || !Number.isFinite(Number(a.collateral))) throw Error("Account data unavailable");
+    const open = ((a.positions ?? []) as Record<string, unknown>[]).filter((p) => asNum(p.position) !== 0);
+    const equity = a.total_asset_value !== undefined ? asNum(a.total_asset_value) : asNum(a.collateral) + open.reduce((s, p) => s + asNum(p.unrealized_pnl), 0);
+    return { collateral: asNum(a.collateral), equity, positions: open.length };
+  }
+
+  /** What an account holds in one market, signed (short is negative), read from the venue rather than a push. */
+  async positionOf(index: number, marketId: number): Promise<number> {
+    const d = await this.get<{ accounts: Record<string, unknown>[] }>(`/api/v1/account?by=index&value=${index}`);
+    const a = d.accounts?.[0];
+    if (!a) throw Error("Account data unavailable");
+    const p = ((a.positions ?? []) as Record<string, unknown>[]).find((x) => Number(x.market_id) === marketId);
+    return p ? asNum(p.position) * (Number(p.sign) < 0 ? -1 : 1) : 0;
+  }
+
+  /** Whether this public key is registered at this index on this account. */
+  async hasKey(account: number, apiKeyIndex: number, publicKey: string): Promise<boolean> {
+    const listed = await this.get<{ api_keys?: { public_key?: string }[] }>(`/api/v1/apikeys?account_index=${account}&api_key_index=${apiKeyIndex}`).catch(() => null);
+    const want = publicKey.toLowerCase().replace(/^0x/, "");
+    return !!listed?.api_keys?.some((k) => k.public_key?.toLowerCase().replace(/^0x/, "") === want);
+  }
+
+  /** The Lighter account a wallet owns, or null if it has never had one. Its master, when it has several. */
+  async accountForAddress(l1: string): Promise<number | null> {
+    return (await this.accountsFor(l1))[0] ?? null;
   }
 
   async positionIn(index: number | bigint, marketId: number): Promise<PositionInfo | null> {
@@ -150,4 +184,4 @@ export class Lighter {
   empty body with "invalid initial margin fraction", meaning it parsed it as
   an update-leverage transaction, and every other number nearby does not.
 */
-export const TX = { changePubKey: 8, createOrder: 14, cancelOrder: 15, cancelAllOrders: 16, updateLeverage: 20 } as const;
+export const TX = { changePubKey: 8, createSubAccount: 9, transfer: 12, createOrder: 14, cancelOrder: 15, cancelAllOrders: 16, updateLeverage: 20 } as const;

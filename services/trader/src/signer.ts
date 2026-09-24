@@ -36,6 +36,12 @@ const lib = dlopen(LIB, {
     args: [FFIType.cstring, FFIType.u8, FFIType.i64, FFIType.i32, FFIType.i64, FFIType.ptr, FFIType.ptr, FFIType.ptr],
     returns: FFIType.ptr,
   },
+  shim_sign_transfer: {
+    args: [FFIType.i64, FFIType.i32, FFIType.i32, FFIType.i32, FFIType.i64, FFIType.i64, FFIType.cstring, FFIType.u8, FFIType.i64, FFIType.i32, FFIType.i64,
+           FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr],
+    returns: FFIType.ptr,
+  },
+  shim_sign_create_sub_account: { args: [FFIType.u8, FFIType.i64, FFIType.i32, FFIType.i64, FFIType.ptr, FFIType.ptr, FFIType.ptr], returns: FFIType.ptr },
   shim_auth_token: { args: [FFIType.i64, FFIType.i32, FFIType.i64, FFIType.ptr], returns: FFIType.ptr },
   shim_free: { args: [FFIType.ptr], returns: FFIType.void },
 });
@@ -68,6 +74,15 @@ export const EXPIRY = { ioc: 0n, resting: -1n } as const;
 export const MARGIN_MODE = { cross: 0, isolated: 1 } as const;
 
 export type Signed = { txInfo: string; txHash: string };
+/** A signed transaction that also says which type it is, in the signer's own words. */
+export type Typed = Signed & { txType: number };
+
+/** USDC, as Lighter numbers its assets. Amounts of it are in millionths. */
+export const USDC = { asset: 3, scale: 1_000_000 } as const;
+/** Which balance a transfer moves between: the perpetuals one, or spot. */
+export const ROUTE = { perp: 0, spot: 1 } as const;
+/** A transfer memo is 32 bytes. Ours carry a round or deposit id, hex, zero-padded. */
+export const memoOf = (text: string) => `0x${Buffer.from(text.slice(0, 32), "utf8").toString("hex").padEnd(64, "0")}`;
 
 /** A trading keypair. The public half is registered; the private half signs. */
 export type ApiKey = { privateKey: string; publicKey: string };
@@ -199,6 +214,43 @@ export class Signer {
     const hash = slot();
     const err = taken(lib.symbols.shim_sign_cancel_all(timeInForce, at, marketIndex, 0, nonce, this.apiKeyIndex, this.accountIndex, ptr(info), ptr(hash)));
     return this.done(err, info, hash);
+  }
+
+  /**
+   * A resting stop: reduce-only, fired by the venue when its mark crosses
+   * `triggerPrice`, then sent at the market no worse than `price`. The shape
+   * Lighter's own SDK uses for `create_sl_order`: IOC once triggered, but a
+   * resting expiry until it is, since an IOC expiry of zero cancels it at once.
+   */
+  stopLoss(o: { marketIndex: number; clientOrderIndex: bigint; baseAmount: bigint; triggerPrice: number; price: number; isAsk: boolean; nonce?: bigint }): Signed {
+    return this.createOrder({ ...o, type: ORDER.stopLoss, timeInForce: TIF.ioc, reduceOnly: true, expiry: EXPIRY.resting });
+  }
+
+  /**
+   * Move USDC to another account. `amount` is in micro-USDC. Between accounts
+   * of one master this is ready to send; to any other account its owner has to
+   * sign `messageToSign` and the signature goes into `L1Sig` (see `withL1Sig`).
+   */
+  transfer(o: { to: number; amount: bigint; fee?: bigint; memo: string; nonce?: bigint }): Typed & { messageToSign: string } {
+    const type = new Int32Array(1);
+    const info = slot();
+    const hash = slot();
+    const message = slot();
+    const err = taken(
+      lib.symbols.shim_sign_transfer(BigInt(o.to), USDC.asset, ROUTE.perp, ROUTE.perp, o.amount, o.fee ?? 0n, cstr(o.memo), 0, o.nonce ?? -1n, this.apiKeyIndex, this.accountIndex,
+        ptr(type), ptr(info), ptr(hash), ptr(message)),
+    );
+    const signed = this.done(err, info, hash);
+    return { ...signed, txType: type[0], messageToSign: value(message) ?? "" };
+  }
+
+  /** A new sub-account under this account, which has to be a master. */
+  createSubAccount(nonce = -1n): Typed {
+    const type = new Int32Array(1);
+    const info = slot();
+    const hash = slot();
+    const err = taken(lib.symbols.shim_sign_create_sub_account(0, nonce, this.apiKeyIndex, this.accountIndex, ptr(type), ptr(info), ptr(hash)));
+    return { ...this.done(err, info, hash), txType: type[0] };
   }
 
   /** A bearer token for the read endpoints that want one. */

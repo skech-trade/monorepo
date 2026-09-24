@@ -5,7 +5,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { type Market, usd } from "@/lib/market";
 import type { Exits, Quote, Shape } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
-import { DrawControls } from "./draw-controls";
+import { type BoostChoice, DrawControls } from "./draw-controls";
 import { ExitControls } from "./exit-controls";
 import type { Phase } from "./sketch-canvas";
 
@@ -34,6 +34,7 @@ export function PlaceTicket({
   unavailableReason,
   recovery,
   closing = false,
+  boost,
   className,
 }: {
   market: Market;
@@ -57,8 +58,11 @@ export function PlaceTicket({
   unavailableReason?: string;
   recovery?: { onClose: () => void; pending: boolean };
   closing?: boolean;
+  /** Wild, when the trader runs it. On, skech's money trades with the stake, and moving it is the trader's job. */
+  boost?: BoostChoice;
   className?: string;
 }) {
+  const boosted = boost?.on === true;
   /*
     Opens on hover only. Opening itself when a line finished stole the next click on the chart, so
     click-drawn lines lost their second point.
@@ -87,10 +91,11 @@ export function PlaceTicket({
           first because they are the ones you leave alone most rounds. */}
       {settings ? (
         <>
-          {ready ? <ExitControls exits={exits} onExits={onExits} stake={stake} /> : null}
+          {/* Wild ends itself at its own line, so your own exits are not offered with it. */}
+          {ready && !boosted ? <ExitControls exits={exits} onExits={onExits} stake={stake} /> : null}
           {/* To the right of the button on a phone, mirroring rounds and the
               tools drawer on its left. */}
-          <DrawControls className="max-sm:order-3" leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} />
+          <DrawControls boost={boost} className="max-sm:order-3" leverage={leverage} onLeverage={onLeverage} onStake={onStake} stake={stake} />
         </>
       ) : null}
 

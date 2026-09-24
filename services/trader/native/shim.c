@@ -102,6 +102,41 @@ char *shim_sign_cancel_all(int timeInForce, long long time, int marketIndex, uns
   return take(r.err);
 }
 
+/*
+ * The calls below hand back the transaction type as well, read off the
+ * signer's own answer. The numbers were guessed once, and `updateLeverage` was
+ * sent as 23 for a week of "unsupported tx type"; the signer knows its own.
+ */
+
+/*
+ * A transfer of `amount` (micro-USDC for asset 3) to another account. Between
+ * sub-accounts of one master the API key is enough; to anybody else the
+ * account's owner has to sign `messageToSign` with their Ethereum wallet and
+ * the signature goes into `L1Sig`.
+ */
+char *shim_sign_transfer(long long toAccountIndex, int assetIndex, int fromRoute, int toRoute, long long amount, long long usdcFee,
+                         char *memo, unsigned char skipNonce, long long nonce, int apiKeyIndex, long long accountIndex,
+                         int *txType, char **txInfo, char **txHash, char **messageToSign) {
+  SignedTxResponse r = SignTransfer(toAccountIndex, (int16_t)assetIndex, (uint8_t)fromRoute, (uint8_t)toRoute, amount, usdcFee, memo,
+                                    skipNonce, nonce, apiKeyIndex, accountIndex);
+  if (txType) *txType = r.txType;
+  if (txInfo) *txInfo = take(r.txInfo); else if (r.txInfo) Free(r.txInfo);
+  if (txHash) *txHash = take(r.txHash); else if (r.txHash) Free(r.txHash);
+  if (messageToSign) *messageToSign = take(r.messageToSign); else if (r.messageToSign) Free(r.messageToSign);
+  return take(r.err);
+}
+
+/* A new sub-account under this one, which must be the master. */
+char *shim_sign_create_sub_account(unsigned char skipNonce, long long nonce, int apiKeyIndex, long long accountIndex, int *txType,
+                                   char **txInfo, char **txHash) {
+  SignedTxResponse r = SignCreateSubAccount(skipNonce, nonce, apiKeyIndex, accountIndex);
+  if (txType) *txType = r.txType;
+  if (txInfo) *txInfo = take(r.txInfo); else if (r.txInfo) Free(r.txInfo);
+  if (txHash) *txHash = take(r.txHash); else if (r.txHash) Free(r.txHash);
+  if (r.messageToSign) Free(r.messageToSign);
+  return take(r.err);
+}
+
 /** An auth token, for the read endpoints that want one. */
 char *shim_auth_token(long long deadline, int apiKeyIndex, long long accountIndex, char **token) {
   StrOrErr r = CreateAuthToken(deadline, apiKeyIndex, accountIndex);

@@ -20,6 +20,12 @@ import { ACCOUNT, API_KEY_INDEX, BASE, CHAIN_ID, isSymbol, MARKET_IDS, NETWORK, 
 import { Signer } from "./signer";
 import { timing, timings } from "./timing";
 import { VenueSocket } from "./venue-socket";
+import { VENUE_MARKETS } from "@skech/core/venue";
+import { boostConfig } from "./boost/config";
+import { BoostDesk } from "./boost/desk";
+import { BoostStore } from "./boost/store";
+import { Treasury } from "./boost/treasury";
+import { isSignature } from "./l1";
 
 const PORT = Number(process.env.PORT ?? 3220);
 
@@ -165,7 +171,32 @@ try {
 } catch {
   console.error("trade history storage unavailable");
 }
-const rounds = new Rounds(marketInfo, { save: (round) => store.save(round) });
+/*
+  The chart the page draws on is mainnet's, whatever network trades. On
+  testnet the trader watches it too, so a round's stop and target fire on
+  the P&L the page shows rather than on testnet's spread. A price older than
+  ten seconds is no price: exits then wait rather than judge on a stale one.
+*/
+const chart = new Map<Symbol, { mid: number; at: number }>();
+const chartPrice = (market: string) => {
+  const c = isSymbol(market) ? chart.get(market) : undefined;
+  return c && Date.now() - c.at < 10_000 ? c.mid : null;
+};
+const rounds = new Rounds(marketInfo, { save: (round) => store.save(round), chartPrice: NETWORK === "testnet" ? chartPrice : undefined });
+if (NETWORK === "testnet") {
+  const reference = new VenueSocket("wss://mainnet.zklighter.elliot.ai/stream?readonly=true");
+  reference.start();
+  for (const symbol of SYMBOLS) {
+    reference.subscribe(`ticker/${VENUE_MARKETS.mainnet[symbol].id}`, (m) => {
+      const t = m.ticker as { a?: { price?: string }; b?: { price?: string } } | undefined;
+      const ask = asNum(t?.a?.price);
+      const bid = asNum(t?.b?.price);
+      if (!ask || !bid) return;
+      chart.set(symbol, { mid: (ask + bid) / 2, at: Date.now() });
+      rounds.onChart(symbol);
+    });
+  }
+}
 if (storeReady) for (const round of await store.all()) rounds.restore(round);
 const keys = new Keys(venue, CHAIN_ID, BASE);
 await keys.ready().catch((e) => console.error("keys table:", (e as Error).message.slice(0, 120)));
@@ -187,8 +218,50 @@ const execs = new Accounts(async (at) => {
   return exec;
 });
 const execFor = (address: string) => execs.get(address);
-/** The account a recorded round traded, if its owner's key can still be had. */
-const execForAccount = async (accountIndex: number) => execFor(await venue.addressForAccount(accountIndex));
+
+/*
+  Boost: skech's treasury behind a user's stake. Off unless the treasury is
+  configured (see boost/config.ts and scripts/boost-setup.ts), and then its
+  rounds trade the treasury's lanes rather than the user's own account.
+*/
+const boostSetup = boostConfig();
+let boost: BoostDesk | null = null;
+let boostProblem: string | null = boostSetup.ok ? null : `not configured: ${boostSetup.missing.join(", ")}`;
+/*
+  Starting Boost reads the treasury's accounts from the venue, so while the
+  venue is down it is tried again every half minute: nothing of it runs
+  until a start gets all the way through.
+*/
+const startBoost = async () => {
+  if (!boostSetup.ok) return;
+  try {
+    const treasury = new Treasury(boostSetup.config, venue, BASE, CHAIN_ID);
+    const desk = new BoostDesk({
+      config: boostSetup.config,
+      store: new BoostStore(NETWORK),
+      treasury,
+      venue,
+      socket,
+      rounds,
+      keys,
+      on: (exec, market) => on(exec, market),
+      quote: (market) => quotes.get(market) ?? null,
+    });
+    await desk.ready();
+    boost = desk;
+    boostProblem = null;
+    console.log(`boost: treasury ${boostSetup.config.master}, lanes ${boostSetup.config.lanes.join(", ")}`);
+  } catch (e) {
+    const said = brief((e as Error).message, 160);
+    if (said !== boostProblem) console.error("boost unavailable, trying again every 30 s:", said);
+    boostProblem = said;
+    setTimeout(() => void startBoost(), 30_000);
+  }
+};
+await startBoost();
+
+/** The account a recorded round traded, if its key can still be had: a Boost lane's is the treasury's, anybody else's their own. */
+const execForAccount = async (accountIndex: number) => (boost?.isLane(accountIndex) ? boost.laneExec(accountIndex) : execFor(await venue.addressForAccount(accountIndex)));
 
 /*
   Rounds that were running when this process stopped, picked back up with
@@ -270,6 +343,7 @@ Bun.serve({
           whether those keys survive a restart.
         */
         keys: keys.persistent ? "postgres" : "memory only, lost on restart",
+        boost: boost ? "ready" : boostProblem,
         socket: socket.connected ? "connected" : "reconnecting",
         markets: SYMBOLS.map((symbol) => {
           const m = markets.get(symbol);
@@ -381,6 +455,66 @@ Bun.serve({
       }
     }
 
+    // --- Boost ------------------------------------------------------------------
+
+    if (url.pathname.startsWith("/boost")) {
+      if (!boost) return json({ error: `Boost is unavailable: ${boostProblem}`, enabled: false }, 503);
+      const desk = boost;
+      const admin = () => desk.config.adminToken !== "" && req.headers.get("authorization") === `Bearer ${desk.config.adminToken}`;
+      try {
+        if (url.pathname === "/boost/status" && req.method === "GET") {
+          const at = addressOf(url.searchParams.get("address"));
+          if (!at) return json({ error: "address required" }, 400);
+          const market = marketOf(url.searchParams.get("market") ?? undefined);
+          if (!market) return json({ error: "unknown market" }, 400);
+          return json(await desk.status(at, market));
+        }
+        if (url.pathname === "/boost/rounds" && req.method === "POST") {
+          if (!storeReady) return json({ error: "Trade history storage unavailable. Try again once the database is connected." }, 503);
+          const body = await bodyOf<{ address: string; market: string; pts: Pt[]; stake: number; seconds: number }>(req);
+          const at = addressOf(body.address);
+          if (!at) return json({ error: "address required" }, 400);
+          const market = marketOf(body.market);
+          if (!market) return json({ error: "skech lists Bitcoin and Ethereum only" }, 400);
+          const pts = pointsOf(body.pts);
+          if (pts.length < 2) return json({ error: "a line needs at least two points" }, 400);
+          return json(await desk.open(at, { market, pts, stake: Number(body.stake), seconds: secondsOf(body.seconds) }));
+        }
+        if (url.pathname === "/boost/deposit/prepare" && req.method === "POST") {
+          const body = await bodyOf<{ address: string; amount: number }>(req);
+          const at = addressOf(body.address);
+          if (!at) return json({ error: "address required" }, 400);
+          return json(await desk.prepareDeposit(at, Number(body.amount)));
+        }
+        if (url.pathname === "/boost/deposit/confirm" && req.method === "POST") {
+          const body = await bodyOf<{ address: string; id: string; signature: string }>(req);
+          const at = addressOf(body.address);
+          if (!at) return json({ error: "address required" }, 400);
+          if (!isSignature(body.signature) || typeof body.id !== "string") return json({ error: "a wallet signature is required" }, 400);
+          return json(await desk.confirmDeposit(at, body.id, body.signature));
+        }
+        if (url.pathname === "/boost/withdraw" && req.method === "POST") {
+          const body = await bodyOf<{ address: string; amount?: number; all?: boolean }>(req);
+          const at = addressOf(body.address);
+          if (!at) return json({ error: "address required" }, 400);
+          return json(await desk.withdraw(at, body.all === true ? "all" : Number(body.amount)));
+        }
+        if (url.pathname === "/boost/admin" && req.method === "GET") {
+          if (!admin()) return json({ error: "not allowed" }, 403);
+          return json(await desk.reconcile());
+        }
+        if (url.pathname === "/boost/admin/kill" && req.method === "POST") {
+          if (!admin()) return json({ error: "not allowed" }, 403);
+          const body = await bodyOf<{ killed: boolean; reason: string }>(req);
+          await desk.pause(body.killed !== false, typeof body.reason === "string" ? body.reason.slice(0, 200) : null);
+          return json(await desk.reconcile());
+        }
+      } catch (e) {
+        return json({ error: (e as Error).message.slice(0, 200), needsKey: (e as { needsKey?: boolean }).needsKey }, 400);
+      }
+      return json({ error: "not found" }, 404);
+    }
+
     /** Percentiles for every measured stage. See `timing.ts`. */
     if (url.pathname === "/metrics/timings") return json(timings());
 
@@ -486,7 +620,7 @@ Bun.serve({
       const records = new Map((storeReady ? await store.all() : []).map((r) => [r.id, r]));
       for (const r of rounds.all()) records.set(r.id, r);
       const list = [...records.values()]
-        .filter((r) => account === null || r.accountIndex === account)
+        .filter((r) => account === null || r.accountIndex === account || r.boost?.accountIndex === account)
         .sort((a, b) => b.startedAt - a.startedAt)
         .slice(0, limit);
       const body = JSON.stringify({ rounds: list });

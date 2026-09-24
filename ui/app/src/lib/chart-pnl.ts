@@ -11,6 +11,11 @@ import type { VenueOrder, VenueTrade } from "./round";
  * its real size and its real fill times, at the chart's price instead, which
  * is the number that says whether the line was right. It is labelled as the
  * chart's everywhere it appears; the venue's figure is shown beside it.
+ *
+ * Each order's price is the one the trader stamped when the venue took it,
+ * the chart's live mid at that moment, which is also what the round's stop
+ * is judged on. Reading it off the candles instead put the page and the
+ * stop up to a dollar apart. Rounds from before the stamp fall back to them.
  */
 
 export type ChartTrade = { id: string; dir: 1 | -1; from: number; to: number | null; entry: number; exit: number; pnl: number };
@@ -48,10 +53,11 @@ export function chartPnl(trades: VenueTrade[], orders: VenueOrder[], candles: Ca
     const close = orders.find((o) => o.tradeId === t.id && o.kind === "close" && o.status !== "rejected");
     const from = whenOf(open);
     if (from === null) continue;
-    const entry = chartPriceAt(candles, from);
+    // The trader's own stamp when it has one, so the page, the result and the stop agree on the price.
+    const entry = open?.chartAt ?? chartPriceAt(candles, from);
     if (entry === null) continue;
     const to = whenOf(close);
-    const exit = to !== null ? chartPriceAt(candles, to) : livePrice;
+    const exit = to !== null ? (close?.chartAt ?? chartPriceAt(candles, to)) : livePrice;
     if (exit === null) continue;
     const size = open?.filled || t.size;
     out.push({ id: t.id, dir: t.dir, from, to, entry, exit, pnl: t.dir * (exit - entry) * size });

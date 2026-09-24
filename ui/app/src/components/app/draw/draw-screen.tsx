@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { type Band, type Phase, type SegmentMark, SketchCanvas, type TradeMark } from "./sketch-canvas";
 import { SketchBar } from "./sketch-tray";
 import { RoundsSheet, type Sketch } from "./sketches";
+import { type BoostTag, boostedSize, fundWild, openBoostRound, refreshBoost, returnWild, useBoost, userShare } from "@/lib/boost";
 
 /** Draw against real venue candles and show only confirmed venue P&L. */
 
@@ -43,6 +44,14 @@ export const RUN_MAX = 600;
  */
 const rescale = (pts: Pt[], k: number): Pt[] => pts.map((p) => ({ ...p, t: Math.min(1, p.t * k) }));
 
+/**
+ * A boosted round is worth to the user what came back less what went in once
+ * it is booked, and their share of it until then: 70% of a gain, all of a
+ * loss, never past the stake. The position's own figure is skech's and theirs
+ * together.
+ */
+const boostNet = (tag: BoostTag, net: number) => (tag.settlement ? tag.settlement.back - tag.stake : userShare(net, tag));
+
 /** A round the trader holds, as the cards and the sheet show it. */
 function sketchFromVenue(r: VenueRound, previous: Sketch | undefined, chartBased: boolean): Sketch {
   const pts = r.pts ?? [];
@@ -59,12 +68,13 @@ function sketchFromVenue(r: VenueRound, previous: Sketch | undefined, chartBased
     venueId: r.id,
     pts,
     entry: r.entry,
-    stake: r.stake,
+    stake: r.boost ? r.boost.stake : r.stake,
     leverage: r.leverage,
+    boost: r.boost ? { stake: r.boost.stake, boost: r.boost.boost, back: r.boost.settlement?.back } : undefined,
     placedAt: r.startedAt,
     long: shapeOf(pts, r.chartEntry ?? r.entry)?.long ?? true,
     status: r.status === "done" ? "settled" : "running",
-    net,
+    net: r.boost ? boostNet(r.boost, net) : net,
     pnlReady: r.pnlReady,
     exit: r.exit,
     run: previous?.run ?? r.bars,
@@ -89,8 +99,7 @@ function easeBand(from: Band, to: Band): Band {
 export function DrawScreen({ market, stream }: { market: Market; stream: ReturnType<typeof useFeed> }) {
   /* What you put in last. A round that resets to the default every time makes
      you set the same two figures before every line you draw. */
-  const [{ stake, leverage }, setSettings] = useSettings();
-  const setStake = (next: number) => setSettings({ stake: next });
+  const [{ stake: ownStake, leverage, boosted: boostWanted, boostStake }, setSettings] = useSettings();
   const setLeverage = (next: number) => setSettings({ leverage: next });
   /** Where to get out, in dollars. Both optional; empty means neither. */
   const [exits, setExits] = useState<Exits>({ lose: null, gain: null });
@@ -126,12 +135,24 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
   const venue = useVenueRound(venueId);
   /* Whose account the orders land on, against whose balance is on the screen. */
   const me = useAccount();
+  /*
+    Wild: skech's money beside yours for one round, as one trade. Its rules
+    come from the trader; with Wild on, the stake is the Wild stake and the
+    round is sized, quoted and opened as a boosted one. The money it needs on
+    skech's side moves by itself, so there is no balance here to manage.
+  */
+  const boostState = useBoost(me.address, market.symbol);
+  const boostStatus = boostState.status;
+  const rules = boostStatus?.rules ?? null;
+  const boostOn = boostWanted && rules !== null && rules.markets.includes(market.symbol) && (boostStatus?.enabled === true || boostStatus?.open != null);
+  const stake = boostOn && rules ? Math.min(rules.stakeMax, Math.max(rules.stakeMin, boostStake)) : ownStake;
+  const setStake = (next: number) => setSettings(boostOn ? { boostStake: next } : { stake: next });
   const profile = useProfile(me.address);
   const social = usePlayer(me.address, me.signMessage);
   const mine = profile.balance?.accountIndex ?? null;
   /* A round that landed on any account but the reader's own would be a bug,
      not a mode. This is the check that says so if it ever happens again. */
-  const notMine = venue !== null && mine !== null && venue.accountIndex !== mine;
+  const notMine = venue !== null && mine !== null && venue.accountIndex !== mine && !venue.boost;
   const [lastSketch, setLastSketch] = useState<Sketch | null>(null);
   /** The point under the finger, while one is. */
   const dragIndex = useRef<number | null>(null);
@@ -173,7 +194,12 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
     return pts.map((p) => ({ ...p, price: p.price + shift }));
   }, [riding, pts, price]);
   const shape = useMemo(() => shapeOf(view, entryView), [view, entryView]);
-  const quote = useMemo(() => (shape ? quoteFor(shape, entryView, stake, leverage, exits) : null), [shape, entryView, stake, leverage, exits]);
+  const quote = useMemo(() => {
+    if (!shape) return null;
+    // Boosted, the round trades the stake and skech's boost together, at the Boost leverage, and closes itself.
+    if (boostOn && rules) return quoteFor(shape, entryView, boostedSize(stake, rules) / rules.leverage, rules.leverage, { lose: null, gain: null });
+    return quoteFor(shape, entryView, stake, leverage, exits);
+  }, [shape, entryView, stake, leverage, exits, boostOn, rules]);
   /*
     Whose P&L the screen shows. On mainnet the venue's, always. On testnet
     the venue's book is a quote that does not move, so its P&L is the spread
@@ -215,7 +241,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
     const settled = (s: Sketch): Sketch => ({
       ...s,
       status: "settled",
-      net: booked,
+      net: result.boost ? boostNet(result.boost, booked) : booked,
       pnlReady: result.pnlReady,
       exit: result.exit,
       venueId: result.id,
@@ -699,7 +725,26 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
       const end = view.at(-1)?.t ?? 1;
       const moved = end > 0 ? view.map((p) => ({ ...p, t: Math.min(1, p.t / end) })) : view;
       const seconds = bars * CANDLE_SECONDS;
-      const result = await trade(me.address, { market: market.symbol, pts: moved, stake, leverage, seconds, exits });
+      let result: VenueRound;
+      if (boostOn) {
+        // The stake has to be on skech's side. Usually it went while the line was drawn; if not, it goes now. Signed with the trading key.
+        const address = me.address;
+        await wildFunding.current;
+        const fund = () => fundWild(address, stake, wildHeld.current, me.signMessage).then((b) => void (wildHeld.current = b));
+        await fund().catch(async (e: Error & { needsKey?: boolean }) => {
+          if (!e.needsKey) throw e;
+          await registerTradingKey(address, "Signature cancelled. No trade was placed.");
+          keyReady.current = address;
+          setNeedsKey(null);
+          await fund();
+        });
+        const opened = await openBoostRound({ address, market: market.symbol, pts: moved, stake, seconds });
+        if ("error" in opened) throw Error(opened.error);
+        result = opened;
+        refreshBoost();
+      } else {
+        result = await trade(me.address, { market: market.symbol, pts: moved, stake, leverage, seconds, exits });
+      }
 
       const took = Math.round(performance.now() - clicked);
       const t = result.timing;
@@ -713,7 +758,8 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
         author: social.player?.username ?? profile.name ?? undefined,
         long: shape.long,
         stake,
-        leverage,
+        leverage: result.leverage,
+        boost: result.boost ? { stake: result.boost.stake, boost: result.boost.boost } : undefined,
         entry: result.entry,
         pts: moved,
         placedAt: result.startedAt,
@@ -759,6 +805,30 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
     }, 250);
     return () => clearTimeout(timer);
   }, [preparing, address, leverage, symbol]);
+
+  /*
+    Wild: move the stake onto skech's side while the line is drawn, so the
+    press is one order and nothing else. The embedded wallet signs without a
+    prompt. A wallet with no trading key yet waits for the press, which sets
+    one up first.
+  */
+  const wildFunding = useRef<Promise<void> | null>(null);
+  const wildHeld = useRef(0);
+  const heldNow = boostStatus?.balance ?? 0;
+  useEffect(() => {
+    wildHeld.current = heldNow;
+  }, [heldNow]);
+  const signMessage = me.signMessage;
+  useEffect(() => {
+    if (!preparing || !address || !boostOn || heldNow >= stake || wildFunding.current) return;
+    wildFunding.current = fundWild(address, stake, heldNow, signMessage)
+      .then((b) => void (wildHeld.current = b))
+      // The press tries again, and says why if it still cannot.
+      .catch(() => undefined)
+      .finally(() => {
+        wildFunding.current = null;
+      });
+  }, [preparing, address, boostOn, heldNow, stake, signMessage]);
 
   useEffect(() => {
     const active = history.find((r) => r.status !== "done");
@@ -818,7 +888,11 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
       byId.set(venue.id, {
         ...current,
         status: venue.status === "done" ? "settled" : "running",
-        net: chartBased ? (current.status === "settled" ? current.net : (net ?? 0)) : venue.pnlReady ? (venue.net ?? venue.realised) : 0,
+        net: (() => {
+          const raw = chartBased ? (current.status === "settled" ? null : (net ?? 0)) : venue.pnlReady ? (venue.net ?? venue.realised) : 0;
+          if (raw === null) return current.net;
+          return venue.boost ? boostNet(venue.boost, raw) : raw;
+        })(),
         pnlReady: venue.pnlReady,
         exit: venue.exit,
       });
@@ -859,12 +933,19 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
     });
   }, [venue, editableFrom, phase, shape, view]);
   /* Each trade's stretch of the ribbon, coloured by what it made. */
+  /*
+    Wild: each trade's figure on the chart is the position's, skech's money
+    and yours together. Scaled by your share of the round, so the pills add up
+    to what you are paid: 70% of a win; a loss whole, never past the stake,
+    with the 1% once it is booked.
+  */
+  const wildShare = !venue?.boost || net === null ? 1 : net === 0 ? 1 - venue.boost.cut : boostNet(venue.boost, net) / net;
   const tradeBands = useMemo(() => {
     if (!chart || !venue?.seconds) return [];
     const span = venue.seconds * 1000;
     const now = run.length / runBars;
-    return chart.trades.map((t) => ({ id: t.id, dir: t.dir, from: (t.from - venue.startedAt) / span, to: t.to === null ? now : (t.to - venue.startedAt) / span, pnl: t.pnl }));
-  }, [chart, venue, run.length, runBars]);
+    return chart.trades.map((t) => ({ id: t.id, dir: t.dir, from: (t.from - venue.startedAt) / span, to: t.to === null ? now : (t.to - venue.startedAt) / span, pnl: t.pnl * wildShare }));
+  }, [chart, venue, run.length, runBars, wildShare]);
   const onSkip = (id: string, skipped: boolean) => {
     if (!venueId) return;
     void skipSegment(venueId, id, skipped).then((r) => setVenueProblem("error" in r ? r.error : null));
@@ -977,19 +1058,23 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
           ? "Waiting for live prices…"
           : (profile.balance?.positions ?? 0) > 0 || history.some((r) => r.status !== "done" && r.id !== venueId)
             ? "Finish your open trade"
-            : undefined;
+            : boostOn && boostStatus?.open
+              ? "Your Wild round is settling…"
+              : undefined;
 
   /* The running round's figures for the bar: the chart's valuation on testnet, the venue's otherwise. */
   const venueOpen = venue?.trades?.find((t) => t.status === "open");
+  // Wild: the position is skech's money and yours together; the screen shows only your share of it, as it moves.
+  const yours = (n: number) => (venue?.boost ? boostNet(venue.boost, n) : n);
   const liveFigures = venue
     ? {
-        net,
+        net: net === null ? null : yours(net),
         open: chartBased
           ? openChart
-            ? { dir: openChart.dir, pnl: openChart.pnl }
+            ? { dir: openChart.dir, pnl: yours(openChart.pnl) }
             : null
           : venueOpen
-            ? { dir: venueOpen.dir, pnl: venue.unrealised }
+            ? { dir: venueOpen.dir, pnl: yours(venue.unrealised) }
             : null,
         trades: chart?.trades.length ?? venue.trades?.filter((t) => t.status !== "failed").length ?? 0,
       }
@@ -1005,6 +1090,26 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
         closing={closeRequested || (venue?.status === "closing" && !venue.problem)}
         drawingMore={extending}
         enable={needsKey && needsKey === me.address ? { onEnable: () => void enableTrading(), pending: enabling } : undefined}
+        boost={
+          rules && me.address && boostStatus
+            ? {
+                on: boostOn,
+                onToggle: (on) => {
+                  setSettings({ boosted: on });
+                  // Leaving Wild: what is left on skech's side goes home, unless a round still has it.
+                  if (!on && me.address && boostStatus.balance > 0 && !boostStatus.open) void returnWild(me.address);
+                },
+                why: boostStatus.enabled ? null : boostStatus.why,
+                multiple: rules.multiple,
+                cut: rules.cut,
+                closeAt: rules.closeAt,
+                leverage: rules.leverage,
+                headroom: rules.headroom,
+                stakeMin: rules.stakeMin,
+                stakeMax: rules.stakeMax,
+              }
+            : undefined
+        }
         onDrawMore={venueId ? onDrawMore : undefined}
         onCloseNow={onCloseNow}
         onDrawAgain={() => {
@@ -1101,7 +1206,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
           onRemove={onRemove}
           onUp={onUp}
           phase={phase}
-          pnl={net}
+          pnl={net === null ? null : net * wildShare}
           marks={marks}
           tradeBands={tradeBands}
           segments={segmentMarks}
@@ -1134,6 +1239,7 @@ export function DrawScreen({ market, stream }: { market: Market; stream: ReturnT
           runBars={phase === "drawn" ? barsFor(view, runBars) : runBars}
           shape={shape}
           sketches={shown}
+          boost={venue?.boost ?? null}
         />
         {/* Within reach on a phone, and the only row that has to be. */}
         {phone ? controls : null}

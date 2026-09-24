@@ -76,7 +76,7 @@ export function AppBar({ lead, practice = false }: { lead?: React.ReactNode; pra
     made, and that is the figure a reader means by "my balance".
   */
   const perp = profile.balance;
-  const cash = perp?.equity ?? null;
+  const cash = perp ? perp.equity + perp.wild : null;
   const funded = perp !== null && perp.accountIndex !== null;
   return (
     <>

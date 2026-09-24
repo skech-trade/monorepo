@@ -126,3 +126,32 @@ somebody who has just registered one is the least helpful possible reply.
 Keys live in `trader_keys` in Postgres. With no database they are held in
 memory and `/health` says `memory only, lost on restart`, because a trader
 that refuses to start without a database is a trader nobody can try.
+
+## Boost
+
+skech's money beside a user's stake, for one round. A boosted round is an
+ordinary round run on one of the treasury's lanes (sub-accounts of its master
+account) instead of the user's own account, sized at the stake plus five times
+it, with the loss exit at 80% of the stake resting on Lighter as a stop. When it
+ends the lane is shared out (30% of a win, 1% of a loss to skech), swept back
+to the master and booked in a double-entry ledger. See
+[docs/BOOST-PLAN.md](../../docs/BOOST-PLAN.md).
+
+```
+bun run boost:setup                    # the treasury wallet, its account, four lanes; writes BOOST_* to .env.local
+TRADER=http://localhost:3220 bun run boost:e2e   # add money, one boosted round, send it all home, check the books
+```
+
+| Route | What it does |
+|---|---|
+| `GET /boost/status?address=&market=` | Boost balance, rules, the round running if any, lanes free |
+| `POST /boost/deposit/prepare` `{address, amount}` | the transfer to sign, and Lighter's fee |
+| `POST /boost/deposit/confirm` `{address, id, signature}` | sent, and credited once the treasury shows it |
+| `POST /boost/withdraw` `{address, amount}` or `{address, all: true}` | back to the wallet's own Lighter account, less Lighter's fee. The trader also does this by itself for wallets idle `BOOST_RETURN_AFTER_S` |
+| `POST /boost/rounds` `{address, market, pts, stake, seconds}` | a boosted round; answers with the round, as `POST /rounds` does |
+| `GET /boost/admin` | the books against the venue; `Authorization: Bearer $BOOST_ADMIN_TOKEN` |
+| `POST /boost/admin/kill` `{killed, reason}` | stop new boosted rounds, or let them start again |
+
+Any round can also carry `venueStop: true`, which puts its loss exit on the
+venue as a resting reduce-only stop and moves it with every trade. Boosted
+rounds always do.

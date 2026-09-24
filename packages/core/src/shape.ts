@@ -32,8 +32,12 @@ const TOL = 0.0002;
 /**
  * A reversal under this share of the drawing's own height is a wobble. Of the height, not the
  * price: as a share of price it came to $141 on Bitcoin and every hand-drawn turn fell under it.
+ *
+ * It was 8%, which still dropped corners people placed on purpose: a $2 rise at the start of a
+ * $32 line opened the short three seconds before the peak it was drawn from. A stroke is reduced
+ * to its corners on release and a tapped point is deliberate, so this only has to catch jitter.
  */
-const REVERSAL = 0.08;
+const REVERSAL = 0.02;
 /**
  * Two vertices closer than this share of the round are one turn: under a second on a minute round,
  * nothing a position can open in.

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Pt } from "@skech/core/shape";
+import type { BoostTag } from "./boost";
 import type { Candle } from "./market";
 import type { Exits } from "./sketch";
 
@@ -35,6 +36,8 @@ export type VenueOrder = {
   requestedAt: number;
   sentAt?: number;
   ackAt?: number;
+  /** The chart's price when the venue took it, stamped by the trader. What P&L on testnet is priced at. */
+  chartAt?: number;
   filledAt?: number;
   filled: number;
   avgPrice?: number;
@@ -97,6 +100,10 @@ export type VenueRound = {
   realised: number;
   orders: VenueOrder[];
   problem: string | null;
+  /** skech's money is in this round: its terms, and once settled, what came back. */
+  boost?: BoostTag;
+  /** The loss exit resting on the venue, when there is one. */
+  guard?: { status: "placing" | "resting" | "fired" | "cancelled" | "failed"; trigger: number; dir: 1 | -1 } | null;
 };
 
 type Failure = { error: string };
@@ -247,7 +254,9 @@ export function useVenueRound(id: string | null): VenueRound | null {
     const accept = (round: VenueRound) => {
       if (!live || round.id !== id) return;
       setGot({ id, round });
-      if (round.status === "done") {
+      // A boosted round is settled a few seconds after it ends; keep listening until what came back is known.
+      const settled = !round.boost || round.boost.status === "done" || round.boost.status === "refunded";
+      if (round.status === "done" && settled) {
         done = true;
         events.close();
       }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { Popover, PopoverClose, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { usd } from "@/lib/market";
 import { cn } from "@/lib/utils";
@@ -216,20 +216,82 @@ function Setting({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Size and leverage, each a button wearing its value, each opening a popover. */
+
+/** The two plain paces. Anything else is picked under Advanced. */
+export const SLOW = 10;
+export const NORMAL = 50;
+const MAX_LEVERAGE = 50;
+
+/**
+ * Wild, as the pace control offers it: skech adds `multiple` times what you
+ * put in, for one round, and the money moves itself. Missing when the trader
+ * does not run it.
+ */
+export type BoostChoice = {
+  on: boolean;
+  onToggle: (on: boolean) => void;
+  /** Why it cannot be picked right now, or null when it can. */
+  why: string | null;
+  multiple: number;
+  cut: number;
+  closeAt: number;
+  /** What the round trades at, and the margin it leaves free: together, what Wild multiplies a stake by. */
+  leverage: number;
+  headroom: number;
+  stakeMin: number;
+  stakeMax: number;
+};
+
+export type Pace = "slow" | "normal" | "wild" | "custom";
+
+export const paceOf = (leverage: number, wild: boolean): Pace => (wild ? "wild" : leverage === SLOW ? "slow" : leverage === NORMAL ? "normal" : "custom");
+
+/** What a Wild stake trades like, as a multiple of the stake: skech's money and yours together, at the round's leverage. */
+export const wildTimes = (b: Pick<BoostChoice, "multiple" | "headroom" | "leverage">) => Math.round((1 + b.multiple) * (1 - b.headroom) * b.leverage);
+
+function PaceRow({ name, selected, disabled = false, onPick }: { name: string; selected: boolean; disabled?: boolean; onPick: () => void }) {
+  return (
+    <button
+      aria-checked={selected}
+      className={cn(
+        "w-full rounded-xl border px-3 py-2.5 text-left font-medium text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        selected ? "border-foreground/30 bg-muted" : "border-transparent hover:bg-muted/60",
+      )}
+      disabled={disabled}
+      onClick={onPick}
+      role="radio"
+      type="button"
+    >
+      {name}
+    </button>
+  );
+}
+
+/** Size and pace, each a button wearing its value, each opening a popover. */
 export function DrawControls({
   stake,
   leverage,
   onStake,
   onLeverage,
+  boost,
   className,
 }: {
   stake: number;
   leverage: number;
   onStake: (stake: number) => void;
   onLeverage: (leverage: number) => void;
+  boost?: BoostChoice;
   className?: string;
 }) {
+  const wild = boost?.on === true;
+  const pace = paceOf(leverage, wild);
+  const [advanced, setAdvanced] = useState(pace === "custom");
+  /* Plain leverage never says the word: each pace says how far the market has to go the wrong way. */
+  const pick = (next: number) => {
+    if (wild) boost?.onToggle(false);
+    onLeverage(next);
+  };
+  const label = pace === "slow" ? "Slow" : pace === "normal" ? "Normal" : pace === "wild" ? "Wild" : `${leverage}×`;
   return (
     /* On a phone these two sit either side of the button rather than beside
        each other, so the box around them steps out of the way. */
@@ -240,7 +302,7 @@ export function DrawControls({
             odd widths. The value still fits: the label beside it is already
             dropped at this size. */}
         {/* Right of the button, as the wireframe has it: what you put in on
-            one side, what it is multiplied by on the other. */}
+            one side, how fast it moves on the other. */}
         <PopoverTrigger render={<Button className="max-sm:order-3 max-sm:h-13 max-sm:flex-1" variant="outline" />}>
           <Setting label="Size" value={`$${usd(stake, 0)}`} />
         </PopoverTrigger>
@@ -255,23 +317,57 @@ export function DrawControls({
           </PopoverTitle>
           <PopoverDescription className="max-sm:hidden">How much you put in.</PopoverDescription>
           <div className="pt-3 sm:pt-4">
-            <AmountWheel onChange={onStake} value={stake} />
+            {/* A different wheel for each, so each keeps its own position. Wild takes a narrower range. */}
+            {wild ? (
+              <AmountWheel key="wild" max={boost.stakeMax} min={boost.stakeMin} onChange={onStake} value={stake} />
+            ) : (
+              <AmountWheel key="own" onChange={onStake} value={stake} />
+            )}
           </div>
         </PopoverPopup>
       </Popover>
       <Popover>
-        <PopoverTrigger render={<Button className="max-sm:order-1 max-sm:h-13 max-sm:flex-1" variant="outline" />}>
-          <Setting label="Boost" value={`${leverage}×`} />
+        <PopoverTrigger render={<Button className={cn("max-sm:order-1 max-sm:h-13 max-sm:flex-1", wild && "border-info/40 text-info")} variant="outline" />}>
+          <Setting label="Pace" value={label} />
         </PopoverTrigger>
-        <PopoverPopup align="start" className="w-56 max-sm:w-44">
-          {/* Draw does not say leverage anywhere else, and the word is the
-              single biggest piece of jargon left on this screen. */}
+        <PopoverPopup align="start" className="w-60 max-sm:w-56">
           <PopoverTitle>
-            <span className="sm:hidden">Boost</span>
-            <span className="max-sm:hidden">Set your boost</span>
+            <span className="sm:hidden">Pace</span>
+            <span className="max-sm:hidden">Pick your pace</span>
           </PopoverTitle>
-          <div className="pt-3 sm:pt-4">
-            <AmountWheel format={(n) => `${n}\u00d7`} label="Boost" max={50} min={1} onChange={onLeverage} step={1} value={leverage} />
+          <div aria-label="Pace" className="flex flex-col gap-1 pt-3" role="radiogroup">
+            <PaceRow name="Slow" onPick={() => pick(SLOW)} selected={pace === "slow"} />
+            <PaceRow name="Normal" onPick={() => pick(NORMAL)} selected={pace === "normal"} />
+            <PaceRow disabled={!boost || (!!boost.why && !wild)} name="Wild" onPick={() => boost?.onToggle(true)} selected={wild} />
+          </div>
+          <div className="pt-2">
+            <button
+              aria-expanded={advanced}
+              className="flex w-full items-center justify-between px-1 py-1.5 text-muted-foreground text-xs transition-colors hover:text-foreground"
+              onClick={() => setAdvanced((a) => !a)}
+              type="button"
+            >
+              <span>Advanced</span>
+              <ChevronDownIcon className={cn("size-3.5 transition-transform", advanced && "rotate-180")} />
+            </button>
+            {advanced ? (
+              <div className="flex flex-col gap-2 pt-1">
+                <dl className="figures grid grid-cols-3 gap-1 text-center text-xs">
+                  {[
+                    ["Slow", `${SLOW}×`],
+                    ["Normal", `${NORMAL}×`],
+                    ["Wild", boost ? `${wildTimes(boost)}×` : "—"],
+                  ].map(([k, v]) => (
+                    <div className="rounded-lg bg-muted px-2 py-1.5" key={k}>
+                      <dt className="text-muted-foreground">{k}</dt>
+                      <dd className="font-medium text-foreground">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {/* Wild is one setting by design; the wheel tunes the plain paces. */}
+                {wild ? null : <AmountWheel format={(n) => `${n}\u00d7`} label="Pace" max={MAX_LEVERAGE} min={1} onChange={onLeverage} step={1} value={leverage} />}
+              </div>
+            ) : null}
           </div>
         </PopoverPopup>
       </Popover>

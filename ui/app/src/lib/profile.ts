@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
  */
 
 const URL_API = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+const URL_TRADER = (process.env.NEXT_PUBLIC_TRADER_URL ?? "").replace(/\/$/, "");
 
 export const hasApi = URL_API !== "";
 
@@ -28,6 +29,12 @@ export type Balance = {
   positions: number;
   /** Null when this wallet has never deposited, so has no account yet. */
   accountIndex: number | null;
+  /**
+   * Yours, sitting on skech's side for Wild rounds, and on its way back once
+   * you stop. Not on the Lighter account, so not in the figures above, and
+   * still part of what the reader means by "my balance".
+   */
+  wild: number;
 };
 
 export type Profile = {
@@ -52,13 +59,17 @@ export function useProfile(address: string | null): Profile {
     if (!hasApi || !address) return;
     let live = true;
     const load = async () => {
-      const [me, bal] = await Promise.all([
+      const [me, bal, wild] = await Promise.all([
         fetch(`${URL_API}/me?address=${address}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
         fetch(`${URL_API}/balance?address=${address}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        URL_TRADER
+          ? fetch(`${URL_TRADER}/boost/status?address=${address}&market=BTC`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+          : null,
       ]);
       if (!live) return;
       setName((me as { name?: string | null } | null)?.name ?? null);
-      setBalance((bal as Balance | null) ?? null);
+      const venue = bal as Omit<Balance, "wild"> | null;
+      setBalance(venue ? { ...venue, wild: (wild as { balance?: number } | null)?.balance ?? 0 } : null);
       setAnswered(address);
     };
     void load();

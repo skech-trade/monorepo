@@ -21,7 +21,16 @@ import { hashesOf, VenueError, type VenueSocket, VenueTimeout } from "./venue-so
 export type Position = { size: number; avgEntry: number; unrealised: number; imf: number | null; marginMode: number | null; at: number };
 export type VenueFill = Fill & { receivedAt: number };
 export type OrderRequest = { clientOrderIndex: bigint; size: number; isAsk: boolean; reduceOnly: boolean };
-export type Sent = { signedAt: number; sentAt: number; ackAt: number; hashes: string[]; via: "ws" | "http"; withLeverage: boolean; worst: number[] };
+/** A reduce-only stop the venue holds and fires on its mark: `trigger` is where, `worst` the least it may fill at. */
+export type StopRequest = { clientOrderIndex: bigint; size: number; isAsk: boolean; trigger: number; worst: number };
+/**
+ * What else goes in the same batch. `cancelAll` comes first, so a resting stop
+ * is gone before the order that replaces it; `stops` come after the orders, so
+ * a stop is only ever placed behind the position it guards.
+ */
+export type Extra = { cancelAll?: boolean; stops?: StopRequest[] };
+/** `before` is how many transactions went ahead of the orders in the batch (a leverage update, a cancel), so `hashes[before + i]` is order i's. */
+export type Sent = { signedAt: number; sentAt: number; ackAt: number; hashes: string[]; via: "ws" | "http"; withLeverage: boolean; worst: number[]; before?: number };
 export type Quote = { bid: number; ask: number; mark: number; at: number };
 
 /** What the scheduler needs from an account. The tests implement it without a venue. */
@@ -29,13 +38,15 @@ export interface Exec {
   readonly accountIndex: number;
   position(): Position | null;
   prepare(leverage: number): Promise<void>;
-  submit(orders: OrderRequest[], leverage?: number): Promise<Sent>;
+  submit(orders: OrderRequest[], leverage?: number, extra?: Extra): Promise<Sent>;
   onPosition(fn: (p: Position) => void): () => void;
   onFill(fn: (f: VenueFill) => void): () => void;
   /** Cold read of this account's fills, for the final tally or when the push was missed. */
   fillsSince(since: number): Promise<Fill[]>;
   /** How long an ack takes, smoothed. The scheduler sends this much early. */
   latency(): number;
+  /** What the venue says is held, signed, asked over HTTP: for when the pushes may have stopped. */
+  heldNow(): Promise<number>;
 }
 
 /** Nothing held, keeping the margin settings the venue last reported. */
@@ -58,8 +69,9 @@ export class MarketExec implements Exec {
   onPosition(fn: (p: Position) => void) { return this.account.listen("position", this.marketId, fn); }
   onFill(fn: (f: VenueFill) => void) { return this.account.listen("fill", this.marketId, fn); }
   prepare(leverage: number) { return this.account.prepare(this, leverage); }
-  submit(orders: OrderRequest[], leverage?: number) { return this.account.submit(this, orders, leverage); }
+  submit(orders: OrderRequest[], leverage?: number, extra?: Extra) { return this.account.submit(this, orders, leverage, extra); }
   fillsSince(since: number) { return this.account.fillsSince(this.marketId, since); }
+  heldNow() { return this.account.heldNow(this.marketId); }
 }
 
 /**
@@ -189,19 +201,30 @@ export class Executor {
    * again and the batch re-signed once. A send with no answer is not retried:
    * the venue may have it, and the position push will say.
    */
-  submit(view: MarketExec, orders: OrderRequest[], leverage?: number): Promise<Sent> {
+  heldNow(marketId: number) {
+    return this.o.http.positionOf(this.o.accountIndex, marketId);
+  }
+
+  /** Something else signed on this account, a transfer: read the nonce again now rather than fail the next order on it. */
+  resync(): Promise<void> {
+    return this.serial(async () => {
+      this.nonce = await this.o.http.nextNonce(this.o.accountIndex, this.o.apiKeyIndex);
+    });
+  }
+
+  submit(view: MarketExec, orders: OrderRequest[], leverage?: number, extra: Extra = {}): Promise<Sent> {
     return this.serial(async () => {
       try {
-        return await this.send(view, orders, leverage);
+        return await this.send(view, orders, leverage, extra);
       } catch (e) {
         if (!(e instanceof VenueError && e.badNonce) && (e as { code?: number }).code !== 21104) throw e;
         this.nonce = await this.o.http.nextNonce(this.o.accountIndex, this.o.apiKeyIndex);
-        return this.send(view, orders, leverage);
+        return this.send(view, orders, leverage, extra);
       }
     });
   }
 
-  private async send(view: MarketExec, orders: OrderRequest[], leverage?: number): Promise<Sent> {
+  private async send(view: MarketExec, orders: OrderRequest[], leverage?: number, extra: Extra = {}): Promise<Sent> {
     if (this.nonce === null) this.nonce = await this.o.http.nextNonce(this.o.accountIndex, this.o.apiKeyIndex);
     const m = view.market();
     const q = view.quote();
@@ -216,6 +239,10 @@ export class Executor {
       types.push(TX.updateLeverage);
       infos.push(this.o.signer.updateLeverage(m.id, leverage, 1, nonce++).txInfo);
     }
+    if (extra.cancelAll) {
+      types.push(TX.cancelAllOrders);
+      infos.push(this.o.signer.cancelAll(m.id, 0, 0n, nonce++).txInfo);
+    }
     for (const o of orders) {
       // The worst price this order accepts: the far side of the book, plus slippage.
       const ref = o.isAsk ? q!.bid || q!.mark : q!.ask || q!.mark;
@@ -224,9 +251,13 @@ export class Executor {
       types.push(TX.createOrder);
       infos.push(this.o.signer.createOrder({ marketIndex: m.id, clientOrderIndex: o.clientOrderIndex, baseAmount: sizeUnits(m, o.size), price: priceUnits(m, price), isAsk: o.isAsk, reduceOnly: o.reduceOnly, nonce: nonce++ }).txInfo);
     }
+    for (const st of extra.stops ?? []) {
+      types.push(TX.createOrder);
+      infos.push(this.o.signer.stopLoss({ marketIndex: m.id, clientOrderIndex: st.clientOrderIndex, baseAmount: sizeUnits(m, st.size), triggerPrice: priceUnits(m, st.trigger), price: priceUnits(m, st.worst), isAsk: st.isAsk, nonce: nonce++ }).txInfo);
+    }
     if (!types.length) {
       const now = Date.now();
-      return { signedAt: now, sentAt: now, ackAt: now, hashes: [], via: "ws", withLeverage: false, worst };
+      return { signedAt: now, sentAt: now, ackAt: now, hashes: [], via: "ws", withLeverage: false, worst, before: 0 };
     }
     const signedAt = Date.now();
     let via: Sent["via"] = "ws";
@@ -249,7 +280,7 @@ export class Executor {
     this.nonce = nonce;
     if (withLeverage) this.leverage.set(m.id, leverage);
     this.ewma = this.ewma * 0.7 + (ackAt - sentAt) * 0.3;
-    return { signedAt, sentAt, ackAt, hashes, via, withLeverage, worst };
+    return { signedAt, sentAt, ackAt, hashes, via, withLeverage, worst, before: (withLeverage ? 1 : 0) + (extra.cancelAll ? 1 : 0) };
   }
 
   fillsSince(marketId: number, since: number) {

@@ -70,6 +70,8 @@ monorepo so the two apps use different ports.
 | [docs/VERCEL.md](docs/VERCEL.md) | the env the app needs, and the three things that are not env |
 | [docs/HOSTING.md](docs/HOSTING.md) | running all of it for free on testnet, and when to stop |
 | [docs/BOOSTED-ROUNDS.md](docs/BOOSTED-ROUNDS.md) | skech's money behind the user's: the maths, per coin, and what it risks |
+| [docs/BOOST-PLAN.md](docs/BOOST-PLAN.md) | Boost as built: one trade per lane, the round lifecycle, settlement, limits, what testnet measured |
+| [docs/INK.md](docs/INK.md) | the game: draw ahead of the price, the ink the price runs through pays; how it is priced and what a week of unseen data says |
 
 ## Adding a workspace
 

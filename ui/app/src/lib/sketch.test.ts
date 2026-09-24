@@ -285,3 +285,12 @@ test("a small dip between two rises is a turn, and it trades where it was drawn"
   const drawn = [0.22, 0.294, 0.396, 0.5, 0.572, 0.7, 0.783, 0.906];
   shape.legs.slice(1).forEach((l, i) => expect(Math.abs(l.from / (SAMPLES - 1) - drawn[i])).toBeLessThan(0.005));
 });
+
+test("a small first rise is still a turn: the short opens at the peak it was drawn from", () => {
+  // Drawn on a quiet chart: $2 up over 3.3s, then down. It shorted from the start under an 8% filter.
+  const S = 42;
+  const pts = [[0, 83822.6], [3.3, 83824.7], [20.58, 83814.2], [26.4, 83836.3], [34.25, 83816.9], [42, 83846.2]].map(([t, price]) => ({ t: t / S, price }));
+  const shape = shapeOf(pts, 83822.6)!;
+  expect(shape.legs.map((l) => l.dir)).toEqual([1, -1, 1, -1, 1]);
+  expect(Math.abs((shape.legs[1].from / (SAMPLES - 1)) * S - 3.3)).toBeLessThan(0.2);
+});

@@ -1,37 +1,49 @@
 # Boosted rounds: skech's money behind the user's
 
-## Revised 2026-09-23: the $8 is a cushion, not a promise
+## Current model (v2, 2026-09-23)
 
-This section replaces the model in the rest of this file. That model had skech
-covering every dollar past −$2. The live version, with an explorer for every
-coin, stop and close speed, is https://claude.ai/artifact/MdZJHDV7n5qF3fFRfvQead
+This section replaces everything below it. The live version, with every setting
+adjustable, is https://claude.ai/artifact/MdZJHDV7n5qF3fFRfvQead
 
-- **Close line.** The round closes when the user's $10 reaches $8.
-- **Who pays past it.** If the close fills late, the user's remaining $8 pays
-  first. skech's money is only touched once the whole $10 is gone.
-- **The ladder, on BTC at 50x ($3,000 position):**
-  - 0.067%: close line;
-  - 0.333%: the user's $10 is gone;
-  - 0.8%: Lighter liquidates, with up to a 1% fee, so skech can lose all $50.
-- **Measured.** One-second prices for 3 days: about 104,000 rounds per coin,
-  starting every 5 seconds, long and short. Pessimistic fills (the worst price in
-  the close window).
+**The structure**
+- The user puts in $10–$100.
+- skech keeps a fee at open (2–20%). The rest is the user's trade money.
+- skech adds 5x the stake as a boost, and takes a cut of any winning round.
+- The round closes when the user's trade money is gone.
 
-| BTC, close at $8 | Rounds where skech lost money | Worst round for skech | Average cost to skech |
-|---|---|---|---|
-| Stop resting on Lighter (1 s) | 14 in 100,000 | $4.15 | $0.0005 |
-| Our own check (5 s) | 19 in 100,000 | $6.64 | $0.0009 |
-| Nothing closes it (60 s) | 250 in 100,000 | $50 | $0.014 |
+**Where the numbers come from**
+- 30 days of one-second prices (Binance, 2.59M seconds per coin, no gaps), with
+  about 1M rounds per coin per setting.
+- One-second replays of the 23 worst-minute windows of the past year.
+- Every slip past the line is stretched by Lighter's own measured wick size
+  relative to Binance's.
+- Lighter's rules come from its own docs.
 
-- **The fee.** A $0.10 fee taken at open covers that average about 200 times.
-- **What the user sees:**
-  - a round closes early 13.5% of the time;
-  - the average loss when it does is $2.42.
-- **What the engineering depends on:**
-  - a stop resting on Lighter (`ORDER.stopLoss` exists in `signer.ts` but isn't
-    wired);
-  - exits that survive a restart (today they are memory-only in `rounds.ts`);
-  - a switch that stops new rounds, and a cap on open boosted money.
+**BTC, $10, 5% fee, 20% cut, closes filling within 5 s**
+
+| | Measured |
+|---|---|
+| User ends above their stake | 26% of rounds |
+| User's average per round | −$0.60 |
+| skech net per round | +$0.59 |
+| Slip past the line, per round | $0.0065 |
+| Lighter liquidations (skech loses its whole boost) | 4.7 in 100,000 rounds |
+| Oct 10, 2025 crash, per open round on the wrong side | ≈ −$47 of the $50 boost |
+
+**The conclusion**
+- skech makes money on ordinary days.
+- A crash can cost nearly the whole boost of every round open on the wrong side.
+  In a whipsaw, a book split evenly between longs and shorts still lost $42 a
+  round.
+- What bounds it is a rule: open boost ≤ a reserve skech can afford to lose. The
+  most it can lose at any moment is the boost in open rounds.
+
+**Lighter facts that change the design**
+- Stops trigger on the mark price, and are cancelled if they would slip past their
+  price cap.
+- Isolated positions can pull from the cross balance.
+- Standard accounts get 4 sub-accounts (Premium 64), and each account holds one
+  position per coin.
 
 ---
 

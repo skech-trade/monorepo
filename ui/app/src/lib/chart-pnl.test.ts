@@ -32,3 +32,11 @@ test("a trade that never filled is not counted", () => {
   const trades: VenueTrade[] = [{ id: "a", dir: 1, size: 2, status: "failed", pnl: 0 }];
   expect(chartPnl(trades, [], candles, 110).net).toBe(0);
 });
+
+test("the trader's stamp is the price, so the page and the stop agree; candles only fill in for old rounds", () => {
+  const trades: VenueTrade[] = [{ id: "a", dir: 1, size: 2, status: "closed", pnl: -4 }];
+  const stamped = [{ ...order("a", "open", 1000), chartAt: 100.2 }, { ...order("a", "close", 3000), chartAt: 103.7 }];
+  expect(chartPnl(trades, stamped, candles, null).net).toBeCloseTo(7);
+  // No stamps: read off the candles, as before.
+  expect(chartPnl(trades, [order("a", "open", 1000), order("a", "close", 3000)], candles, null).net).toBe(8);
+});

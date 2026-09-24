@@ -15,8 +15,15 @@ import { PlayerCard } from "./player-card";
 import type { PlayerState } from "@/lib/social";
 import { DEFAULT_SHARE_STYLE, type ShareStyle } from "./share-style";
 import { postText } from "./round-copy";
+import { paceOf } from "./draw-controls";
 
 /** A sketch is a position you can look at. The list keeps the drawing. */
+
+/** A round's pace by name, the way the pace button said it when it was placed. */
+const paceName = (s: Pick<Sketch, "leverage" | "boost">) => {
+  const pace = paceOf(s.leverage, !!s.boost);
+  return pace === "wild" ? "Wild" : pace === "slow" ? "Slow" : pace === "normal" ? "Normal" : `${s.leverage}×`;
+};
 export type Sketch = {
   id: string;
   venueId?: string;
@@ -38,6 +45,8 @@ export type Sketch = {
   outcome?: Outcome | "closed";
   /** Share of the move that went your way, 0 to 1. Over a half means it profited. */
   right?: number;
+  /** skech's money was in it: how much, and once settled what came back. `net` is then the user's own result. */
+  boost?: { stake: number; boost: number; back?: number };
 };
 
 function SketchThumb({ sketch, className }: { sketch: Sketch; className?: string }) {
@@ -236,8 +245,8 @@ function RoundCard({ sketch, market, streak, onNext, buddy }: { sketch: Sketch; 
           <dd className="mt-1 font-medium tabular-nums">${usd(sketch.stake, 0)}</dd>
         </div>
         <div>
-          <dt className="text-xs text-muted-foreground">Boost</dt>
-          <dd className="mt-1 font-medium tabular-nums">{sketch.leverage}×</dd>
+          <dt className="text-xs text-muted-foreground">Pace</dt>
+          <dd className="mt-1 font-medium tabular-nums">{paceName(sketch)}</dd>
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">Return</dt>
@@ -328,7 +337,7 @@ function SketchList({ sketches, market }: { sketches: Sketch[]; market: Market }
           <div key={s.id} className="flex items-center gap-3 py-4">
             <SketchThumb className="h-9 w-14 shrink-0 border-0 bg-muted/30" sketch={s} />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">{market.name}<span className="ml-2 text-xs font-normal text-muted-foreground">{s.leverage}×</span></p>
+              <p className="text-sm font-medium">{market.name}<span className="ml-2 text-xs font-normal text-muted-foreground">{paceName(s)}</span></p>
               <p className="mt-1 text-xs text-muted-foreground tabular-nums">${usd(s.stake, 0)} · {new Date(s.placedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>
               <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">${fmtPrice(s.entry)} → {s.exit === undefined ? (s.status === "settled" ? "Closed" : "Open") : `$${fmtPrice(s.exit)}`}</p>
             </div>

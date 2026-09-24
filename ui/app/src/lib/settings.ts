@@ -33,6 +33,9 @@ export type Settings = {
   /** What you put in last, so a round starts where the last one left off. */
   stake: number;
   leverage: number;
+  /** Whether the next round is boosted, and what goes into a boosted one. */
+  boosted: boolean;
+  boostStake: number;
   /** Blur every figure, for reading the screen in company. */
   blurred: boolean;
 };
@@ -53,6 +56,8 @@ export const DEFAULTS: Settings = {
     wants it can still pick it.
   */
   leverage: 10,
+  boosted: false,
+  boostStake: 10,
   blurred: false,
 };
 
