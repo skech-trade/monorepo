@@ -1,6 +1,6 @@
 "use client";
 
-import { POINT_CENTS } from "@skech/core/odds";
+import { POINT_PRICES } from "@skech/core/odds";
 import { AmountWheel } from "@/components/app/draw/draw-controls";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverClose, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
@@ -24,7 +24,7 @@ export const PENS: { id: Brush; name: string; dot: number; says: string }[] = [
   { id: "wide", name: "Wide", dot: 15, says: "Easiest to hit" },
 ];
 export const penFor = (id: Brush) => PENS.find((p) => p.id === id) ?? PENS[1];
-export const amountLabel = (n: number) => (n < 1 ? `${Math.round(n * 100)}¢` : `$${n.toFixed(2)}`);
+export const amountLabel = (n: number) => (n < 1 ? `${Math.round(n * 100)}¢` : Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`);
 
 /* The label goes on a phone and the value stays, as on the trading screen's buttons. */
 function Setting({ label, children }: { label: string; children: React.ReactNode }) {
@@ -85,17 +85,9 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
             <span className="sm:hidden">Per point</span>
             <span className="max-sm:hidden">Pick your price</span>
           </PopoverTitle>
-          <PopoverDescription className="max-sm:hidden">What each point costs. A hit pays it times the multiple.</PopoverDescription>
+          <PopoverDescription className="max-sm:hidden">What each point costs, 10¢ to $100. A hit pays it times the multiple.</PopoverDescription>
           <div className="pt-3 sm:pt-4">
-            <AmountWheel
-              format={(c) => amountLabel(c / 100)}
-              label="What a point costs"
-              max={POINT_CENTS.max}
-              min={POINT_CENTS.min}
-              onChange={(c) => onAmount(c / 100)}
-              step={POINT_CENTS.step}
-              value={Math.round(amount * 100)}
-            />
+            <AmountWheel format={amountLabel} label="What a point costs" onChange={onAmount} value={amount} values={[...POINT_PRICES.values]} />
           </div>
         </PopoverPopup>
       </Popover>
@@ -103,7 +95,7 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
   );
 }
 
-const DEPOSITS = [100, 500, 1000];
+const DEPOSITS = [100, 1000, 10000];
 
 /** Practice money in: it lands in the balance at once. Beside the way in, in the app bar. */
 export function DepositButton({ onDeposit }: { onDeposit: (amount: number) => void }) {

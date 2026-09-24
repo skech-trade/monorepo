@@ -10,7 +10,7 @@ import { type Features, field, type Library, readLibrary } from "@skech/core/dot
 
 let lib: Library | null = null;
 
-type Ask = { kind: "lib"; bytes: ArrayBuffer } | { kind: "field"; id: number; f: Features; at: number; step: number };
+type Ask = { kind: "lib"; bytes: ArrayBuffer } | { kind: "field"; id: number; f: Features; at: number; step: number; cell: number };
 
 self.onmessage = (e: MessageEvent<Ask>) => {
   const m = e.data;
@@ -19,6 +19,7 @@ self.onmessage = (e: MessageEvent<Ask>) => {
     return;
   }
   if (!lib) return;
-  const fl = field(lib, m.f, m.at, m.step);
+  // In the pen's rows, and calibrated for them.
+  const fl = field(lib, m.f, m.at, m.step, m.cell);
   (self as unknown as Worker).postMessage({ id: m.id, field: fl }, [fl.chance.buffer]);
 };

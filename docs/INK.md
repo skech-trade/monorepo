@@ -13,7 +13,7 @@ Lighter trading code is untouched and unused by it.
 
 - **A line is points.** Every second your line passes through a row of
   prices is one point. Each point costs what you set under **Per point**
-  (5¢ to $5, on the trading screen's wheel), so a longer line, or one that climbs through more
+  (10¢ to $100, $1 unless set, on the trading screen's wheel), so a longer line, or one that climbs through more
   rows, costs more. Deposit sits in the app bar, left of sign-in.
 - **Points are placed as you draw them.** The moment the pen covers a new
   point it is bet and comes off the balance; lifting the pen places nothing
@@ -28,7 +28,7 @@ Lighter trading code is untouched and unused by it.
   hit more often and pay less, and the map redraws for the pen in hand.
 - **What it pays depends on where it is.** Ink near the price is likely to
   be hit and pays a little (from 1.01×); ink far from it, in price or time,
-  pays a lot (up to the top payout the difficulty sets: 28× at 60). The map on screen shows it: a soft glow where the
+  pays a lot (up to the top payout the difficulty sets: 15× at 50). The map on screen shows it: a soft glow where the
   price will likely go, fading outward, with the multiples written on it.
 - **Timing.** A drawing opens on the next whole second and is priced there.
   The second after that is never part of it, so nobody can react faster than
@@ -42,29 +42,43 @@ has, together:
 
 | Lever | At d | Why it matters |
 | --- | --- | --- |
-| return per point (`rtp`) | 0.95 − 0.40 × d/100 | the house keeps the rest, on average |
-| top payout (`maxMultiple`) | 100 × 0.12^(d/100) | a lucky big hit is what turns a losing session around |
-| lowest multiple offered | 1.01 + 0.19 × d/100 | nearly sure points stop being offered |
-| margin on the side it just moved to | 0.11 + 0.09 × d/100 | momentum carries on more than the paths say |
+| return per point (`rtp`) | 0.94 − 0.32 × d/100 | the house keeps the rest, on average |
+| top payout (`maxMultiple`) | 40 × 0.14^(d/100), at least 2× | the trade: a low cap makes wins small and frequent but offers only points near the price; a high one lets a line go anywhere and win rarely |
+| lowest multiple offered | 1.01, rising to 1.10 above 50 | nearly sure points stop being offered at the top of the scale |
+| margin on the side it just moved to | 0.11 at every level | momentum carries on more than the paths say; raised with the rest, it hit a fine pen's far points hardest |
 
-The game plays at 60. On the house's side, the slider is in How it works
-in development, or with `?house` in the address (it is practice money, kept
-per browser). `DIFFICULTY=` on `check-ink.ts` backtests any level. On
-17–23 September, the medium pen:
+The game plays at 50. The house's slider is in How it works in development,
+or with `?house` in the address (it is practice money, kept per browser).
+`DIFFICULTY=` on `check-ink.ts` backtests any level. On 17–23 September,
+the medium pen:
 
-| Difficulty | Keeps | Top payout | 50 drawings ended ahead | 200 ended ahead | Got back per $1, by day |
+| Difficulty | Keeps (1 − rtp) | Top payout | Lines that won | 50 drawings ended ahead | Got back per $1, by day (average) |
 | --- | --- | --- | --- | --- | --- |
-| 0 | 5% | 100× | 33% | 29% | 0.73–0.99 |
-| 30 | 17% | 53× | 16% | 9% | 0.60–0.85 |
-| **60** | **29%** | **28×** | **7%** | **2%** | **0.48–0.71** |
-| 80 | 37% | 18× | 3% | 0% | 0.42–0.61 |
-| 100 | 45% | 12× | 1% | 0% | 0.37–0.52 |
+| 0 | 6% | 40× | 25% | 29% | 0.69–0.98 (0.87) |
+| 25 | 14% | 24× | 25% | 19% | 0.63–0.89 (0.79) |
+| **50** | **22%** | **15×** | **26%** | **12%** | **0.63–0.81 (0.74)** |
+| 75 | 30% | 9× | 28% | 6% | 0.57–0.72 (0.66) |
+| 100 | 38% | 6× | 28% | 2% | 0.47–0.61 (0.55) |
 
-"Ended ahead" is the share of sessions of that many drawings, of one kind of
-line, that finished with more than they started; averaged over the kinds.
-At 60 the fine and wide pens come out the same (7% after 50 drawings). 30 is
-about where the game was, at 0.85 and 50×: at 60 coming out ahead is two and
-a half times rarer.
+At 50 every pen comes out alike: fine 0.75 a dollar on average, medium
+0.74, wide 0.73, so the house keeps about a quarter. A fine pen's line
+crosses more rows than a wide one's, so it has more points and costs more
+per line, at the same return per dollar.
+
+Wins four times in ten were tried, and cost the map: that needs a top
+payout of 6×, and at 6× only about 4% of the rows near the price are on
+offer, so most of what is drawn is not a bet. At 15× about a third are; at
+30× about two thirds, with a quarter fewer lines winning.
+
+## How a second is judged
+
+A point is hit when the price covers its row in its second: from where the
+second before it closed to the second's own high and low. A jump from one
+trade to the next crosses every price between them, as the chart's line
+does and as the paths the chances are measured on count it. Judged on the
+second's own trades alone, a row in the gap was never hit though it was
+priced as if it could be; the near rows a fine pen draws in paid back 0.67
+a dollar where a wide pen's paid 0.77.
 
 ## One place for the odds
 
@@ -128,8 +142,8 @@ like this one:
 - with each path's in-second swings scaled to how far the price is swinging
   inside a second now.
 
-A cell pays `rtp / chance`, with `rtp` set by the difficulty (0.71 at 60), less on the side the price has
-just moved toward (the momentum margin per unit of momentum, 0.164 at 60, for at most two units). The chance
+A cell pays `rtp / chance`, with `rtp` set by the difficulty (0.78 at 50), less on the side the price has
+just moved toward (the momentum margin per unit of momentum, 0.11, for at most two units). The chance
 gets a small correction for how many paths it rests on, because paying 1/p
 on a noisy p overpays on average.
 

@@ -1,8 +1,8 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { DIFFICULTY, START_BALANCE } from "@skech/core/dots";
-import { POINT_CENTS } from "@skech/core/odds";
+import { START_BALANCE } from "@skech/core/dots";
+import { POINT_PRICES } from "@skech/core/odds";
 import type { InkBet } from "@skech/core/ink";
 
 /**
@@ -29,8 +29,12 @@ export type Practice = {
   history: DrawingResult[];
   perDot: number;
   brush: Brush;
-  /** How hard the game is, 0 to 100: see `difficulty` in `@skech/core/dots`. Set by the house, kept here while it is practice money. */
-  difficulty: number;
+  /**
+   * How hard the game is, 0 to 100, when the house has set it on this
+   * browser's slider; null follows the game's own (`DIFFICULTY` in
+   * `@skech/core/dots`), so a change to that reaches everyone who has not.
+   */
+  houseDifficulty: number | null;
   sound: boolean;
   /** Whether the first-visit hint has been dismissed. */
   taught: boolean;
@@ -49,8 +53,8 @@ const DEFAULTS: Practice = {
   bestHit: 0,
   drawings: 0,
   history: [],
-  perDot: POINT_CENTS.default / 100,
-  difficulty: DIFFICULTY,
+  perDot: POINT_PRICES.default,
+  houseDifficulty: null,
   brush: "medium",
   sound: true,
   taught: false,
@@ -69,7 +73,12 @@ const listeners = new Set<() => void>();
 function read(): Practice {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Practice>) } : DEFAULTS;
+    if (!raw) return DEFAULTS;
+    const s = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Practice>) };
+    // A price kept from before the stops it is chosen from now: the nearest one.
+    const stops = POINT_PRICES.values as readonly number[];
+    if (!stops.includes(s.perDot)) s.perDot = stops.reduce((best, v) => (Math.abs(v - s.perDot) < Math.abs(best - s.perDot) ? v : best), stops[0]);
+    return s;
   } catch {
     return DEFAULTS;
   }

@@ -2,7 +2,7 @@
 
 import { CircleHelpIcon, HistoryIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { difficulty, DOT_BETS, features, type Field, type Library, readLibrary, RULES, setDifficulty, START_BALANCE, stepFor } from "@skech/core/dots";
+import { DIFFICULTY, difficulty, DOT_BETS, features, type Field, type Library, readLibrary, RULES, setDifficulty, START_BALANCE, stepFor } from "@skech/core/dots";
 import { cost, decided, judge, open, openOn, PEN_CELLS, placePoints, refund, type Stroke, won } from "@skech/core/ink";
 import { terms } from "@skech/core/odds";
 import { MarketHeader } from "@/components/app/market-header";
@@ -109,6 +109,8 @@ export function InkScreen() {
 
   const [preview, setPreview] = useState<Preview | null>(null);
   const [help, setHelp] = useState(false);
+  /** How hard the game is here: what the house set on this browser, or the game's own. */
+  const level = state.houseDifficulty ?? DIFFICULTY;
   /* The house's controls show in development, or with ?house in the address. */
   const [house] = useState(() => typeof window !== "undefined" && (process.env.NODE_ENV !== "production" || new URLSearchParams(window.location.search).has("house")));
   const [live, setLive] = useState(0);
@@ -130,11 +132,11 @@ export function InkScreen() {
     const g = game.current;
     g.perDot = state.perDot;
     // How hard the game is: every drawing priced from now on, and the map, use it.
-    setDifficulty(state.difficulty);
+    setDifficulty(level);
     g.pen = state.brush;
     g.cell = PEN_CELLS[state.brush];
     g.hint = !state.taught;
-  }, [state.perDot, state.brush, state.taught, state.difficulty]);
+  }, [state.perDot, state.brush, state.taught, level]);
 
   /*
     Every quarter second: whether the page is dark, whether the prices are
@@ -194,7 +196,7 @@ export function InkScreen() {
       if (key !== asked && !busy && w) {
         asked = key;
         busy = performance.now();
-        w.postMessage({ kind: "field", id: ++id, f, at, step: size });
+        w.postMessage({ kind: "field", id: ++id, f, at, step: size, cell: g.cell });
       }
     };
     tick();
@@ -329,10 +331,13 @@ export function InkScreen() {
       }
       if (bet.status === "live") {
         const from = Math.min(...bet.cells.filter((d) => d.status === "live").map((d) => d.t));
-        for (const bar of bars) {
+        for (let k = 0; k < bars.length; k++) {
+          const bar = bars[k];
           if (bar.t < from) continue;
           const before = bet;
-          bet = judge(bet, bar, bar.t + 1000 + CLOSE_AFTER_MS <= nowMs);
+          // From where the second before closed: a jump across the ink crosses it, as the line on the chart does.
+          const prev = k > 0 && bars[k - 1].t === bar.t - 1000 ? bars[k - 1].c : undefined;
+          bet = judge(bet, bar, bar.t + 1000 + CLOSE_AFTER_MS <= nowMs, prev);
           if (bet === before) continue;
           changed = true;
           // One burst a second, however many cells of ink the price crossed in it, with what they paid together.
@@ -673,19 +678,27 @@ export function InkScreen() {
             <p>A point the price touches pays what you set times its multiple: 25¢ at 10× is $2.50. The pen shows both as you draw. Ink too soon, or outside the map, stays faint and costs nothing.</p>
             <p>A drawing starts on the next second. The first second after that is never part of it, and it reaches {RULES.horizon} seconds ahead.</p>
             <p className="text-muted-foreground">
-              Payouts are based on real Bitcoin paths from similar moments: a point returns {Math.round(difficulty(state.difficulty).rtp * 100)}¢ a dollar on average, less in the direction the price just moved, and pays from {difficulty(state.difficulty).minMultiple}× to {difficulty(state.difficulty).maxMultiple}×. Your balance is practice money saved in this browser.
+              Payouts are based on real Bitcoin paths from similar moments: a point returns {Math.round(difficulty(level).rtp * 100)}¢ a dollar on average, less in the direction the price just moved, and pays from {difficulty(level).minMultiple}× to {difficulty(level).maxMultiple}×. Your balance is practice money saved in this browser.
             </p>
             {house ? (
               <div className="flex flex-col gap-3 rounded-2xl border p-4">
                 <div className="flex items-baseline justify-between">
                   <p className="font-medium">Difficulty</p>
-                  <p className="figures font-semibold text-lg">{state.difficulty}</p>
+                  <p className="figures font-semibold text-lg">
+                    {level}
+                    {state.houseDifficulty === null ? <span className="font-normal text-muted-foreground text-xs"> default</span> : null}
+                  </p>
                 </div>
-                <Slider aria-label="Difficulty" max={100} min={0} onValueChange={(v) => setPractice({ difficulty: Array.isArray(v) ? v[0] : v })} step={5} value={state.difficulty} />
+                <Slider aria-label="Difficulty" max={100} min={0} onValueChange={(v) => setPractice({ houseDifficulty: Array.isArray(v) ? v[0] : v })} step={5} value={level} />
                 <p className="figures text-muted-foreground text-xs">
-                  Keeps {Math.round((1 - difficulty(state.difficulty).rtp) * 100)}% · pays {difficulty(state.difficulty).minMultiple}× to {difficulty(state.difficulty).maxMultiple}× · momentum margin {difficulty(state.difficulty).momentumMargin}
+                  Keeps {Math.round((1 - difficulty(level).rtp) * 100)}% · pays {difficulty(level).minMultiple}× to {difficulty(level).maxMultiple}× · momentum margin {difficulty(level).momentumMargin}
                 </p>
                 <p className="text-muted-foreground text-xs">For the house, while it is practice money. Drawings already open keep what they opened on.</p>
+                {state.houseDifficulty !== null ? (
+                  <Button className="self-start" onClick={() => setPractice({ houseDifficulty: null })} size="sm" variant="ghost">
+                    Back to the game&rsquo;s default, {DIFFICULTY}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </SheetPanel>
