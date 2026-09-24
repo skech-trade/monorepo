@@ -1,7 +1,8 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { DOT_BETS, START_BALANCE } from "@skech/core/dots";
+import { START_BALANCE } from "@skech/core/dots";
+import { POINT_CENTS } from "@skech/core/odds";
 import type { InkBet } from "@skech/core/ink";
 
 /**
@@ -46,7 +47,7 @@ const DEFAULTS: Practice = {
   bestHit: 0,
   drawings: 0,
   history: [],
-  perDot: DOT_BETS[0],
+  perDot: POINT_CENTS.default / 100,
   brush: "medium",
   sound: true,
   taught: false,

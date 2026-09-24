@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { type Bar, type Dot, type Field, inReach, multipleOf, openFor, RULES, rowOf } from "@skech/core/dots";
-import type { Cell, InkBet, Stroke } from "@skech/core/ink";
+import { type Bar, type Field, multipleOf, openFor, RULES, rowOf } from "@skech/core/dots";
+import type { Cell, InkBet, Pen, Stroke } from "@skech/core/ink";
+import { payoutOf, terms } from "@skech/core/odds";
 import type { Tick } from "@/lib/binance";
 
 /**
@@ -27,7 +28,7 @@ import type { Tick } from "@/lib/binance";
  */
 
 export type Fx = { kind: "hit" | "placed"; t: number; price: number; born: number; text?: string; big?: boolean };
-/** What the stroke being drawn would cost and pay, and which of its ink is in play and which is not. */
+/** What the stroke being drawn costs, the least and most a hit on it pays (in dollars), and which of its points are in play. */
 export type Preview = { cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[] };
 
 export type Game = {
@@ -38,8 +39,10 @@ export type Game = {
   /** Every slice's chance, for a drawing placed now. Null until the paths and the prices are in. */
   field: Field | null;
   step: number;
+  /** What a point costs. */
   perDot: number;
-  /** The pen's width, and the height of the cells its ink is judged in, as a share of `step`. */
+  pen: Pen;
+  /** The pen's width, and the height of the rows its points are in, as a share of `step`. */
   cell: number;
   bets: InkBet[];
   /** Price a stroke as if it were placed now. Set by the screen, which has the paths and the market. */
@@ -111,7 +114,8 @@ function blurAlpha(d: Uint8ClampedArray, w: number, h: number, rgb: readonly num
   }
 }
 
-const dollars = (n: number) => `$${(Math.floor(n * 100) / 100).toFixed(2)}`;
+/** Dollars as a hit pays them: to the cent, and without the cents only when there are none. */
+const dollars = (n: number) => (Math.abs(n - Math.round(n)) < 0.005 && n >= 1 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
 
 export const fmtMultiple = (m: number) => `${m >= 10 ? Math.round(m) : m.toFixed(1)}×`;
 const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
@@ -283,13 +287,10 @@ export function Stage({
     let hover: { x: number; y: number } | null = null;
     let flash: { text: string; x: number; y: number; born: number } | null = null;
 
-    const offered = (d: Dot) => {
+    /** The terms of the game for a drawing placed now: what the pen's label says comes from the same place as what a hit pays. */
+    const termsNow = () => {
       const g = game.current!;
-      if (!g.field) return null;
-      const openAt = openFor(now(g));
-      if (!inReach(d, openAt)) return null;
-      // The map is of the last second that is over: read it as if it opened with a drawing placed now.
-      return multipleOf(g.field, { t: d.t - (openAt - g.field.openAt), row: d.row });
+      return g.field ? terms(g.field, now(g), g.step, g.pen, g.perDot) : null;
     };
     /** Re-price the stroke being drawn, at most twenty times a second. */
     const requote = (p: Pen, force = false) => {
@@ -574,7 +575,8 @@ export function Stage({
           if (placed.some((q) => Math.abs(q.x - lx) < 30 && Math.abs(q.y - ly) < 16)) continue;
           placed.push({ x: lx, y: ly });
           c.fillStyle = rgba(pal.muted, 0.85);
-          c.fillText(`${l.m}×`, lx, ly);
+          // What a hit there pays at the price set, so the chart moves when the price does.
+          c.fillText(dollars(payoutOf(g.perDot, l.m)), lx, ly);
         }
       }
 
@@ -672,9 +674,11 @@ export function Stage({
         c.strokeStyle = `rgba(${rgb},0.4)`;
         c.lineWidth = 1;
         c.stroke();
-        const m = g.field ? offered({ t: Math.floor(tAt(tip.x) / 1000) * 1000, row: rowOf(pAt(tip.y), g.field.step) }) : null;
-        // The multiple and what a hit there pays at the amount set: the same figure a hit shows.
-        const text = m !== null ? `${fmtMultiple(m)} · ${dollars(g.perDot * m)}` : tAt(tip.x) < first ? "Too soon" : "—";
+        const tn = termsNow();
+        const sec = Math.floor(tAt(tip.x) / 1000) * 1000;
+        const m = tn ? tn.multiple(sec, tn.rowOf(pAt(tip.y))) : null;
+        // The multiple and what a hit there pays at the price set: the same figure a hit shows.
+        const text = m !== null && tn ? `${fmtMultiple(m)} · ${dollars(tn.pays(sec, tn.rowOf(pAt(tip.y)))!)}` : tAt(tip.x) < first ? "Too soon" : "—";
         c.font = `700 12px ${MONO}`;
         const tw = c.measureText(text).width + 14;
         // Beside a mouse; well above a finger, which would cover it.

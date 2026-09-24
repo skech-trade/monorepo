@@ -8,7 +8,8 @@
     "./venue": "./src/venue.ts",
     "./shape": "./src/shape.ts",
     "./dots": "./src/dots.ts",
-    "./ink": "./src/ink.ts"
+    "./ink": "./src/ink.ts",
+    "./odds": "./src/odds.ts"
   },
   "scripts": {
     "test": "bun test"
