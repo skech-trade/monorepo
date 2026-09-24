@@ -26,32 +26,56 @@
 
 /**
  * How hard the game is, from 0 to 100: one number that sets every lever the
- * house has, together. At 0 a point returns 95 cents a dollar and a lucky
- * hit can pay 100x; at 100 it returns 55 cents, nothing pays over 12x, and
- * points so near the price that they are nearly sure are not offered.
+ * house has, together.
  *
- *   rtp             0.95 - 0.40 * d/100   what a point returns on average
- *   maxMultiple     100 * 0.12^(d/100)    the most one hit pays
- *   minMultiple     1.01 + 0.19 * d/100   less than this is not offered
- *   momentumMargin  0.11 + 0.09 * d/100   taken off the side it just moved to
+ *   rtp             0.94 - 0.32 * d/100          what a point returns on average
+ *   maxMultiple     40 * 0.14^(d/100), at least 2x   the most one hit pays
+ *   minMultiple     1.01, rising to 1.10 above 50    less than this is not offered
+ *   momentumMargin  0.11 at every level          taken off the side it just moved to
  *
- * The top payout matters as much as the return: a lucky 50x is what turns a
- * losing session around, so capping it is what makes coming out ahead rare.
- * Backtested on 17-23 September (`check-ink.ts`, DIFFICULTY=): see
- * docs/INK.md for what each level comes to.
+ * The top payout is the trade: a low cap makes wins small and frequent but
+ * offers only points near the price, a high one lets a line go anywhere and
+ * win rarely. At 50 a point returns 78 cents and pays up to 15x: on 17-23
+ * September the house kept about a quarter of what was drawn, a quarter of
+ * lines won, and about a third of the rows near the price were on offer
+ * (`check-ink.ts`, DIFFICULTY=; docs/INK.md has every level).
  */
 export function difficulty(d: number) {
   const k = Math.min(100, Math.max(0, d)) / 100;
   return {
     difficulty: Math.round(k * 100),
-    rtp: Math.round((0.95 - 0.4 * k) * 1000) / 1000,
-    maxMultiple: Math.round(100 * 0.12 ** k),
-    minMultiple: Math.round((1.01 + 0.19 * k) * 100) / 100,
-    momentumMargin: Math.round((0.11 + 0.09 * k) * 1000) / 1000,
+    rtp: Math.round((0.94 - 0.32 * k) * 1000) / 1000,
+    maxMultiple: Math.max(2, Math.round(40 * 0.14 ** k)),
+    minMultiple: Math.round((1.01 + 0.18 * Math.max(0, k - 0.5)) * 100) / 100,
+    // Held where it stopped a bot drawing with the last three seconds' move: raised with the rest, it took a fine pen's far points down to half a dollar back.
+    momentumMargin: 0.11,
   };
 }
-/** Where the game is set unless told otherwise: about three times harder to come out ahead than it was at 0.85 and 50x. */
-export const DIFFICULTY = 60;
+/** Where the game is set unless told otherwise: the house keeps about a quarter, with room to draw. */
+export const DIFFICULTY = 50;
+
+/*
+  Calibration. The chance measured on the paths is right on average but not
+  everywhere: on days the paths never saw, points priced at a given chance
+  were hit more or less often than that, by band of chance and more so for
+  thin rows. And the house offers only points whose chance clears a bar, so
+  where the measure runs high, those are the points it offers. Each pen's
+  chance can be scaled by what was really hit in its band (`check-ink.ts`
+  prints the factors). Empty: factors fitted on 17-20 September did not hold
+  on 21-23, where near-price points ran the other way, so what corrects the
+  measure is paths from recent days, not a fixed table.
+*/
+/** The top of each band of chance. */
+export const CAL_EDGES = [0.03, 0.06, 0.1, 0.16, 0.25, 0.4, 0.6, 0.8];
+/** By pen, as its row's share of a step: hit / priced in each band, and the last above the top edge. */
+export const CALIBRATION: Record<string, number[]> = {};
+/** A measured chance, corrected for the pen's rows: unchanged for a row no pen draws. */
+export function calibrate(p: number, cell: number): number {
+  const f = CALIBRATION[String(cell)];
+  if (!f || !(p > 0)) return p;
+  const band = CAL_EDGES.findIndex((e) => p < e);
+  return Math.min(0.999, p * f[band < 0 ? CAL_EDGES.length : band]);
+}
 
 export const RULES = {
   /** What a point returns on average, the most and least one pays, and the momentum margin: all set by `difficulty`. */
@@ -342,7 +366,7 @@ export const rowOf = (price: number, step: number) => Math.floor(price / step);
  */
 export type Field = { openAt: number; step: number; row0: number; rows: number; seconds: number; chance: Float32Array; rtp: number; f: Features; /** How many paths the chances rest on, as an effective count. */ paths: number };
 
-export function field(lib: Library, f: Features, openAt: number, step: number): Field {
+export function field(lib: Library, f: Features, openAt: number, step: number, cell = 0): Field {
   const seconds = lib.seconds - 1;
   // Far enough to hold any move the paths make, and never more than 150 rows either way.
   const reach = Math.min(150, Math.ceil((8 * f.sigma * f.price * Math.sqrt(seconds)) / step));
@@ -385,7 +409,7 @@ export function field(lib: Library, f: Features, openAt: number, step: number): 
   const chance = new Float32Array(seconds * rows);
   if (all > 0 && paths > 0) for (let x = 0; x < acc.length; x++) {
     const p = acc[x] / all;
-    chance[x] = p > 0 ? p + (1 - p) / paths : 0;
+    chance[x] = p > 0 ? calibrate(p + (1 - p) / paths, cell) : 0;
   }
   return { openAt, step, row0, rows, seconds, chance, rtp: rtpFor(f), f, paths };
 }

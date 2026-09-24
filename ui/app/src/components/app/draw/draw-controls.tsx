@@ -25,12 +25,15 @@ export function AmountWheel({
   format = (n: number) => `$${n}`,
   label = "How much you put in",
   inPopover = true,
+  values,
 }: {
   value: number;
   onChange: (value: number) => void;
   min?: number;
   max?: number;
   step?: number;
+  /** The stops themselves, when an even step will not do (cents at the bottom, dollars at the top). Overrides min, max and step. */
+  values?: number[];
   /** Show the bottom stop as "Off" rather than "$0". */
   offAtZero?: boolean;
   /**
@@ -47,8 +50,8 @@ export function AmountWheel({
   label?: string;
 }) {
   const AMOUNTS = useMemo(
-    () => Array.from({ length: Math.floor((max - min) / step) + 1 }, (_, i) => min + i * step),
-    [min, max, step],
+    () => values ?? Array.from({ length: Math.floor((max - min) / step) + 1 }, (_, i) => min + i * step),
+    [values, min, max, step],
   );
   const wheel = useRef<HTMLDivElement>(null);
   const frame = useRef(0);
@@ -94,7 +97,10 @@ export function AmountWheel({
     setEditing(false);
     const typed = Number.parseFloat(draft);
     if (!Number.isFinite(typed)) return;
-    const clamped = Math.min(max, Math.max(min, Math.round(typed / step) * step));
+    // The nearest stop, when the stops are given; else the step.
+    const clamped = values
+      ? values.reduce((best, v) => (Math.abs(v - typed) < Math.abs(best - typed) ? v : best), values[0])
+      : Math.min(max, Math.max(min, Math.round(typed / step) * step));
     onChange(clamped);
     scrollToIndex(AMOUNTS.indexOf(clamped));
   };

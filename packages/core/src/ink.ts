@@ -23,7 +23,7 @@
  * against it: the map said 10x and a hit paid 17 cents.
  */
 
-import { type Bar, chanceOf, type Features, features, type Field, type Library, LIB_SCALE, multipleFor, openFor, RULES, rtpAt, SWING_SCALE, weightsFor } from "./dots";
+import { type Bar, calibrate, chanceOf, type Features, features, type Field, type Library, LIB_SCALE, multipleFor, openFor, RULES, rtpAt, SWING_SCALE, weightsFor } from "./dots";
 
 export { RULES } from "./dots";
 
@@ -46,6 +46,8 @@ export type CellStatus = "live" | "hit" | "miss";
 export type Cell = { t: number; lo: number; hi: number; area: number };
 export type BetCell = Cell & {
   multiple: number;
+  /** The chance it was priced on, so what was paid can be checked against what happened. */
+  chance?: number;
   status: CellStatus;
   paid?: number;
   /** For a hit: the prices that second traded across, so the picture shows where the price met the ink. */
@@ -151,7 +153,7 @@ export function cellsOf(st: Stroke, openAt: number, step: number, cell: number =
  * scaled to now; and the same correction for how thin the estimate is, so a
  * rare cell is not overpaid.
  */
-export function chances(lib: Library, cells: Cell[], openAt: number, f: Features): number[] {
+export function chances(lib: Library, cells: Cell[], openAt: number, f: Features, cell = 0): number[] {
   const { w } = weightsFor(lib, f);
   const k = f.sigma / LIB_SCALE;
   // Each cell, as the paths store a move: log from the price, in volatilities, times the scale.
@@ -181,7 +183,7 @@ export function chances(lib: Library, cells: Cell[], openAt: number, f: Features
   return [...hit].map((h) => {
     if (!(all > 0) || !(paths > 0)) return 0;
     const p = h / all;
-    return p > 0 ? p + (1 - p) / paths : 0;
+    return p > 0 ? calibrate(p + (1 - p) / paths, cell) : 0;
   });
 }
 
@@ -189,7 +191,7 @@ export function chances(lib: Library, cells: Cell[], openAt: number, f: Features
 export function quote(lib: Library, st: Stroke, now: number, step: number, f: Features, cell: number = CELL): { cells: Cell[]; multiples: (number | null)[] } {
   const openAt = openFor(now);
   const cells = cellsOf(st, openAt, step, cell);
-  return { cells, multiples: chances(lib, cells, openAt, f).map((p, i) => multipleFor(p, rtpAt(f, (cells[i].lo + cells[i].hi) / 2))) };
+  return { cells, multiples: chances(lib, cells, openAt, f, cell).map((p, i) => multipleFor(p, rtpAt(f, (cells[i].lo + cells[i].hi) / 2))) };
 }
 
 /**
@@ -257,11 +259,11 @@ export function placePoints(points: Cell[], st: Stroke, group: string, perUnit: 
 export function open(bet: InkBet, lib: Library, bars: Bar[]): InkBet {
   const f = features(bars, bet.openAt);
   if (!f) return { ...bet, status: "void", why: "No price to open on." };
-  const ps = chances(lib, bet.drawn, bet.openAt, f);
+  const ps = chances(lib, bet.drawn, bet.openAt, f, bet.cell ?? CELL);
   const cells: BetCell[] = [];
   bet.drawn.forEach((s, i) => {
     const m = multipleFor(ps[i], rtpAt(f, (s.lo + s.hi) / 2));
-    if (m !== null) cells.push({ ...s, multiple: m, status: "live" });
+    if (m !== null) cells.push({ ...s, multiple: m, chance: ps[i], status: "live" });
   });
   if (!cells.length) return { ...bet, status: "void", why: "The price moved, and none of it is in play now." };
   return { ...bet, status: "live", cells };
@@ -278,8 +280,9 @@ export function openOn(bet: InkBet, fl: Field): InkBet | null {
   if (fl.openAt !== bet.openAt || Math.abs(fl.step - size) > size * 1e-9) return null;
   const cells: BetCell[] = [];
   for (const s of bet.drawn) {
-    const m = multipleFor(chanceOf(fl, { t: s.t, row: Math.round(s.lo / size) }), rtpAt(fl.f, (s.lo + s.hi) / 2));
-    if (m !== null) cells.push({ ...s, multiple: m, status: "live" });
+    const p = chanceOf(fl, { t: s.t, row: Math.round(s.lo / size) });
+    const m = multipleFor(p, rtpAt(fl.f, (s.lo + s.hi) / 2));
+    if (m !== null) cells.push({ ...s, multiple: m, chance: p, status: "live" });
   }
   if (!cells.length) return { ...bet, status: "void", why: "The price moved, and none of it is in play now." };
   return { ...bet, status: "live", cells };
@@ -291,14 +294,25 @@ export function openOn(bet: InkBet, fl: Field): InkBet | null {
  * it does; the rest of that second's ink is missed once the second is over
  * (`closed`, after a margin for trades that arrive late).
  */
-export function judge(bet: InkBet, bar: Bar, closed: boolean): InkBet {
+export function judge(bet: InkBet, bar: Bar, closed: boolean, prevClose?: number): InkBet {
   if (bet.status !== "live") return bet;
+  /*
+    What the price covered in the second: from where the second before it
+    closed to its own high and low. A jump from one trade to the next still
+    crosses every price between them, as the chart's line does, and the paths
+    the chances are measured on count it so: judged on the second's own
+    trades only, a row in the gap was never hit though it was priced as if
+    it could be, and the near rows a fine pen draws in paid back 0.67 a
+    dollar where a wide pen's paid 0.77.
+  */
+  const lo = prevClose === undefined ? bar.l : Math.min(bar.l, prevClose);
+  const hi = prevClose === undefined ? bar.h : Math.max(bar.h, prevClose);
   let changed = false;
   const cells = bet.cells.map((s) => {
     if (s.status !== "live") return s;
-    if (s.t === bar.t && bar.h >= s.lo && bar.l < s.hi) {
+    if (s.t === bar.t && hi >= s.lo && lo < s.hi) {
       changed = true;
-      return { ...s, status: "hit" as const, paid: payoutOf(bet.perUnit * s.area, s.multiple), range: [bar.l, bar.h] as [number, number] };
+      return { ...s, status: "hit" as const, paid: payoutOf(bet.perUnit * s.area, s.multiple), range: [lo, hi] as [number, number] };
     }
     if (closed && s.t <= bar.t) {
       changed = true;

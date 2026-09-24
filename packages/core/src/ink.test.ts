@@ -116,7 +116,7 @@ test("the preview read off the map pays what the drawing is priced at, for every
   for (const cell of Object.values(PEN_CELLS)) {
     const st = line(at + 3000, f.price + unit, [[0, 0], [4000, 2 * unit], [9000, -unit], [14000, 3 * unit]], 150, (cell * step) / 2);
     const exact = quote(real, st, now, step, f, cell);
-    const fast = quoteOn(field(real, f, at, step * cell), st, now, step, cell);
+    const fast = quoteOn(field(real, f, at, step * cell, cell), st, now, step, cell);
     expect(fast.cells).toEqual(exact.cells);
     const both = exact.multiples.map((m, i) => [m, fast.multiples[i]] as const).filter(([a, b]) => a !== null && b !== null);
     expect(both.length).toBeGreaterThan(exact.cells.length / 2);
@@ -135,10 +135,22 @@ test("a drawing priced off its second's map is priced exactly as off the paths",
     const st = line(at + 3000, f.price + unit, [[0, 0], [4000, 2 * unit], [9000, -unit], [14000, 3 * unit]], 150, (cell * step) / 2);
     const bet = place(st, 0.25, step, at - 400, "same", cell)!;
     const exact = open(bet, real, bars);
-    const fast = openOn(bet, field(real, f, at, step * cell))!;
-    expect(fast.cells).toEqual(exact.cells);
+    const fast = openOn(bet, field(real, f, at, step * cell, cell))!;
+    expect(fast.cells.map(({ chance: _, ...c }) => c)).toEqual(exact.cells.map(({ chance: _, ...c }) => c));
     // A map of another second, or of another pen, is not used.
     expect(openOn(bet, field(real, f, at + 1000, step * cell))).toBeNull();
     expect(openOn(bet, field(real, f, at, step * cell * 2))).toBeNull();
   }
+});
+
+test("a jump from one second's last trade across a row to the next second's trades crosses it", () => {
+  const row = { t: 5000, lo: 100, hi: 100.5, area: 1, multiple: 4, status: "live" as const };
+  const bet = { id: "gap", placedAt: 0, openAt: 3000, perUnit: 0.25, step: 1, cell: 0.5, stroke: line(0, 100, [[0, 0]]), drawn: [row], cells: [row], status: "live" as const };
+  // The second before closed under the row, and every trade of this one was above it: the price went through it.
+  const bar = { t: 5000, h: 101.5, l: 100.6, c: 101.5 };
+  expect(judge(bet, bar, true).cells[0].status).toBe("miss");
+  const hit = judge(bet, bar, true, 99.9);
+  expect(hit.cells[0].status).toBe("hit");
+  expect(hit.cells[0].paid).toBe(1);
+  expect(hit.cells[0].range).toEqual([99.9, 101.5]);
 });

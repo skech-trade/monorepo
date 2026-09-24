@@ -15,7 +15,7 @@ const step = stepFor(f.sigma, f.price);
 const unit = f.sigma * f.price;
 const now = at - 400;
 const line = (p0: number, pts: [number, number][]): Stroke => ({ t0: at + 3000, p0, pts: pts.map(([t, p]) => ({ t, p })), rt: 100, rp: step / 3 });
-const mapFor = (pen: keyof typeof PEN_CELLS) => field(real, f, at, step * PEN_CELLS[pen]);
+const mapFor = (pen: keyof typeof PEN_CELLS) => field(real, f, at, step * PEN_CELLS[pen], PEN_CELLS[pen]);
 
 test("a line costs the point times its points in play, and a hit pays the point times its multiple", () => {
   const t = terms(mapFor("medium"), now, step, "medium", 0.25);
@@ -49,7 +49,10 @@ test("what the terms show is what a drawing is charged and priced at", () => {
     // And once placed and opened on its second's map, the same again.
     const bet = openOn(place(st, 0.25, step, now, "x", PEN_CELLS[pen])!, mapFor(pen))!;
     expect(bet.cells.map((c) => c.multiple)).toEqual(shown.inPlay.map((p) => p.multiple!));
+    const opened = open(place(st, 0.25, step, now, "y", PEN_CELLS[pen])!, real, bars);
     expect(cost(bet) - (cost(bet) - costOf(0.25, bet.cells.length))).toBe(shown.cost);
-    expect(open(place(st, 0.25, step, now, "y", PEN_CELLS[pen])!, real, bars).cells).toEqual(bet.cells);
+    // Priced on the paths directly: the same multiples, and the same chance to the map's float precision.
+    expect(opened.cells.map(({ chance: _, ...c }) => c)).toEqual(bet.cells.map(({ chance: _, ...c }) => c));
+    opened.cells.forEach((c, i) => expect(c.chance!).toBeCloseTo(bet.cells[i].chance!, 6));
   }
 });

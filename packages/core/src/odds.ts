@@ -35,8 +35,15 @@ import { cellsOf, type Cell, costOf, PEN_CELLS, type Pen, payoutOf, type Stroke 
 
 export { PEN_CELLS, type Pen } from "./ink";
 
-/** What a point costs, in cents: from 5¢ to $5, in steps of 5¢. */
-export const POINT_CENTS = { min: 5, max: 500, step: 5, default: 25 } as const;
+/** What a point can cost, in dollars: 10¢ to $1 in dimes, to $10 in halves, to $100 in fives. $1 unless set. */
+export const POINT_PRICES = {
+  values: [
+    ...Array.from({ length: 10 }, (_, i) => Math.round((i + 1) * 10) / 100),
+    ...Array.from({ length: 18 }, (_, i) => 1.5 + i * 0.5),
+    ...Array.from({ length: 18 }, (_, i) => 15 + i * 5),
+  ],
+  default: 1,
+} as const;
 
 export { costOf, payoutOf } from "./ink";
 

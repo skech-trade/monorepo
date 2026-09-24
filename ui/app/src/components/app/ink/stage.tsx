@@ -395,8 +395,14 @@ export function Stage({
     const mask = document.createElement("canvas");
     /* The mask again, blurred at its own small size: blurring the full screen every frame stalled the page. */
     const soft = document.createElement("canvas");
-    const soften = (cells: Cell[], bands: [number, number][], keep: number) => {
-      if (!cells.length && !bands.length) return;
+    /**
+     * Fade the ink everywhere but `only`: the points in play. Ink no bet was
+     * placed on (too soon, too sure, too far, or never covered while the
+     * pen was down) is faint, so solid ink always means money on it. Each
+     * point is kept half a row beyond its own, where the pen's ink around it
+     * spills over.
+     */
+    const soften = (only: Cell[], keep: number) => {
       // Sized once per screen size: setting a canvas's size, even to the same, throws its pixels away and allocates them again.
       if (mask.width !== Math.ceil(w / MASK) || mask.height !== Math.ceil(h / MASK)) {
         mask.width = Math.ceil(w / MASK);
@@ -405,14 +411,17 @@ export function Stage({
         soft.height = mask.height;
       }
       const m = mask.getContext("2d")!;
-      m.clearRect(0, 0, mask.width, mask.height);
+      m.globalCompositeOperation = "source-over";
       m.fillStyle = "#000";
+      m.fillRect(0, 0, mask.width, mask.height);
+      m.globalCompositeOperation = "destination-out";
       const wide = pxMs() * 1000;
-      for (const q of cells) {
+      for (const q of only) {
         const top = y(q.hi);
-        m.fillRect(x(q.t) / MASK, top / MASK, wide / MASK, (y(q.lo) - top) / MASK);
+        const tall = y(q.lo) - top;
+        m.fillRect(x(q.t) / MASK, (top - tall / 2) / MASK, wide / MASK, (tall * 2) / MASK);
       }
-      for (const [x0, x1] of bands) m.fillRect(x0 / MASK, 0, (x1 - x0) / MASK, mask.height);
+      m.globalCompositeOperation = "source-over";
       const sb = soft.getContext("2d")!;
       sb.clearRect(0, 0, soft.width, soft.height);
       sb.filter = "blur(1.5px)";
@@ -481,10 +490,10 @@ export function Stage({
         else is drawn. Ink is solid while it is in play; ink that is not
         (too soon, or too far to measure) fades out softly.
       */
-      const faint: Cell[] = [];
-      const bands: [number, number][] = [];
       // A line is placed as it is drawn, a few points at a time: each of those bets shares the line, and it is drawn once.
       const drawnOnce = new Set<string>(pen ? [pen.drawing] : []);
+      const inPlay: Cell[] = [];
+      let inked = false;
       for (const bet of g.bets) {
         const st = bet.stroke;
         if (bet.status === "void") continue;
@@ -492,18 +501,17 @@ export function Stage({
         const line = bet.group ?? bet.id;
         if (!drawnOnce.has(line)) ink(st, solid);
         drawnOnce.add(line);
-        if (bet.status !== "opening") {
-          const inPlay = new Set(bet.cells.map((q) => `${q.t}:${q.lo}`));
-          for (const q of bet.drawn) if (!inPlay.has(`${q.t}:${q.lo}`)) faint.push(q);
-        }
+        inked = true;
+        // Placed and waiting to open, all of it; once open, what is on offer.
+        inPlay.push(...(bet.status === "opening" ? bet.drawn : bet.cells));
       }
-      // The stroke being drawn, the same way; and anything of it in the second after now, which no drawing can be.
+      // The stroke being drawn, the same way: solid only where its points are in play.
       if (pen) {
         ink(pen.stroke, solid);
-        if (pen.quote) faint.push(...pen.quote.out);
-        bands.push([nx, x(first)]);
+        inked = true;
+        if (pen.quote) inPlay.push(...pen.quote.inPlay);
       }
-      soften(faint, bands, 0.2);
+      if (inked) soften(inPlay, 0.2);
       // Ink the price has passed is spent: it fades away behind the price line, over about two seconds.
       c.save();
       c.globalCompositeOperation = "destination-out";
@@ -658,6 +666,28 @@ export function Stage({
       c.fill();
       c.fillStyle = rgba(pal.bg);
       c.fillText(label, nx - 10 - lw / 2, py + 0.5);
+
+      /*
+        Where betting starts: a drawing opens on the next second, and the one
+        after that is never part of it. Ink before this line is not a bet,
+        and is drawn faint.
+      */
+      {
+        const fx0 = x(first);
+        c.save();
+        c.setLineDash([3, 5]);
+        c.strokeStyle = `rgba(${rgb},0.18)`;
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(Math.round(fx0) + 0.5, 0);
+        c.lineTo(Math.round(fx0) + 0.5, h - 24);
+        c.stroke();
+        c.restore();
+        c.font = `500 10px ${MONO}`;
+        c.textAlign = "center";
+        c.fillStyle = `rgba(${rgb},0.32)`;
+        if (fx0 - nx > 28) c.fillText("too soon", (nx + fx0) / 2, h - 10);
+      }
 
       // Seconds ahead, along the foot.
       c.font = `500 10px ${MONO}`;
