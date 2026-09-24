@@ -27,7 +27,7 @@ Lighter trading code is untouched and unused by it.
   one point pays for that point.
 - **What it pays depends on where it is.** Ink near the price is likely to
   be hit and pays a little (from 1.01×); ink far from it, in price or time,
-  pays a lot (up to 100×). The map on screen shows it: a soft glow where the
+  pays a lot (up to 50×). The map on screen shows it: a soft glow where the
   price will likely go, fading outward, with the multiples written on it.
 - **Timing.** A drawing opens on the next whole second and is priced there.
   The second after that is never part of it, so nobody can react faster than
@@ -37,7 +37,7 @@ Lighter trading code is untouched and unused by it.
 ## How a chance is measured
 
 Underneath, ink is measured on cells one second wide and as tall as the pen
-is wide: 0.5, 1 or 1.5 price steps (a step is about 1.2 of the market's
+is wide: 0.4, 0.7 or 1 price step (a step is about 1.2 of the market's
 typical one-second moves). Each
 cell's chance is the share of 16,000 real 30-second stretches of Binance
 BTCUSDT (1–16 September 2026) that passed through it, taken from moments
@@ -50,7 +50,7 @@ like this one:
 - with each path's in-second swings scaled to how far the price is swinging
   inside a second now.
 
-A cell pays `rtp / chance`, with `rtp` 0.94, less on the side the price has
+A cell pays `rtp / chance`, with `rtp` 0.85, less on the side the price has
 just moved toward (0.11 less per unit of momentum, at most 0.22). The chance
 gets a small correction for how many paths it rests on, because paying 1/p
 on a noisy p overpays on average.
@@ -58,42 +58,52 @@ on a noisy p overpays on average.
 ## What the week it never saw says
 
 Checked with `packages/core/scripts/check-ink.ts` on 17–23 September, with
-the engine the page runs, strokes of every kind and bots:
+the engine the page runs, each pen drawn as the page draws it, strokes of
+every kind and bots. What they got back per $1 of ink:
 
-| Stroke | Paid back per $1 |
-| --- | --- |
-| wander from near the price | 0.94 |
-| a flick, anywhere | 0.95 |
-| thin level line | 0.91 |
-| thick blob near the price | 0.92 |
-| wander, far out | 0.98 |
-| bot, drawing the way the last 3 s moved | 0.99 |
-| bot, chasing a jump | 0.91 |
-| bot, drawing against the last 3 s | 0.89 |
+| Stroke | Fine | Medium | Wide |
+| --- | --- | --- | --- |
+| wander from near the price | 0.76 | 0.77 | 0.78 |
+| a flick, anywhere | 0.75 | 0.75 | 0.79 |
+| thin level line | 0.76 | 0.77 | 0.78 |
+| thick blob near the price | 0.69 | 0.74 | 0.77 |
+| wander, far out | 0.73 | 0.74 | 0.76 |
+| bot, drawing the way the last 3 s moved | 0.84 | 0.84 | 0.84 |
+| bot, chasing a jump | 0.74 | 0.75 | 0.77 |
+| bot, drawing against the last 3 s | 0.75 | 0.75 | 0.75 |
+| **by day, worst for the house** | **0.87** | **0.87** | **0.88** |
+| by day, best for the house | 0.62 | 0.62 | 0.63 |
 
-That table is for pens of every width on the finest cells. Each pen, drawn
-as the page draws it (ink as wide as its cells), on the same week:
+So the house keeps about 23% on an ordinary day and at least 12% on its
+worst: the margin to pay out of when a crash pays players more than it takes.
+A player can still come out ahead, which keeps it a game: over 50 drawings,
+16–31% of sessions did; over 200, 0–24%, depending on how they draw (the
+check prints it by stroke).
 
-| Pen | Cell | Cell hit | Worst stroke | Best stroke | Best day |
-| --- | --- | --- | --- | --- | --- |
-| Fine | 0.5 step | 9% | 0.87 | 0.95 | 0.99 |
-| Medium | 1 step | 14% | 0.88 | 0.97 | 1.00 |
-| Wide | 1.5 steps | 19% | 0.86 | 0.94 | 0.96 |
+Why the old margin lost money: `rtp` was 0.94, and live play judged a trade
+exactly on the line between two cells as hitting both. Bitcoin trades on
+round numbers and the lines are round numbers, so ink near the price was
+hit more often than the paths (which never land exactly on a line) had
+priced it, worth about 8% of what was paid. A price on a line is now in the
+cell above only, in the pricing, the map and the judging alike.
 
-No pen and no stroke got back more than it cost. `PEN=fine|medium|wide` on
-the check draws with that pen.
+Before real money: retrain on recent days every day, watch live hit rates
+against priced ones, pause when they drift, and get legal advice (this is a
+fixed-odds bet on a price).
 
-By day it ran 0.80 to 1.14: the market changes from day to day, and one day
-of seven paid players more than it took. Fine for practice money. Before real
-money: retrain on recent days every day, watch live hit rates against priced
-ones, pause when they drift, and get legal advice (this is a fixed-odds bet
-on a price).
+Other things the checks caught, all fixed: one-second volatility mispriced
+quiet markets; widening the path match after jumps also blurred momentum (a
+jump-chasing bot got 1.23); and one bet per second paid a whole tall stroke
+when the price touched any part of it.
 
-Four things the checks caught, all fixed: a cell on the line between two
-rows was counted in both; one-second volatility mispriced quiet markets;
-widening the path match after jumps also blurred momentum (a jump-chasing bot
-got 1.23); and one bet per second paid a whole tall stroke when the price
-touched any part of it.
+## Keeping it smooth
+
+Measuring the map on 16,000 paths takes 50–150 ms. It runs in a worker
+(`field.worker.ts`), once a second, for the second that has just ended; a
+drawing opening on that second is priced straight off it (`openOn`, the same
+multiples as pricing it on the paths, which a test holds it to), and the
+stroke being drawn is quoted off it too (`quoteOn`). The page re-renders ten
+times a second, not every frame; the chart reads the trades directly.
 
 ## Rebuilding and checking
 

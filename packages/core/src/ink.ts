@@ -20,7 +20,7 @@
  * Ink too unlikely to measure is not in play: it costs nothing.
  */
 
-import { type Bar, type Features, features, type Library, LIB_SCALE, multipleFor, openFor, RULES, rtpAt, SWING_SCALE, weightsFor } from "./dots";
+import { type Bar, chanceOf, type Features, features, type Field, type Library, LIB_SCALE, multipleFor, openFor, RULES, rtpAt, SWING_SCALE, weightsFor } from "./dots";
 
 export { RULES } from "./dots";
 
@@ -35,7 +35,7 @@ export type Stroke = { t0: number; p0: number; pts: { t: number; p: number }[]; 
  */
 export const CELL = 0.5;
 /** Each pen's cell, in price steps: its width. */
-export const PEN_CELLS = { fine: 0.5, medium: 1, wide: 1.5 } as const;
+export const PEN_CELLS = { fine: 0.4, medium: 0.7, wide: 1 } as const;
 export type Pen = keyof typeof PEN_CELLS;
 
 export type CellStatus = "live" | "hit" | "miss";
@@ -172,7 +172,8 @@ export function chances(lib: Library, cells: Cell[], openAt: number, f: Features
       const c = lib.close[base + j];
       const hi = Math.max(prev, c) + lib.up[base + j] * swing;
       const lo = Math.min(prev, c) - lib.down[base + j] * swing;
-      if (hi >= at[s].lo && lo <= at[s].hi) hit[s] += wi;
+      // A price exactly on a cell's top edge is in the cell above, as in `dots.ts`: counted in both, prices on round numbers hit twice.
+      if (hi >= at[s].lo && lo < at[s].hi) hit[s] += wi;
     }
   }
   const paths = sq > 0 ? (all * all) / sq : 0;
@@ -188,6 +189,30 @@ export function quote(lib: Library, st: Stroke, now: number, step: number, f: Fe
   const openAt = openFor(now);
   const cells = cellsOf(st, openAt, step, cell);
   return { cells, multiples: chances(lib, cells, openAt, f).map((p, i) => multipleFor(p, rtpAt(f, (cells[i].lo + cells[i].hi) / 2))) };
+}
+
+/**
+ * The same, read off a field instead of the paths: for the stroke being
+ * drawn, many times a second, where running every path each time stalls the
+ * page. The field must be mapped in this pen's cells (`step * cell` tall),
+ * so each cell is one of its rows. A field a second old is read as if it
+ * opened now, each cell as far ahead of it as the cell is ahead of this
+ * drawing's second. What a drawing pays is still set by `open`, on its own
+ * second.
+ */
+export function quoteOn(fl: Field, st: Stroke, now: number, step: number, cell: number = CELL): { cells: Cell[]; multiples: (number | null)[] } {
+  const openAt = openFor(now);
+  const size = step * cell;
+  const cells = cellsOf(st, openAt, step, cell);
+  const same = Math.abs(fl.step - size) < size * 1e-9;
+  return {
+    cells,
+    multiples: cells.map((c) => {
+      if (!same) return null;
+      const row = Math.round(c.lo / size);
+      return multipleFor(chanceOf(fl, { t: fl.openAt + (c.t - openAt), row }), rtpAt(fl.f, (c.lo + c.hi) / 2));
+    }),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -230,6 +255,24 @@ export function open(bet: InkBet, lib: Library, bars: Bar[]): InkBet {
 }
 
 /**
+ * Price a drawing off the map of its own second, instead of the paths: the
+ * same chances, measured in a worker, so opening a drawing never holds the
+ * page up. Only a map of the second the drawing opens on, in its pen's
+ * cells, will do; anything else is null, and `open` prices it instead.
+ */
+export function openOn(bet: InkBet, fl: Field): InkBet | null {
+  const size = bet.step * (bet.cell ?? CELL);
+  if (fl.openAt !== bet.openAt || Math.abs(fl.step - size) > size * 1e-9) return null;
+  const cells: BetCell[] = [];
+  for (const s of bet.drawn) {
+    const m = multipleFor(chanceOf(fl, { t: s.t, row: Math.round(s.lo / size) }), rtpAt(fl.f, (s.lo + s.hi) / 2));
+    if (m !== null) cells.push({ ...s, multiple: m, status: "live" });
+  }
+  if (!cells.length) return { ...bet, status: "void", why: "The price moved, and none of it is in play now." };
+  return { ...bet, status: "live", cells };
+}
+
+/**
  * Judge a live drawing on one second's bar, as it stands: the ink in that
  * second is hit where the bar's range reaches it, cell by cell, the moment
  * it does; the rest of that second's ink is missed once the second is over
@@ -240,7 +283,7 @@ export function judge(bet: InkBet, bar: Bar, closed: boolean): InkBet {
   let changed = false;
   const cells = bet.cells.map((s) => {
     if (s.status !== "live") return s;
-    if (s.t === bar.t && bar.h >= s.lo && bar.l <= s.hi) {
+    if (s.t === bar.t && bar.h >= s.lo && bar.l < s.hi) {
       changed = true;
       return { ...s, status: "hit" as const, paid: Math.floor(bet.perUnit * s.area * s.multiple * 100) / 100, range: [bar.l, bar.h] as [number, number] };
     }

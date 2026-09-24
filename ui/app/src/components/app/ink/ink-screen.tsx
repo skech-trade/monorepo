@@ -2,8 +2,8 @@
 
 import { CircleHelpIcon, HistoryIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DOT_BETS, type Features, features, field, type Library, openFor, readLibrary, RULES, START_BALANCE, stepFor } from "@skech/core/dots";
-import { type Cell, cost, decided, hitShare, judge, open, PEN_CELLS, place, quote, refund, type Stroke, won } from "@skech/core/ink";
+import { DOT_BETS, features, type Field, type Library, readLibrary, RULES, START_BALANCE, stepFor } from "@skech/core/dots";
+import { type Cell, cost, decided, hitShare, judge, open, openOn, PEN_CELLS, place, quoteOn, refund, type Stroke, won } from "@skech/core/ink";
 import { MarketHeader } from "@/components/app/market-header";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
@@ -35,6 +35,8 @@ const slow = (what: string, since: number, detail: string) => {
 
 /** A drawing opens once its second has closed and this much longer, for trades that arrive late. */
 const OPEN_AFTER_MS = 350;
+/** By then a drawing whose second has no map yet (the pen changed, or the worker is slow) is priced on the paths, here. */
+const OPEN_BY_MS = 900;
 /** A second's dots are missed only this long after it ends, for the same reason. */
 const CLOSE_AFTER_MS = 600;
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -81,14 +83,24 @@ export function InkScreen() {
   const state = usePractice();
   /* The paths every chance is measured on: a file of their own, fetched once. Nothing is priced until it is in. */
   const [lib, setLib] = useState<Library | null>(null);
+  /* The map is measured in a worker of its own, on its own copy of the paths: see `field.worker.ts`. */
+  const worker = useRef<Worker | null>(null);
   useEffect(() => {
     let live = true;
+    const w = new Worker(new URL("./field.worker.ts", import.meta.url), { type: "module" });
+    worker.current = w;
     void fetch("/dots-lib.bin")
       .then((r) => r.arrayBuffer())
-      .then((b) => live && setLib(readLibrary(new Uint8Array(b))))
+      .then((b) => {
+        if (!live) return;
+        w.postMessage({ kind: "lib", bytes: b.slice(0) });
+        setLib(readLibrary(new Uint8Array(b)));
+      })
       .catch(() => undefined);
     return () => {
       live = false;
+      w.terminate();
+      worker.current = null;
     };
   }, []);
 
@@ -103,8 +115,6 @@ export function InkScreen() {
   }, [result]);
   const [fresh, setFresh] = useState(false);
   const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, perDot: state.perDot, cell: PEN_CELLS[state.brush], bets: [], quote: null, fx: [], hint: !state.taught, dark: false });
-  /** The market as the last quarter-second read it, for pricing a stroke while it is drawn. */
-  const market = useRef<Features | null>(null);
 
   // For tests and debugging in development: the live game, from the console.
   useEffect(() => {
@@ -125,6 +135,19 @@ export function InkScreen() {
   */
   const connected = feed.connected && lib !== null;
   useEffect(() => {
+    /* One map asked for at a time; a new one once a second, or at once when the pen or the step changes. */
+    let asked = "";
+    let busy = 0;
+    let id = 0;
+    const w = worker.current;
+    const onMap = (e: MessageEvent<{ id: number; field: Field }>) => {
+      busy = 0;
+      const g = game.current;
+      // A map for a pen no longer in hand is no use; the next tick asks again.
+      if (Math.abs(e.data.field.step - g.step * g.cell) > 1e-9) return;
+      g.field = e.data.field;
+    };
+    w?.addEventListener("message", onMap);
     const tick = () => {
       const g = game.current;
       g.dark = document.documentElement.classList.contains("dark");
@@ -137,10 +160,15 @@ export function InkScreen() {
         g.field = null;
         return;
       }
-      const at = openFor(nowMs);
+      /*
+        The map is of the last second that is over, with the margin for late
+        trades: the second the drawings due now open on, so they are priced
+        straight off it. What is being drawn is quoted on it too, a second
+        behind at most.
+      */
+      const at = Math.floor((nowMs - OPEN_AFTER_MS) / 1000) * 1000;
       const f = features(g.bars, at);
       if (!f) return;
-      market.current = f;
       /*
         The price step follows the market, once it has moved well off the
         old one so it does not flicker. Drawings already placed keep their
@@ -150,20 +178,26 @@ export function InkScreen() {
       */
       const want = stepFor(f.sigma, f.price);
       if (g.field === null || Math.abs(Math.log(want / g.step)) > Math.log(1.6)) g.step = want;
-      const t0 = performance.now();
       // Mapped in the pen's own cells, so the multiples shown are what this pen's ink pays.
-      g.field = field(lib, f, at, g.step * g.cell);
-      slow("field", t0, `rows ${g.field.rows} step ${g.step}`);
+      const size = g.step * g.cell;
+      const key = `${at}:${size}`;
+      // An answer that never came (a worker that died, say) stops holding the next one up after two seconds.
+      if (busy && performance.now() - busy > 2000) busy = 0;
+      if (key !== asked && !busy && w) {
+        asked = key;
+        busy = performance.now();
+        w.postMessage({ kind: "field", id: ++id, f, at, step: size });
+      }
     };
     tick();
-    const timer = setInterval(tick, 250);
-    // What the stroke being drawn would cost and pay, second by second, on the market as it stands.
+    // Often, so a second's map is asked for soon after the second is over: the tick itself is a fraction of a millisecond.
+    const timer = setInterval(tick, 100);
+    // What the stroke being drawn would cost and pay, read off the map: cheap enough for every move of the pen.
     game.current.quote = (st: Stroke) => {
       const g = game.current;
-      const f = market.current;
-      if (!lib || !f) return null;
+      if (!g.field) return null;
       const t0 = performance.now();
-      const q = quote(lib, st, Date.now() + g.skew, g.step, f, g.cell);
+      const q = quoteOn(g.field, st, Date.now() + g.skew, g.step, g.cell);
       slow("quote", t0, `cells ${q.cells.length} pts ${st.pts.length} rt ${Math.round(st.rt)} rp ${st.rp.toFixed(2)} step ${g.step}`);
       let spend = 0;
       let low = Number.POSITIVE_INFINITY;
@@ -180,7 +214,10 @@ export function InkScreen() {
       });
       return { cost: cents(spend), low: Number.isFinite(low) ? low : 0, high, inPlay, out };
     };
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      w?.removeEventListener("message", onMap);
+    };
   }, [connected, lib]);
 
   /*
@@ -215,7 +252,13 @@ export function InkScreen() {
     for (let i = 0; i < g.bets.length; i++) {
       let bet = g.bets[i];
       if (bet.status === "opening" && nowMs >= bet.openAt + OPEN_AFTER_MS) {
-        bet = open(bet, lib, bars);
+        // Off its second's map when that is in; on the paths, here, if it is not by the time it has to be.
+        const quick = g.field ? openOn(bet, g.field) : null;
+        if (!quick && nowMs < bet.openAt + OPEN_BY_MS) {
+          g.bets[i] = bet;
+          continue;
+        }
+        bet = quick ?? open(bet, lib, bars);
         credit += refund(bet);
         if (bet.status === "void") g.fx.push({ kind: "placed", t: bet.openAt, price: latest.c, born: performance.now() });
         changed = true;

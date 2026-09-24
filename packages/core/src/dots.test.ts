@@ -101,12 +101,13 @@ test("a dot's chance is the share of like paths whose second covers its row", ()
   expect(at(here + 4)).toBe(0);
 });
 
-test("a chance pays rtp over it, rounded down, and only between 1.01x and 100x", () => {
-  expect(multipleFor(0.1)).toBe(9.4);
-  expect(multipleFor(0.03)).toBe(31);
-  expect(multipleFor(0.9)).toBe(1.04);
-  expect(multipleFor(0.94)).toBeNull();
-  expect(multipleFor(0.005)).toBeNull();
+test("a chance pays rtp over it, rounded down, and only between 1.01x and 50x", () => {
+  expect(multipleFor(0.1)).toBe(8.5);
+  expect(multipleFor(0.03)).toBe(28);
+  expect(multipleFor(0.02)).toBe(42);
+  expect(multipleFor(0.75)).toBe(1.13);
+  expect(multipleFor(0.85)).toBeNull(); // pays under 1.01x: not offered
+  expect(multipleFor(0.01)).toBeNull(); // 85x: over the cap
   expect(multipleFor(0)).toBeNull();
 });
 
@@ -128,8 +129,8 @@ test("a drawing's life: priced at opening, hit dots pay, the rest are missed, an
   // The price row is certain and the row under it never happens: neither is on offer. The row above is a one-in-ten.
   expect(bet.status).toBe("live");
   expect(bet.dots.map((d) => d.row)).toEqual([here + 1]);
-  // A little under 9.4: the test market rattles, and ink the way it last moved gets the momentum margin.
-  expect(bet.dots[0].multiple).toBeGreaterThan(7);
+  // A little under 8.5: the test market rattles, and ink the way it last moved gets the momentum margin.
+  expect(bet.dots[0].multiple).toBeGreaterThan(6);
   expect(bet.dots[0].multiple).toBeLessThan(9.4);
   expect(refund(bet)).toBeCloseTo(1);
   const p = f.price;

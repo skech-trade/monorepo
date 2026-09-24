@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { type Bar, type Library, features, openFor, RULES, stepFor } from "./dots";
-import { CELL, cellsOf, chances, cost, crossSection, hitShare, judge, open, place, refund, type Stroke, won } from "./ink";
+import { type Bar, type Library, features, field, openFor, readLibrary, RULES, stepFor } from "./dots";
+import { CELL, cellsOf, chances, cost, crossSection, hitShare, judge, open, openOn, PEN_CELLS, place, quote, quoteOn, refund, type Stroke, won } from "./ink";
 
 /** Paths that all do the same thing: each second's close, in volatilities; `share` of them do it, the rest stay put. */
 function lib(n: number, closes: number[], share: number, lnSigma: number): Library {
@@ -82,4 +82,42 @@ test("ink too near the price to pay anything is not in play, and costs nothing",
   const bet = open(place(line(at + 2000, f.price, [[0, 0], [2000, 0]], 1, 1), 1, stepFor(f.sigma, f.price), at - 100, "v")!, l, bars);
   expect(bet.status).toBe("void");
   expect(refund(bet)).toBe(cost(bet));
+});
+
+test("the preview read off the map pays what the drawing is priced at, for every pen", async () => {
+  // The real paths, on a market like a quiet afternoon, and a wandering stroke up and away from the price.
+  const real = readLibrary(new Uint8Array(await Bun.file(new URL("./dots-lib.bin", import.meta.url)).arrayBuffer()));
+  const { bars, at } = history(84_000);
+  const f = features(bars, at)!;
+  const step = stepFor(f.sigma, f.price);
+  const unit = f.sigma * f.price;
+  const now = at - 400;
+  for (const cell of Object.values(PEN_CELLS)) {
+    const st = line(at + 3000, f.price + unit, [[0, 0], [4000, 2 * unit], [9000, -unit], [14000, 3 * unit]], 150, (cell * step) / 2);
+    const exact = quote(real, st, now, step, f, cell);
+    const fast = quoteOn(field(real, f, at, step * cell), st, now, step, cell);
+    expect(fast.cells).toEqual(exact.cells);
+    const both = exact.multiples.map((m, i) => [m, fast.multiples[i]] as const).filter(([a, b]) => a !== null && b !== null);
+    expect(both.length).toBeGreaterThan(exact.cells.length / 2);
+    // Rounded the same way from nearly the same chance: within a step of rounding either way.
+    for (const [a, b] of both) expect(Math.abs(Math.log(a! / b!))).toBeLessThan(0.06);
+  }
+});
+
+test("a drawing priced off its second's map is priced exactly as off the paths", async () => {
+  const real = readLibrary(new Uint8Array(await Bun.file(new URL("./dots-lib.bin", import.meta.url)).arrayBuffer()));
+  const { bars, at } = history(84_000);
+  const f = features(bars, at)!;
+  const step = stepFor(f.sigma, f.price);
+  const unit = f.sigma * f.price;
+  for (const cell of Object.values(PEN_CELLS)) {
+    const st = line(at + 3000, f.price + unit, [[0, 0], [4000, 2 * unit], [9000, -unit], [14000, 3 * unit]], 150, (cell * step) / 2);
+    const bet = place(st, 0.25, step, at - 400, "same", cell)!;
+    const exact = open(bet, real, bars);
+    const fast = openOn(bet, field(real, f, at, step * cell))!;
+    expect(fast.cells).toEqual(exact.cells);
+    // A map of another second, or of another pen, is not used.
+    expect(openOn(bet, field(real, f, at + 1000, step * cell))).toBeNull();
+    expect(openOn(bet, field(real, f, at, step * cell * 2))).toBeNull();
+  }
 });

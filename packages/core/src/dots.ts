@@ -25,16 +25,22 @@
  */
 
 export const RULES = {
-  /** What a dot returns per dollar on average. The house keeps the rest. */
-  rtp: 0.94,
+  /**
+   * What a dot returns per dollar on average, by the paths; the house keeps
+   * the rest. On days the paths never saw it comes out lower still: at 0.85,
+   * 0.62 to 0.88 a dollar by day on 17-23 September, so the house keeps a
+   * tenth even on its worst day, and more on the rest, for the day a crash
+   * pays out more than it takes. `check-ink.ts` says what it comes to.
+   */
+  rtp: 0.85,
   /** Taken off the return for each unit of momentum, on the side the price just moved towards: see `rtpAt`. */
   momentumMargin: 0.11,
   /** Seconds ahead a dot may be. */
   horizon: 30,
   /** Under this a spot is nearly certain and is not offered. Low, so ink right by the price still pays a little rather than leaving a hole there. */
   minMultiple: 1.01,
-  /** Over this the chance is too small to measure well, so it is not offered. */
-  maxMultiple: 100,
+  /** Over this it is not offered: the chance is too small to measure well, and one lucky hit on it is what the house has to have put by. */
+  maxMultiple: 50,
   /** Drawings in play at once. */
   maxOpen: 5,
   /** Dots in one drawing. */
