@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { START_BALANCE } from "@skech/core/dots";
+import { DIFFICULTY, START_BALANCE } from "@skech/core/dots";
 import { POINT_CENTS } from "@skech/core/odds";
 import type { InkBet } from "@skech/core/ink";
 
@@ -29,6 +29,8 @@ export type Practice = {
   history: DrawingResult[];
   perDot: number;
   brush: Brush;
+  /** How hard the game is, 0 to 100: see `difficulty` in `@skech/core/dots`. Set by the house, kept here while it is practice money. */
+  difficulty: number;
   sound: boolean;
   /** Whether the first-visit hint has been dismissed. */
   taught: boolean;
@@ -48,6 +50,7 @@ const DEFAULTS: Practice = {
   drawings: 0,
   history: [],
   perDot: POINT_CENTS.default / 100,
+  difficulty: DIFFICULTY,
   brush: "medium",
   sound: true,
   taught: false,

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { type Bar, type Field, multipleOf, openFor, RULES, rowOf } from "@skech/core/dots";
 import type { Cell, InkBet, Pen, Stroke } from "@skech/core/ink";
-import { payoutOf, terms } from "@skech/core/odds";
+import { terms } from "@skech/core/odds";
 import type { Tick } from "@/lib/binance";
 
 /**
@@ -575,8 +575,8 @@ export function Stage({
           if (placed.some((q) => Math.abs(q.x - lx) < 30 && Math.abs(q.y - ly) < 16)) continue;
           placed.push({ x: lx, y: ly });
           c.fillStyle = rgba(pal.muted, 0.85);
-          // What a hit there pays at the price set, so the chart moves when the price does.
-          c.fillText(dollars(payoutOf(g.perDot, l.m)), lx, ly);
+          // The multiple there; the pen says what that is in dollars at the price set.
+          c.fillText(`${l.m}×`, lx, ly);
         }
       }
 

@@ -28,12 +28,43 @@ Lighter trading code is untouched and unused by it.
   hit more often and pay less, and the map redraws for the pen in hand.
 - **What it pays depends on where it is.** Ink near the price is likely to
   be hit and pays a little (from 1.01×); ink far from it, in price or time,
-  pays a lot (up to 50×). The map on screen shows it: a soft glow where the
+  pays a lot (up to the top payout the difficulty sets: 28× at 60). The map on screen shows it: a soft glow where the
   price will likely go, fading outward, with the multiples written on it.
 - **Timing.** A drawing opens on the next whole second and is priced there.
   The second after that is never part of it, so nobody can react faster than
   the bet. It reaches 30 seconds ahead. Ink that is too soon or too far out
   to measure stays faint and costs nothing.
+
+## How hard it is: one number, 0 to 100
+
+`difficulty(d)` in `packages/core/src/dots.ts` sets every lever the house
+has, together:
+
+| Lever | At d | Why it matters |
+| --- | --- | --- |
+| return per point (`rtp`) | 0.95 − 0.40 × d/100 | the house keeps the rest, on average |
+| top payout (`maxMultiple`) | 100 × 0.12^(d/100) | a lucky big hit is what turns a losing session around |
+| lowest multiple offered | 1.01 + 0.19 × d/100 | nearly sure points stop being offered |
+| margin on the side it just moved to | 0.11 + 0.09 × d/100 | momentum carries on more than the paths say |
+
+The game plays at 60. On the house's side, the slider is in How it works
+in development, or with `?house` in the address (it is practice money, kept
+per browser). `DIFFICULTY=` on `check-ink.ts` backtests any level. On
+17–23 September, the medium pen:
+
+| Difficulty | Keeps | Top payout | 50 drawings ended ahead | 200 ended ahead | Got back per $1, by day |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 5% | 100× | 33% | 29% | 0.73–0.99 |
+| 30 | 17% | 53× | 16% | 9% | 0.60–0.85 |
+| **60** | **29%** | **28×** | **7%** | **2%** | **0.48–0.71** |
+| 80 | 37% | 18× | 3% | 0% | 0.42–0.61 |
+| 100 | 45% | 12× | 1% | 0% | 0.37–0.52 |
+
+"Ended ahead" is the share of sessions of that many drawings, of one kind of
+line, that finished with more than they started; averaged over the kinds.
+At 60 the fine and wide pens come out the same (7% after 50 drawings). 30 is
+about where the game was, at 0.85 and 50×: at 60 coming out ahead is two and
+a half times rarer.
 
 ## One place for the odds
 
@@ -47,7 +78,7 @@ placed now:
 | a point | each second a line passes through a row, once (`cellsOf`) |
 | cost | `perPoint × points in play` (`costOf`) |
 | chance | how often the price trades in that row in that second, measured on real paths (below) |
-| multiple | `rtp ÷ chance`, rounded down, 1.01× to 50×, else not offered |
+| multiple | `rtp ÷ chance`, rounded down, between the lowest and top multiple the difficulty sets, else not offered |
 | a hit pays | `perPoint × multiple`, rounded down to the cent (`payoutOf`) |
 | the house | keeps `1 − rtp` of every point on average |
 
@@ -97,8 +128,8 @@ like this one:
 - with each path's in-second swings scaled to how far the price is swinging
   inside a second now.
 
-A cell pays `rtp / chance`, with `rtp` 0.85, less on the side the price has
-just moved toward (0.11 less per unit of momentum, at most 0.22). The chance
+A cell pays `rtp / chance`, with `rtp` set by the difficulty (0.71 at 60), less on the side the price has
+just moved toward (the momentum margin per unit of momentum, 0.164 at 60, for at most two units). The chance
 gets a small correction for how many paths it rests on, because paying 1/p
 on a noisy p overpays on average.
 

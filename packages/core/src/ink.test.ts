@@ -1,6 +1,10 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { type Bar, type Library, features, field, openFor, readLibrary, RULES, stepFor } from "./dots";
 import { CELL, cellsOf, chances, cost, crossSection, hitShare, judge, open, openOn, PEN_CELLS, place, quote, quoteOn, refund, type Stroke, won } from "./ink";
+import { RULES as HOUSE } from "./dots";
+
+// These test how the game works, not how hard it is: they are written for the house's terms at 0.85 and 50x.
+beforeAll(() => Object.assign(HOUSE, { rtp: 0.85, maxMultiple: 50, minMultiple: 1.01, momentumMargin: 0.11 }));
 
 /** Paths that all do the same thing: each second's close, in volatilities; `share` of them do it, the rest stay put. */
 function lib(n: number, closes: number[], share: number, lnSigma: number): Library {

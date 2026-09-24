@@ -136,9 +136,29 @@ export function MarketPicker({
 
 /** Which market and what it costs, at the top of the Draw chart. The left
     half is the button that opens the picker. */
-export function MarketHeader({ market, className }: { market: Market; className?: string }) {
+/**
+ * `fixed`: one market and nothing to switch to, and no venue to name: the
+ * practice game, on Binance's price. The same heading without the button,
+ * the chevron, the picker or the network badge.
+ */
+export function MarketHeader({ market, className, fixed = false }: { market: Market; className?: string; fixed?: boolean }) {
   const [picking, setPicking] = useState(false);
   const up = market.changePct >= 0;
+  if (fixed)
+    return (
+      <div className={cn("flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 max-sm:h-10 max-sm:border max-sm:border-input max-sm:bg-card/85 max-sm:px-3 max-sm:backdrop-blur-sm sm:gap-3", className)}>
+        <TokenAvatar className="size-6 sm:size-9" symbol={market.symbol} />
+        <span className="flex min-w-0 items-center gap-2 sm:flex-col sm:items-start sm:gap-1.5">
+          <span className="truncate font-medium text-sm leading-5 max-sm:hidden">{market.name}</span>
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span className="figures truncate font-semibold text-base leading-6 tracking-tight sm:text-xl">{market.price > 0 ? `$${fmtPrice(market.price)}` : "Connecting…"}</span>
+            <Pill className="shrink-0 max-sm:hidden" tone={up ? "up" : "down"}>
+              <span className="figures">{market.price > 0 ? signedPct(market.changePct) : "—"}</span>
+            </Pill>
+          </span>
+        </span>
+      </div>
+    );
   return (
     <div className={cn("flex min-w-0 items-center", className)}>
       {/*
