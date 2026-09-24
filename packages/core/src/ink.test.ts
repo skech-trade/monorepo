@@ -75,10 +75,10 @@ test("only the ink the price runs through pays: a tall stroke crossed at one poi
   const { bars, at } = history(84_000);
   const f = features(bars, at)!;
   const unit = f.sigma * f.price;
-  // Half the paths reach two volatilities up in second 2; ink stands from the price to four up.
-  const l = lib(2000, [1, 2, 2, 2], 0.5, Math.log(f.sigma));
+  // Half the paths run from two to six volatilities up in second 2; ink stands from the price to eight up, several rows of 2.5.
+  const l = lib(2000, [2, 6, 6, 6], 0.5, Math.log(f.sigma));
   const step = stepFor(f.sigma, f.price);
-  let bet = place(line(at + 2000, f.price + 1.5 * unit, [[0, -1.5 * unit], [0, 2.5 * unit]], 60, unit * 0.3), 0.5, step, at - 400, "tall")!;
+  let bet = place(line(at + 2000, f.price + 3.5 * unit, [[0, -3.5 * unit], [0, 4.5 * unit]], 60, unit * 0.3), 0.5, step, at - 400, "tall")!;
   bet = open(bet, l, bars);
   expect(bet.status).toBe("live");
   const inSecond = bet.cells.filter((s) => s.t === at + 2000);

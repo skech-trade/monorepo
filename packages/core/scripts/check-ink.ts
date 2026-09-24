@@ -18,6 +18,8 @@ if (process.env.RTP) Object.assign(RULES, { rtp: Number(process.env.RTP) });
 if (process.env.MAX) Object.assign(RULES, { maxMultiple: Number(process.env.MAX) });
 if (process.env.MIN) Object.assign(RULES, { minMultiple: Number(process.env.MIN) });
 if (process.env.MOM) Object.assign(RULES, { momentumMargin: Number(process.env.MOM) });
+// How tall a row is, in one-second moves, for trying row sizes.
+if (process.env.STEPSIG) Object.assign(RULES, { stepSigmas: Number(process.env.STEPSIG) });
 console.log(`difficulty ${RULES.difficulty}: rtp ${RULES.rtp}, ${RULES.minMultiple}x to ${RULES.maxMultiple}x, momentum margin ${RULES.momentumMargin}`);
 const lib = readLibrary(new Uint8Array(await Bun.file(libPath).arrayBuffer()));
 const STEP = Number(process.env.STEP ?? 60);

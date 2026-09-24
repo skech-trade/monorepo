@@ -118,7 +118,8 @@ function blurAlpha(d: Uint8ClampedArray, w: number, h: number, rgb: readonly num
 /** Dollars as a hit pays them: to the cent, and without the cents only when there are none. */
 const dollars = (n: number) => (Math.abs(n - Math.round(n)) < 0.005 && n >= 1 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
 
-export const fmtMultiple = (m: number) => `${m >= 10 ? Math.round(m) : m.toFixed(1)}×`;
+/** A multiple exactly as it pays: to the cent below 2x, a tenth below 10x, whole above, the steps `multipleFor` rounds to. */
+export const fmtMultiple = (m: number) => `${m >= 10 ? Math.round(m) : m >= 2 ? m.toFixed(1) : m.toFixed(2)}×`;
 const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 
 function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -215,7 +216,7 @@ export function Stage({
       softened and scaled up smoothly, so it reads as a landscape of odds
       rather than a grid. And where along it each multiple is reached.
     */
-    const map = { field: null as Field | null, pal: null as Palette | null, small: document.createElement("canvas"), big: document.createElement("canvas"), labels: [] as { t: number; row: number; m: number }[] };
+    const map = { field: null as Field | null, pal: null as Palette | null, small: document.createElement("canvas"), big: document.createElement("canvas"), labels: [] as { t: number; row: number; m: number }[], extent: 0 };
     const paintMap = (fl: Field, pal: Palette) => {
       const began = performance.now();
       try {
@@ -256,23 +257,29 @@ export function Stage({
       // Softened at its own size already, so scaling it up smoothly is all it needs: a canvas blur at full size held the page up once a second.
       b.drawImage(map.small, 0, 0, map.big.width, map.big.height);
       /*
-        The multiples, written on the map: what the rows around the price
-        actually pay, at a few moments ahead. The real numbers, not round
-        levels, so a map that jumps from the price's own row straight to 12x
-        says so rather than showing nothing.
+        The ladder: every row the map offers, with what it pays, in columns
+        spaced so the numbers never touch, from the first second that can be
+        drawn to the last. Low by the price, higher the further out and the
+        sooner, the way the odds are.
       */
       map.labels = [];
-      const here = rowOf(fl.f.price, fl.step);
-      // Spread over the whole of what can be drawn: every seven seconds on a phone, every five on a wider screen.
-      const cols: number[] = [];
-      for (let c = phone() ? 5 : 4; c <= fl.seconds; c += phone() ? 7 : 5) cols.push(c);
-      for (const jj of cols) {
+      const every = Math.max(1, Math.ceil((phone() ? 50 : 52) / (pxMs() * 1000)));
+      let lo = Number.POSITIVE_INFINITY;
+      let hi = Number.NEGATIVE_INFINITY;
+      for (let jj = 1; jj <= fl.seconds; jj++) {
         const t = fl.openAt + jj * 1000;
-        for (let d = -3; d <= 3; d++) {
-          const m = multipleOf(fl, { t, row: here + d });
-          if (m !== null) map.labels.push({ t: t + 500, row: here + d, m });
+        const col = (jj - 1) % every === Math.floor(every / 2);
+        for (let r = 0; r < fl.rows; r++) {
+          const m = multipleOf(fl, { t, row: fl.row0 + r });
+          if (m === null) continue;
+          if (jj > fl.seconds / 2) {
+            lo = Math.min(lo, (fl.row0 + r) * fl.step);
+            hi = Math.max(hi, (fl.row0 + r + 1) * fl.step);
+          }
+          if (col) map.labels.push({ t: t + 500, row: fl.row0 + r, m });
         }
       }
+      map.extent = Number.isFinite(lo) ? hi - lo : 0;
     };
 
     /* The pen: the stroke so far, and what it would cost and pay. */
@@ -315,6 +322,8 @@ export function Stage({
       } catch {
         /* A pointer the browser no longer tracks: drawing still works while it stays over the canvas. */
       }
+      // Ink starts at now at the earliest: behind it is the past, which no drawing can bet on.
+      q.x = Math.max(q.x, nowX() + 2);
       pen = { id: e.pointerId, drawing: crypto.randomUUID(), why: null, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: (g.cell * g.step) / 2 }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
       requote(pen, true);
     };
@@ -322,6 +331,7 @@ export function Stage({
       const q = point(e);
       hover = e.pointerType === "mouse" ? q : null;
       if (!pen || e.pointerId !== pen.id) return;
+      q.x = Math.max(q.x, nowX() + 2);
       // A little lag on the pen smooths the hand's tremor out of the line, as a real nib does.
       const s = { x: pen.last.x + (q.x - pen.last.x) * 0.6, y: pen.last.y + (q.y - pen.last.y) * 0.6 };
       if (Math.hypot(s.x - pen.last.x, s.y - pen.last.y) < 1.5) return;
@@ -334,6 +344,7 @@ export function Stage({
       const p = pen;
       pen = null;
       const q = point(e);
+      q.x = Math.max(q.x, nowX() + 2);
       p.stroke.pts.push({ t: tAt(q.x) - p.stroke.t0, p: pAt(q.y) - p.stroke.p0 });
       preview.current(null);
       const why = place.current(p.stroke, p.drawing, true);
@@ -469,9 +480,9 @@ export function Stage({
       centre += (p - centre) * (Math.abs(off) > rowsOnScreen * 0.3 ? 0.12 : Math.abs(off) > rowsOnScreen * 0.12 ? 0.03 : 0.006);
       const fl = g.field;
       if (fl) {
-        // A bit more than two typical moves over twenty seconds, either side: close enough that the price is seen to move, with the cone of odds still on screen.
-        const reach = (2.4 * fl.f.sigma * fl.f.price * Math.sqrt(20)) / g.step;
-        const want = Math.max(8, Math.min(44, (h * 0.45) / Math.max(1, reach)));
+        // Zoomed so what the map offers, out in the far half, fills most of the height: the ladder is the chart, not a strip across it.
+        const reach = map.field === fl && map.extent > 0 ? map.extent / g.step : (4.8 * fl.f.sigma * fl.f.price * Math.sqrt(20)) / g.step;
+        const want = Math.max(8, Math.min(90, (h * 0.8) / Math.max(1, reach)));
         pitchY += (want - pitchY) * 0.05;
         if (map.field !== fl || map.pal !== pal) paintMap(fl, pal);
       }
@@ -566,22 +577,27 @@ export function Stage({
         const x1 = x(fl.openAt + shift + (fl.seconds + 1) * 1000);
         c.drawImage(map.big, x0, y((fl.row0 + fl.rows) * fl.step), x1 - x0, y(fl.row0 * fl.step) - y((fl.row0 + fl.rows) * fl.step));
         c.restore();
-        // The multiples, written where the map reaches them, on a halo of the page so they read over ink and candles.
+        // The ladder's numbers: quiet by the price, in the ink's blue as they grow, on a halo of the page so they read over ink and candles.
         c.font = `600 11px ${MONO}`;
         c.textAlign = "center";
         c.textBaseline = "middle";
-        const placed: { x: number; y: number }[] = [];
+        const rowPx = pitchY * (fl.step / g.step);
+        const skip = rowPx < 15 ? Math.ceil(15 / rowPx) : 1;
+        const top = Math.log(RULES.maxMultiple);
+        const quiet = pal.muted;
+        const blue = pal.ink;
         for (const l of map.labels) {
+          if (skip > 1 && ((l.row % skip) + skip) % skip) continue;
           const lx = x(l.t + shift);
           const ly = y((l.row + 0.5) * fl.step);
-          if (lx < x(first) + 12 || lx > w - 14 || ly < 70 || ly > h - 22) continue;
-          if (placed.some((q) => Math.abs(q.x - lx) < 30 && Math.abs(q.y - ly) < 14)) continue;
-          placed.push({ x: lx, y: ly });
-          c.strokeStyle = rgba(pal.bg, 0.85);
+          if (lx < x(first) + 14 || lx > w - 18 || ly < 70 || ly > h - 22) continue;
+          const k = Math.min(1, Math.max(0, Math.log(l.m) / top));
+          const text = fmtMultiple(l.m);
+          c.strokeStyle = rgba(pal.bg, 0.8);
           c.lineWidth = 3;
-          c.strokeText(fmtMultiple(l.m), lx, ly);
-          c.fillStyle = rgba(pal.muted, 0.95);
-          c.fillText(fmtMultiple(l.m), lx, ly);
+          c.strokeText(text, lx, ly);
+          c.fillStyle = `rgba(${quiet.map((v, n) => Math.round(v + (blue[n] - v) * k)).join(",")},${0.75 + 0.25 * k})`;
+          c.fillText(text, lx, ly);
         }
       }
 

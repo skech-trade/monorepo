@@ -29,9 +29,9 @@ function history(price: number, drift = 0.02): { bars: Bar[]; at: number } {
 }
 
 test("a price step is a round number near 1.2 typical moves", () => {
-  expect(stepFor(5e-5, 84_000)).toBe(5); // 1.2 * 4.2 = 5.04
-  expect(stepFor(1.5e-5, 84_000)).toBe(2); // 1.51, nearer 2 than 1 on a log scale
-  expect(stepFor(2e-4, 84_000)).toBe(20); // 20.16
+  expect(stepFor(5e-5, 84_000)).toBe(10); // 2.5 * 4.2 = 10.5
+  expect(stepFor(1.5e-5, 84_000)).toBe(2.5); // 3.15, nearer 2.5 than 5 on a log scale
+  expect(stepFor(2e-4, 84_000)).toBe(50); // 42, nearer 50 than 25
 });
 
 test("a row holds its bottom edge, not its top: a price on the line is in the upper row only", () => {

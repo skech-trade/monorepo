@@ -175,7 +175,13 @@ export function useBinance(symbol = "BTCUSDT"): Market {
       clearTimeout(retry);
       clearTimeout(late);
       cancelAnimationFrame(frame);
-      ws?.close();
+      // Closing a socket still connecting logs a warning; it closes as soon as it opens instead.
+      if (ws?.readyState === WebSocket.CONNECTING) {
+        const late = ws;
+        late.onopen = () => late.close();
+        late.onmessage = null;
+        late.onclose = null;
+      } else ws?.close();
     };
   }, [symbol, m]);
 
