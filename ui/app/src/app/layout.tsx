@@ -21,14 +21,14 @@ const mono = Geist_Mono({
 
 const SITE = "https://app.skech.trade";
 const TITLE = "skech";
-const DESCRIPTION = "Draw where you think the price is going. That drawing is the trade.";
+const DESCRIPTION = "Draw ahead of the Bitcoin price. The ink it runs through pays.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE),
   title: { default: TITLE, template: "%s · skech" },
   description: DESCRIPTION,
   applicationName: "skech",
-  keywords: ["skech", "draw to trade", "bitcoin", "ethereum", "trading", "charting"],
+  keywords: ["skech", "draw", "bitcoin", "game", "prediction"],
   openGraph: { title: TITLE, description: DESCRIPTION, type: "website", url: "/", siteName: "skech" },
   twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, site: "@skechtrade", creator: "@skechtrade" },
   // og:image and the icon come from src/app/opengraph-image.tsx and

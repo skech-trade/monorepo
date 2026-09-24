@@ -12,7 +12,7 @@
 
 import type { Pt } from "@skech/core/shape";
 import { Accounts, Executor, type Quote } from "./executor";
-import { asNum, Lighter, type MarketInfo } from "./lighter";
+import { asNum, brief, Lighter, type MarketInfo } from "./lighter";
 import { Keys } from "./keys";
 import { RoundStore } from "./round-store";
 import { Rounds, type RoundSpec } from "./rounds";
@@ -32,14 +32,24 @@ const venue = new Lighter(BASE);
 */
 let signerReady = false;
 let signerError: string | null = null;
-try {
-  Signer.open({ url: BASE, privateKey: PRIVATE_KEY, chainId: CHAIN_ID, accountIndex: ACCOUNT, apiKeyIndex: API_KEY_INDEX });
-  signerReady = true;
-} catch (e) {
-  // A service that cannot sign should say so on /health, not fail to start
-  // and take its own logs with it.
-  signerError = (e as Error).message;
-}
+/*
+  A service that cannot sign should say so on /health, not fail to start and
+  take its own logs with it. Opening the signer asks the venue for its keys,
+  so while the venue is down it is tried again every half minute rather than
+  given up on until a restart.
+*/
+const openSigner = () => {
+  try {
+    Signer.open({ url: BASE, privateKey: PRIVATE_KEY, chainId: CHAIN_ID, accountIndex: ACCOUNT, apiKeyIndex: API_KEY_INDEX });
+    if (signerError) console.log("signer ready");
+    signerReady = true;
+    signerError = null;
+  } catch (e) {
+    signerError = brief((e as Error).message);
+    setTimeout(openSigner, 30_000);
+  }
+};
+openSigner();
 
 /* The browser calls this service directly, so it needs the same headers the
    API sends. In production this is one origin, not a star. */
@@ -87,16 +97,30 @@ const secondsOf = (v: unknown) => clamp(v, 3, 900, 30);
 const socket = new VenueSocket(`${BASE.replace(/^http/, "ws")}/stream`);
 socket.start();
 const markets = new Map<Symbol, MarketInfo>();
-for (let i = 0; i < 5 && markets.size < SYMBOLS.length; i++) {
+/*
+  The markets' details, a few quick tries at startup and then every fifteen
+  seconds until the venue answers: an outage at boot no longer leaves the
+  service without its markets until somebody restarts it.
+*/
+let marketsSaid = "";
+const loadMarkets = async () => {
   const listed = await venue.markets().catch((e) => {
-    console.error("market details:", (e as Error).message.slice(0, 120));
+    const said = brief((e as Error).message);
+    // The same failure once, not on every try.
+    if (said !== marketsSaid) console.error("market details:", said);
+    marketsSaid = said;
     return [];
   });
   for (const symbol of SYMBOLS) {
     const m = listed.find((x) => x.id === MARKET_IDS[symbol]);
     if (m) markets.set(symbol, m);
   }
-  if (markets.size < SYMBOLS.length) await Bun.sleep(1000);
+  if (markets.size === SYMBOLS.length && marketsSaid) console.log("market details: loaded");
+  return markets.size === SYMBOLS.length;
+};
+for (let i = 0; i < 5 && !(await loadMarkets()); i++) await Bun.sleep(1000);
+if (markets.size < SYMBOLS.length) {
+  const again = setInterval(() => void loadMarkets().then((done) => done && clearInterval(again)), 15_000);
 }
 const quotes = new Map<Symbol, Quote>();
 for (const symbol of SYMBOLS) {
@@ -122,7 +146,7 @@ for (const symbol of SYMBOLS) {
 }
 const marketInfo = (symbol: string) => {
   const market = isSymbol(symbol) ? markets.get(symbol) : undefined;
-  if (!market) throw Error(isSymbol(symbol) ? `${symbol} market details unavailable; the venue could not be reached at startup.` : `skech does not list ${symbol}.`);
+  if (!market) throw Error(isSymbol(symbol) ? `${symbol} market details unavailable: the venue has not answered yet, and it is being tried again.` : `skech does not list ${symbol}.`);
   return market;
 };
 /** A market from the page: one skech lists, or Bitcoin when the page predates the choice. */

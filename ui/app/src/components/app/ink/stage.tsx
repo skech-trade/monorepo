@@ -79,8 +79,6 @@ function resolve(css: string, into: HTMLElement): Rgb {
 /** The app's own shades, from its CSS: the text, the page, the quiet text, and the green it uses for a gain. */
 type Palette = { ink: Rgb; fg: Rgb; bg: Rgb; muted: Rgb; up: Rgb; upMark: Rgb; downMark: Rgb; dark: boolean };
 
-/** Half-second candles, the trading chart's own. Only the picture: pricing and judging stay on whole seconds. */
-const CANDLE_MS = 500;
 const rgba = (c: Rgb, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
 /** How many pixels a slice gets in the map's own picture, before it is blurred and scaled onto the screen. */
@@ -118,7 +116,8 @@ function blurAlpha(d: Uint8ClampedArray, w: number, h: number, rgb: readonly num
 /** Dollars as a hit pays them: to the cent, and without the cents only when there are none. */
 const dollars = (n: number) => (Math.abs(n - Math.round(n)) < 0.005 && n >= 1 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
 
-export const fmtMultiple = (m: number) => `${m >= 10 ? Math.round(m) : m.toFixed(1)}×`;
+/** A multiple exactly as it pays: to the cent below 2x, a tenth below 10x, whole above, the steps `multipleFor` rounds to. */
+export const fmtMultiple = (m: number) => `${m >= 10 ? Math.round(m) : m >= 2 ? m.toFixed(1) : m.toFixed(2)}×`;
 const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 
 function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -203,8 +202,23 @@ export function Stage({
      * the part of the future that matters.
      */
     let pitchY = 22;
-    const x = (t: number) => nowX() + (t - at) * pxMs();
-    const tAt = (px: number) => at + (px - nowX()) / pxMs();
+    /*
+      Time, left to right. Ahead of now, and the last few seconds behind it,
+      one scale, so ink runs straight into the price. Further back, the last
+      two minutes (one on a phone) squeezed into what is left, so the line
+      has a shape and is seen to move.
+    */
+    const NEAR_MS = 4000;
+    const pastMs = () => (phone() ? 60_000 : 120_000);
+    const farPxMs = () => Math.max(0.0004, (nowX() - 8 - NEAR_MS * pxMs()) / (pastMs() - NEAR_MS));
+    const x = (t: number) => {
+      const d = at - t;
+      return d <= NEAR_MS ? nowX() - d * pxMs() : nowX() - NEAR_MS * pxMs() - (d - NEAR_MS) * farPxMs();
+    };
+    const tAt = (px: number) => {
+      const edge = nowX() - NEAR_MS * pxMs();
+      return px >= edge ? at + (px - nowX()) / pxMs() : at - NEAR_MS - (edge - px) / farPxMs();
+    };
     const y = (p: number) => h / 2 - ((p - centre) / game.current!.step) * pitchY;
     const pAt = (py: number) => centre + ((h / 2 - py) * game.current!.step) / pitchY;
     /** The pen's radius on screen: half its cell, so the ink is exactly as tall as what it is judged on. */
@@ -215,7 +229,7 @@ export function Stage({
       softened and scaled up smoothly, so it reads as a landscape of odds
       rather than a grid. And where along it each multiple is reached.
     */
-    const map = { field: null as Field | null, pal: null as Palette | null, small: document.createElement("canvas"), big: document.createElement("canvas"), labels: [] as { t: number; row: number; m: number }[] };
+    const map = { field: null as Field | null, pal: null as Palette | null, small: document.createElement("canvas"), big: document.createElement("canvas"), labels: [] as { t: number; row: number; m: number }[], extent: 0 };
     const paintMap = (fl: Field, pal: Palette) => {
       const began = performance.now();
       try {
@@ -256,23 +270,43 @@ export function Stage({
       // Softened at its own size already, so scaling it up smoothly is all it needs: a canvas blur at full size held the page up once a second.
       b.drawImage(map.small, 0, 0, map.big.width, map.big.height);
       /*
-        The multiples, written on the map: what the rows around the price
-        actually pay, at a few moments ahead. The real numbers, not round
-        levels, so a map that jumps from the price's own row straight to 12x
-        says so rather than showing nothing.
+        The ladder: every row the map offers, with what it pays, in columns
+        spaced so the numbers never touch, from the first second that can be
+        drawn to the last. Low by the price, higher the further out and the
+        sooner, the way the odds are.
       */
       map.labels = [];
-      const here = rowOf(fl.f.price, fl.step);
-      // Spread over the whole of what can be drawn: every seven seconds on a phone, every five on a wider screen.
-      const cols: number[] = [];
-      for (let c = phone() ? 5 : 4; c <= fl.seconds; c += phone() ? 7 : 5) cols.push(c);
-      for (const jj of cols) {
+      const every = Math.max(1, Math.ceil((phone() ? 50 : 52) / (pxMs() * 1000)));
+      let lo = Number.POSITIVE_INFINITY;
+      let hi = Number.NEGATIVE_INFINITY;
+      for (let jj = 1; jj <= fl.seconds; jj++) {
         const t = fl.openAt + jj * 1000;
-        for (let d = -3; d <= 3; d++) {
-          const m = multipleOf(fl, { t, row: here + d });
-          if (m !== null) map.labels.push({ t: t + 500, row: here + d, m });
+        const col = (jj - 1) % every === Math.floor(every / 2);
+        /*
+          Out from the price, each way, as far as the rows run on unbroken.
+          Near the cap a row can be offered, the next not and the one after
+          again; those strays are left out, so the ladder has a clean edge.
+          A row or two by the price may be too likely to offer, and is stepped over.
+        */
+        const here = rowOf(fl.f.price, fl.step);
+        for (const dir of [1, -1]) {
+          let gap = 0;
+          for (let r = dir > 0 ? here : here - 1; Math.abs(r - here) < fl.rows / 2; r += dir) {
+            const m = multipleOf(fl, { t, row: r });
+            if (m === null) {
+              if (Math.abs(r - here) > 2 || ++gap > 2) break;
+              continue;
+            }
+            if (jj > fl.seconds / 2) {
+              lo = Math.min(lo, r * fl.step);
+              hi = Math.max(hi, (r + 1) * fl.step);
+            }
+            if (col) map.labels.push({ t: t + 500, row: r, m });
+          }
         }
       }
+      // How far the ladder reaches from the price, the further way doubled: the zoom centres on the price, so both sides must fit.
+      map.extent = Number.isFinite(lo) ? 2 * Math.max(hi - fl.f.price, fl.f.price - lo) : 0;
     };
 
     /* The pen: the stroke so far, and what it would cost and pay. */
@@ -315,6 +349,8 @@ export function Stage({
       } catch {
         /* A pointer the browser no longer tracks: drawing still works while it stays over the canvas. */
       }
+      // Ink starts at now at the earliest: behind it is the past, which no drawing can bet on.
+      q.x = Math.max(q.x, nowX() + 2);
       pen = { id: e.pointerId, drawing: crypto.randomUUID(), why: null, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: (g.cell * g.step) / 2 }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
       requote(pen, true);
     };
@@ -322,6 +358,7 @@ export function Stage({
       const q = point(e);
       hover = e.pointerType === "mouse" ? q : null;
       if (!pen || e.pointerId !== pen.id) return;
+      q.x = Math.max(q.x, nowX() + 2);
       // A little lag on the pen smooths the hand's tremor out of the line, as a real nib does.
       const s = { x: pen.last.x + (q.x - pen.last.x) * 0.6, y: pen.last.y + (q.y - pen.last.y) * 0.6 };
       if (Math.hypot(s.x - pen.last.x, s.y - pen.last.y) < 1.5) return;
@@ -334,6 +371,7 @@ export function Stage({
       const p = pen;
       pen = null;
       const q = point(e);
+      q.x = Math.max(q.x, nowX() + 2);
       p.stroke.pts.push({ t: tAt(q.x) - p.stroke.t0, p: pAt(q.y) - p.stroke.p0 });
       preview.current(null);
       const why = place.current(p.stroke, p.drawing, true);
@@ -438,6 +476,7 @@ export function Stage({
     const glowLayer = document.createElement("canvas");
 
     let raf = 0;
+    let shown = 0;
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const began = performance.now();
@@ -452,7 +491,11 @@ export function Stage({
       const g = game.current;
       if (!g || !w) return;
       at = now(g);
-      const p = price(g);
+      const latest = price(g);
+      // The head glides to each new trade over a few frames rather than jumping: the line reads as live.
+      shown = shown ? shown + (latest - shown) * 0.35 : latest;
+      if (Math.abs(latest - shown) < 0.005) shown = latest;
+      const p = shown;
       const ms = performance.now();
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
       c.clearRect(0, 0, w, h);
@@ -469,9 +512,20 @@ export function Stage({
       centre += (p - centre) * (Math.abs(off) > rowsOnScreen * 0.3 ? 0.12 : Math.abs(off) > rowsOnScreen * 0.12 ? 0.03 : 0.006);
       const fl = g.field;
       if (fl) {
-        // A bit more than two typical moves over twenty seconds, either side: close enough that the price is seen to move, with the cone of odds still on screen.
-        const reach = (2.4 * fl.f.sigma * fl.f.price * Math.sqrt(20)) / g.step;
-        const want = Math.max(8, Math.min(44, (h * 0.45) / Math.max(1, reach)));
+        // Zoomed so what the map offers, out in the far half, fills most of the height: the ladder is the chart, not a strip across it.
+        const reach = map.field === fl && map.extent > 0 ? map.extent / g.step : (4.8 * fl.f.sigma * fl.f.price * Math.sqrt(20)) / g.step;
+        // And the price's last minutes too, so the line's moves are on screen with room to spare.
+        let hiP = latest;
+        let loP = latest;
+        const since = at - pastMs();
+        for (let k = g.bars.length - 1; k >= 0 && g.bars[k].t >= since; k--) {
+          hiP = Math.max(hiP, g.bars[k].h);
+          loP = Math.min(loP, g.bars[k].l);
+        }
+        // Just enough for the line's last minutes to stay on screen: the ladder fills what is left.
+        const lived = (2 * Math.max(hiP - centre, centre - loP)) / g.step;
+        // The ladder fills the chart top to bottom; the line's last minutes only widen it when they would run off.
+        const want = Math.max(8, Math.min(120, (h * 0.94) / Math.max(1, reach, lived)));
         pitchY += (want - pitchY) * 0.05;
         if (map.field !== fl || map.pal !== pal) paintMap(fl, pal);
       }
@@ -566,22 +620,29 @@ export function Stage({
         const x1 = x(fl.openAt + shift + (fl.seconds + 1) * 1000);
         c.drawImage(map.big, x0, y((fl.row0 + fl.rows) * fl.step), x1 - x0, y(fl.row0 * fl.step) - y((fl.row0 + fl.rows) * fl.step));
         c.restore();
-        // The multiples, written where the map reaches them, on a halo of the page so they read over ink and candles.
+        // The ladder's numbers: quiet by the price, in the ink's blue as they grow, on a halo of the page so they read over ink and candles.
         c.font = `600 11px ${MONO}`;
         c.textAlign = "center";
         c.textBaseline = "middle";
-        const placed: { x: number; y: number }[] = [];
+        const rowPx = pitchY * (fl.step / g.step);
+        const skip = rowPx < 15 ? Math.ceil(15 / rowPx) : 1;
+        const top = Math.log(RULES.maxMultiple);
+        const quiet = pal.muted;
+        const blue = pal.ink;
         for (const l of map.labels) {
+          if (skip > 1 && ((l.row % skip) + skip) % skip) continue;
           const lx = x(l.t + shift);
           const ly = y((l.row + 0.5) * fl.step);
-          if (lx < x(first) + 12 || lx > w - 14 || ly < 70 || ly > h - 22) continue;
-          if (placed.some((q) => Math.abs(q.x - lx) < 30 && Math.abs(q.y - ly) < 14)) continue;
-          placed.push({ x: lx, y: ly });
-          c.strokeStyle = rgba(pal.bg, 0.85);
+          if (lx < x(first) + 14 || lx > w - 18 || ly < 70 || ly > h - 22) continue;
+          // Not under the price's tag, just right of now.
+          if (lx < nx + 110 && Math.abs(ly - y(p)) < 14) continue;
+          const k = Math.min(1, Math.max(0, Math.log(l.m) / top));
+          const text = fmtMultiple(l.m);
+          c.strokeStyle = rgba(pal.bg, 0.8);
           c.lineWidth = 3;
-          c.strokeText(fmtMultiple(l.m), lx, ly);
-          c.fillStyle = rgba(pal.muted, 0.95);
-          c.fillText(fmtMultiple(l.m), lx, ly);
+          c.strokeText(text, lx, ly);
+          c.fillStyle = `rgba(${quiet.map((v, n) => Math.round(v + (blue[n] - v) * k)).join(",")},${0.75 + 0.25 * k})`;
+          c.fillText(text, lx, ly);
         }
       }
 
@@ -595,7 +656,7 @@ export function Stage({
         if (r % every) continue;
         const py = Math.round(y(r * step)) + 0.5;
         // Not under the market's name and price, top left, the buttons bottom left on a phone, or the price's own tag.
-        if (py < 66 || (phone() && py > h - 128) || Math.abs(py - 7 - y(p)) < 16) continue;
+        if (py < 66 || (phone() && py > h - 128)) continue;
         c.fillStyle = `rgba(${rgb},0.04)`;
         c.fillRect(0, py, nx, 1);
         c.fillStyle = `rgba(${rgb},0.32)`;
@@ -603,63 +664,55 @@ export function Stage({
       }
 
       /*
-        The price so far, as half-second candles built from every trade, so
-        the live one moves with each trade and a new one starts twice a
-        second. Before the trades on hand, the seeded one-second bars are
-        drawn a second wide. A half-second with no trade is a faint flat mark
-        at the last price, so a quiet market still keeps time.
+        The price, live: one line through every trade on hand, and each
+        second's close before them, to a head that glides to the latest
+        trade. A soft glow under it, and a fade to the page beneath.
       */
       {
-        const from = tAt(-20);
+        const from = tAt(0);
         const firstTick = g.ticks[0]?.t ?? Number.POSITIVE_INFINITY;
-        const up = rgba(pal.upMark, 0.9);
-        const down = rgba(pal.downMark, 0.9);
-        const quiet = `rgba(${rgb},0.28)`;
-        const candle = (t: number, span: number, o: number, hi: number, lo: number, cl: number, still = false) => {
-          const body = Math.max(1, pxMs() * span * 0.64);
-          // The live candle ends at now; it never pokes into the space you draw in.
-          const cx = Math.min(x(t + span / 2), nx - body / 2);
-          if (cx + body / 2 < 0) return;
-          c.fillStyle = still ? quiet : cl >= o ? up : down;
-          const top = y(Math.max(o, cl));
-          const bottom = y(Math.min(o, cl));
-          c.fillRect(Math.round(cx) - 0.5, y(hi), 1, Math.max(1, y(lo) - y(hi)));
-          c.fillRect(cx - body / 2, top, body, Math.max(1, bottom - top));
-        };
-        let prev = 0;
+        const line: { x: number; y: number }[] = [];
         for (const bar of g.bars) {
           if (bar.t >= firstTick) break;
-          if (bar.t + 1000 >= from) candle(bar.t, 1000, prev || bar.c, bar.h, bar.l, bar.c);
-          prev = bar.c;
+          if (bar.t + 1000 >= from) line.push({ x: x(bar.t + 1000), y: y(bar.c) });
         }
-        let slot = -1;
-        let o = 0;
-        let hi = 0;
-        let lo = 0;
-        let cl = prev;
-        const flush = () => {
-          if (slot >= 0) candle(slot, CANDLE_MS, o, hi, lo, cl);
-        };
+        let lastX = Number.NEGATIVE_INFINITY;
         for (const tk of g.ticks) {
-          const s0 = Math.floor(tk.t / CANDLE_MS) * CANDLE_MS;
-          if (s0 + CANDLE_MS < from) {
-            cl = tk.p;
-            continue;
-          }
-          if (s0 !== slot) {
-            flush();
-            // Quiet half-seconds between trades: flat at the last price.
-            if (slot >= 0 && cl) for (let q = slot + CANDLE_MS; q < s0; q += CANDLE_MS) candle(q, CANDLE_MS, cl, cl, cl, cl, true);
-            slot = s0;
-            o = hi = lo = tk.p;
-          }
-          hi = Math.max(hi, tk.p);
-          lo = Math.min(lo, tk.p);
-          cl = tk.p;
+          if (tk.t < from || tk.t > at) continue;
+          const px = x(tk.t);
+          // Far back, many trades land on one pixel: the last of them stands for it.
+          if (px - lastX < 0.75 && line.length) line[line.length - 1] = { x: px, y: y(tk.p) };
+          else line.push({ x: px, y: y(tk.p) });
+          lastX = px;
         }
-        flush();
-        // Up to now with no trade yet: flat candles at the last price, so the chart keeps time.
-        if (slot >= 0 && cl) for (let q = slot + CANDLE_MS; q <= at; q += CANDLE_MS) candle(q, CANDLE_MS, cl, cl, cl, cl, true);
+        line.push({ x: nx, y: y(p) });
+        if (line.length > 1) {
+          c.beginPath();
+          c.moveTo(line[0].x, line[0].y);
+          for (let k = 1; k < line.length; k++) c.lineTo(line[k].x, line[k].y);
+          c.lineJoin = "round";
+          c.lineCap = "round";
+          // The fade under the line, down to the foot.
+          const fill = c.createLinearGradient(0, y(p) - 120, 0, h);
+          fill.addColorStop(0, rgba(pal.ink, pal.dark ? 0.16 : 0.1));
+          fill.addColorStop(1, rgba(pal.ink, 0));
+          c.save();
+          c.lineTo(nx, h);
+          c.lineTo(line[0].x, h);
+          c.closePath();
+          c.fillStyle = fill;
+          c.fill();
+          c.restore();
+          c.beginPath();
+          c.moveTo(line[0].x, line[0].y);
+          for (let k = 1; k < line.length; k++) c.lineTo(line[k].x, line[k].y);
+          c.strokeStyle = rgba(pal.ink, 0.22);
+          c.lineWidth = 6;
+          c.stroke();
+          c.strokeStyle = rgba(pal.ink, 0.95);
+          c.lineWidth = 1.75;
+          c.stroke();
+        }
       }
 
       // Now: a line top to bottom, and the price on it.
@@ -682,16 +735,14 @@ export function Stage({
       c.font = `600 11px ${MONO}`;
       c.textAlign = "center";
       const label = fmtPrice(p, true);
-      // On the axis, at the left, with a faint line across to now: never on top of the live candle.
+      // Just right of the live dot, where the eye already is, clear of the line behind it.
       const lw = c.measureText(label).width + 14;
-      c.fillStyle = `rgba(${rgb},0.22)`;
-      for (let dx = 6 + lw + 4; dx < nx - 6; dx += 6) c.fillRect(dx, Math.round(py), 3, 1);
-      roundRect(c, 6, py - 10, lw, 20, 10);
+      roundRect(c, nx + 10, py - 10, lw, 20, 10);
       c.fillStyle = `rgb(${rgb})`;
       c.fill();
       c.fillStyle = rgba(pal.bg);
       c.textBaseline = "middle";
-      c.fillText(label, 6 + lw / 2, py + 0.5);
+      c.fillText(label, nx + 10 + lw / 2, py + 0.5);
 
       /*
         Where betting starts: a drawing opens on the next second, and the one

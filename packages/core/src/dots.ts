@@ -89,7 +89,8 @@ export const RULES = {
   /** How the one-second volatility is read: the five minutes before. */
   volWindowMs: 300_000 as const,
   /** How tall a dot is, in the market's typical one-second moves. */
-  stepSigmas: 1.2 as const,
+  // Rows this many one-second moves tall. At 1.2 a quiet market left the price's own row a near-certainty and the next one past the cap, so nothing in between; at 2.5 the ladder has steps, and the held-out week paid back the same (0.59 to 0.80 a day, Medium pen).
+  stepSigmas: 2.5 as const,
 };
 
 /**

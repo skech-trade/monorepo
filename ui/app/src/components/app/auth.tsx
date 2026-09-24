@@ -29,6 +29,12 @@ const config: Config = {
   projectId: PROJECT,
   appName: "skech",
   /*
+    Off: the SDK reports sign-in events to Coinbase with a fetch it never
+    catches, so wherever that is blocked (an ad blocker, say) every token
+    refresh left an unhandled "Failed to fetch" on the page.
+  */
+  disableAnalytics: true,
+  /*
     Whatever someone already has. The SDK's own union is "email" and "sms"
     plus `oauth:` with google, apple, x, telegram or github; each one still
     has to be turned on in the CDP Portal or its button never appears.
