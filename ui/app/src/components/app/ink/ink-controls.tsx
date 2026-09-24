@@ -53,7 +53,7 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
         </PopoverTrigger>
         <PopoverPopup align="start" className="w-60 max-sm:w-56">
           <PopoverTitle>Pen</PopoverTitle>
-          <PopoverDescription>Wider ink catches the price more often and pays less. The chart shows what each pen pays.</PopoverDescription>
+          <PopoverDescription>A wider pen&rsquo;s points are hit more often and pay less. The chart shows the multiples for the pen in hand.</PopoverDescription>
           <div className="flex flex-col gap-1 pt-3">
             {PENS.map((p) => (
               <PopoverClose
@@ -112,7 +112,7 @@ export function DepositButton({ onDeposit }: { onDeposit: (amount: number) => vo
       <PopoverTrigger render={<Button variant="secondary" />}>Deposit</PopoverTrigger>
       <PopoverPopup align="end" className="w-60">
         <PopoverTitle>Add practice money</PopoverTitle>
-        <PopoverDescription>It lands in your balance at once, and every drawing takes its ink from there.</PopoverDescription>
+        <PopoverDescription>It lands in your balance at once. Every point you draw is paid for from there, and every hit paid into it.</PopoverDescription>
         <div className="grid grid-cols-3 gap-1.5 pt-3">
           {DEPOSITS.map((a) => (
             <PopoverClose className="figures h-10 rounded-lg border text-sm transition-colors hover:bg-accent" key={a} onClick={() => onDeposit(a)}>

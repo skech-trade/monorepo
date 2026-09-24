@@ -2,11 +2,12 @@
 
 import { CircleHelpIcon, HistoryIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DOT_BETS, features, type Field, type Library, readLibrary, RULES, START_BALANCE, stepFor } from "@skech/core/dots";
+import { difficulty, DOT_BETS, features, type Field, type Library, readLibrary, RULES, setDifficulty, START_BALANCE, stepFor } from "@skech/core/dots";
 import { cost, decided, judge, open, openOn, PEN_CELLS, placePoints, refund, type Stroke, won } from "@skech/core/ink";
 import { terms } from "@skech/core/odds";
 import { MarketHeader } from "@/components/app/market-header";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { type Market, marketBySymbol } from "@/lib/market";
 import { usePhone } from "@/lib/phone";
@@ -108,6 +109,8 @@ export function InkScreen() {
 
   const [preview, setPreview] = useState<Preview | null>(null);
   const [help, setHelp] = useState(false);
+  /* The house's controls show in development, or with ?house in the address. */
+  const [house] = useState(() => typeof window !== "undefined" && (process.env.NODE_ENV !== "production" || new URLSearchParams(window.location.search).has("house")));
   const [live, setLive] = useState(0);
   const [result, setResult] = useState<{ key: string; won: number; cost: number; hits: number; points: number; voided: boolean } | null>(null);
   useEffect(() => {
@@ -118,18 +121,20 @@ export function InkScreen() {
   const [fresh, setFresh] = useState(false);
   const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, perDot: state.perDot, pen: state.brush, cell: PEN_CELLS[state.brush], bets: [], quote: null, fx: [], hint: !state.taught, dark: false });
 
-  // For tests and debugging in development: the live game, from the console.
+  // For tests and debugging in development: the live game, and the engine and paths it prices on, from the console.
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production") (window as unknown as { __dots?: Game }).__dots = game.current;
-  }, []);
+    if (process.env.NODE_ENV !== "production") Object.assign(window, { __dots: game.current, __engine: { lib, open, judge, features } });
+  }, [lib]);
 
   useEffect(() => {
     const g = game.current;
     g.perDot = state.perDot;
+    // How hard the game is: every drawing priced from now on, and the map, use it.
+    setDifficulty(state.difficulty);
     g.pen = state.brush;
     g.cell = PEN_CELLS[state.brush];
     g.hint = !state.taught;
-  }, [state.perDot, state.brush, state.taught]);
+  }, [state.perDot, state.brush, state.taught, state.difficulty]);
 
   /*
     Every quarter second: whether the page is dark, whether the prices are
@@ -234,7 +239,56 @@ export function InkScreen() {
     setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false });
     record({ id: line, at: t.at, cost: cents(t.cost), won: cents(t.won), hits: t.hits, dots: t.points, best: t.best });
   };
+  /*
+    One tab plays at a time. Two tabs of the game each brought back the
+    drawings in play from storage, and each paid their hits: every win in
+    play was paid twice. The tab holding the lock restores, judges and
+    places; another says so, and can take over.
+  */
+  // Where the browser cannot lock, this tab plays.
+  const [owner, setOwner] = useState<boolean | null>(() => (typeof navigator !== "undefined" && !navigator.locks ? true : null));
+  const takeOver = useRef<(() => void) | null>(null);
   const restored = useRef(false);
+  useEffect(() => {
+    const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+    if (!locks) return;
+    let done = false;
+    let release: (() => void) | null = null;
+    /*
+      Waiting for the lock, not asking only if it is free: a page that is
+      remounted (a reload in development, React's double start) asks again
+      while its first copy still holds it. Not given it within a moment, it
+      says another tab has it; given it later, when that tab closes, it plays.
+    */
+    let blocked: ReturnType<typeof setTimeout> | undefined;
+    const ask = (steal: boolean) => {
+      clearTimeout(blocked);
+      blocked = setTimeout(() => !done && setOwner((o) => (o ? o : false)), 800);
+      return locks
+        .request("skech:ink", steal ? { steal: true } : {}, (lock) => {
+          clearTimeout(blocked);
+          if (done || !lock) return;
+          // A new holder starts from what is in storage, as a fresh page does.
+          restored.current = false;
+          game.current.bets = [];
+          setOwner(true);
+          return new Promise<void>((r) => (release = r));
+        })
+        .catch(() => {
+          // Taken by another tab: stop, and leave its drawings to it.
+          if (done) return;
+          game.current.bets = [];
+          setOwner(false);
+        });
+    };
+    void ask(false);
+    takeOver.current = () => void ask(true);
+    return () => {
+      done = true;
+      clearTimeout(blocked);
+      release?.();
+    };
+  }, []);
   const { bars, ticks, skew, version } = feed;
   useEffect(() => {
     const g = game.current;
@@ -242,7 +296,7 @@ export function InkScreen() {
     g.ticks = ticks;
     g.skew = skew;
     const latest = bars.at(-1);
-    if (!latest || !lib) return;
+    if (!latest || !lib || !owner) return;
     const nowMs = Date.now() + skew;
     let credit = 0;
     if (!restored.current && bars.length > 300) {
@@ -317,7 +371,7 @@ export function InkScreen() {
     setLive(new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size);
     // Keep finished drawings only as long as their dots are still fading.
     g.bets = g.bets.filter((b) => !decided(b) || b.cells.some((d) => d.t + 3000 > nowMs));
-  }, [bars, ticks, skew, version, lib]);
+  }, [bars, ticks, skew, version, lib, owner]);
 
   /*
     A line is bet as it is drawn: every point the pen covers is placed, and
@@ -335,9 +389,10 @@ export function InkScreen() {
         return why;
       };
       const latest = g.bars.at(-1);
+      if (!owner) return finish("Playing in another tab");
       if (!latest || !fresh || !g.field) return finish("Waiting for live prices");
       const open = new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id));
-      if (!open.has(line) && open.size >= RULES.maxOpen) return finish(`${RULES.maxOpen} drawings at a time`);
+      if (!open.has(line) && open.size >= RULES.maxOpen) return finish(`${RULES.maxOpen} lines at a time`);
       const q = g.quote?.(stroke);
       if (!q) return finish(null);
       const due = q.inPlay.filter((c) => !keys.has(`${c.t}:${c.lo}`));
@@ -362,7 +417,7 @@ export function InkScreen() {
       buzz(first ? 8 : 3);
       return finish(null);
     },
-    [fresh],
+    [fresh, owner],
   );
 
 
@@ -428,7 +483,7 @@ export function InkScreen() {
     <section aria-label="Draw" className="flex min-h-[24rem] flex-1 flex-col overflow-hidden border-0 bg-background sm:m-2 sm:rounded-2xl sm:border">
       {/* Market on the left, the controls hard right, on the chart's own header. On a phone both are over the chart and in the footer instead. */}
       <div className="hidden flex-wrap items-center gap-1.5 border-b px-2 py-2 sm:flex sm:gap-2 sm:px-3">
-        {btc ? <MarketHeader className="max-sm:hidden sm:w-auto" market={btc} /> : null}
+        {btc ? <MarketHeader className="max-sm:hidden sm:w-auto" fixed market={btc} /> : null}
         {phone ? null : (
           <div className="ml-auto flex items-center gap-2">
             {balance}
@@ -458,7 +513,7 @@ export function InkScreen() {
           {/* On a phone: the market over the top left of the chart, the balance over the top right. */}
           {phone && btc ? (
             <div className="absolute top-4 left-3 z-10">
-              <MarketHeader market={btc} />
+              <MarketHeader fixed market={btc} />
             </div>
           ) : null}
           {phone ? <div className="absolute top-4 right-3 z-10 max-[380px]:top-16">{balance}</div> : null}
@@ -475,6 +530,12 @@ export function InkScreen() {
           ) : null}
 
           {lib ? <Stage className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} /> : null}
+          {owner === false ? (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm" role="status">
+              <p className="text-sm text-muted-foreground">The game is open in another tab.</p>
+              <Button onClick={() => takeOver.current?.()}>Play here</Button>
+            </div>
+          ) : null}
           {!fresh ? (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status">
               <p className="text-sm text-muted-foreground">{!lib ? "Getting the chart ready…" : "Waiting for live prices…"}</p>
@@ -533,7 +594,7 @@ export function InkScreen() {
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             <p className="mr-auto text-muted-foreground">
               <span className="font-medium text-foreground">Draw where you think Bitcoin goes.</span>{" "}
-              <span>The ink the price runs through pays what the chart shows there. Practice money, no sign-in.</span>
+              <span>Each point your line crosses costs your price per point; a point the price touches pays its multiple. Practice money, no sign-in.</span>
             </p>
             {recent.length ? (
               <ol aria-label="Your last drawings" className="flex items-center gap-1.5">
@@ -577,7 +638,10 @@ export function InkScreen() {
                     <li className="flex items-center justify-between gap-3 px-4 py-3 text-sm" key={r.id}>
                       <span className="text-muted-foreground">
                         {new Date(r.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                        <span className="figures"> · ink {money(r.cost)}</span>
+                        <span className="figures">
+                          {" "}
+                          · {r.hits} of {r.dots} hit · {money(r.cost)}
+                        </span>
                         {r.best ? <span className="figures"> · best {fmtMultiple(r.best)}</span> : null}
                       </span>
                       <span className={cn("figures font-medium", net > 0 ? "text-success-foreground" : "text-muted-foreground")}>{signed(net)}</span>
@@ -609,8 +673,21 @@ export function InkScreen() {
             <p>A point the price touches pays what you set times its multiple: 25¢ at 10× is $2.50. The pen shows both as you draw. Ink too soon, or outside the map, stays faint and costs nothing.</p>
             <p>A drawing starts on the next second. The first second after that is never part of it, and it reaches {RULES.horizon} seconds ahead.</p>
             <p className="text-muted-foreground">
-              Payouts are based on real Bitcoin paths from similar moments, starting from {Math.round(RULES.rtp * 100)}% of fair odds and adjusted for momentum. Only the part of your ink touched by the price pays. Your balance is practice money saved in this browser.
+              Payouts are based on real Bitcoin paths from similar moments: a point returns {Math.round(difficulty(state.difficulty).rtp * 100)}¢ a dollar on average, less in the direction the price just moved, and pays from {difficulty(state.difficulty).minMultiple}× to {difficulty(state.difficulty).maxMultiple}×. Your balance is practice money saved in this browser.
             </p>
+            {house ? (
+              <div className="flex flex-col gap-3 rounded-2xl border p-4">
+                <div className="flex items-baseline justify-between">
+                  <p className="font-medium">Difficulty</p>
+                  <p className="figures font-semibold text-lg">{state.difficulty}</p>
+                </div>
+                <Slider aria-label="Difficulty" max={100} min={0} onValueChange={(v) => setPractice({ difficulty: Array.isArray(v) ? v[0] : v })} step={5} value={state.difficulty} />
+                <p className="figures text-muted-foreground text-xs">
+                  Keeps {Math.round((1 - difficulty(state.difficulty).rtp) * 100)}% · pays {difficulty(state.difficulty).minMultiple}× to {difficulty(state.difficulty).maxMultiple}× · momentum margin {difficulty(state.difficulty).momentumMargin}
+                </p>
+                <p className="text-muted-foreground text-xs">For the house, while it is practice money. Drawings already open keep what they opened on.</p>
+              </div>
+            ) : null}
           </SheetPanel>
         </SheetPopup>
       </Sheet>

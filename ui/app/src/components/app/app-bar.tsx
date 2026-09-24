@@ -39,8 +39,12 @@ import { usePlayer } from "@/lib/social";
 import { NetworkBadge } from "./network-badge";
 import { SignInButton } from "./sign-in";
 
-/** `lead`: a page's own button, just left of the way in (the game's practice deposit, say). */
-export function AppBar({ lead }: { lead?: React.ReactNode } = {}) {
+/**
+ * `lead`: a page's own button, just left of the way in (the game's practice
+ * deposit, say). `practice`: a page with no venue and no trading money, so
+ * no testnet badge, and no trading balance or deposit beside its own.
+ */
+export function AppBar({ lead, practice = false }: { lead?: React.ReactNode; practice?: boolean } = {}) {
   const [{ blurred }, set] = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const me = useAccount();
@@ -103,9 +107,9 @@ export function AppBar({ lead }: { lead?: React.ReactNode } = {}) {
       {/* Logo and the way in. The market is on the chart itself on a phone:
           a nav bar is for the app, and a price belongs with the picture of it. */}
       <div className="ml-auto flex shrink-0 items-center gap-2 md:ml-0">
-        <NetworkBadge className="max-sm:hidden" />
+        {practice ? null : <NetworkBadge className="max-sm:hidden" />}
         {/* A reading, not a control: a Button with no onClick promised a press. */}
-        {anonymous ? null : (
+        {anonymous || practice ? null : (
           <span className="hidden max-w-40 items-center gap-1 truncate px-1 font-medium text-sm lg:inline-flex">
             <span className="sr-only">Perp balance: </span>
             <span className="figures">{cash === null ? "—" : `$${usd(cash)}`}</span>
@@ -113,7 +117,7 @@ export function AppBar({ lead }: { lead?: React.ReactNode } = {}) {
             {perp && !funded ? <span className="font-normal text-muted-foreground text-xs">to deposit</span> : null}
           </span>
         )}
-        {anonymous ? null : (
+        {anonymous || practice ? null : (
           <Button
             className="hidden lg:inline-flex"
             onClick={() => (me.address ? setDepositing(true) : announceSoon("Sign in first, then you can add money."))}

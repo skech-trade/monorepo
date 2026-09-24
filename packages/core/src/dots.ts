@@ -24,32 +24,57 @@
  * server can run the same code once there is money in it.
  */
 
+/**
+ * How hard the game is, from 0 to 100: one number that sets every lever the
+ * house has, together. At 0 a point returns 95 cents a dollar and a lucky
+ * hit can pay 100x; at 100 it returns 55 cents, nothing pays over 12x, and
+ * points so near the price that they are nearly sure are not offered.
+ *
+ *   rtp             0.95 - 0.40 * d/100   what a point returns on average
+ *   maxMultiple     100 * 0.12^(d/100)    the most one hit pays
+ *   minMultiple     1.01 + 0.19 * d/100   less than this is not offered
+ *   momentumMargin  0.11 + 0.09 * d/100   taken off the side it just moved to
+ *
+ * The top payout matters as much as the return: a lucky 50x is what turns a
+ * losing session around, so capping it is what makes coming out ahead rare.
+ * Backtested on 17-23 September (`check-ink.ts`, DIFFICULTY=): see
+ * docs/INK.md for what each level comes to.
+ */
+export function difficulty(d: number) {
+  const k = Math.min(100, Math.max(0, d)) / 100;
+  return {
+    difficulty: Math.round(k * 100),
+    rtp: Math.round((0.95 - 0.4 * k) * 1000) / 1000,
+    maxMultiple: Math.round(100 * 0.12 ** k),
+    minMultiple: Math.round((1.01 + 0.19 * k) * 100) / 100,
+    momentumMargin: Math.round((0.11 + 0.09 * k) * 1000) / 1000,
+  };
+}
+/** Where the game is set unless told otherwise: about three times harder to come out ahead than it was at 0.85 and 50x. */
+export const DIFFICULTY = 60;
+
 export const RULES = {
-  /**
-   * What a dot returns per dollar on average, by the paths; the house keeps
-   * the rest. On days the paths never saw it comes out lower still: at 0.85,
-   * 0.62 to 0.88 a dollar by day on 17-23 September, so the house keeps a
-   * tenth even on its worst day, and more on the rest, for the day a crash
-   * pays out more than it takes. `check-ink.ts` says what it comes to.
-   */
-  rtp: 0.85,
-  /** Taken off the return for each unit of momentum, on the side the price just moved towards: see `rtpAt`. */
-  momentumMargin: 0.11,
+  /** What a point returns on average, the most and least one pays, and the momentum margin: all set by `difficulty`. */
+  ...difficulty(DIFFICULTY),
   /** Seconds ahead a dot may be. */
-  horizon: 30,
-  /** Under this a spot is nearly certain and is not offered. Low, so ink right by the price still pays a little rather than leaving a hole there. */
-  minMultiple: 1.01,
-  /** Over this it is not offered: the chance is too small to measure well, and one lucky hit on it is what the house has to have put by. */
-  maxMultiple: 50,
+  horizon: 30 as const,
   /** Drawings in play at once. */
-  maxOpen: 5,
+  maxOpen: 5 as const,
   /** Dots in one drawing. */
-  maxDots: 400,
+  maxDots: 400 as const,
   /** How the one-second volatility is read: the five minutes before. */
-  volWindowMs: 300_000,
+  volWindowMs: 300_000 as const,
   /** How tall a dot is, in the market's typical one-second moves. */
-  stepSigmas: 1.2,
-} as const;
+  stepSigmas: 1.2 as const,
+};
+
+/**
+ * Set how hard the game is, for everything priced from now on: drawings
+ * already opened keep the multiples they opened on.
+ */
+export function setDifficulty(d: number) {
+  Object.assign(RULES, difficulty(d));
+}
 
 /** What one dot costs, in practice dollars. The first is the default. */
 export const DOT_BETS = [0.1, 0.25, 0.5, 1] as const;

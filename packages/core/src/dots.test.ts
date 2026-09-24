@@ -1,5 +1,8 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { type Bar, type Bet, cost, features, field, hits, judge, type Library, multipleFor, open, openFor, place, readLibrary, refund, rowOf, RULES, stepFor, volatility, won, writeLibrary } from "./dots";
+
+// These test how the game works, not how hard it is: they are written for the house's terms at 0.85 and 50x.
+beforeAll(() => Object.assign(RULES, { rtp: 0.85, maxMultiple: 50, minMultiple: 1.01, momentumMargin: 0.11 }));
 
 /** A library of `n` paths that all do the same thing: each second's close and swing, in volatilities. */
 function flatLib(n: number, closes: number[], swing = 0): Library {
@@ -171,4 +174,20 @@ test("the library survives a round trip, and the shipped one is the version the 
   const shipped = readLibrary(new Uint8Array(await Bun.file(new URL("./dots-lib.bin", import.meta.url)).arrayBuffer()));
   expect(shipped.n).toBe(16_000);
   expect(shipped.seconds).toBe(RULES.horizon + 1);
+});
+
+test("difficulty sets every lever together, harder all the way up", async () => {
+  const { difficulty } = await import("./dots");
+  const levels = [0, 30, 60, 80, 100].map(difficulty);
+  expect(levels[0]).toMatchObject({ rtp: 0.95, maxMultiple: 100, minMultiple: 1.01 });
+  expect(levels[4]).toMatchObject({ rtp: 0.55, maxMultiple: 12, minMultiple: 1.2 });
+  for (let i = 1; i < levels.length; i++) {
+    expect(levels[i].rtp).toBeLessThan(levels[i - 1].rtp);
+    expect(levels[i].maxMultiple).toBeLessThan(levels[i - 1].maxMultiple);
+    expect(levels[i].minMultiple).toBeGreaterThan(levels[i - 1].minMultiple);
+    expect(levels[i].momentumMargin).toBeGreaterThan(levels[i - 1].momentumMargin);
+  }
+  // Out of range is the nearest end.
+  expect(difficulty(-5)).toEqual(difficulty(0));
+  expect(difficulty(250)).toEqual(difficulty(100));
 });

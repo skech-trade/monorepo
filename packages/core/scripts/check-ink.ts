@@ -1,9 +1,9 @@
-import { type Bar, features, readLibrary, RULES, stepFor } from "../src/dots";
+import { type Bar, features, readLibrary, RULES, setDifficulty, stepFor } from "../src/dots";
 import { CELL, type InkBet, judge, open, PEN_CELLS, type Pen, place, type Stroke } from "../src/ink";
 /*
   Draw strokes on days the paths never saw, with the engine the page runs,
   and report what every kind of stroke got back per dollar of ink. Fair
-  pricing pays about RULES.rtp (0.94) whoever draws.
+  pricing pays about RULES.rtp whoever draws.
 
     bun packages/core/scripts/check-ink.ts <dots-lib.bin> <folder of BTCUSDT-1s CSVs> 2026-09-17 [more days]
 
@@ -12,6 +12,11 @@ import { CELL, type InkBet, judge, open, PEN_CELLS, type Pen, place, type Stroke
   finest cells.
 */
 const [libPath, dataDir, ...days] = process.argv.slice(2);
+// How hard, 0 to 100 (the game's default unless DIFFICULTY is set); RTP and MAX override single levers, for trying them apart.
+if (process.env.DIFFICULTY) setDifficulty(Number(process.env.DIFFICULTY));
+if (process.env.RTP) Object.assign(RULES, { rtp: Number(process.env.RTP) });
+if (process.env.MAX) Object.assign(RULES, { maxMultiple: Number(process.env.MAX) });
+console.log(`difficulty ${RULES.difficulty}: rtp ${RULES.rtp}, ${RULES.minMultiple}x to ${RULES.maxMultiple}x, momentum margin ${RULES.momentumMargin}`);
 const lib = readLibrary(new Uint8Array(await Bun.file(libPath).arrayBuffer()));
 const STEP = Number(process.env.STEP ?? 60);
 const PEN = process.env.PEN as Pen | undefined;

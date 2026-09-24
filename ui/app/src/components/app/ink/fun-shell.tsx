@@ -16,7 +16,7 @@ export function FunShell() {
   const [{ blurred }] = useSettings();
   return (
     <div className="flex h-svh flex-col overscroll-none bg-background [-webkit-touch-callout:none]" data-blurred={blurred ? "" : undefined}>
-      <AppBar lead={<DepositButton onDeposit={(amount) => setPractice((st) => ({ balance: cents(st.balance + amount) }))} />} />
+      <AppBar practice lead={<DepositButton onDeposit={(amount) => setPractice((st) => ({ balance: cents(st.balance + amount) }))} />} />
       <main className="flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-muted/40">
         <InkScreen />
       </main>
