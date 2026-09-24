@@ -470,10 +470,15 @@ export function InkScreen() {
   );
 
   /* The practice balance: beside the controls on a desk, over the chart's top right on a phone, in the same coat as the market beside it. */
-  const balance = (
-    <span className="flex h-10 items-center gap-1.5 rounded-lg px-2 text-sm max-sm:border max-sm:border-input max-sm:bg-card/85 max-sm:px-3 max-sm:backdrop-blur-sm">
+  const balance = phone ? (
+    <span className="flex h-10 items-center gap-1.5 rounded-lg border border-input bg-card/85 px-3 text-sm backdrop-blur-sm">
       <span className="figures font-medium">{money(state.balance)}</span>
       <span className="text-muted-foreground text-xs max-[380px]:hidden">Practice</span>
+    </span>
+  ) : (
+    <span className="mr-2 flex flex-col items-end leading-tight">
+      <span className="text-muted-foreground text-xs">Practice balance</span>
+      <span className="figures font-semibold text-xl tracking-tight">{money(state.balance)}</span>
     </span>
   );
 
@@ -485,9 +490,9 @@ export function InkScreen() {
 
   return (
     /* Edge to edge on a phone, a card on a desk: the trading screen's own shape. */
-    <section aria-label="Draw" className="flex min-h-[24rem] flex-1 flex-col overflow-hidden border-0 bg-background sm:m-2 sm:rounded-2xl sm:border">
+    <section aria-label="Draw" className="flex min-h-[24rem] flex-1 flex-col overflow-hidden bg-background sm:m-2 sm:rounded-3xl">
       {/* Market on the left, the controls hard right, on the chart's own header. On a phone both are over the chart and in the footer instead. */}
-      <div className="hidden flex-wrap items-center gap-1.5 border-b px-2 py-2 sm:flex sm:gap-2 sm:px-3">
+      <div className="hidden flex-wrap items-center gap-1.5 px-3 pt-3 pb-1 sm:flex sm:gap-3 sm:px-4">
         {btc ? <MarketHeader className="max-sm:hidden sm:w-auto" fixed market={btc} /> : null}
         {phone ? null : (
           <div className="ml-auto flex items-center gap-2">
@@ -499,13 +504,13 @@ export function InkScreen() {
       <div className="flex min-h-0 flex-1 gap-2 sm:px-2 sm:pt-2">
         {/* The rail beside the chart, as the trading screen's drawing tools are. */}
         <div className="hidden sm:block">
-          <div className="flex shrink-0 flex-col items-center gap-1.5 self-start rounded-2xl border bg-card p-1.5 [&_svg]:size-5">
+          <div className="flex shrink-0 flex-col items-center gap-1.5 self-start rounded-2xl bg-muted p-1.5 [&_svg]:size-5">
             <Tool words="Your drawings">
               <Button aria-label="Your drawings" className="size-10 rounded-xl" onClick={() => setListOpen(true)} size="icon" variant="ghost">
                 <HistoryIcon />
               </Button>
             </Tool>
-            <span aria-hidden="true" className="my-0.5 h-px w-6 shrink-0 bg-border" />
+            <span aria-hidden="true" className="my-0.5 h-px w-6 shrink-0 bg-foreground/10" />
             <Tool words={state.sound ? "Sound off" : "Sound on"}>{soundButton}</Tool>
             <Tool words="How it works">
               <Button aria-label="How it works" className="size-10 rounded-xl" onClick={() => setHelp(true)} size="icon" variant="ghost">
@@ -594,12 +599,12 @@ export function InkScreen() {
       </div>
 
       {/* The bar under the chart, as on the trading screen: what to do, and your recent drawings. On a phone, the controls. */}
-      <div className="flex flex-col gap-2 border-t px-3 py-3">
+      <div className="flex flex-col gap-2 px-3 py-3 sm:px-4">
         {phone ? null : (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             <p className="mr-auto text-muted-foreground">
               <span className="font-medium text-foreground">Draw where you think Bitcoin goes.</span>{" "}
-              <span>Each point your line crosses costs your price per point; a point the price touches pays its multiple. Practice money, no sign-in.</span>
+              <span>Every point the price touches pays its multiple.</span>
             </p>
             {recent.length ? (
               <ol aria-label="Your last drawings" className="flex items-center gap-1.5">
