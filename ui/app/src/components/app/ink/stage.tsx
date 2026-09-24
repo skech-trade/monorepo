@@ -82,6 +82,37 @@ const LEVELS = [2, 5, 10, 25, 50];
 /** How many pixels a slice gets in the map's own picture, before it is blurred and scaled onto the screen. */
 const MAP_PX = 12;
 
+/**
+ * A small image's alpha, softened in place: two passes of a three-wide box
+ * each way. Cheap at the map's size, one pixel a cell. Every pixel takes the
+ * ink's colour, so the soft edge fades to nothing rather than to black.
+ */
+function blurAlpha(d: Uint8ClampedArray, w: number, h: number, rgb: readonly number[]) {
+  const a = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) a[i] = d[i * 4 + 3];
+  const tmp = new Float32Array(w * h);
+  for (let pass = 0; pass < 2; pass++) {
+    for (let r = 0; r < h; r++)
+      for (let c = 0; c < w; c++) {
+        const i = r * w + c;
+        tmp[i] = (a[i] * 2 + a[c > 0 ? i - 1 : i] + a[c < w - 1 ? i + 1 : i]) / 4;
+      }
+    for (let r = 0; r < h; r++)
+      for (let c = 0; c < w; c++) {
+        const i = r * w + c;
+        a[i] = (tmp[i] * 2 + tmp[r > 0 ? i - w : i] + tmp[r < h - 1 ? i + w : i]) / 4;
+      }
+  }
+  for (let i = 0; i < w * h; i++) {
+    d[i * 4] = rgb[0];
+    d[i * 4 + 1] = rgb[1];
+    d[i * 4 + 2] = rgb[2];
+    d[i * 4 + 3] = a[i];
+  }
+}
+
+const dollars = (n: number) => `$${(Math.floor(n * 100) / 100).toFixed(2)}`;
+
 export const fmtMultiple = (m: number) => `${m >= 10 ? Math.round(m) : m.toFixed(1)}×`;
 const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 
@@ -103,8 +134,12 @@ export function Stage({
   className,
 }: {
   game: React.RefObject<Game>;
-  /** A finished stroke. The screen answers with why not, or null when it is placed. */
-  onPlace: (stroke: Stroke) => string | null;
+  /**
+   * The stroke so far, while it is drawn and once more when the pen lifts
+   * (`done`): the screen places whatever points of it are new, then and
+   * there, and answers with why not, or null.
+   */
+  onPlace: (stroke: Stroke, drawing: string, done: boolean) => string | null;
   onPreview: (p: Preview | null) => void;
   className?: string;
 }) {
@@ -170,7 +205,7 @@ export function Stage({
 
     /*
       The map, redrawn only when the field changes: one pixel per slice,
-      scaled up smoothly and blurred, so it reads as a landscape of odds
+      softened and scaled up smoothly, so it reads as a landscape of odds
       rather than a grid. And where along it each multiple is reached.
     */
     const map = { field: null as Field | null, pal: null as Palette | null, small: document.createElement("canvas"), big: document.createElement("canvas"), labels: [] as { t: number; row: number; m: number }[] };
@@ -202,6 +237,7 @@ export function Stage({
           img.data[o + 2] = pal.ink[2];
           img.data[o + 3] = Math.round(255 * (pal.dark ? 0.22 : 0.15) * (1 - k) ** 1.2);
         }
+      blurAlpha(img.data, fl.seconds, fl.rows, pal.ink);
       s.putImageData(img, 0, 0);
       // Never more than about a thousand pixels tall, however many rows the market needs.
       const px = Math.max(2, Math.min(MAP_PX, Math.floor(1024 / fl.rows)));
@@ -210,9 +246,8 @@ export function Stage({
       const b = map.big.getContext("2d")!;
       b.imageSmoothingEnabled = true;
       b.imageSmoothingQuality = "high";
-      b.filter = `blur(${px * 0.9}px)`;
+      // Softened at its own size already, so scaling it up smoothly is all it needs: a canvas blur at full size held the page up once a second.
       b.drawImage(map.small, 0, 0, map.big.width, map.big.height);
-      b.filter = "none";
       // The first slice out from the price, above and below, that pays each level, at three moments ahead.
       map.labels = [];
       const here = rowOf(fl.f.price, fl.step);
@@ -243,7 +278,7 @@ export function Stage({
     };
 
     /* The pen: the stroke so far, and what it would cost and pay. */
-    type Pen = { id: number; last: { x: number; y: number }; stroke: Stroke; quote: Preview | null; quotedAt: number; finger: boolean };
+    type Pen = { id: number; drawing: string; last: { x: number; y: number }; stroke: Stroke; quote: Preview | null; quotedAt: number; finger: boolean; why: string | null };
     let pen: Pen | null = null;
     let hover: { x: number; y: number } | null = null;
     let flash: { text: string; x: number; y: number; born: number } | null = null;
@@ -251,8 +286,10 @@ export function Stage({
     const offered = (d: Dot) => {
       const g = game.current!;
       if (!g.field) return null;
-      if (!inReach(d, openFor(now(g)))) return null;
-      return multipleOf(g.field, d);
+      const openAt = openFor(now(g));
+      if (!inReach(d, openAt)) return null;
+      // The map is of the last second that is over: read it as if it opened with a drawing placed now.
+      return multipleOf(g.field, { t: d.t - (openAt - g.field.openAt), row: d.row });
     };
     /** Re-price the stroke being drawn, at most twenty times a second. */
     const requote = (p: Pen, force = false) => {
@@ -261,6 +298,10 @@ export function Stage({
       const began = t;
       p.quotedAt = t;
       p.quote = game.current!.quote?.(p.stroke) ?? null;
+      // Placed as it is drawn: every new point is bet, and paid for, the moment the pen covers it.
+      const why = place.current(p.stroke, p.drawing, false);
+      if (why && why !== p.why) flash = { text: why, x: p.last.x, y: p.last.y, born: performance.now() };
+      p.why = why;
       preview.current(p.quote);
       const ms = performance.now() - began;
       if (process.env.NODE_ENV !== "production" && ms > 50) console.warn(`[ink] slow requote: ${Math.round(ms)} ms`);
@@ -279,7 +320,7 @@ export function Stage({
       } catch {
         /* A pointer the browser no longer tracks: drawing still works while it stays over the canvas. */
       }
-      pen = { id: e.pointerId, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: (g.cell * g.step) / 2 }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
+      pen = { id: e.pointerId, drawing: crypto.randomUUID(), why: null, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: (g.cell * g.step) / 2 }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
       requote(pen, true);
     };
     const move = (e: PointerEvent) => {
@@ -300,8 +341,8 @@ export function Stage({
       const q = point(e);
       p.stroke.pts.push({ t: tAt(q.x) - p.stroke.t0, p: pAt(q.y) - p.stroke.p0 });
       preview.current(null);
-      const why = place.current(p.stroke);
-      if (why) flash = { text: why, x: q.x, y: q.y, born: performance.now() };
+      const why = place.current(p.stroke, p.drawing, true);
+      if (why && why !== p.why) flash = { text: why, x: q.x, y: q.y, born: performance.now() };
     };
     const cancel = () => {
       pen = null;
@@ -355,8 +396,13 @@ export function Stage({
     const soft = document.createElement("canvas");
     const soften = (cells: Cell[], bands: [number, number][], keep: number) => {
       if (!cells.length && !bands.length) return;
-      mask.width = Math.ceil(w / MASK);
-      mask.height = Math.ceil(h / MASK);
+      // Sized once per screen size: setting a canvas's size, even to the same, throws its pixels away and allocates them again.
+      if (mask.width !== Math.ceil(w / MASK) || mask.height !== Math.ceil(h / MASK)) {
+        mask.width = Math.ceil(w / MASK);
+        mask.height = Math.ceil(h / MASK);
+        soft.width = mask.width;
+        soft.height = mask.height;
+      }
       const m = mask.getContext("2d")!;
       m.clearRect(0, 0, mask.width, mask.height);
       m.fillStyle = "#000";
@@ -366,9 +412,8 @@ export function Stage({
         m.fillRect(x(q.t) / MASK, top / MASK, wide / MASK, (y(q.lo) - top) / MASK);
       }
       for (const [x0, x1] of bands) m.fillRect(x0 / MASK, 0, (x1 - x0) / MASK, mask.height);
-      soft.width = mask.width;
-      soft.height = mask.height;
       const sb = soft.getContext("2d")!;
+      sb.clearRect(0, 0, soft.width, soft.height);
       sb.filter = "blur(1.5px)";
       sb.drawImage(mask, 0, 0);
       sb.filter = "none";
@@ -437,12 +482,15 @@ export function Stage({
       */
       const faint: Cell[] = [];
       const bands: [number, number][] = [];
+      // A line is placed as it is drawn, a few points at a time: each of those bets shares the line, and it is drawn once.
+      const drawnOnce = new Set<string>(pen ? [pen.drawing] : []);
       for (const bet of g.bets) {
         const st = bet.stroke;
         if (bet.status === "void") continue;
         if (x(st.t0 + Math.max(...st.pts.map((q) => q.t))) + radius() < nx - pxMs() * 2500) continue;
-        const breathe = bet.status === "opening" ? 0.65 + 0.3 * Math.sin(ms / 110) : 1;
-        ink(st, rgba(pal.ink, 0.96 * breathe));
+        const line = bet.group ?? bet.id;
+        if (!drawnOnce.has(line)) ink(st, solid);
+        drawnOnce.add(line);
         if (bet.status !== "opening") {
           const inPlay = new Set(bet.cells.map((q) => `${q.t}:${q.lo}`));
           for (const q of bet.drawn) if (!inPlay.has(`${q.t}:${q.lo}`)) faint.push(q);
@@ -509,8 +557,10 @@ export function Stage({
         c.beginPath();
         c.rect(Math.max(nx, x(first) - pxMs() * 400), 0, w, h);
         c.clip();
-        const x0 = x(fl.openAt + 1000);
-        const x1 = x(fl.openAt + (fl.seconds + 1) * 1000);
+        // Laid from the second a drawing placed now opens on: the map is a second behind it, and priced for it.
+        const shift = openFor(at) - fl.openAt;
+        const x0 = x(fl.openAt + shift + 1000);
+        const x1 = x(fl.openAt + shift + (fl.seconds + 1) * 1000);
         c.drawImage(map.big, x0, y((fl.row0 + fl.rows) * fl.step), x1 - x0, y(fl.row0 * fl.step) - y((fl.row0 + fl.rows) * fl.step));
         c.restore();
         // The multiples, written where the map reaches them: the further out, the more it pays.
@@ -518,7 +568,7 @@ export function Stage({
         c.textAlign = "center";
         const placed: { x: number; y: number }[] = [];
         for (const l of map.labels) {
-          const lx = x(l.t);
+          const lx = x(l.t + shift);
           const ly = y((l.row + 0.5) * fl.step);
           if (lx < x(first) + 12 || lx > w - 12 || ly < 14 || ly > h - 22) continue;
           if (placed.some((q) => Math.abs(q.x - lx) < 30 && Math.abs(q.y - ly) < 16)) continue;
@@ -623,7 +673,8 @@ export function Stage({
         c.lineWidth = 1;
         c.stroke();
         const m = g.field ? offered({ t: Math.floor(tAt(tip.x) / 1000) * 1000, row: rowOf(pAt(tip.y), g.field.step) }) : null;
-        const text = m !== null ? fmtMultiple(m) : tAt(tip.x) < first ? "Too soon" : "—";
+        // The multiple and what a hit there pays at the amount set: the same figure a hit shows.
+        const text = m !== null ? `${fmtMultiple(m)} · ${dollars(g.perDot * m)}` : tAt(tip.x) < first ? "Too soon" : "—";
         c.font = `700 12px ${MONO}`;
         const tw = c.measureText(text).width + 14;
         // Beside a mouse; well above a finger, which would cover it.

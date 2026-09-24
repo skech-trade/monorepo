@@ -53,8 +53,12 @@ const DEFAULTS: Practice = {
   open: [],
 };
 
-/* Its own name, so drawings kept in an older shape are never read back as strokes. */
-const KEY = "skech:practice:ink";
+/*
+  Its own name, so drawings kept in an older shape are never read back. The
+  second one is points: drawings from the first were priced by area, and the
+  balances won on them before the house's margin was set are not carried over.
+*/
+const KEY = "skech:practice:points";
 let current: Practice | null = null;
 const listeners = new Set<() => void>();
 

@@ -20,6 +20,8 @@ let seed = 5;
 const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 type Acc = { n: number; staked: number; paid: number; hits: number; segs: number; implied: number; won: number };
 const tables: Record<string, Record<string, Acc>> = { stroke: {}, multiple: {}, day: {} };
+/** Each kind of stroke's drawings, net of their cost, in order. */
+const sessions: Record<string, number[]> = {};
 const acc = (t: string, k: string) => (tables[t][k] ??= { n: 0, staked: 0, paid: 0, hits: 0, segs: 0, implied: 0, won: 0 });
 const bucket = (m: number) => (m < 2 ? "a  1.1-2x" : m < 5 ? "b  2-5x" : m < 15 ? "c  5-15x" : m < 40 ? "d  15-40x" : "e  40-100x");
 
@@ -64,6 +66,7 @@ for (const day of days) {
       if (bet.status === "void") continue;
       const staked = bet.cells.reduce((s, g) => s + bet!.perUnit * g.area, 0);
       const paid = bet.cells.reduce((s, g) => s + (g.paid ?? 0), 0);
+      (sessions[who] ??= []).push(paid - staked);
       for (const [t, k] of [["stroke", who], ["day", day]] as const) {
         const a = acc(t, k);
         a.n++, (a.staked += staked), (a.paid += paid), (a.won += paid > staked ? 1 : 0);
@@ -74,6 +77,28 @@ for (const day of days) {
         a.segs++, (a.staked += bet.perUnit * g.area), (a.paid += g.paid ?? 0), (a.hits += g.status === "hit" ? 1 : 0), (a.implied += 1 / g.multiple);
       }
     }
+  }
+}
+/*
+  Sessions: a player's drawings in the order they came, fifty or two hundred
+  at a time, of one kind of stroke. How often a session ends up ahead is
+  what a player feels, more than what a dollar returns.
+*/
+for (const size of [50, 200]) {
+  console.log(`\nSessions of ${size} drawings: how many ended ahead`);
+  for (const [who, list] of Object.entries(sessions).sort()) {
+    let n = 0;
+    let ahead = 0;
+    let worst = 0;
+    let best = 0;
+    for (let i = 0; i + size <= list.length; i += size) {
+      const net = list.slice(i, i + size).reduce((a, b) => a + b, 0);
+      n++;
+      if (net > 0) ahead++;
+      worst = Math.min(worst, net);
+      best = Math.max(best, net);
+    }
+    if (n) console.log("  " + who.padEnd(30) + String(n).padStart(6) + ((100 * ahead) / n).toFixed(0).padStart(6) + "% ahead" + ("   best +" + best.toFixed(2)).padStart(16) + ("   worst " + worst.toFixed(2)).padStart(16) + "  (at 10¢ a point)");
   }
 }
 for (const [title, t] of Object.entries(tables)) {

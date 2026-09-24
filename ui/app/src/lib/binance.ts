@@ -52,11 +52,18 @@ export function useBinance(symbol = "BTCUSDT"): Market {
     let late: ReturnType<typeof setTimeout> | undefined;
     let backoff = 500;
     /*
-      Tell the page, once a frame. A browser stops giving frames to a hidden
-      or covered window, and the page would stop too: no new bars, nothing
-      judged, a stale price. So if no frame comes within a quarter second, a
-      timer tells it instead.
+      Tell the page on the next frame. A browser stops giving frames to a
+      hidden or covered window, and the page would stop too: no new bars,
+      nothing judged, a stale price. So if no frame comes within a quarter
+      second, a timer tells it instead.
     */
+    /*
+      At most ten times a second. Every tell re-renders the page around the
+      chart, and at one a frame that was most of a phone's time between
+      frames; the chart itself reads the trades straight from this store, so
+      it moves every frame whatever this does.
+    */
+    let told = 0;
     const bump = () => {
       if (frame || late) return;
       const tell = () => {
@@ -64,11 +71,16 @@ export function useBinance(symbol = "BTCUSDT"): Market {
         clearTimeout(late);
         frame = 0;
         late = undefined;
+        told = performance.now();
         m.version++;
         setVersion(m.version);
       };
-      frame = requestAnimationFrame(tell);
-      late = setTimeout(tell, 250);
+      const wait = Math.max(0, 100 - (performance.now() - told));
+      if (wait > 0) late = setTimeout(tell, wait);
+      else {
+        frame = requestAnimationFrame(tell);
+        late = setTimeout(tell, 250);
+      }
     };
     const fold = (t: number, p: number) => {
       const sec = Math.floor(t / 1000) * 1000;
