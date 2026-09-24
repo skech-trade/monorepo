@@ -77,7 +77,10 @@ function resolve(css: string, into: HTMLElement): Rgb {
   return [r, g, b];
 }
 /** The app's own shades, from its CSS: the text, the page, the quiet text, and the green it uses for a gain. */
-type Palette = { ink: Rgb; fg: Rgb; bg: Rgb; muted: Rgb; up: Rgb; dark: boolean };
+type Palette = { ink: Rgb; fg: Rgb; bg: Rgb; muted: Rgb; up: Rgb; upMark: Rgb; downMark: Rgb; dark: boolean };
+
+/** Half-second candles, the trading chart's own. Only the picture: pricing and judging stay on whole seconds. */
+const CANDLE_MS = 500;
 const rgba = (c: Rgb, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
 /** The multiples written along the map. */
@@ -171,6 +174,8 @@ export function Stage({
       bg: resolve("var(--background)", el.parentElement ?? document.body),
       muted: resolve("var(--muted-foreground)", el.parentElement ?? document.body),
       up: resolve("var(--success)", el.parentElement ?? document.body),
+      upMark: resolve("var(--up-mark)", el.parentElement ?? document.body),
+      downMark: resolve("var(--down-mark)", el.parentElement ?? document.body),
       dark,
     });
     let w = 0;
@@ -605,40 +610,65 @@ export function Stage({
         c.fillText(fmtPrice(r * step, cents), 8, py - 7);
       }
 
-      // The price so far: each second's low and high in turn before the trades on hand, then every trade, so the line touches whatever ink was judged on.
-      const from = tAt(-20);
-      const firstTick = g.ticks[0]?.t ?? Number.POSITIVE_INFINITY;
-      c.beginPath();
-      let started = false;
-      const to = (tt: number, pr: number) => {
-        const px = x(Math.min(tt, at));
-        if (!started) {
-          c.moveTo(px, y(pr));
-          started = true;
-        } else c.lineTo(px, y(pr));
-      };
-      let prev = 0;
-      for (const bar of g.bars) {
-        if (bar.t + 1000 < from || bar.t >= firstTick) {
+      /*
+        The price so far, as half-second candles built from every trade, so
+        the live one moves with each trade and a new one starts twice a
+        second. Before the trades on hand, the seeded one-second bars are
+        drawn a second wide. A half-second with no trade is a faint flat mark
+        at the last price, so a quiet market still keeps time.
+      */
+      {
+        const from = tAt(-20);
+        const firstTick = g.ticks[0]?.t ?? Number.POSITIVE_INFINITY;
+        const up = rgba(pal.upMark, 0.9);
+        const down = rgba(pal.downMark, 0.9);
+        const quiet = `rgba(${rgb},0.28)`;
+        const candle = (t: number, span: number, o: number, hi: number, lo: number, cl: number, still = false) => {
+          const body = Math.max(1, pxMs() * span * 0.64);
+          // The live candle ends at now; it never pokes into the space you draw in.
+          const cx = Math.min(x(t + span / 2), nx - body / 2);
+          if (cx + body / 2 < 0) return;
+          c.fillStyle = still ? quiet : cl >= o ? up : down;
+          const top = y(Math.max(o, cl));
+          const bottom = y(Math.min(o, cl));
+          c.fillRect(Math.round(cx) - 0.5, y(hi), 1, Math.max(1, y(lo) - y(hi)));
+          c.fillRect(cx - body / 2, top, body, Math.max(1, bottom - top));
+        };
+        let prev = 0;
+        for (const bar of g.bars) {
+          if (bar.t >= firstTick) break;
+          if (bar.t + 1000 >= from) candle(bar.t, 1000, prev || bar.c, bar.h, bar.l, bar.c);
           prev = bar.c;
-          continue;
         }
-        const rising = bar.c >= (prev || bar.c);
-        to(bar.t + 250, rising ? bar.l : bar.h);
-        to(bar.t + 600, rising ? bar.h : bar.l);
-        to(bar.t + 1000, bar.c);
-        prev = bar.c;
+        let slot = -1;
+        let o = 0;
+        let hi = 0;
+        let lo = 0;
+        let cl = prev;
+        const flush = () => {
+          if (slot >= 0) candle(slot, CANDLE_MS, o, hi, lo, cl);
+        };
+        for (const tk of g.ticks) {
+          const s0 = Math.floor(tk.t / CANDLE_MS) * CANDLE_MS;
+          if (s0 + CANDLE_MS < from) {
+            cl = tk.p;
+            continue;
+          }
+          if (s0 !== slot) {
+            flush();
+            // Quiet half-seconds between trades: flat at the last price.
+            if (slot >= 0 && cl) for (let q = slot + CANDLE_MS; q < s0; q += CANDLE_MS) candle(q, CANDLE_MS, cl, cl, cl, cl, true);
+            slot = s0;
+            o = hi = lo = tk.p;
+          }
+          hi = Math.max(hi, tk.p);
+          lo = Math.min(lo, tk.p);
+          cl = tk.p;
+        }
+        flush();
+        // Up to now with no trade yet: flat candles at the last price, so the chart keeps time.
+        if (slot >= 0 && cl) for (let q = slot + CANDLE_MS; q <= at; q += CANDLE_MS) candle(q, CANDLE_MS, cl, cl, cl, cl, true);
       }
-      for (const tk of g.ticks) if (tk.t >= from) to(tk.t, tk.p);
-      to(at, p);
-      c.lineJoin = "round";
-      c.lineCap = "round";
-      c.strokeStyle = `rgba(${rgb},0.1)`;
-      c.lineWidth = 7;
-      c.stroke();
-      c.strokeStyle = `rgba(${rgb},0.92)`;
-      c.lineWidth = 1.75;
-      c.stroke();
 
       // Now: a line top to bottom, and the price on it.
       const glow = c.createLinearGradient(0, 0, 0, h);
