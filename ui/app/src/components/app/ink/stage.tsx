@@ -28,7 +28,7 @@ import { tracePricePath } from "./price-path";
  * owns the rules and the money; this owns the picture and the pen.
  */
 
-export type Fx = { kind: "hit" | "placed"; t: number; price: number; born: number; text?: string; big?: boolean };
+export type Fx = { kind: "hit" | "placed"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean };
 /** What the stroke being drawn costs, the least and most a hit on it pays (in dollars), and which of its points are in play. */
 export type Preview = { multipleLow: number; multipleHigh: number; units: number; cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[]; keyboard?: boolean };
 
@@ -676,16 +676,31 @@ export function Stage({
         for (const q of hits) {
           const lo = Math.max(q.lo, q.range?.[0] ?? q.lo);
           const hi = Math.min(q.hi, q.range?.[1] ?? q.hi);
+          // Only the band the price crossed, a pen's width either side of
+          // it, across the second it crossed in. Wider, it lit ink the price
+          // never reached, and a mostly missed stroke read as a win.
           const cx = x(q.t + 500);
           const cy = (y(lo) + y(hi)) / 2;
-          const r = Math.max(22, pxMs() * 900, (y(lo) - y(hi)) * 0.8);
-          const spot = gl.createRadialGradient(cx, cy, 0, cx, cy, r);
+          const rx = pxMs() * 600;
+          const ry = Math.max(4, (y(lo) - y(hi)) / 2) + radius();
+          gl.save();
+          gl.translate(cx, cy);
+          gl.scale(rx / ry, 1);
+          const spot = gl.createRadialGradient(0, 0, 0, 0, 0, ry);
           spot.addColorStop(0, "rgba(0,0,0,1)");
-          spot.addColorStop(0.55, "rgba(0,0,0,0.85)");
+          spot.addColorStop(0.7, "rgba(0,0,0,0.9)");
           spot.addColorStop(1, "rgba(0,0,0,0)");
           gl.fillStyle = spot;
-          gl.fillRect(cx - r, cy - r, r * 2, r * 2);
+          gl.fillRect(-ry, -ry, ry * 2, ry * 2);
+          gl.restore();
         }
+        gl.restore();
+        // Only ink the price has reached: a hit in the second under way does
+        // not light the part of it still ahead of the price.
+        gl.save();
+        gl.globalCompositeOperation = "destination-out";
+        gl.setTransform(dpr, 0, 0, dpr, 0, 0);
+        gl.fillRect(nx, 0, w - nx, h);
         gl.restore();
         const age = Math.max(0, Math.min(1, (at - (Math.max(...hits.map((q) => q.t)) + 1000)) / 2200));
         c.save();
@@ -1001,7 +1016,8 @@ export function Stage({
           c.font = `700 ${e.big ? 18 : 13}px ${MONO}`;
           c.globalAlpha = Math.max(0, Math.min(1, 1.6 - age * 1.6));
           c.textAlign = "left";
-          c.fillText(e.text ?? "", Math.max(ex, nx) + 12, ey - 16 - (reducedMotion.matches ? 0 : age * 36));
+          if (e.loss) c.fillStyle = rgba(pal.down);
+          if (e.text) c.fillText(e.text, Math.max(ex, nx) + 12, ey - 16 - (reducedMotion.matches ? 0 : age * 36));
           c.textAlign = "center";
           c.globalAlpha = 1;
         } else {

@@ -387,12 +387,17 @@ export function InkScreen() {
             const due = Math.max(0, Math.floor(acc.raw * 100 + 1e-8) / 100 - acc.credited);
             acc.credited = cents(acc.credited + due);
             credit += due;
-            // What this hit paid, shown where it landed.
-            const paid = won(bet) - won(before);
+            // Where it landed, the drawing's running result: what its hits
+            // have paid so far less what it cost. A hit on a drawing that is
+            // still behind reads as a loss, not as the payout.
+            const spent = g.bets.reduce((n, b, j) => (b.group ?? b.id) === line ? n + cost(j === i ? bet : b) - refund(j === i ? bet : b) : n, 0);
+            const net = cents(acc.raw - spent);
             const best = Math.max(...fresh2.map((d) => d.multiple * (isArea(bet.model) ? d.area : 1)));
             const lo = Math.min(...fresh2.map((d) => d.lo));
             const hi = Math.max(...fresh2.map((d) => d.hi));
-            g.fx.push({ kind: "hit", t: fresh2[0].t + 500, price: Math.min(hi, Math.max(lo, bar.c)), born: performance.now(), text: `+${money(paid)}`, big: best >= 10 });
+            // One number per drawing: a new hit replaces the last one's.
+            g.fx = g.fx.map((e) => e.line === line ? { ...e, text: undefined } : e);
+            g.fx.push({ kind: "hit", t: fresh2[0].t + 500, price: Math.min(hi, Math.max(lo, bar.c)), born: performance.now(), text: signed(net), loss: net < 0, line, big: best >= 10 });
             if (practice().sound) sound.hit(best);
             buzz(best >= 10 ? 40 : 12);
           }
@@ -610,8 +615,8 @@ export function InkScreen() {
                 <>
                   <span className="figures">{result.hits > 0 ? `${Math.round(100 * result.hits / result.points)}% of ink hit` : "Missed"}</span>
                   <span className="opacity-50">·</span>
-                  {/* A hit shows what came back, not what came back less what it cost; a miss shows what it cost. */}
-                  <span className="figures font-semibold tabular-nums">{result.hits > 0 ? signed(cents(result.won)) : signed(-cents(result.cost))}</span>
+                  {/* What the drawing came to: what came back less what it cost. */}
+                  <span className="figures font-semibold tabular-nums">{signed(cents(result.won - result.cost))}</span>
                 </>
               ) : (
                 <span>The price moved before it opened. Nothing spent.</span>
