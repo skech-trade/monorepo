@@ -1,5 +1,8 @@
 /**
- * The odds: everything the game says about a line, from one place.
+ * Legacy per-row odds. The active practice game uses areaTerms below; see
+ * docs/INK-AREA.md for its area normalization and 1.1× minimum.
+ *
+ * The original odds: everything the game says about a line, from one place.
  *
  * The map's labels, the pen's "10x · $2.50", the ticket while drawing, what
  * a line costs, what a hit pays, and the server's settlement once there is
@@ -30,8 +33,8 @@
  * and carries on after a jump, and a smooth formula misses all three.
  */
 
-import { type Features, type Field, chanceOf, multipleFor, openFor, RULES, rtpAt } from "./dots";
-import { cellsOf, type Cell, costOf, PEN_CELLS, type Pen, payoutOf, type Stroke } from "./ink";
+import { type Features, type Field, chanceOf, rangeChanceOf, multipleFor, openFor, RULES, rtpAt } from "./dots";
+import { roundedMultiple, roundedCells, areaCells, areaMultiple, areaCostOf, INK_CELL, cellsOf, type Cell, costOf, PEN_CELLS, type Pen, payoutOf, type Stroke } from "./ink";
 
 export { PEN_CELLS, type Pen } from "./ink";
 
@@ -104,3 +107,35 @@ export type Terms = ReturnType<typeof terms>;
 
 /** The market a map was priced on, for anyone who needs it with the terms. */
 export type { Features };
+
+/** Area contracts use fine, pen-independent slices. The selected stake is
+ * spread over one dot's area, not multiplied by the nib's pixel count. */
+export function areaTerms(map: Field, now: number, step: number, perDot: number, rounded = false) {
+  const openAt = openFor(now);
+  const size = step * INK_CELL;
+  const fits = Math.abs(map.step - size) < size * 1e-9;
+  return {
+    line(st: Stroke) {
+      const points: Priced[] = (rounded ? roundedCells : areaCells)(st, openAt, step).map(c => {
+        const t = map.openAt + c.t - openAt;
+        const p = !fits ? 0 : rounded ? rangeChanceOf(map, t, c.lo, c.hi, map.edgeCells ?? 0, INK_CELL) : chanceOf(map, { t, row: Math.round(c.lo / size) });
+        return { ...c, multiple: (rounded ? roundedMultiple : areaMultiple)(p, rtpAt(map.f, (c.lo + c.hi) / 2), c.area) };
+      });
+      const inPlay = points.filter(c => c.multiple !== null);
+      const units = inPlay.reduce((n, c) => n + c.area, 0);
+      const multiples = inPlay.map(c => c.area * c.multiple!);
+      const returns = inPlay.map(c => perDot * c.area * c.multiple!);
+      return {
+        points, inPlay, out: points.filter(c => c.multiple === null), units,
+        cost: areaCostOf(perDot, units),
+        multipleLow: multiples.length ? Math.min(...multiples) : 0,
+        multipleHigh: multiples.length ? Math.max(...multiples) : 0,
+        // Each slice can pay once; the total is a ceiling, not a promised return.
+        low: returns.length ? Math.floor(Math.min(...returns) * 100) / 100 : 0,
+        high: Math.floor(returns.reduce((n, p) => n + p, 0) * 100 + 1e-8) / 100,
+      };
+    },
+  };
+}
+
+export const roundedTerms = (map: Field, now: number, step: number, perDot: number) => areaTerms(map, now, step, perDot, true);

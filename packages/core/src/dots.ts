@@ -51,8 +51,8 @@ export function difficulty(d: number) {
     momentumMargin: 0.11,
   };
 }
-/** Where the game is set unless told otherwise: the house keeps about a quarter, with room to draw. */
-export const DIFFICULTY = 50;
+/** Default practice difficulty: 71.6% base pricing target, 10× piece cap. */
+export const DIFFICULTY = 70;
 
 /*
   Calibration. The chance measured on the paths is right on average but not
@@ -82,8 +82,6 @@ export const RULES = {
   ...difficulty(DIFFICULTY),
   /** Seconds ahead a dot may be. */
   horizon: 30 as const,
-  /** Drawings in play at once. */
-  maxOpen: 5 as const,
   /** Dots in one drawing. */
   maxDots: 400 as const,
   /** How the one-second volatility is read: the five minutes before. */
@@ -365,16 +363,18 @@ export const rowOf = (price: number, step: number) => Math.floor(price / step);
  * over the field once, adding its weight to every dot its range covers in
  * each second.
  */
-export type Field = { openAt: number; step: number; row0: number; rows: number; seconds: number; chance: Float32Array; rtp: number; f: Features; /** How many paths the chances rest on, as an effective count. */ paths: number };
+export type Field = { lowCdf?: Float64Array; highCdf?: Float64Array; edgeCells?: number; openAt: number; step: number; row0: number; rows: number; seconds: number; chance: Float32Array; rtp: number; f: Features; /** How many paths the chances rest on, as an effective count. */ paths: number };
 
-export function field(lib: Library, f: Features, openAt: number, step: number, cell = 0): Field {
+export function field(lib: Library, f: Features, openAt: number, step: number, cell = 0, edgeCells = 0): Field {
   const seconds = lib.seconds - 1;
-  // Far enough to hold any move the paths make, and never more than 150 rows either way.
-  const reach = Math.min(150, Math.ceil((8 * f.sigma * f.price * Math.sqrt(seconds)) / step));
+  // Far enough to hold any move the paths make, and bounded to 512 fine rows either way for large viewports.
+  const reach = Math.min(512, Math.ceil((8 * f.sigma * f.price * Math.sqrt(seconds)) / step));
   const here = rowOf(f.price, step);
   const row0 = here - reach;
   const rows = reach * 2 + 1;
   const acc = new Float64Array(seconds * rows);
+  const lowHistogram = new Float64Array(seconds * (rows + 2));
+  const highHistogram = new Float64Array(seconds * (rows + 2));
   const w = weights(lib, f);
   let all = 0;
   let sq = 0;
@@ -390,8 +390,13 @@ export function field(lib: Library, f: Features, openAt: number, step: number, c
     let prev = lib.close[base];
     for (let j = 0; j < seconds; j++) {
       const c = lib.close[base + j + 1];
-      const hi = rowOf(f.price * Math.exp((Math.max(prev, c) + lib.up[base + j + 1] * swing) * k), step) - row0;
-      const lo = rowOf(f.price * Math.exp((Math.min(prev, c) - lib.down[base + j + 1] * swing) * k), step) - row0;
+      const hi = rowOf(f.price * Math.exp((Math.max(prev, c) + lib.up[base + j + 1] * swing) * k) + edgeCells * step, step) - row0;
+      const lowPrice = f.price * Math.exp((Math.min(prev, c) - lib.down[base + j + 1] * swing) * k) - edgeCells * step;
+      const lo = (edgeCells ? Math.ceil(lowPrice / step) - 1 : rowOf(lowPrice, step)) - row0;
+      const rawHigh = f.price * Math.exp((Math.max(prev, c) + lib.up[base + j + 1] * swing) * k);
+      const rawLow = f.price * Math.exp((Math.min(prev, c) - lib.down[base + j + 1] * swing) * k);
+      highHistogram[j * (rows + 2) + Math.min(rows + 1, Math.max(0, Math.floor(rawHigh / step) - row0 + 1))] += wi;
+      lowHistogram[j * (rows + 2) + Math.min(rows + 1, Math.max(0, Math.ceil(rawLow / step) - row0))] += wi;
       prev = c;
       const a = Math.max(0, lo);
       const b = Math.min(rows - 1, hi);
@@ -412,7 +417,18 @@ export function field(lib: Library, f: Features, openAt: number, step: number, c
     const p = acc[x] / all;
     chance[x] = p > 0 ? calibrate(p + (1 - p) / paths, cell) : 0;
   }
-  return { openAt, step, row0, rows, seconds, chance, rtp: rtpFor(f), f, paths };
+  const lowCdf = new Float64Array(seconds * (rows + 1));
+  const highCdf = new Float64Array(seconds * (rows + 1));
+  if (all > 0) for (let j = 0; j < seconds; j++) {
+    let low = 0, high = 0;
+    for (let r = 0; r <= rows; r++) {
+      low += lowHistogram[j * (rows + 2) + r];
+      high += highHistogram[j * (rows + 2) + r];
+      lowCdf[j * (rows + 1) + r] = low / all;
+      highCdf[j * (rows + 1) + r] = high / all;
+    }
+  }
+  return { lowCdf, highCdf, edgeCells, openAt, step, row0, rows, seconds, chance, rtp: rtpFor(f), f, paths };
 }
 
 /** A dot's chance on a field; zero off it. */
@@ -528,4 +544,16 @@ export function judge(bet: Bet, bar: Bar, closed: boolean): Bet {
   });
   if (!changed) return bet;
   return { ...bet, dots, status: dots.every((d) => d.status !== "live") ? "done" : "live" };
+}
+
+/** Exact union probability for a contiguous price band. Since low <= high,
+ * P(path intersects [a,b]) = P(low <= b) - P(high < a). No independence
+ * assumption or sum of overlapping cell probabilities is involved. */
+export function rangeChanceOf(fl: Field, t: number, lo: number, hi: number, edgeCells = 0, cell = 0): number {
+  const j = Math.round((t - fl.openAt) / 1000) - 1;
+  const a = Math.round(lo / fl.step) - fl.row0 - edgeCells;
+  const b = Math.round(hi / fl.step) - fl.row0 + edgeCells;
+  if (!fl.lowCdf || !fl.highCdf || j < 0 || j >= fl.seconds || a < 0 || b > fl.rows || a > b || !(fl.paths > 0)) return 0;
+  const p = Math.max(0, fl.lowCdf[j * (fl.rows + 1) + b] - fl.highCdf[j * (fl.rows + 1) + a]);
+  return p > 0 ? calibrate(Math.min(1, p + (1 - p) / fl.paths), cell) : 0;
 }

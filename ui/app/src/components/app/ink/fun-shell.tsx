@@ -1,9 +1,7 @@
 "use client";
 
 import { AppBar } from "@/components/app/app-bar";
-import { cents, setPractice } from "@/lib/practice";
 import { useSettings } from "@/lib/settings";
-import { DepositButton } from "./ink-controls";
 import { InkScreen } from "./ink-screen";
 
 /**
@@ -15,9 +13,11 @@ import { InkScreen } from "./ink-screen";
 export function FunShell() {
   const [{ blurred }] = useSettings();
   return (
-    <div className="flex h-svh flex-col overscroll-none bg-background [-webkit-touch-callout:none]" data-blurred={blurred ? "" : undefined}>
-      <AppBar lead={<DepositButton onDeposit={(amount) => setPractice((st) => ({ balance: cents(st.balance + amount) }))} />} />
-      <main className="flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-muted/40">
+    <div className="fixed inset-0 flex h-dvh w-full flex-col overflow-hidden overscroll-none bg-background [-webkit-touch-callout:none]" data-blurred={blurred ? "" : undefined}>
+      <div className="absolute inset-x-0 top-0 z-30 [&>header]:border-0 [&>header]:bg-transparent [&>header]:px-4 sm:[&>header]:px-6">
+        <AppBar showTheme={false} />
+      </div>
+      <main className="absolute inset-0 flex min-h-0 w-full flex-col overflow-hidden">
         <InkScreen />
       </main>
     </div>

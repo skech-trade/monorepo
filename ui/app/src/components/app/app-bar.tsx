@@ -20,7 +20,7 @@ import { ThemeToggle } from "./theme-toggle";
  * Taller on a phone, where the things in it are thumb-sized: fifty-six
  * pixels is what a phone header is on both platforms.
  */
-export function AppBar({ lead }: { lead?: React.ReactNode } = {}) {
+export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; showTheme?: boolean } = {}) {
   const [{ blurred }, set] = useSettings();
   const me = useAccount();
   const anonymous = hasAuth && !me.signedIn;
@@ -31,7 +31,7 @@ export function AppBar({ lead }: { lead?: React.ReactNode } = {}) {
         <Wordmark />
       </Link>
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        <ThemeToggle className="max-sm:hidden" />
+        {showTheme ? <ThemeToggle className="max-sm:hidden" /> : null}
         {lead}
         {anonymous ? <SignInButton /> : null}
         {hasAuth && me.signedIn ? (
