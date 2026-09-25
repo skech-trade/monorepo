@@ -1,29 +1,14 @@
 /**
- * skech: draw ahead of the Bitcoin price. Every point of your line the price
- * touches pays.
- *
- * A drawing is a line in time and price. Each second it passes through a
- * row of prices is one point: a bet of its own, costing the same as every
- * other point (what you set, 25¢ say). A point pays that times its multiple
- * if the price trades in its row during its second, so a 10x point at 25¢
- * pays $2.50: the number under the pen is the number you get.
- *
- *   - rows are as tall as the pen is wide, so a wider pen's points are
- *     easier to hit and pay less;
- *   - a point's multiple is `rtp / chance`, the chance measured on
- *     thousands of real stretches of Bitcoin from moments like this one, as
- *     in `dots.ts`;
- *   - a longer line, or one that climbs or falls through more rows in a
- *     second, has more points and costs more;
- *   - a point too unlikely to measure, or too sure to pay anything, is not in
- *     play and costs nothing.
- *
- * Before this, ink was priced by area: every sliver of ink its own bet at a
- * share of a unit. It was fair, but nothing on the screen could be checked
- * against it: the map said 10x and a hit paid 17 cents.
+ * Freehand drawing contracts. New drawings use rounded-v3: the union of the
+ * swept nib is priced in full-dot units, and only reached ink pays.
+ * Legacy per-row contracts retain their original pricing and settlement.
+ * See docs/INK-AREA.md for the equations and historical validation.
  */
 
-import { type Bar, calibrate, chanceOf, type Features, features, type Field, type Library, LIB_SCALE, multipleFor, openFor, RULES, rtpAt, SWING_SCALE, weightsFor } from "./dots";
+import { type Bar, calibrate, chanceOf, rangeChanceOf, type Features, features, type Field, type Library, LIB_SCALE, multipleFor, openFor, RULES, rtpAt, SWING_SCALE, weightsFor } from "./dots";
+
+import { smoothRoundedMultiple, cappedRoundedMultiple, roundedMultiple, roundedCells, areaCells, areaMultiple, areaCostOf, INK_CELL } from "./ink-area";
+export { MAX_INK_MULTIPLE, roundedMultiple, roundedCells, INK_EDGE_CELLS, drawingLayout, areaCells, areaMultiple, areaCostOf, INK_CELL, MIN_INK_MULTIPLE, CHART_STEP_PX, CHART_LINE_PX } from "./ink-area";
 
 export { RULES } from "./dots";
 
@@ -56,6 +41,12 @@ export type BetCell = Cell & {
 
 export type InkBetStatus = "opening" | "live" | "done" | "void";
 export type InkBet = {
+  /** Missing means the original per-row contract; never reinterpret saved bets. */
+  model?: "area-v1" | "rounded-v1" | "rounded-v2" | "rounded-v3";
+  /** Absent on older saved contracts, which retain their original rounding. */
+  stakeRounding?: "up";
+  /** Paid price tolerance, in fine rows. Absent on historical contracts. */
+  edgeCells?: number;
   id: string;
   placedAt: number;
   openAt: number;
@@ -153,7 +144,7 @@ export function cellsOf(st: Stroke, openAt: number, step: number, cell: number =
  * scaled to now; and the same correction for how thin the estimate is, so a
  * rare cell is not overpaid.
  */
-export function chances(lib: Library, cells: Cell[], openAt: number, f: Features, cell = 0): number[] {
+export function chances(lib: Library, cells: Cell[], openAt: number, f: Features, cell = 0, inclusive = false): number[] {
   const { w } = weightsFor(lib, f);
   const k = f.sigma / LIB_SCALE;
   // Each cell, as the paths store a move: log from the price, in volatilities, times the scale.
@@ -176,7 +167,7 @@ export function chances(lib: Library, cells: Cell[], openAt: number, f: Features
       const hi = Math.max(prev, c) + lib.up[base + j] * swing;
       const lo = Math.min(prev, c) - lib.down[base + j] * swing;
       // A price exactly on a cell's top edge is in the cell above, as in `dots.ts`: counted in both, prices on round numbers hit twice.
-      if (hi >= at[s].lo && lo < at[s].hi) hit[s] += wi;
+      if (hi >= at[s].lo && (inclusive ? lo <= at[s].hi : lo < at[s].hi)) hit[s] += wi;
     }
   }
   const paths = sq > 0 ? (all * all) / sq : 0;
@@ -228,10 +219,18 @@ export const costOf = (perPoint: number, points: number) => cents(perPoint * poi
 /** What a hit pays: the point times its multiple, rounded down to the cent. */
 export const payoutOf = (perPoint: number, multiple: number) => Math.floor(perPoint * multiple * 100 + 1e-9) / 100;
 const areaOf = (cells: Cell[]) => cells.reduce((s, g) => s + g.area, 0);
-export const cost = (bet: InkBet) => costOf(bet.perUnit, areaOf(bet.drawn));
+export const cost = (bet: InkBet) => (bet.stakeRounding === "up" ? areaCostOf : costOf)(bet.perUnit, areaOf(bet.drawn));
 /** What comes back when it opens: the ink no longer in play, or all of it when it is voided. */
-export const refund = (bet: InkBet) => (bet.status === "void" ? cost(bet) : bet.status === "opening" ? 0 : cents(cost(bet) - bet.perUnit * areaOf(bet.cells)));
-export const won = (bet: InkBet) => cents(bet.cells.reduce((s, g) => s + (g.paid ?? 0), 0));
+export const refund = (bet: InkBet) => {
+  if (bet.status === "void") return cost(bet);
+  if (bet.status === "opening") return 0;
+  const retained = bet.stakeRounding === "up" ? areaCostOf(bet.perUnit, areaOf(bet.cells)) : bet.perUnit * areaOf(bet.cells);
+  return cents(cost(bet) - retained);
+};
+export const won = (bet: InkBet) => {
+  const total = bet.cells.reduce((s, g) => s + (g.paid ?? 0), 0);
+  return (bet.model === "area-v1" || bet.model === "rounded-v1" || bet.model === "rounded-v2" || bet.model === "rounded-v3") ? Math.floor(total * 100 + 1e-8) / 100 : cents(total);
+};
 /** How much of the ink in play the price ran through. */
 export const hitShare = (bet: InkBet) => {
   const all = areaOf(bet.cells);
@@ -247,6 +246,22 @@ export function place(st: Stroke, perUnit: number, step: number, now: number, id
   return { id, placedAt: now, openAt, perUnit, step, cell, stroke: st, drawn, cells: [], status: "opening" };
 }
 
+/** Area-priced ink is committed once, on release. A full dot costs the
+ * selected amount; unavailable area is refunded on opening. */
+export function placeArea(st: Stroke, perUnit: number, step: number, now: number, id: string, edgeCells = 0): InkBet | null {
+  if (!Number.isFinite(perUnit) || perUnit <= 0 || !Number.isFinite(now) || !Number.isFinite(edgeCells) || edgeCells < 0 || edgeCells > 4) return null;
+  const openAt = openFor(now);
+  const drawn = areaCells(st, openAt, step);
+  if (!drawn.length) return null;
+  return { model: "area-v1", stakeRounding: "up", edgeCells, id, placedAt: now, openAt, perUnit, step, cell: INK_CELL, stroke: st, drawn, cells: [], status: "opening" };
+}
+
+/** New rounded-section contracts preserve the exact swept-area stake. */
+export function placeRounded(st: Stroke, perUnit: number, step: number, now: number, id: string, edgeCells = 1): InkBet | null {
+  const bet = placeArea(st, perUnit, step, now, id, edgeCells);
+  return bet ? { ...bet, model: "rounded-v3", drawn: roundedCells(st, bet.openAt, step) } : null;
+}
+
 /** Some points of a line, as a drawing of their own: placed now, not priced yet. */
 export function placePoints(points: Cell[], st: Stroke, group: string, perUnit: number, step: number, now: number, id: string, cell: number = CELL): InkBet | null {
   const openAt = openFor(now);
@@ -259,10 +274,13 @@ export function placePoints(points: Cell[], st: Stroke, group: string, perUnit: 
 export function open(bet: InkBet, lib: Library, bars: Bar[]): InkBet {
   const f = features(bars, bet.openAt);
   if (!f) return { ...bet, status: "void", why: "No price to open on." };
-  const ps = chances(lib, bet.drawn, bet.openAt, f, bet.cell ?? CELL);
+  const pad = (bet.edgeCells ?? 0) * bet.step * INK_CELL;
+  const priced = pad ? bet.drawn.map(s => ({ ...s, lo: s.lo - pad, hi: s.hi + pad })) : bet.drawn;
+  const ps = chances(lib, priced, bet.openAt, f, bet.cell ?? CELL, pad > 0);
   const cells: BetCell[] = [];
   bet.drawn.forEach((s, i) => {
-    const m = multipleFor(ps[i], rtpAt(f, (s.lo + s.hi) / 2));
+    const rtp = rtpAt(f, (s.lo + s.hi) / 2);
+    const m = (bet.model === "area-v1" || bet.model === "rounded-v1" || bet.model === "rounded-v2" || bet.model === "rounded-v3") ? (bet.model === "rounded-v3" ? roundedMultiple : bet.model === "rounded-v2" ? smoothRoundedMultiple : bet.model === "rounded-v1" ? cappedRoundedMultiple : areaMultiple)(ps[i], rtp, s.area) : multipleFor(ps[i], rtp);
     if (m !== null) cells.push({ ...s, multiple: m, chance: ps[i], status: "live" });
   });
   if (!cells.length) return { ...bet, status: "void", why: "The price moved, and none of it is in play now." };
@@ -277,11 +295,16 @@ export function open(bet: InkBet, lib: Library, bars: Bar[]): InkBet {
  */
 export function openOn(bet: InkBet, fl: Field): InkBet | null {
   const size = bet.step * (bet.cell ?? CELL);
-  if (fl.openAt !== bet.openAt || Math.abs(fl.step - size) > size * 1e-9) return null;
+  if (fl.openAt !== bet.openAt || (fl.edgeCells ?? 0) !== (bet.edgeCells ?? 0) || Math.abs(fl.step - size) > size * 1e-9) return null;
+  // A bounded worker map cannot price ink beyond its range. Use direct
+  // path pricing instead of silently voiding an otherwise payable section.
+  const pad = (bet.edgeCells ?? 0) * size;
+  if (bet.drawn.some(s => s.lo - pad < fl.row0 * size - size * 1e-8 || s.hi + pad > (fl.row0 + fl.rows) * size + size * 1e-8)) return null;
   const cells: BetCell[] = [];
   for (const s of bet.drawn) {
-    const p = chanceOf(fl, { t: s.t, row: Math.round(s.lo / size) });
-    const m = multipleFor(p, rtpAt(fl.f, (s.lo + s.hi) / 2));
+    const p = (bet.model === "rounded-v1" || bet.model === "rounded-v2" || bet.model === "rounded-v3") ? rangeChanceOf(fl, s.t, s.lo, s.hi, bet.edgeCells ?? 0, bet.cell ?? CELL) : chanceOf(fl, { t: s.t, row: Math.round(s.lo / size) });
+    const rtp = rtpAt(fl.f, (s.lo + s.hi) / 2);
+    const m = (bet.model === "area-v1" || bet.model === "rounded-v1" || bet.model === "rounded-v2" || bet.model === "rounded-v3") ? (bet.model === "rounded-v3" ? roundedMultiple : bet.model === "rounded-v2" ? smoothRoundedMultiple : bet.model === "rounded-v1" ? cappedRoundedMultiple : areaMultiple)(p, rtp, s.area) : multipleFor(p, rtp);
     if (m !== null) cells.push({ ...s, multiple: m, chance: p, status: "live" });
   }
   if (!cells.length) return { ...bet, status: "void", why: "The price moved, and none of it is in play now." };
@@ -310,9 +333,10 @@ export function judge(bet: InkBet, bar: Bar, closed: boolean, prevClose?: number
   let changed = false;
   const cells = bet.cells.map((s) => {
     if (s.status !== "live") return s;
-    if (s.t === bar.t && hi >= s.lo && lo < s.hi) {
+    const pad = (bet.edgeCells ?? 0) * bet.step * INK_CELL;
+    if (s.t === bar.t && hi >= s.lo - pad && (pad ? lo <= s.hi + pad : lo < s.hi)) {
       changed = true;
-      return { ...s, status: "hit" as const, paid: payoutOf(bet.perUnit * s.area, s.multiple), range: [lo, hi] as [number, number] };
+      return { ...s, status: "hit" as const, paid: (bet.model === "area-v1" || bet.model === "rounded-v1" || bet.model === "rounded-v2" || bet.model === "rounded-v3") ? bet.perUnit * s.area * s.multiple : payoutOf(bet.perUnit * s.area, s.multiple), range: [lo, hi] as [number, number] };
     }
     if (closed && s.t <= bar.t) {
       changed = true;
@@ -322,4 +346,24 @@ export function judge(bet: InkBet, bar: Bar, closed: boolean, prevClose?: number
   });
   if (!changed) return bet;
   return { ...bet, cells, status: cells.every((s) => s.status !== "live") ? "done" : "live" };
+}
+
+/** Realized P&L only: reserved stake is not a loss until its ink settles.
+ * Completed bets are supplied in `settled` so fading geometry is never counted twice. */
+export function liveInkTotals(bets: InkBet[], settled = { committed: 0, returned: 0 }) {
+  const active = bets.filter(b => !decided(b));
+  const committed = active.reduce((n, b) => n + cost(b) - refund(b), settled.committed);
+  const returned = active.reduce((n, b) => n + won(b), settled.returned);
+  const settledCost = active.reduce((n, b) => {
+    if (b.status === "opening") return n;
+    const totalArea = areaOf(b.cells);
+    const resolvedArea = areaOf(b.cells.filter(c => c.status !== "live"));
+    if (!totalArea) return n;
+    // Allocate the actual cent-rounded retained stake by settled area. Carry
+    // the fractional cent until completion, when the exact stake is recognized.
+    const retained = cost(b) - refund(b);
+    return n + Math.floor(retained * Math.min(1, resolvedArea / totalArea) * 100 + 1e-8) / 100;
+  }, settled.committed);
+  const drawings = new Set(active.map(b => b.group ?? b.id)).size;
+  return { drawings, committed: cents(committed), returned: cents(returned), settledCost: cents(settledCost), pending: cents(committed - settledCost), pnl: cents(returned - settledCost) };
 }

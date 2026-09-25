@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { type Bar, type Field, multipleOf, openFor, RULES, rowOf } from "@skech/core/dots";
-import type { Cell, InkBet, Pen, Stroke } from "@skech/core/ink";
-import { terms } from "@skech/core/odds";
+import { type Bar, type Field, openFor, RULES, rowOf } from "@skech/core/dots";
+import { drawingLayout, INK_CELL, INK_EDGE_CELLS, MIN_INK_MULTIPLE, CHART_STEP_PX, CHART_LINE_PX, PEN_CELLS, type Cell, type InkBet, type Pen, type Stroke } from "@skech/core/ink";
+import { roundedTerms as areaTerms } from "@skech/core/odds";
 import type { Tick } from "@/lib/binance";
+import { tracePricePath } from "./price-path";
 
 /**
  * The stage: the price so far on the left, now in the middle, and the space
@@ -18,8 +19,8 @@ import type { Tick } from "@/lib/binance";
  * it is not (too soon, too near the price, too far from it), and green where
  * the price has been through it.
  *
- * Underneath, area is counted in small slices, one second wide and one price
- * step tall, because that is how finely the price data runs. None of that
+ * Underneath, area is counted in small slices, one second wide and one chart-line
+ * thickness tall, because that is how finely the price data runs. None of that
  * is drawn.
  *
  * One canvas, drawn every frame from a game object the screen mutates, since
@@ -29,7 +30,7 @@ import type { Tick } from "@/lib/binance";
 
 export type Fx = { kind: "hit" | "placed"; t: number; price: number; born: number; text?: string; big?: boolean };
 /** What the stroke being drawn costs, the least and most a hit on it pays (in dollars), and which of its points are in play. */
-export type Preview = { cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[] };
+export type Preview = { multipleLow: number; multipleHigh: number; units: number; cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[]; keyboard?: boolean };
 
 export type Game = {
   bars: Bar[];
@@ -39,11 +40,15 @@ export type Game = {
   /** Every slice's chance, for a drawing placed now. Null until the paths and the prices are in. */
   field: Field | null;
   step: number;
+  marketStep: number;
+  viewport: { width: number; height: number };
+  displayPrice: number;
   /** What a point costs. */
   perDot: number;
   pen: Pen;
   /** The pen's width, and the height of the rows its points are in, as a share of `step`. */
   cell: number;
+  drawing?: { step: number; perDot: number; pen: Pen };
   bets: InkBet[];
   /** Price a stroke as if it were placed now. Set by the screen, which has the paths and the market. */
   quote: ((st: Stroke) => Preview | null) | null;
@@ -81,43 +86,10 @@ type Palette = { ink: Rgb; fg: Rgb; bg: Rgb; muted: Rgb; up: Rgb; upMark: Rgb; d
 
 const rgba = (c: Rgb, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
-/** How many pixels a slice gets in the map's own picture, before it is blurred and scaled onto the screen. */
-const MAP_PX = 12;
-
-/**
- * A small image's alpha, softened in place: two passes of a three-wide box
- * each way. Cheap at the map's size, one pixel a cell. Every pixel takes the
- * ink's colour, so the soft edge fades to nothing rather than to black.
- */
-function blurAlpha(d: Uint8ClampedArray, w: number, h: number, rgb: readonly number[]) {
-  const a = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) a[i] = d[i * 4 + 3];
-  const tmp = new Float32Array(w * h);
-  for (let pass = 0; pass < 2; pass++) {
-    for (let r = 0; r < h; r++)
-      for (let c = 0; c < w; c++) {
-        const i = r * w + c;
-        tmp[i] = (a[i] * 2 + a[c > 0 ? i - 1 : i] + a[c < w - 1 ? i + 1 : i]) / 4;
-      }
-    for (let r = 0; r < h; r++)
-      for (let c = 0; c < w; c++) {
-        const i = r * w + c;
-        a[i] = (tmp[i] * 2 + tmp[r > 0 ? i - w : i] + tmp[r < h - 1 ? i + w : i]) / 4;
-      }
-  }
-  for (let i = 0; i < w * h; i++) {
-    d[i * 4] = rgb[0];
-    d[i * 4 + 1] = rgb[1];
-    d[i * 4 + 2] = rgb[2];
-    d[i * 4 + 3] = a[i];
-  }
-}
-
 /** Dollars as a hit pays them: to the cent, and without the cents only when there are none. */
-const dollars = (n: number) => (Math.abs(n - Math.round(n)) < 0.005 && n >= 1 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`);
 
-/** A multiple exactly as it pays: to the cent below 2x, a tenth below 10x, whole above, the steps `multipleFor` rounds to. */
-export const fmtMultiple = (m: number) => `${m >= 10 ? Math.round(m) : m >= 2 ? m.toFixed(1) : m.toFixed(2)}×`;
+/** Show the maximum return per section, rounded down to a tenth. */
+export const fmtMultiple = (m: number) => `${Math.floor(m * 10 + 1e-8) / 10}×`;
 const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 
 function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -135,24 +107,27 @@ export function Stage({
   game,
   onPlace,
   onPreview,
+  onViewport,
   className,
 }: {
   game: React.RefObject<Game>;
   /**
-   * The stroke so far, while it is drawn and once more when the pen lifts
-   * (`done`): the screen places whatever points of it are new, then and
-   * there, and answers with why not, or null.
+   * Commit the complete stroke on pointer release. Cancelled gestures
+   * never debit a balance. Returns an explanation if it cannot be placed.
    */
   onPlace: (stroke: Stroke, drawing: string, done: boolean) => string | null;
   onPreview: (p: Preview | null) => void;
+  onViewport: (size: { width: number; height: number }) => void;
   className?: string;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const place = useRef(onPlace);
   const preview = useRef(onPreview);
+  const viewport = useRef(onViewport);
   useEffect(() => {
     place.current = onPlace;
     preview.current = onPreview;
+    viewport.current = onViewport;
   });
 
   useEffect(() => {
@@ -183,8 +158,10 @@ export function Stage({
       dpr = Math.min(2, window.devicePixelRatio || 1);
       w = r.width;
       h = r.height;
-      el.width = Math.round(w * dpr);
-      el.height = Math.round(h * dpr);
+      viewport.current({ width: w, height: h });
+      const width = Math.round(w * dpr), height = Math.round(h * dpr);
+      if (el.width !== width) el.width = width;
+      if (el.height !== height) el.height = height;
     };
     size();
     const ro = new ResizeObserver(size);
@@ -194,14 +171,13 @@ export function Stage({
     let centre = 0;
     let at = 0;
     const phone = () => w < 640;
-    const nowX = () => Math.round(w * (phone() ? 0.32 : 0.36));
-    const pxMs = () => (w - nowX() - (phone() ? 10 : 24)) / ((RULES.horizon + 1.5) * 1000);
-    /**
-     * How tall a price step is on screen. Eased towards whatever fits the
-     * range the price can reach in the next thirty seconds, so the space is
-     * the part of the future that matters.
-     */
-    let pitchY = 22;
+    const layout = () => drawingLayout(w, h, game.current.marketStep);
+    const nowX = () => layout().nowX;
+    const pxMs = () => layout().pxMs;
+    const pitchY = CHART_STEP_PX;
+    const plotTop = () => layout().top;
+    const plotBottom = () => layout().bottom;
+    const middleY = () => (plotTop() + plotBottom()) / 2;
     /*
       Time, left to right. Ahead of now, and the last few seconds behind it,
       one scale, so ink runs straight into the price. Further back, the last
@@ -219,107 +195,55 @@ export function Stage({
       const edge = nowX() - NEAR_MS * pxMs();
       return px >= edge ? at + (px - nowX()) / pxMs() : at - NEAR_MS - (edge - px) / farPxMs();
     };
-    const y = (p: number) => h / 2 - ((p - centre) / game.current!.step) * pitchY;
-    const pAt = (py: number) => centre + ((h / 2 - py) * game.current!.step) / pitchY;
+    const y = (p: number) => middleY() - ((p - centre) / game.current!.step) * pitchY;
+    const pAt = (py: number) => centre + ((middleY() - py) * game.current!.step) / pitchY;
     /** The pen's radius on screen: half its cell, so the ink is exactly as tall as what it is judged on. */
-    const radius = () => (game.current!.cell * pitchY) / 2;
+    const radius = () => (PEN_CELLS[game.current!.drawing?.pen ?? game.current!.pen] * CHART_STEP_PX) / 2;
+    const priceRadius = () => radius() * game.current!.step / pitchY;
 
-    /*
-      The map, redrawn only when the field changes: one pixel per slice,
-      softened and scaled up smoothly, so it reads as a landscape of odds
-      rather than a grid. And where along it each multiple is reached.
-    */
-    const map = { field: null as Field | null, pal: null as Palette | null, small: document.createElement("canvas"), big: document.createElement("canvas"), labels: [] as { t: number; row: number; m: number }[], extent: 0 };
-    const paintMap = (fl: Field, pal: Palette) => {
-      const began = performance.now();
-      try {
-        paintMapNow(fl, pal);
-      } finally {
-        const ms = performance.now() - began;
-        if (process.env.NODE_ENV !== "production" && ms > 50) console.warn(`[ink] slow map: ${Math.round(ms)} ms (rows ${fl.rows})`);
-      }
-    };
-    const paintMapNow = (fl: Field, pal: Palette) => {
-      map.field = fl;
-      map.pal = pal;
-      map.small.width = fl.seconds;
-      map.small.height = fl.rows;
-      const s = map.small.getContext("2d")!;
-      const img = s.createImageData(fl.seconds, fl.rows);
-      for (let j = 1; j <= fl.seconds; j++)
-        for (let r = 0; r < fl.rows; r++) {
-          const m = multipleOf(fl, { t: fl.openAt + j * 1000, row: fl.row0 + r });
-          if (m === null) continue;
-          // Brightest where the price is likeliest to go, fading into the page as the multiples grow.
-          const k = Math.min(1, Math.max(0, Math.log(m) / Math.log(RULES.maxMultiple)));
-          const o = ((fl.rows - 1 - r) * fl.seconds + (j - 1)) * 4;
-          img.data[o] = pal.ink[0];
-          img.data[o + 1] = pal.ink[1];
-          img.data[o + 2] = pal.ink[2];
-          img.data[o + 3] = Math.round(255 * (pal.dark ? 0.3 : 0.2) * (1 - k) ** 1.2);
-        }
-      blurAlpha(img.data, fl.seconds, fl.rows, pal.ink);
-      s.putImageData(img, 0, 0);
-      // Never more than about a thousand pixels tall, however many rows the market needs.
-      const px = Math.max(2, Math.min(MAP_PX, Math.floor(1024 / fl.rows)));
-      map.big.width = fl.seconds * px;
-      map.big.height = fl.rows * px;
-      const b = map.big.getContext("2d")!;
-      b.imageSmoothingEnabled = true;
-      b.imageSmoothingQuality = "high";
-      // Softened at its own size already, so scaling it up smoothly is all it needs: a canvas blur at full size held the page up once a second.
-      b.drawImage(map.small, 0, 0, map.big.width, map.big.height);
-      /*
-        The ladder: every row the map offers, with what it pays, in columns
-        spaced so the numbers never touch, from the first second that can be
-        drawn to the last. Low by the price, higher the further out and the
-        sooner, the way the odds are.
-      */
+    // Screen-spaced freehand guides. Each number is the same circular-nib
+    // quote used by the hover preview, including partial-area eligibility.
+    type MapLabel = { id: string; offset: number; p: number; py: number; low: number; high: number; text: string; previous: string; changed: number; opacity: number };
+    const map = { pen: "", width: 0, height: 0, step: 0, field: null as Field | null,
+      labels: [] as MapLabel[] };
+    const gPen = () => game.current!.drawing?.pen ?? game.current!.pen;
+    const paintMap = (fl: Field) => {
+      map.field = fl; map.pen = gPen(); map.width = w; map.height = h; map.step = game.current.step;
+      const previous = new Map(map.labels.map(label => [label.id, label]));
       map.labels = [];
-      const every = Math.max(1, Math.ceil((phone() ? 52 : 90) / (pxMs() * 1000)));
-      let lo = Number.POSITIVE_INFINITY;
-      let hi = Number.NEGATIVE_INFINITY;
-      for (let jj = 1; jj <= fl.seconds; jj++) {
-        const t = fl.openAt + jj * 1000;
-        const col = (jj - 1) % every === Math.floor(every / 2);
-        /*
-          Out from the price, each way, as far as the rows run on unbroken.
-          Near the cap a row can be offered, the next not and the one after
-          again; those strays are left out, so the ladder has a clean edge.
-          A row or two by the price may be too likely to offer, and is stepped over.
-        */
-        const here = rowOf(fl.f.price, fl.step);
-        for (const dir of [1, -1]) {
-          let gap = 0;
-          for (let r = dir > 0 ? here : here - 1; Math.abs(r - here) < fl.rows / 2; r += dir) {
-            const m = multipleOf(fl, { t, row: r });
-            if (m === null) {
-              if (Math.abs(r - here) > 2 || ++gap > 2) break;
-              continue;
-            }
-            if (jj > fl.seconds / 2) {
-              lo = Math.min(lo, r * fl.step);
-              hi = Math.max(hi, (r + 1) * fl.step);
-            }
-            if (col) map.labels.push({ t: t + 500, row: r, m });
-          }
+      const sampledAt = now(game.current), changedAt = performance.now();
+      const terms = areaTerms(fl, fl.openAt - 1, game.current.step, 1);
+      const rowStep = game.current.step * (phone() ? 3.5 : 4);
+      const anchor = fl.f.price;
+      const low = Math.floor((pAt(plotBottom()) - anchor) / rowStep);
+      const high = Math.ceil((pAt(plotTop()) - anchor) / rowStep);
+      const every = phone() ? 10 : 6;
+      for (let second = phone() ? 6 : 4; second <= RULES.horizon; second += every) {
+        // Stable future columns: do not scroll for a second then snap back.
+        const offset = (second + 1.5) * 1000;
+        const t = sampledAt + offset;
+        for (let row = low; row <= high; row++) {
+          const p = anchor + row * rowStep;
+          const q = terms.line({ t0: t, p0: p, pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: priceRadius() });
+          const id = `${second}:${row}`;
+          const text = q.multipleLow >= MIN_INK_MULTIPLE - 1e-9 ? fmtMultiple(q.multipleHigh) : "—";
+          const old = previous.get(id);
+          map.labels.push({ id, offset, p, py: old?.py ?? y(p), low: q.multipleLow, high: q.multipleHigh,
+            text, previous: old?.text ?? text, changed: old?.text === text ? old.changed : changedAt, opacity: old?.opacity ?? 0 });
         }
       }
-      // How far the ladder reaches from the price, the further way doubled: the zoom centres on the price, so both sides must fit.
-      map.extent = Number.isFinite(lo) ? 2 * Math.max(hi - fl.f.price, fl.f.price - lo) : 0;
     };
 
     /* The pen: the stroke so far, and what it would cost and pay. */
     type Pen = { id: number; drawing: string; last: { x: number; y: number }; stroke: Stroke; quote: Preview | null; quotedAt: number; finger: boolean; why: string | null };
     let pen: Pen | null = null;
     let hover: { x: number; y: number } | null = null;
+    let keyboard = false;
+    let keyboardQuote: Preview | null = null;
+    let keyboardQuotedAt = 0;
     let flash: { text: string; x: number; y: number; born: number } | null = null;
 
     /** The terms of the game for a drawing placed now: what the pen's label says comes from the same place as what a hit pays. */
-    const termsNow = () => {
-      const g = game.current!;
-      return g.field ? terms(g.field, now(g), g.step, g.pen, g.perDot) : null;
-    };
     /** Re-price the stroke being drawn, at most twenty times a second. */
     const requote = (p: Pen, force = false) => {
       const t = performance.now();
@@ -327,10 +251,6 @@ export function Stage({
       const began = t;
       p.quotedAt = t;
       p.quote = game.current!.quote?.(p.stroke) ?? null;
-      // Placed as it is drawn: every new point is bet, and paid for, the moment the pen covers it.
-      const why = place.current(p.stroke, p.drawing, false);
-      if (why && why !== p.why) flash = { text: why, x: p.last.x, y: p.last.y, born: performance.now() };
-      p.why = why;
       preview.current(p.quote);
       const ms = performance.now() - began;
       if (process.env.NODE_ENV !== "production" && ms > 50) console.warn(`[ink] slow requote: ${Math.round(ms)} ms`);
@@ -341,9 +261,11 @@ export function Stage({
     };
     const down = (e: PointerEvent) => {
       const g = game.current;
-      if (pen || !g || !price(g) || !g.field) return;
+      if (e.button !== 0 || pen || !g || !price(g) || !g.field) return;
       const q = point(e);
-      if (q.x < nowX() + 4) return;
+      if (q.x < nowX() + 4 || q.y < plotTop() || q.y > plotBottom()) return;
+      keyboard = false;
+      el.focus({ preventScroll: true });
       try {
         el.setPointerCapture(e.pointerId);
       } catch {
@@ -351,16 +273,20 @@ export function Stage({
       }
       // Ink starts at now at the earliest: behind it is the past, which no drawing can bet on.
       q.x = Math.max(q.x, nowX() + 2);
-      pen = { id: e.pointerId, drawing: crypto.randomUUID(), why: null, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: (g.cell * g.step) / 2 }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
+      g.drawing = { step: g.step, perDot: g.perDot, pen: g.pen };
+      pen = { id: e.pointerId, drawing: crypto.randomUUID(), why: null, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: priceRadius() }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
       requote(pen, true);
     };
     const move = (e: PointerEvent) => {
+      if (keyboard) preview.current(null);
+      keyboard = false;
       const q = point(e);
       hover = e.pointerType === "mouse" ? q : null;
       if (!pen || e.pointerId !== pen.id) return;
       q.x = Math.max(q.x, nowX() + 2);
       // A little lag on the pen smooths the hand's tremor out of the line, as a real nib does.
       const s = { x: pen.last.x + (q.x - pen.last.x) * 0.6, y: pen.last.y + (q.y - pen.last.y) * 0.6 };
+      if (pen.stroke.pts.length >= 2048) return;
       if (Math.hypot(s.x - pen.last.x, s.y - pen.last.y) < 1.5) return;
       pen.last = s;
       pen.stroke.pts.push({ t: tAt(s.x) - pen.stroke.t0, p: pAt(s.y) - pen.stroke.p0 });
@@ -372,18 +298,49 @@ export function Stage({
       pen = null;
       const q = point(e);
       q.x = Math.max(q.x, nowX() + 2);
-      p.stroke.pts.push({ t: tAt(q.x) - p.stroke.t0, p: pAt(q.y) - p.stroke.p0 });
+      // A tap remains a single dot, even while the market clock advances.
+      if (Math.hypot(q.x - p.last.x, q.y - p.last.y) > 1.5 && p.stroke.pts.length < 2048)
+        p.stroke.pts.push({ t: tAt(q.x) - p.stroke.t0, p: pAt(q.y) - p.stroke.p0 });
       preview.current(null);
       const why = place.current(p.stroke, p.drawing, true);
+      game.current.drawing = undefined;
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
       if (why && why !== p.why) flash = { text: why, x: q.x, y: q.y, born: performance.now() };
     };
     const cancel = () => {
+      keyboard = false;
+      if (pen && el.hasPointerCapture(pen.id)) el.releasePointerCapture(pen.id);
+      game.current.drawing = undefined;
       pen = null;
       preview.current(null);
     };
     const leave = () => {
-      hover = null;
+      if (!keyboard) hover = null;
     };
+    const keydown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { cancel(); hover = null; return; }
+      if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", " "].includes(e.key)) return;
+      e.preventDefault();
+      if (pen || e.repeat && (e.key === "Enter" || e.key === " ")) return;
+      const g = game.current;
+      if (!g.field) return;
+      const tip = hover ?? { x: nowX() + (w - nowX()) * 0.5, y: middleY() };
+      const move = e.shiftKey ? 30 : 8;
+      hover = { x: Math.min(w - radius(), Math.max(x(openFor(now(g)) + 1000) + radius(), tip.x + (e.key === "ArrowLeft" ? -move : e.key === "ArrowRight" ? move : 0))), y: Math.min(plotBottom(), Math.max(plotTop(), tip.y + (e.key === "ArrowUp" ? -move : e.key === "ArrowDown" ? move : 0))) };
+      const st = { t0: tAt(hover.x), p0: pAt(hover.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: priceRadius() };
+      if (e.key === "Enter" || e.key === " ") {
+        keyboard = false;
+        const why = place.current(st, crypto.randomUUID(), true);
+        if (why) flash = { text: why, ...hover, born: performance.now() };
+        preview.current(null);
+      } else {
+        keyboard = true;
+        keyboardQuotedAt = 0;
+      }
+    };
+    const blur = () => { if (!pen) { keyboard = false; hover = null; preview.current(null); } };
+    el.addEventListener("keydown", keydown);
+    el.addEventListener("blur", blur);
     // For tests in development: where on screen a moment and a price are.
     if (process.env.NODE_ENV !== "production") (window as unknown as { __stage?: unknown }).__stage = { x, y, tAt, pAt, nowX, pitchY: () => pitchY };
     el.addEventListener("pointerdown", down);
@@ -398,7 +355,7 @@ export function Stage({
      * stroke drawn when a step was 20 pixels tall still covers the same
      * prices when it is 30.
      */
-    const ink = (st: Stroke, style: string, grow = 0, on: CanvasRenderingContext2D = c) => {
+    const ink = (st: Stroke, style: string, grow = 0, on: CanvasRenderingContext2D = c, dashed = false) => {
       const a = st.rt * pxMs();
       const d = (-st.rp * pitchY) / game.current!.step;
       const c = on;
@@ -407,64 +364,45 @@ export function Stage({
       c.beginPath();
       const pts = st.pts.map((q) => ({ u: q.t / st.rt, v: q.p / st.rp }));
       c.moveTo(pts[0].u, pts[0].v);
-      // Through the midpoints, with each point as the control: a smooth line with no corners, as a pen leaves.
-      for (let i = 1; i < pts.length - 1; i++) c.quadraticCurveTo(pts[i].u, pts[i].v, (pts[i].u + pts[i + 1].u) / 2, (pts[i].v + pts[i + 1].v) / 2);
+      // Pointer smoothing already happens before storing points. Render exactly
+      // the rounded capsules used to price the area, without curving away.
+      for (let i = 1; i < pts.length - 1; i++) c.lineTo(pts[i].u, pts[i].v);
       const end = pts[pts.length - 1];
       c.lineTo(end.u + (pts.length === 1 ? 1e-3 : 0), end.v);
       c.lineCap = "round";
       c.lineJoin = "round";
       c.lineWidth = 2 + grow;
+      if (dashed) c.setLineDash([0.4, 0.5]);
       c.strokeStyle = style;
       c.stroke();
       c.restore();
     };
-    /*
-      Ink not in play is faded through a soft mask: the cells drawn small,
-      one pixel for every six, and scaled back up smoothly, so the fade has
-      soft edges and never shows the cells it is made of.
-    */
-    const MASK = 6;
-    const mask = document.createElement("canvas");
-    /* The mask again, blurred at its own small size: blurring the full screen every frame stalled the page. */
-    const soft = document.createElement("canvas");
-    /**
-     * Fade the ink everywhere but `only`: the points in play. Ink no bet was
-     * placed on (too soon, too sure, too far, or never covered while the
-     * pen was down) is faint, so solid ink always means money on it. Each
-     * point is kept half a row beyond its own, where the pen's ink around it
-     * spills over.
-     */
-    const soften = (only: Cell[], keep: number) => {
-      // Sized once per screen size: setting a canvas's size, even to the same, throws its pixels away and allocates them again.
-      if (mask.width !== Math.ceil(w / MASK) || mask.height !== Math.ceil(h / MASK)) {
-        mask.width = Math.ceil(w / MASK);
-        mask.height = Math.ceil(h / MASK);
-        soft.width = mask.width;
-        soft.height = mask.height;
+    // Merge paid bands, including the same edge margin used in pricing.
+    // Clip the original round nib once against their union: independently
+    // rounding each second would put visible seams back into the stroke.
+    const bandCache = new WeakMap<Cell[], { pad: number; bands: Cell[] }>();
+    const inkInPlay = (st: Stroke, cells: Cell[], style: string, edgeCells = 0, step = game.current.step) => {
+      if (!cells.length) return;
+      const pad = edgeCells * step * INK_CELL;
+      let cached = bandCache.get(cells);
+      if (!cached || cached.pad !== pad) {
+        const bands: Cell[] = [];
+        for (const q of [...cells].sort((a, b) => a.t - b.t || a.lo - b.lo)) {
+          const last = bands.at(-1);
+          if (last && last.t === q.t && q.lo - pad <= last.hi) last.hi = Math.max(last.hi, q.hi + pad);
+          else bands.push({ ...q, lo: q.lo - pad, hi: q.hi + pad });
+        }
+        cached = { pad, bands };
+        bandCache.set(cells, cached);
       }
-      const m = mask.getContext("2d")!;
-      m.globalCompositeOperation = "source-over";
-      m.fillStyle = "#000";
-      m.fillRect(0, 0, mask.width, mask.height);
-      m.globalCompositeOperation = "destination-out";
-      const wide = pxMs() * 1000;
-      for (const q of only) {
-        const top = y(q.hi);
-        const tall = y(q.lo) - top;
-        m.fillRect(x(q.t) / MASK, (top - tall / 2) / MASK, wide / MASK, (tall * 2) / MASK);
-      }
-      m.globalCompositeOperation = "source-over";
-      const sb = soft.getContext("2d")!;
-      sb.clearRect(0, 0, soft.width, soft.height);
-      sb.filter = "blur(1.5px)";
-      sb.drawImage(mask, 0, 0);
-      sb.filter = "none";
       c.save();
-      c.globalCompositeOperation = "destination-out";
-      c.globalAlpha = 1 - keep;
-      c.imageSmoothingEnabled = true;
-      c.imageSmoothingQuality = "high";
-      c.drawImage(soft, 0, 0, soft.width * MASK, soft.height * MASK);
+      c.beginPath();
+      for (const q of cached.bands) {
+        const left = x(q.t), top = y(q.hi), wide = pxMs() * 1000, tall = y(q.lo) - top;
+        c.rect(left, top, wide, tall);
+      }
+      c.clip();
+      ink(st, style);
       c.restore();
     };
     /*
@@ -475,8 +413,10 @@ export function Stage({
     */
     const glowLayer = document.createElement("canvas");
 
+    let renderedBets: InkBet[] | null = null;
+    let renderedGroups: { id: string; stroke: Stroke; cells: Cell[]; edgeCells: number; step: number }[] = [];
     let raf = 0;
-    let shown = 0;
+    let previousFrame = performance.now();
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const began = performance.now();
@@ -492,11 +432,13 @@ export function Stage({
       if (!g || !w) return;
       at = now(g);
       const latest = price(g);
-      // The head glides to each new trade over a few frames rather than jumping: the line reads as live.
-      shown = shown ? shown + (latest - shown) * 0.35 : latest;
-      if (Math.abs(latest - shown) < 0.005) shown = latest;
-      const p = shown;
       const ms = performance.now();
+      const dt = Math.min(64, Math.max(0, ms - previousFrame));
+      previousFrame = ms;
+      const ease = (rate: number) => reducedMotion.matches ? 1 : 1 - Math.exp(-rate * dt);
+      // Paint the newest trade immediately. Camera easing is independent;
+      // never add synthetic lag to the market price itself.
+      const p = latest;
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
       c.clearRect(0, 0, w, h);
       if (!p) return;
@@ -508,19 +450,16 @@ export function Stage({
       // Follow the price, gently: fast when it is leaving the screen, barely at all near the middle.
       if (!centre) centre = p;
       const off = (p - centre) / g.step;
-      const rowsOnScreen = h / pitchY;
-      centre += (p - centre) * (Math.abs(off) > rowsOnScreen * 0.3 ? 0.12 : Math.abs(off) > rowsOnScreen * 0.12 ? 0.03 : 0.006);
+      const rowsOnScreen = (plotBottom() - plotTop()) / pitchY;
+      if (!pen) centre += (p - centre) * ease(Math.abs(off) > rowsOnScreen * 0.3 ? 0.0077 : Math.abs(off) > rowsOnScreen * 0.12 ? 0.00183 : 0.00036);
       const fl = g.field;
       if (fl) {
         /*
-          Rows a fixed size on screen, whatever the pen or the market: big
-          enough to read and to aim at, and close enough that every tick
-          moves the line. The view stays on the price; history that does not
-          fit runs off the edge rather than shrinking the rows to hold it.
+          Keep the responsive camera independent of brush-dependent offers.
+          Rebuild the labels when viewport geometry changes. Drawing locks
+          the camera so a stroke cannot move underneath the pointer.
         */
-        const want = (phone() ? 46 : 54) / g.cell;
-        pitchY += (want - pitchY) * 0.05;
-        if (map.field !== fl || map.pal !== pal) paintMap(fl, pal);
+        if (map.field !== fl || map.pen !== gPen() || map.width !== w || map.height !== h || map.step !== g.step) paintMap(fl);
       }
       const nx = nowX();
       const step = g.step;
@@ -531,28 +470,33 @@ export function Stage({
         else is drawn. Ink is solid while it is in play; ink that is not
         (too soon, or too far to measure) fades out softly.
       */
-      // A line is placed as it is drawn, a few points at a time: each of those bets shares the line, and it is drawn once.
-      const drawnOnce = new Set<string>(pen ? [pen.drawing] : []);
-      const inPlay: Cell[] = [];
-      let inked = false;
-      for (const bet of g.bets) {
-        const st = bet.stroke;
-        if (bet.status === "void") continue;
-        if (x(st.t0 + Math.max(...st.pts.map((q) => q.t))) + radius() < nx - pxMs() * 2500) continue;
-        const line = bet.group ?? bet.id;
-        if (!drawnOnce.has(line)) ink(st, solid);
-        drawnOnce.add(line);
-        inked = true;
-        // Placed and waiting to open, all of it; once open, what is on offer.
-        inPlay.push(...(bet.status === "opening" ? bet.drawn : bet.cells));
+      // Rebuild accepted geometry on market/settlement updates, not at 60fps.
+      if (renderedBets !== g.bets) {
+        renderedBets = g.bets;
+        const groups = new Map<string, typeof renderedGroups[number]>();
+        for (const bet of g.bets) {
+          if (bet.status === "void") continue;
+          const id = bet.group ?? bet.id;
+          let group = groups.get(id);
+          if (!group) groups.set(id, group = { id, stroke: bet.stroke, cells: [], edgeCells: bet.edgeCells ?? 0, step: bet.step });
+          group.cells.push(...(bet.status === "opening" ? bet.drawn : bet.cells));
+        }
+        renderedGroups = [...groups.values()];
       }
-      // The stroke being drawn, the same way: solid only where its points are in play.
+      for (const group of renderedGroups) {
+        if (group.id !== pen?.drawing) {
+          // Preserve the gesture as an explicitly inactive trace where a
+          // section was unavailable/refunded; never paint it as payable ink.
+          ink(group.stroke, rgba(pal.muted, 0.45), -1.8, c, true);
+          inkInPlay(group.stroke, group.cells, solid, group.edgeCells, group.step);
+        }
+      }
       if (pen) {
-        ink(pen.stroke, solid);
-        inked = true;
-        if (pen.quote) inPlay.push(...pen.quote.inPlay);
+        // Keep the gesture visible while drawing; only bright ink is offered.
+        ink(pen.stroke, rgba(pal.muted, 0.1));
+        if (pen.quote) inkInPlay(pen.stroke, pen.quote.inPlay, solid, INK_EDGE_CELLS);
       }
-      if (inked) soften(inPlay, 0.2);
+      // Keep settled cells in the mask; deleting misses tears holes in the stroke.
       // Ink the price has passed is spent: it fades away behind the price line, over about two seconds.
       c.save();
       c.globalCompositeOperation = "destination-out";
@@ -603,63 +547,80 @@ export function Stage({
       // The map of the odds, under the ink, from the second a drawing can start.
       if (fl && map.field === fl) {
         c.save();
-        c.globalCompositeOperation = "destination-over";
         c.beginPath();
-        c.rect(Math.max(nx, x(first) - pxMs() * 400), 0, w, h);
+        c.rect(x(first), plotTop(), w - x(first), plotBottom() - plotTop());
         c.clip();
-        // Laid from the second a drawing placed now opens on: the map is a second behind it, and priced for it.
-        const shift = openFor(at) - fl.openAt;
-        const x0 = x(fl.openAt + shift + 1000);
-        const x1 = x(fl.openAt + shift + (fl.seconds + 1) * 1000);
-        c.drawImage(map.big, x0, y((fl.row0 + fl.rows) * fl.step), x1 - x0, y(fl.row0 * fl.step) - y((fl.row0 + fl.rows) * fl.step));
-        c.restore();
-        // The ladder's numbers: quiet by the price, in the ink's blue as they grow, on a halo of the page so they read over ink and the line.
-        c.font = `600 13px ${MONO}`;
+        c.font = `500 ${phone() ? 11 : 14}px ${MONO}`;
         c.textAlign = "center";
         c.textBaseline = "middle";
-        const rowPx = pitchY * (fl.step / g.step);
-        const skip = rowPx < 15 ? Math.ceil(15 / rowPx) : 1;
-        const top = Math.log(RULES.maxMultiple);
-        const quiet = pal.muted;
-        const blue = pal.ink;
+        const palette = pal;
+        const glyphWidth = c.measureText("0").width;
         for (const l of map.labels) {
-          if (skip > 1 && ((l.row % skip) + skip) % skip) continue;
-          const lx = x(l.t + shift);
-          const ly = y((l.row + 0.5) * fl.step);
-          if (lx < x(first) + 14 || lx > w - 18 || ly < 70 || ly > h - 22) continue;
-          // Not under the price's tag, just right of now.
-          if (lx < nx + 110 && Math.abs(ly - y(p)) < 14) continue;
-          const k = Math.min(1, Math.max(0, Math.log(l.m) / top));
-          const text = fmtMultiple(l.m);
-          c.strokeStyle = rgba(pal.bg, 0.8);
-          c.lineWidth = 3;
-          c.strokeText(text, lx, ly);
-          c.fillStyle = `rgba(${quiet.map((v, n) => Math.round(v + (blue[n] - v) * k * 0.8)).join(",")},${0.7 + 0.2 * k})`;
-          c.fillText(text, lx, ly);
+          const lx = nx + l.offset * pxMs();
+          l.py += (y(l.p) - l.py) * ease(0.022);
+          const ly = l.py;
+          // Fade at the plot edges and around the live tag instead of blinking off.
+          const edge = Math.max(0, Math.min(1, (ly - plotTop() - 8) / 16, (plotBottom() - 8 - ly) / 16));
+          const tag = lx < nx + 110 ? Math.min(1, Math.max(0, (Math.abs(ly - y(p)) - 16) / 16)) : 1;
+          const visible = lx < x(first) + 22 || lx > w - 28 ? 0 : edge * tag;
+          l.opacity += (visible - l.opacity) * ease(0.025);
+          if (l.opacity < 0.001) continue;
+          const progress = reducedMotion.matches ? 1 : Math.max(0, Math.min(1, (ms - l.changed) / 140));
+          const blend = progress * progress * (3 - 2 * progress);
+          // Preserve unchanged glyphs at full opacity; only replaced digits roll.
+          // Never count through invented intermediate payout values.
+          const length = Math.max(l.text.length, l.previous.length, 5);
+          const current = l.text.padStart(length), previous = l.previous.padStart(length);
+          const paint = (char: string, index: number, dy: number, available: boolean) => {
+            if (char === " ") return;
+            const gx = lx + (index - (length - 1) / 2) * glyphWidth;
+            c.globalAlpha = l.opacity;
+            c.strokeStyle = rgba(palette.bg, 0.85);
+            c.lineWidth = 4;
+            c.strokeText(char, gx, ly + dy);
+            c.fillStyle = rgba(available ? palette.ink : palette.muted, available ? 0.46 : 0.18);
+            c.fillText(char, gx, ly + dy);
+          };
+          for (let i = 0; i < length; i++) {
+            if (current[i] === previous[i] || blend === 1) paint(current[i], i, 0, l.text !== "—");
+            else {
+              // A clipped character reel avoids superimposed, blurry digits.
+              const height = phone() ? 16 : 20;
+              c.save();
+              c.beginPath();
+              c.rect(lx - length * glyphWidth / 2 - 2, ly - height / 2, length * glyphWidth + 4, height);
+              c.clip();
+              paint(previous[i], i, -height * blend, l.previous !== "—");
+              paint(current[i], i, height * (1 - blend), l.text !== "—");
+              c.restore();
+            }
+          }
         }
+        c.restore();
       }
 
       // A price on the left every so many steps, faint: enough to read where things are.
       c.font = `500 10px ${MONO}`;
       c.textBaseline = "middle";
       c.textAlign = "left";
-      const every = Math.max(1, Math.round(44 / pitchY));
-      const cents = step < 1;
-      for (let r = rowOf(pAt(h), step) - 1; r <= rowOf(pAt(0), step) + 1; r++) {
-        if (r % every) continue;
-        const py = Math.round(y(r * step)) + 0.5;
+      const desiredTick = step * 80 / pitchY;
+      const magnitude = 10 ** Math.floor(Math.log10(desiredTick));
+      const axisStep = [1, 2, 2.5, 5, 10].map(n => n * magnitude).reduce((best, n) => Math.abs(n - desiredTick) < Math.abs(best - desiredTick) ? n : best);
+      const cents = axisStep % 1 !== 0;
+      for (let r = rowOf(pAt(plotBottom()), axisStep); r <= rowOf(pAt(plotTop()), axisStep) + 1; r++) {
+        const py = Math.round(y(r * axisStep)) + 0.5;
         // Not under the market's name and price, top left, the buttons bottom left on a phone, or the price's own tag.
-        if (py < 66 || (phone() && py > h - 128)) continue;
-        c.fillStyle = `rgba(${rgb},0.04)`;
-        c.fillRect(0, py, nx, 1);
-        c.fillStyle = `rgba(${rgb},0.32)`;
-        c.fillText(fmtPrice(r * step, cents), 8, py - 7);
+        if (py < plotTop() || py > plotBottom()) continue;
+        c.fillStyle = `rgba(${rgb},0.045)`;
+        c.fillRect(0, py, w, 1);
+        c.fillStyle = `rgba(${rgb},0.42)`;
+        c.fillText(fmtPrice(r * axisStep, cents), phone() ? 12 : 24, py - 8);
       }
 
       /*
         The price, live: one line through every trade on hand, and each
-        second's close before them, to a head that glides to the latest
-        trade. A soft glow under it, and a fade to the page beneath.
+        second's close before them, ending at the latest trade immediately.
+        Shape-preserving curves soften corners without creating new extrema. A soft glow under it, and a fade to the page beneath.
       */
       {
         const from = tAt(0);
@@ -680,31 +641,26 @@ export function Stage({
         }
         line.push({ x: nx, y: y(p) });
         if (line.length > 1) {
-          c.beginPath();
-          c.moveTo(line[0].x, line[0].y);
-          for (let k = 1; k < line.length; k++) c.lineTo(line[k].x, line[k].y);
+          const path = new Path2D();
+          tracePricePath(path, line);
           c.lineJoin = "round";
           c.lineCap = "round";
           // The fade under the line, down to the foot.
           const fill = c.createLinearGradient(0, y(p) - 60, 0, Math.min(h, y(p) + 220));
           fill.addColorStop(0, rgba(pal.ink, pal.dark ? 0.12 : 0.07));
           fill.addColorStop(1, rgba(pal.ink, 0));
-          c.save();
-          c.lineTo(nx, h);
-          c.lineTo(line[0].x, h);
-          c.closePath();
+          const area = new Path2D(path);
+          area.lineTo(nx, h);
+          area.lineTo(line[0].x, h);
+          area.closePath();
           c.fillStyle = fill;
-          c.fill();
-          c.restore();
-          c.beginPath();
-          c.moveTo(line[0].x, line[0].y);
-          for (let k = 1; k < line.length; k++) c.lineTo(line[k].x, line[k].y);
-          c.strokeStyle = rgba(pal.ink, 0.22);
+          c.fill(area);
+          c.strokeStyle = rgba(pal.ink, 0.14);
           c.lineWidth = 6;
-          c.stroke();
+          c.stroke(path);
           c.strokeStyle = rgba(pal.ink, 0.95);
-          c.lineWidth = 1.75;
-          c.stroke();
+          c.lineWidth = CHART_LINE_PX + 0.5;
+          c.stroke(path);
         }
       }
 
@@ -716,7 +672,13 @@ export function Stage({
       c.fillStyle = glow;
       c.fillRect(nx - 0.5, 0, 1, h);
       const py = y(p);
-      const pulse = (ms % 1400) / 1400;
+      c.save();
+      c.setLineDash([3, 6]);
+      c.strokeStyle = rgba(pal.ink, 0.2);
+      c.lineWidth = 1;
+      c.beginPath(); c.moveTo(nx + 8, py); c.lineTo(w, py); c.stroke();
+      c.restore();
+      const pulse = reducedMotion.matches ? 0 : (ms % 1400) / 1400;
       c.beginPath();
       c.arc(nx, py, 4 + pulse * 10, 0, Math.PI * 2);
       c.fillStyle = `rgba(${rgb},${0.2 * (1 - pulse)})`;
@@ -727,7 +689,7 @@ export function Stage({
       c.fill();
       c.font = `600 11px ${MONO}`;
       c.textAlign = "center";
-      const label = fmtPrice(p, true);
+      const label = fmtPrice(g.displayPrice || latest, true);
       // Just right of the live dot, where the eye already is, clear of the line behind it.
       const lw = c.measureText(label).width + 14;
       roundRect(c, nx + 10, py - 10, lw, 20, 10);
@@ -750,19 +712,19 @@ export function Stage({
         c.lineWidth = 1;
         c.beginPath();
         c.moveTo(Math.round(fx0) + 0.5, 0);
-        c.lineTo(Math.round(fx0) + 0.5, h - 24);
+        c.lineTo(Math.round(fx0) + 0.5, plotBottom() + 18);
         c.stroke();
         c.restore();
         c.font = `500 10px ${MONO}`;
         c.textAlign = "center";
-        c.fillStyle = `rgba(${rgb},0.32)`;
-        if (fx0 - nx > 28) c.fillText("too soon", (nx + fx0) / 2, h - 10);
+        c.fillStyle = `rgba(${rgb},0.42)`;
+        if (fx0 - nx > 28) c.fillText("wait", (nx + fx0) / 2, plotBottom() + 28);
       }
 
       // Seconds ahead, along the foot.
       c.font = `500 10px ${MONO}`;
-      c.fillStyle = `rgba(${rgb},0.32)`;
-      for (let s = 10; s <= RULES.horizon; s += 10) c.fillText(`${s}s`, x(at + s * 1000), h - 10);
+      c.fillStyle = `rgba(${rgb},0.42)`;
+      for (let s = 10; s <= RULES.horizon; s += 10) c.fillText(`+${s}s`, x(at + s * 1000), plotBottom() + 28);
 
       // The pen: its size, and what the spot under it pays.
       const tip = pen ? pen.last : hover && hover.x > nx ? hover : null;
@@ -774,23 +736,14 @@ export function Stage({
         c.strokeStyle = `rgba(${rgb},0.4)`;
         c.lineWidth = 1;
         c.stroke();
-        const tn = termsNow();
-        const sec = Math.floor(tAt(tip.x) / 1000) * 1000;
-        const m = tn ? tn.multiple(sec, tn.rowOf(pAt(tip.y))) : null;
-        // The multiple and what a hit there pays at the price set: the same figure a hit shows.
-        const text = m !== null && tn ? `${fmtMultiple(m)} · ${dollars(tn.pays(sec, tn.rowOf(pAt(tip.y)))!)}` : tAt(tip.x) < first ? "Too soon" : "—";
-        c.font = `700 12px ${MONO}`;
-        const tw = c.measureText(text).width + 14;
-        // Beside a mouse; well above a finger, which would cover it.
-        const finger = pen?.finger ?? false;
-        const bx = finger ? Math.min(w - tw - 6, Math.max(6, tip.x - tw / 2)) : Math.min(w - tw - 6, tip.x + radius() + 8);
-        const by = Math.max(14, tip.y - radius() - (finger ? 52 : 16));
-        roundRect(c, bx, by - 11, tw, 22, 11);
-        c.fillStyle = m !== null ? rgba(pal.fg) : rgba(pal.fg, 0.12);
-        c.fill();
-        c.fillStyle = m !== null ? rgba(pal.bg) : rgba(pal.muted);
-        c.textAlign = "center";
-        c.fillText(text, bx + tw / 2, by + 0.5);
+        const hoverStroke: Stroke = { t0: tAt(tip.x), p0: pAt(tip.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: priceRadius() };
+        if (keyboard && ms - keyboardQuotedAt >= 100) {
+          keyboardQuotedAt = ms;
+          const q = g.quote?.(hoverStroke) ?? null;
+          keyboardQuote = q ? { ...q, keyboard: true } : null;
+          preview.current(keyboardQuote);
+        }
+
       }
 
       // The first time: a ghost pen draws a stroke ahead of the price.
@@ -798,7 +751,7 @@ export function Stage({
         const k = reducedMotion.matches ? 0.65 : (ms % 3200) / 3200;
         const x0 = nx + (w - nx) * 0.18;
         const x1 = nx + (w - nx) * 0.72;
-        const along = (f: number) => ({ px: x0 + (x1 - x0) * f, py: py - pitchY * 4 * Math.sin(f * Math.PI * 1.3) - f * pitchY * 2 });
+        const along = (f: number) => ({ px: x0 + (x1 - x0) * f, py: py - Math.min(pitchY * 1.5, h * 0.16) * Math.sin(f * Math.PI * 1.3) - f * h * 0.08 });
         const upto = Math.min(1, k * 1.4);
         c.beginPath();
         for (let f = 0; f <= upto; f += 0.01) {
@@ -835,7 +788,7 @@ export function Stage({
           c.fillStyle = rg;
           c.fillRect(ex - glowR, ey - glowR, glowR * 2, glowR * 2);
           c.globalAlpha = 1;
-          const n = e.big ? 16 : 9;
+          const n = reducedMotion.matches ? 0 : e.big ? 16 : 9;
           c.fillStyle = green;
           for (let i = 0; i < n; i++) {
             const a = (i / n) * Math.PI * 2 + e.born;
@@ -849,12 +802,12 @@ export function Stage({
           c.font = `700 ${e.big ? 18 : 13}px ${MONO}`;
           c.globalAlpha = Math.max(0, Math.min(1, 1.6 - age * 1.6));
           c.textAlign = "left";
-          c.fillText(e.text ?? "", Math.max(ex, nx) + 12, ey - 16 - age * 36);
+          c.fillText(e.text ?? "", Math.max(ex, nx) + 12, ey - 16 - (reducedMotion.matches ? 0 : age * 36));
           c.textAlign = "center";
           c.globalAlpha = 1;
         } else {
           c.beginPath();
-          c.arc(ex, ey, 8 + age * 30, 0, Math.PI * 2);
+          c.arc(ex, ey, 8 + (reducedMotion.matches ? 0 : 20 * (1 - (1 - age) ** 3)), 0, Math.PI * 2);
           c.strokeStyle = `rgba(${rgb},${0.4 * (1 - age)})`;
           c.lineWidth = 1.5;
           c.stroke();
@@ -879,8 +832,11 @@ export function Stage({
     };
     raf = requestAnimationFrame(frame);
     return () => {
+      cancel();
       cancelAnimationFrame(raf);
       ro.disconnect();
+      el.removeEventListener("keydown", keydown);
+      el.removeEventListener("blur", blur);
       el.removeEventListener("pointerdown", down);
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
@@ -889,5 +845,5 @@ export function Stage({
     };
   }, [game]);
 
-  return <canvas aria-label="The price, and a map of the odds ahead of it: draw there to bet" className={className} ref={canvas} role="img" style={{ touchAction: "none", cursor: "none" }} />;
+  return <canvas aria-label="Draw ahead of the price. Arrow keys move the pen; Enter places a dot; Escape cancels." className={`${className ?? ""} focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring`} ref={canvas} role="img" tabIndex={0} style={{ touchAction: "none", cursor: "none" }} />;
 }

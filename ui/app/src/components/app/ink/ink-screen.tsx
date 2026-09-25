@@ -1,30 +1,33 @@
 "use client";
 
-import { CircleHelpIcon, HistoryIcon, Volume2Icon, VolumeXIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, CircleHelpIcon, HistoryIcon, Maximize2Icon, Minimize2Icon, Settings2Icon, Volume2Icon, VolumeXIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DIFFICULTY, difficulty, DOT_BETS, features, type Field, type Library, readLibrary, RULES, setDifficulty, START_BALANCE, stepFor } from "@skech/core/dots";
-import { cost, decided, judge, open, openOn, PEN_CELLS, placePoints, refund, type Stroke, won } from "@skech/core/ink";
-import { terms } from "@skech/core/odds";
-import { MarketHeader } from "@/components/app/market-header";
+import { cost, decided, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, MAX_INK_MULTIPLE, drawingLayout, INK_CELL, placeRounded, refund, type Stroke, won } from "@skech/core/ink";
+import { roundedTerms as areaTerms } from "@skech/core/odds";
+
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
-import { type Market, marketBySymbol } from "@/lib/market";
-import { usePhone } from "@/lib/phone";
+import { Popover, PopoverClose, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import { ThemeToggle } from "@/components/app/theme-toggle";
+
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { useBinance } from "@/lib/binance";
 import { buzz, cents, practice, record, setPractice, sound, usePractice } from "@/lib/practice";
 import { cn } from "@/lib/utils";
 import { fmtMultiple, type Game, type Preview, Stage } from "./stage";
-import { InkControls } from "./ink-controls";
+import { TokenAvatar } from "@/components/app/market-header";
+import { DepositButton, InkControls } from "./ink-controls";
+import feedback from "./drawing-feedback.module.css";
+import { CrispNumber } from "./crisp-number";
 
 /**
  * skech. Draw ahead of the Bitcoin price; wherever it runs through your ink
  * pays.
  *
- * A line is points: each second it passes through a row of prices, one
- * point, costing what you set, placed as the pen covers it. A point the
- * price touches pays that times the multiple the map shows there. The rules are `@skech/core/dots`, the same
+ * A line is the union of its pen-covered area, priced in full-dot units.
+ * It is quoted while drawing and committed on release. Only touched ink pays.
+ * The rules are `@skech/core/dots`, the same
  * code the server will run once there is money in it. This screen keeps the
  * practice money, prices the map, opens each drawing on its second, and
  * judges every second's trades as they arrive.
@@ -71,16 +74,6 @@ function useDay(): { changePct: number; high: number; low: number; volume: numbe
   return day;
 }
 
-/** One icon button on the rail beside the chart, as the trading screen's tools are. */
-function Tool({ words, children }: { words: string; children: React.ReactElement }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger render={children} />
-      <TooltipPopup>{words}</TooltipPopup>
-    </Tooltip>
-  );
-}
-
 export function InkScreen() {
   const feed = useBinance("BTCUSDT");
   const state = usePractice();
@@ -88,6 +81,7 @@ export function InkScreen() {
   const [lib, setLib] = useState<Library | null>(null);
   /* The map is measured in a worker of its own, on its own copy of the paths: see `field.worker.ts`. */
   const worker = useRef<Worker | null>(null);
+  const requestId = useRef(0);
   useEffect(() => {
     let live = true;
     const w = new Worker(new URL("./field.worker.ts", import.meta.url), { type: "module" });
@@ -107,8 +101,28 @@ export function InkScreen() {
     };
   }, []);
 
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const changed = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
+  const expand = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch { /* Embedded browsers may not expose fullscreen. The layout still fills its viewport. */ }
+  };
+
   const [preview, setPreview] = useState<Preview | null>(null);
   const [help, setHelp] = useState(false);
+  const [returnedInk, setReturnedInk] = useState<{ id: string; amount: number } | null>(null);
+  useEffect(() => {
+    if (!returnedInk) return;
+    const timer = setTimeout(() => setReturnedInk(null), 3200);
+    return () => clearTimeout(timer);
+  }, [returnedInk]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /** How hard the game is here: what the house set on this browser, or the game's own. */
   const level = state.houseDifficulty ?? DIFFICULTY;
   /* The house's controls show in development, or with ?house in the address. */
@@ -121,7 +135,15 @@ export function InkScreen() {
     return () => clearTimeout(t);
   }, [result]);
   const [fresh, setFresh] = useState(false);
-  const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, perDot: state.perDot, pen: state.brush, cell: PEN_CELLS[state.brush], bets: [], quote: null, fx: [], hint: !state.taught, dark: false });
+  const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, marketStep: 1, viewport: { width: 1280, height: 800 }, displayPrice: 0, perDot: state.perDot, pen: state.brush, cell: INK_CELL, bets: [], quote: null, fx: [], hint: !state.taught, dark: false });
+
+  const onViewport = useCallback((size: { width: number; height: number }) => { game.current.viewport = size; }, []);
+  const settledTotals = useRef({ committed: 0, returned: 0 });
+  const [totals, setTotals] = useState(() => liveInkTotals([]));
+  const updateTotals = useCallback(() => {
+    const next = liveInkTotals(game.current.bets, settledTotals.current);
+    setTotals(previous => previous.committed === next.committed && previous.returned === next.returned && previous.settledCost === next.settledCost && previous.drawings === next.drawings ? previous : next);
+  }, []);
 
   // For tests and debugging in development: the live game, and the engine and paths it prices on, from the console.
   useEffect(() => {
@@ -133,8 +155,9 @@ export function InkScreen() {
     g.perDot = state.perDot;
     // How hard the game is: every drawing priced from now on, and the map, use it.
     setDifficulty(level);
+    if (g.field && g.field.rtp !== difficulty(level).rtp) g.field = null;
     g.pen = state.brush;
-    g.cell = PEN_CELLS[state.brush];
+    g.cell = INK_CELL;
     g.hint = !state.taught;
   }, [state.perDot, state.brush, state.taught, level]);
 
@@ -148,13 +171,15 @@ export function InkScreen() {
     /* One map asked for at a time; a new one once a second, or at once when the pen or the step changes. */
     let asked = "";
     let busy = 0;
-    let id = 0;
+    let pendingId = 0;
     const w = worker.current;
     const onMap = (e: MessageEvent<{ id: number; field: Field }>) => {
+      if (e.data.id !== pendingId) return;
       busy = 0;
       const g = game.current;
-      // A map for a pen no longer in hand is no use; the next tick asks again.
-      if (Math.abs(e.data.field.step - g.step * g.cell) > 1e-9) return;
+      if (Date.now() + g.skew - e.data.field.openAt > 2500) { asked = ""; return; }
+      // Reject results priced for an outdated scale or difficulty.
+      if (Math.abs(e.data.field.step - g.step * g.cell) > 1e-9 || e.data.field.rtp !== difficulty(level).rtp || e.data.field.edgeCells !== INK_EDGE_CELLS) return;
       g.field = e.data.field;
     };
     w?.addEventListener("message", onMap);
@@ -187,16 +212,20 @@ export function InkScreen() {
         page stalled drawing them.
       */
       const want = stepFor(f.sigma, f.price);
-      if (g.field === null || Math.abs(Math.log(want / g.step)) > Math.log(1.6)) g.step = want;
-      // Mapped in the pen's own cells, so the multiples shown are what this pen's ink pays.
+      if (!g.drawing) {
+        if (g.field === null || Math.abs(Math.log(want / g.marketStep)) > Math.log(1.6)) g.marketStep = want;
+        g.step = drawingLayout(g.viewport.width, g.viewport.height, g.marketStep).step;
+      }
+      // Use the same fine price slices for every pen.
       const size = g.step * g.cell;
-      const key = `${at}:${size}`;
+      const key = `${at}:${size}:${level}`;
       // An answer that never came (a worker that died, say) stops holding the next one up after two seconds.
-      if (busy && performance.now() - busy > 2000) busy = 0;
+      if (busy && performance.now() - busy > 2000) { busy = 0; asked = ""; }
       if (key !== asked && !busy && w) {
         asked = key;
         busy = performance.now();
-        w.postMessage({ kind: "field", id: ++id, f, at, step: size, cell: g.cell });
+        pendingId = ++requestId.current;
+        w.postMessage({ kind: "field", id: pendingId, f, at, step: size, cell: g.cell, difficulty: level });
       }
     };
     tick();
@@ -207,24 +236,21 @@ export function InkScreen() {
       const g = game.current;
       if (!g.field) return null;
       const t0 = performance.now();
-      const l = terms(g.field, Date.now() + g.skew, g.step, g.pen, g.perDot).line(st);
+      const l = areaTerms(g.field, Date.now() + g.skew, g.drawing?.step ?? g.step, g.drawing?.perDot ?? g.perDot).line(st);
       slow("quote", t0, `points ${l.points.length} pts ${st.pts.length} step ${g.step}`);
-      return { cost: l.cost, low: l.low, high: l.high, inPlay: l.inPlay, out: l.out };
+      return { multipleLow: l.multipleLow, multipleHigh: l.multipleHigh, cost: l.cost, low: l.low, high: l.high, units: l.units, inPlay: l.inPlay, out: l.out };
     };
     return () => {
       clearInterval(timer);
       w?.removeEventListener("message", onMap);
     };
-  }, [connected, lib]);
+  }, [connected, lib, level]);
 
   /*
     Every trade: open what is due, judge what is live. Drawings placed
     before a reload come back once there are prices to judge them on; dots
     older than those prices cannot be judged either way, and come back.
   */
-  /** Each line's points already placed, and the line being drawn now. */
-  const placed = useRef(new Map<string, Set<string>>());
-  const drawing = useRef<string | null>(null);
   const lines = useRef(new Map<string, { at: number; open: number; won: number; cost: number; hits: number; points: number; best: number }>());
   const tally = (line: string, at: number) => {
     let t = lines.current.get(line);
@@ -236,7 +262,6 @@ export function InkScreen() {
     const t = lines.current.get(line);
     if (!t || t.open > 0) return;
     lines.current.delete(line);
-    placed.current.delete(line);
     if (!t.points) return setResult({ key: line, won: 0, cost: 0, hits: 0, points: 0, voided: true });
     setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false });
     record({ id: line, at: t.at, cost: cents(t.cost), won: cents(t.won), hits: t.hits, dots: t.points, best: t.best });
@@ -297,6 +322,7 @@ export function InkScreen() {
     g.bars = bars;
     g.ticks = ticks;
     g.skew = skew;
+    g.displayPrice = ticks.at(-1)?.p ?? bars.at(-1)?.c ?? 0;
     const latest = bars.at(-1);
     if (!latest || !lib || !owner) return;
     const nowMs = Date.now() + skew;
@@ -325,7 +351,9 @@ export function InkScreen() {
           continue;
         }
         bet = quick ?? open(bet, lib, bars);
-        credit += refund(bet);
+        const returned = refund(bet);
+        credit += returned;
+        if (returned > 0) setReturnedInk({ id: bet.id, amount: returned });
         if (bet.status === "void") g.fx.push({ kind: "placed", t: bet.openAt, price: latest.c, born: performance.now() });
         changed = true;
       }
@@ -343,9 +371,9 @@ export function InkScreen() {
           // One burst a second, however many cells of ink the price crossed in it, with what they paid together.
           const fresh2 = bet.cells.filter((d, k) => d.status === "hit" && before.cells[k].status !== "hit");
           if (fresh2.length) {
-            const paid = cents(fresh2.reduce((a, d) => a + (d.paid ?? 0), 0));
+            const paid = cents(won(bet) - won(before));
             credit += paid;
-            const best = Math.max(...fresh2.map((d) => d.multiple));
+            const best = Math.max(...fresh2.map((d) => d.multiple * ((bet.model === "area-v1" || bet.model === "rounded-v1" || bet.model === "rounded-v2" || bet.model === "rounded-v3") ? d.area : 1)));
             const lo = Math.min(...fresh2.map((d) => d.lo));
             const hi = Math.max(...fresh2.map((d) => d.hi));
             g.fx.push({ kind: "hit", t: fresh2[0].t + 500, price: Math.min(hi, Math.max(lo, bar.c)), born: performance.now(), text: `+${money(paid)}`, big: best >= 10 });
@@ -356,6 +384,8 @@ export function InkScreen() {
         }
       }
       if (decided(bet) && !decided(g.bets[i])) {
+        settledTotals.current.committed += cost(bet) - refund(bet);
+        settledTotals.current.returned += won(bet);
         const line = bet.group ?? bet.id;
         const t = tally(line, bet.placedAt);
         t.open--;
@@ -363,11 +393,11 @@ export function InkScreen() {
           const hitCells = bet.cells.filter((d) => d.status === "hit");
           t.won += won(bet);
           t.cost += cost(bet) - refund(bet);
-          t.hits += hitCells.length;
-          t.points += bet.cells.length;
-          t.best = Math.max(t.best, ...hitCells.map((d) => d.multiple));
+          t.hits += (bet.model === "area-v1" || bet.model === "rounded-v1" || bet.model === "rounded-v2" || bet.model === "rounded-v3") ? hitCells.reduce((n, c) => n + c.area, 0) : hitCells.length;
+          t.points += (bet.model === "area-v1" || bet.model === "rounded-v1" || bet.model === "rounded-v2" || bet.model === "rounded-v3") ? bet.cells.reduce((n, c) => n + c.area, 0) : bet.cells.length;
+          t.best = Math.max(t.best, ...hitCells.map((d) => d.multiple * ((bet.model === "area-v1" || bet.model === "rounded-v1" || bet.model === "rounded-v2" || bet.model === "rounded-v3") ? d.area : 1)));
         }
-        if (t.open <= 0 && drawing.current !== line) closeLine(line);
+        if (t.open <= 0) closeLine(line);
       }
       g.bets[i] = bet;
     }
@@ -376,53 +406,40 @@ export function InkScreen() {
     setLive(new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size);
     // Keep finished drawings only as long as their dots are still fading.
     g.bets = g.bets.filter((b) => !decided(b) || b.cells.some((d) => d.t + 3000 > nowMs));
-  }, [bars, ticks, skew, version, lib, owner]);
+    updateTotals();
+  }, [bars, ticks, skew, version, lib, owner, updateTotals]);
 
-  /*
-    A line is bet as it is drawn: every point the pen covers is placed, and
-    paid for, the moment it is covered, a few at a time, each batch a
-    drawing of its own opening on its own second. What a line came to is
-    told once, when the last of them is decided.
-  */
+  // Quote while drawing; commit the complete union once on release. This
+  // makes cost independent of pointer event rate, retracing and cent rounding.
   const onPlace = useCallback(
     (stroke: Stroke, line: string, done: boolean): string | null => {
+      if (!done) return null;
       const g = game.current;
-      drawing.current = done ? null : line;
-      const keys = placed.current.get(line) ?? new Set<string>();
-      const finish = (why: string | null) => {
-        if (done) closeLine(line);
-        return why;
-      };
-      const latest = g.bars.at(-1);
-      if (!owner) return finish("Playing in another tab");
-      if (!latest || !fresh || !g.field) return finish("Waiting for live prices");
-      const open = new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id));
-      if (!open.has(line) && open.size >= RULES.maxOpen) return finish(`${RULES.maxOpen} lines at a time`);
-      const q = g.quote?.(stroke);
-      if (!q) return finish(null);
-      const due = q.inPlay.filter((c) => !keys.has(`${c.t}:${c.lo}`));
-      if (!due.length) return finish(done && !keys.size ? "Draw where the chart glows" : null);
-      const s = practice();
-      const nowMs = Date.now() + g.skew;
-      const bet = placePoints(due, stroke, line, s.perDot, g.step, nowMs, crypto.randomUUID(), g.cell);
-      if (!bet) return finish(null);
-      if (cost(bet) > s.balance + 1e-9) return finish("Not enough practice money");
-      for (const c of bet.drawn) keys.add(`${c.t}:${c.lo}`);
-      const first = keys.size === bet.drawn.length;
-      placed.current.set(line, keys);
+      if (!owner) return "Playing in another tab";
+      if (!fresh || !g.field) return "Waiting for live prices";
+      const settings = g.drawing ?? { step: g.step, perDot: practice().perDot };
+      const placedAt = Date.now() + g.skew;
+      const q = areaTerms(g.field, placedAt, settings.step, settings.perDot).line(stroke);
+      if (!q.inPlay.length) return "Move to a spot with an offered multiplier";
+      const bet = placeRounded(stroke, settings.perDot, settings.step, placedAt, line, INK_EDGE_CELLS);
+      if (!bet) return "Draw a shorter line inside the chart";
+      bet.drawn = q.inPlay.map(({ t, lo, hi, area }) => ({ t, lo, hi, area }));
+      if (cost(bet) < 0.01) return "Draw a little more ink";
+      if (cost(bet) > practice().balance) return "Not enough practice money";
+      if (!g.bets.some(b => !decided(b))) settledTotals.current = { committed: 0, returned: 0 };
       tally(line, bet.placedAt).open++;
       g.bets.push(bet);
+      updateTotals();
       if (process.env.NODE_ENV !== "production") (window as unknown as { __lastBet?: unknown }).__lastBet = bet;
-      setPractice((st) => ({ balance: cents(st.balance - cost(bet)), taught: true, open: g.bets.filter((b) => !decided(b)) }));
-      setLive(new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size);
-      if (first && s.sound) {
-        sound.wake();
-        sound.place();
-      }
-      buzz(first ? 8 : 3);
-      return finish(null);
+      setPractice(st => ({ balance: cents(st.balance - cost(bet)), taught: true, open: g.bets.filter(b => !decided(b)) }));
+      setLive(g.bets.filter(b => !decided(b)).length);
+      const tip = stroke.pts.at(-1)!;
+      g.fx.push({ kind: "placed", t: stroke.t0 + tip.t, price: stroke.p0 + tip.p, born: performance.now() });
+      if (practice().sound) { sound.wake(); sound.place(); }
+      buzz(8);
+      return null;
     },
-    [fresh, owner],
+    [fresh, owner, updateTotals],
   );
 
 
@@ -436,7 +453,7 @@ export function InkScreen() {
   const onPreview = useCallback((p: Preview | null) => {
     setPreview(p);
     const n = p?.inPlay.length ?? 0;
-    if (n > painted.current && practice().sound) {
+    if (!p?.keyboard && n > painted.current && practice().sound) {
       sound.wake();
       sound.paint();
     }
@@ -444,21 +461,10 @@ export function InkScreen() {
   }, []);
 
   const broke = state.balance < DOT_BETS[0] && live === 0;
-  const recent = state.history.slice(0, 8);
   const price = feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0;
-  const phone = usePhone();
   const day = useDay();
   const [listOpen, setListOpen] = useState(false);
-  const base = marketBySymbol("BTC");
-  const btc: Market | null = base
-    ? { ...base, price, changePct: day?.changePct ?? 0, change: day ? (price * day.changePct) / 100 : 0, high24h: day?.high ?? 0, low24h: day?.low ?? 0, volume24h: day?.volume ?? 0 }
-    : null;
-
-  /*
-    The pen and what a point of ink costs, where the trading screen has size
-    and pace. Drawing places itself when the pen lifts, straight from the
-    balance, so there is no button to press for it.
-  */
+  // The same Skech controls: nib size and the cost of a full dot.
   const controls = (
     <InkControls
       amount={state.perDot}
@@ -469,77 +475,45 @@ export function InkScreen() {
     />
   );
 
-  /* The practice balance: beside the controls on a desk, over the chart's top right on a phone, in the same coat as the market beside it. */
-  const balance = phone ? (
-    <span className="flex h-10 items-center gap-1.5 rounded-lg border border-input bg-card/85 px-3 text-sm backdrop-blur-sm">
-      <span className="figures font-medium">{money(state.balance)}</span>
-      <span className="text-muted-foreground text-xs max-[380px]:hidden">Practice</span>
-    </span>
-  ) : (
-    <span className="mr-2 flex flex-col items-end leading-tight">
-      <span className="text-muted-foreground text-xs">Practice balance</span>
-      <span className="figures font-semibold text-xl tracking-tight">{money(state.balance)}</span>
-    </span>
-  );
-
-  const soundButton = (
-    <Button aria-label={state.sound ? "Mute" : "Sound on"} aria-pressed={state.sound} className="size-8 rounded-lg sm:size-10 sm:rounded-xl" onClick={() => setPractice({ sound: !state.sound })} size="icon" variant="ghost">
-      {state.sound ? <Volume2Icon /> : <VolumeXIcon />}
-    </Button>
-  );
+  const latestResult = state.history[0];
+  const showingBatch = totals.drawings > 0 || totals.committed > 0;
+  const displayedPnl = showingBatch ? totals.pnl : latestResult ? cents(latestResult.won - latestResult.cost) : 0;
 
   return (
-    /* Edge to edge on a phone, a card on a desk: the trading screen's own shape. */
-    <section aria-label="Draw" className="flex min-h-[24rem] flex-1 flex-col overflow-hidden bg-background sm:m-2 sm:rounded-3xl">
-      {/* Market on the left, the controls hard right, on the chart's own header. On a phone both are over the chart and in the footer instead. */}
-      <div className="hidden flex-wrap items-center gap-1.5 px-3 pt-3 pb-1 sm:flex sm:gap-3 sm:px-4">
-        {btc ? <MarketHeader className="max-sm:hidden sm:w-auto" fixed market={btc} /> : null}
-        {phone ? null : (
-          <div className="ml-auto flex items-center gap-2">
-            {balance}
-            {controls}
+    <section aria-label="Draw" className={cn(feedback.surface, "relative isolate min-h-0 flex-1 overflow-hidden bg-background")}>
+      <div className={feedback.topShade} aria-hidden="true" />
+      <div className={feedback.summary}>
+        <div className={feedback.market}>
+          <Popover>
+            <PopoverTrigger render={<Button variant="ghost" aria-label="Change asset: Bitcoin" className={feedback.assetButton} />}>
+              <TokenAvatar symbol="BTC" className="size-8 sm:size-10" />
+              <span className={feedback.marketName}><span>Bitcoin <ChevronDownIcon className="size-3.5 text-muted-foreground" /></span><strong className="figures">{price ? <CrispNumber value={money(price)} /> : "Connecting…"}</strong></span>
+            </PopoverTrigger>
+            <PopoverPopup align="start" sideOffset={10} className="w-64">
+              <PopoverTitle>Choose asset</PopoverTitle>
+              <PopoverClose render={<Button variant="ghost" className="mt-3 h-14 w-full justify-start px-2" />} aria-label="Bitcoin, selected">
+                <TokenAvatar symbol="BTC" className="size-8" /><span className="flex flex-col items-start"><span>Bitcoin</span><span className="text-xs text-muted-foreground">BTC / USD</span></span><CheckIcon className="ml-auto text-primary" />
+              </PopoverClose>
+            </PopoverPopup>
+          </Popover>
+          {day ? <span className={cn(feedback.dayChange, day.changePct >= 0 ? "text-success-foreground" : "text-destructive-foreground")}>{day.changePct > 0 ? "+" : ""}{day.changePct.toFixed(2)}%</span> : null}
+        </div>
+        <div className={feedback.accounts}>
+          <div className={feedback.balance} aria-label="Practice balance">
+            <span className={feedback.eyebrow}>Balance</span>
+            <span className={cn(feedback.balanceValue, "figures")}><CrispNumber value={money(state.balance)} /></span>
           </div>
-        )}
-      </div>
-      <div className="flex min-h-0 flex-1 gap-2 sm:px-2 sm:pt-2">
-        {/* The rail beside the chart, as the trading screen's drawing tools are. */}
-        <div className="hidden sm:block">
-          <div className="flex shrink-0 flex-col items-center gap-1.5 self-start rounded-2xl bg-muted p-1.5 [&_svg]:size-5">
-            <Tool words="Your drawings">
-              <Button aria-label="Your drawings" className="size-10 rounded-xl" onClick={() => setListOpen(true)} size="icon" variant="ghost">
-                <HistoryIcon />
-              </Button>
-            </Tool>
-            <span aria-hidden="true" className="my-0.5 h-px w-6 shrink-0 bg-foreground/10" />
-            <Tool words={state.sound ? "Sound off" : "Sound on"}>{soundButton}</Tool>
-            <Tool words="How it works">
-              <Button aria-label="How it works" className="size-10 rounded-xl" onClick={() => setHelp(true)} size="icon" variant="ghost">
-                <CircleHelpIcon />
-              </Button>
-            </Tool>
+          <div className={feedback.pnl} aria-label="Profit and loss">
+            <span className={feedback.eyebrow}>{totals.drawings ? "Live P&L" : "Last P&L"}</span>
+            <span className={cn(feedback.pnlValue, "figures", displayedPnl > 0 ? "text-success-foreground" : displayedPnl < 0 ? "text-destructive-foreground" : "text-foreground")}>
+              <CrispNumber value={signed(displayedPnl)} />
+            </span>
           </div>
         </div>
-        <div className="relative min-w-0 flex-1">
-          {/* On a phone: the market over the top left of the chart, the balance over the top right. */}
-          {phone && btc ? (
-            <div className="absolute top-4 left-3 z-10">
-              <MarketHeader fixed market={btc} />
-            </div>
-          ) : null}
-          {phone ? <div className="absolute top-4 right-3 z-10 max-[380px]:top-16">{balance}</div> : null}
-          {/* Bottom left on a phone, the same round buttons the trading screen keeps there. */}
-          {phone ? (
-            <div className="pointer-events-none absolute bottom-2 left-2 z-10 flex w-13 flex-col items-center gap-1.5 [&>*]:pointer-events-auto">
-              <Button aria-label={`Your drawings, ${state.history.length}`} className="size-10 shrink-0 rounded-full border bg-card/85 backdrop-blur-sm" onClick={() => setListOpen(true)} size="icon" variant="outline">
-                <HistoryIcon />
-              </Button>
-              <Button aria-label="How it works" className="size-10 shrink-0 rounded-full border bg-card/85 backdrop-blur-sm" onClick={() => setHelp(true)} size="icon" variant="outline">
-                <CircleHelpIcon />
-              </Button>
-            </div>
-          ) : null}
+      </div>
 
-          {lib ? <Stage className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} /> : null}
+      <div className="absolute inset-0">
+          {lib ? <Stage onViewport={onViewport} className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} /> : null}
           {owner === false ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm" role="status">
               <p className="text-sm text-muted-foreground">The game is open in another tab.</p>
@@ -552,24 +526,25 @@ export function InkScreen() {
             </div>
           ) : null}
 
-          {/* While drawing: the points placed so far and what they cost (already off the balance), and what one hit pays. */}
+          {/* Before release: cost and maximum return of the whole stroke. */}
           {preview ? (
-            <div className="-translate-x-1/2 pointer-events-none absolute top-16 left-1/2 z-10 flex items-center gap-2 whitespace-nowrap rounded-full bg-foreground px-4 py-2 font-medium text-background text-sm shadow-lg sm:top-3" role="status">
+            <div className="-translate-x-1/2 pointer-events-none absolute bottom-24 left-1/2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-4 rounded-2xl border bg-card/95 px-5 py-3 text-sm shadow-lg backdrop-blur-md sm:bottom-24" role="status">
               {preview.inPlay.length ? (
                 <>
-                  <span className="figures tabular-nums">
-                    {preview.inPlay.length} {preview.inPlay.length === 1 ? "point" : "points"} · {money(preview.cost)}
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Drawing cost</span>
+                    <span className="figures text-lg font-semibold tabular-nums">{money(preview.cost)}</span>
                   </span>
-                  <span className="opacity-40">·</span>
-                  <span>
-                    a hit pays{" "}
-                    <span className="figures tabular-nums">
-                      {preview.low === preview.high ? money(preview.high) : `${money(preview.low)}–${money(preview.high)}`}
-                    </span>
+                  <span aria-hidden="true" className="h-8 w-px bg-border" />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Max return</span>
+                    <span className="figures text-lg font-semibold tabular-nums">{money(preview.high)}</span>
                   </span>
+                  <span className="hidden flex-col gap-0.5 sm:flex"><span className="text-[10px] uppercase tracking-wider text-muted-foreground">Max multiplier</span><span className="figures text-lg font-semibold">{fmtMultiple(preview.multipleHigh)}</span></span>
+                  <span className="hidden text-xs text-muted-foreground sm:inline">{preview.keyboard ? "Enter" : "Release"}<br />to place</span>
                 </>
               ) : (
-                <span>Draw where the chart glows</span>
+                <span className="text-muted-foreground">Move to a spot with an offered multiplier</span>
               )}
             </div>
           ) : null}
@@ -578,7 +553,8 @@ export function InkScreen() {
           {result && !preview ? (
             <div
               className={cn(
-                "-translate-x-1/2 pointer-events-none absolute top-16 left-1/2 z-10 flex animate-[fade-in_0.2s_ease-out] items-center gap-2 whitespace-nowrap rounded-full border px-4 py-2 font-medium text-sm shadow-lg sm:top-3",
+                feedback.notice,
+                "-translate-x-1/2 pointer-events-none absolute top-40 left-1/2 z-10 flex items-center gap-2 whitespace-nowrap rounded-full border px-4 py-2 font-medium text-sm shadow-lg sm:top-36",
                 result.won > result.cost ? "border-success/30 bg-success/12 text-success-foreground" : "bg-card/90 text-muted-foreground backdrop-blur",
               )}
               key={result.key}
@@ -586,7 +562,7 @@ export function InkScreen() {
             >
               {!result.voided ? (
                 <>
-                  <span className="figures">{result.hits > 0 ? `${result.hits} of ${result.points} points hit` : "Missed"}</span>
+                  <span className="figures">{result.hits > 0 ? `${Math.round(100 * result.hits / result.points)}% of ink hit` : "Missed"}</span>
                   <span className="opacity-50">·</span>
                   <span className="figures font-semibold tabular-nums">{signed(cents(result.won - result.cost))}</span>
                 </>
@@ -595,47 +571,37 @@ export function InkScreen() {
               )}
             </div>
           ) : null}
-        </div>
       </div>
 
-      {/* The bar under the chart, as on the trading screen: what to do, and your recent drawings. On a phone, the controls. */}
-      <div className="flex flex-col gap-2 px-3 py-3 sm:px-4">
-        {phone ? null : (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-            <p className="mr-auto text-muted-foreground">
-              <span className="font-medium text-foreground">Draw where you think Bitcoin goes.</span>{" "}
-              <span>Every point the price touches pays its multiple.</span>
-            </p>
-            {recent.length ? (
-              <ol aria-label="Your last drawings" className="flex items-center gap-1.5">
-                {recent.slice(0, 5).map((r) => {
-                  const net = cents(r.won - r.cost);
-                  return (
-                    <li className={cn("figures rounded-md px-2 py-1 text-xs", net > 0 ? "bg-success/10 text-success-foreground" : "bg-muted text-muted-foreground")} key={r.id}>
-                      {signed(net)}
-                    </li>
-                  );
-                })}
-              </ol>
-            ) : null}
-            <Button onClick={() => setListOpen(true)} variant="outline">
-              Drawings <span className="figures text-muted-foreground">{state.history.length}</span>
-            </Button>
-          </div>
-        )}
-        {phone ? (
-          <div className="flex items-center gap-1.5">
-            {controls}
-          </div>
-        ) : null}
-      </div>
+      {returnedInk && !preview ? <div key={returnedInk.id} role="status" className="pointer-events-none absolute bottom-24 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border bg-card px-4 py-2 text-xs text-muted-foreground">Unpriced ink · <span className="figures text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
+      <div className={feedback.bottomShade} aria-hidden="true" />
+      <footer className={feedback.toolbar}>
+        <Button aria-label="Settings" aria-haspopup="dialog" className={feedback.settingsButton} onClick={() => setSettingsOpen(true)} size="icon" variant="outline"><Settings2Icon /></Button>
+        {controls}
+      </footer>
+
+      <Sheet onOpenChange={setSettingsOpen} open={settingsOpen}>
+        <SheetPopup className="sm:max-w-sm" side="right" variant="inset">
+          <SheetHeader className="px-6 pt-8"><SheetTitle className="text-2xl font-semibold tracking-tight">Settings</SheetTitle><SheetDescription className="sr-only">Drawing preferences and account tools</SheetDescription></SheetHeader>
+          <SheetPanel className="flex flex-col gap-5 px-6 pb-8">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border p-4"><div><p className="text-xs text-muted-foreground">Practice balance</p><p className="figures mt-1 text-xl font-semibold">{money(state.balance)}</p></div><DepositButton onDeposit={amount => setPractice(st => ({ balance: cents(st.balance + amount) }))} /></div>
+            <div className="flex flex-col gap-2">
+              <Button className="h-12 justify-start px-3" variant="ghost" onClick={() => { setSettingsOpen(false); setListOpen(true); }}><HistoryIcon />Your drawings<span className="figures ml-auto text-muted-foreground">{state.history.length}</span></Button>
+              <Button className="h-12 justify-start px-3" variant="ghost" aria-pressed={state.sound} onClick={() => setPractice({ sound: !state.sound })}>{state.sound ? <Volume2Icon /> : <VolumeXIcon />}Sound<span className="ml-auto text-muted-foreground">{state.sound ? "On" : "Off"}</span></Button>
+              <div className="flex h-12 items-center justify-between pl-3 pr-1"><span className="text-sm font-medium">Appearance</span><ThemeToggle /></div>
+              <Button className="hidden h-12 justify-start px-3 sm:flex" variant="ghost" onClick={() => void expand()}>{fullscreen ? <Minimize2Icon /> : <Maximize2Icon />}{fullscreen ? "Exit full screen" : "Full screen"}</Button>
+              <Button className="h-12 justify-start px-3" variant="ghost" onClick={() => { setSettingsOpen(false); setHelp(true); }}><CircleHelpIcon />How it works</Button>
+            </div>
+          </SheetPanel>
+        </SheetPopup>
+      </Sheet>
 
       <Sheet onOpenChange={setListOpen} open={listOpen}>
         <SheetPopup className="sm:max-w-md" side="right" variant="inset">
           <SheetHeader className="px-6 pt-8">
             <SheetTitle className="font-semibold text-2xl tracking-tight">Your drawings</SheetTitle>
             <SheetDescription>
-              Practice balance <span className="figures text-foreground">{money(state.balance)}</span>
+              Practice balance <span className="figures text-foreground"><CrispNumber value={money(state.balance)} /></span>
               {state.streak > 0 ? ` · ${state.streak} in a row with a hit` : ""}
             </SheetDescription>
           </SheetHeader>
@@ -650,7 +616,7 @@ export function InkScreen() {
                         {new Date(r.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                         <span className="figures">
                           {" "}
-                          · {r.hits} of {r.dots} hit · {money(r.cost)}
+                          · {r.dots > 0 ? Math.round(100 * r.hits / r.dots) : 0}% hit · {money(r.cost)}
                         </span>
                         {r.best ? <span className="figures"> · best {fmtMultiple(r.best)}</span> : null}
                       </span>
@@ -678,13 +644,12 @@ export function InkScreen() {
             <SheetDescription>Practice money, on the real Bitcoin price.</SheetDescription>
           </SheetHeader>
           <SheetPanel className="flex flex-col gap-4 px-6 pb-8 text-sm leading-relaxed">
-            <p>Ahead of the price is a map of the odds. Draw on it. Every second your line passes through a row of prices is one point, and each point costs what you set under Per point. Points are placed, and paid for, as you draw them.</p>
-            <p>Near the price is likely and pays a little. Far from it, in price or in time, pays a lot: the multiples are written on the map.</p>
-            <p>A point the price touches pays what you set times its multiple: 25¢ at 10× is $2.50. The pen shows both as you draw. Ink too soon, or outside the map, stays faint and costs nothing.</p>
-            <p>A drawing starts on the next second. The first second after that is never part of it, and it reaches {RULES.horizon} seconds ahead.</p>
-            <p className="text-muted-foreground">
-              Payouts are based on real Bitcoin paths from similar moments: a point returns {Math.round(difficulty(level).rtp * 100)}¢ a dollar on average, less in the direction the price just moved, and pays from {difficulty(level).minMultiple}× to {difficulty(level).maxMultiple}×. Your balance is practice money saved in this browser.
-            </p>
+            <p>Draw ahead of the live price. One full dot at your selected pen size costs the amount under Per dot. A longer stroke costs more; retracing ink in the same drawing adds no cost. The total cost rounds up to the next cent, once per drawing.</p>
+            <p>Every offered continuous ink section within a second pays at least 1.1× the selected per-dot amount when hit. Regions that cannot support this minimum are unavailable. The chart stays at the same scale when you change pens. A wider pen spreads the same amount over more ink, so each touched part pays less. The muted numbers show the approximate maximum payout per touched part for a circular tap at each position. New payouts preserve ordinary odds through 10×, then soften long-shot returns up to a 25× ceiling. They are maxima, not a payout guaranteed on every touch. New drawings have rounded edges and two screen pixels of paid price-edge tolerance; the odds include that larger hit region. Only solid blue ink is in play. A thin gray dashed trace shows unavailable or refunded parts of the original gesture; those parts cannot pay. A hit pays immediately. P&L compares payouts with the cost of settled ink only; future ink stays pending. Higher prices are above the live price and lower prices below it; offers can be available on both sides. The drawing cost and maximum total return appear in the footer while you draw. Some positions have no offer; the drawing preview tells you before placing. The current cap is {MAX_INK_MULTIPLE}× per part; a whole drawing can return more if several parts hit.</p>
+            <p>While drawing, you see the cost and the most the entire drawing could return. Release to place it. Partial hits pay for the touched ink only; the maximum is not a promise. Faint ink is outside the offer and costs nothing.</p>
+            <p>Live P&amp;L shows payouts received minus the cost of settled ink. Placing a drawing reserves its stake from your balance immediately, but pending sections are not counted as losses. Hits settle when touched; misses settle after their time window closes. Refunds are not profit. This is not a cash-out value. Once a drawing finishes, its final result appears in your history.</p>
+            <p>Drawings open on the next whole second. Eligible ink starts one second after opening and extends {RULES.horizon} seconds ahead. The preview is an estimate: opening odds can change, and unavailable ink is refunded.</p>
+            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. The pricing target is {Math.round(difficulty(level).rtp * 100)}¢ per dollar before payout caps, rounding and momentum adjustments. Caps can substantially reduce it; this is not a guaranteed return. Hits are resolved using one-second price ranges. Your balance is practice money saved in this browser.</p>
             {house ? (
               <div className="flex flex-col gap-3 rounded-2xl border p-4">
                 <div className="flex items-baseline justify-between">
@@ -696,7 +661,7 @@ export function InkScreen() {
                 </div>
                 <Slider aria-label="Difficulty" max={100} min={0} onValueChange={(v) => setPractice({ houseDifficulty: Array.isArray(v) ? v[0] : v })} step={5} value={level} />
                 <p className="figures text-muted-foreground text-xs">
-                  Keeps {Math.round((1 - difficulty(level).rtp) * 100)}% · pays {difficulty(level).minMultiple}× to {difficulty(level).maxMultiple}× · momentum margin {difficulty(level).momentumMargin}
+                  Keeps {Math.round((1 - difficulty(level).rtp) * 100)}% · pays {difficulty(level).minMultiple}× to {MAX_INK_MULTIPLE}× · momentum margin {difficulty(level).momentumMargin}
                 </p>
                 <p className="text-muted-foreground text-xs">For the house, while it is practice money. Drawings already open keep what they opened on.</p>
                 {state.houseDifficulty !== null ? (

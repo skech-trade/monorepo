@@ -162,20 +162,28 @@ function tone(freq: number, at: number, dur: number, gain: number, type: Oscilla
   o.connect(g).connect(a.destination);
   o.start(a.currentTime + at);
   o.stop(a.currentTime + at + dur + 0.02);
+  o.onended = () => { o.disconnect(); g.disconnect(); };
 }
 
 export const sound = {
   /** Unlock audio inside a gesture: browsers refuse it otherwise. */
   wake: () => void ctx(),
-  place: () => tone(740, 0, 0.06, 0.05, "sine"),
-  /** A soft tick as the pen covers ground, so drawing is heard as well as seen. */
-  paint: () => tone(1320, 0, 0.025, 0.012, "sine"),
+  place: () => {
+    tone(660, 0, 0.065, 0.025, "sine");
+    tone(990, 0.035, 0.1, 0.018, "sine");
+  },
+  /** Quiet tactile tick; onPreview only calls it for newly selected tiles. */
+  paint: () => tone(1150, 0, 0.035, 0.013, "sine"),
   hit: (multiple: number) => {
-    // Up a fifth for every doubling of the multiple.
-    const base = 523 * 2 ** (Math.log2(Math.max(1, multiple)) * (7 / 12));
-    tone(base, 0, 0.18, 0.09);
-    tone(base * 1.5, 0.07, 0.22, 0.07);
-    if (multiple >= 10) tone(base * 2, 0.14, 0.4, 0.07);
+    // Metallic coin partials, kept in a comfortable frequency range. A brief
+    // pair of clinks for ordinary hits; one extra for a larger payout.
+    const coins = multiple >= 5 ? 3 : 2;
+    for (let i = 0; i < coins; i++) {
+      const t = i * 0.065, f = 1318.51 * (1 + i * 0.12);
+      tone(f, t, 0.19, 0.038, "sine");
+      tone(f * 1.49, t, 0.1, 0.015, "sine");
+      tone(f * 2.01, t, 0.055, 0.008, "sine");
+    }
   },
 };
 

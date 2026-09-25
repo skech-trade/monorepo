@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
-import { type Features, field, type Library, readLibrary } from "@skech/core/dots";
+import { INK_EDGE_CELLS } from "@skech/core/ink";
+import { type Features, field, type Library, readLibrary, setDifficulty } from "@skech/core/dots";
 
 /**
  * The map of the odds, off the page's thread. Measuring every cell ahead on
@@ -10,7 +11,7 @@ import { type Features, field, type Library, readLibrary } from "@skech/core/dot
 
 let lib: Library | null = null;
 
-type Ask = { kind: "lib"; bytes: ArrayBuffer } | { kind: "field"; id: number; f: Features; at: number; step: number; cell: number };
+type Ask = { kind: "lib"; bytes: ArrayBuffer } | { kind: "field"; id: number; f: Features; at: number; step: number; cell: number; difficulty: number };
 
 self.onmessage = (e: MessageEvent<Ask>) => {
   const m = e.data;
@@ -19,7 +20,8 @@ self.onmessage = (e: MessageEvent<Ask>) => {
     return;
   }
   if (!lib) return;
-  // In the pen's rows, and calibrated for them.
-  const fl = field(lib, m.f, m.at, m.step, m.cell);
-  (self as unknown as Worker).postMessage({ id: m.id, field: fl }, [fl.chance.buffer]);
+  // Worker globals must use the same difficulty as this request.
+  setDifficulty(m.difficulty);
+  const fl = field(lib, m.f, m.at, m.step, m.cell, INK_EDGE_CELLS);
+  (self as unknown as Worker).postMessage({ id: m.id, field: fl }, [fl.chance.buffer, fl.lowCdf!.buffer, fl.highCdf!.buffer]);
 };
