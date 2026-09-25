@@ -760,7 +760,7 @@ export function Stage({
           const ictx = img.getContext("2d")!;
           const data = ictx.createImageData(sh.cols, sh.rows);
           const [r, gg, b] = pal!.ink;
-          const top = dark ? 0.1 : 0.07;
+          const top = dark ? 0.05 : 0.035;
           for (let k = 0; k < sh.v.length; k++) {
             const col = k % sh.cols, row = Math.floor(k / sh.cols);
             // Soft on every side: it fades in from now, out toward the horizon,
