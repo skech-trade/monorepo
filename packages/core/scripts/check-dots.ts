@@ -4,7 +4,7 @@ import { type Bar, type Bet, type Dot, features, field, judge, open, place, read
   and report what every kind of player got back per dollar. Fair pricing
   pays about RULES.rtp (0.94) whoever plays, wherever they paint.
 
-    bun packages/core/scripts/check-dots.ts <dots-lib.bin> <folder of BTCUSDT-1s CSVs> 2026-09-17 [more days]
+    bun packages/core/scripts/check-dots.ts <dots-lib.bin> <folder of BTC-USD-1s CSVs (MARKET=BTCUSDT for Binance)> 2026-09-17 [more days]
 */
 const [libPath, dataDir, ...days] = process.argv.slice(2);
 const lib = readLibrary(new Uint8Array(await Bun.file(libPath).arrayBuffer()));
@@ -19,7 +19,7 @@ let essSum = 0, essN = 0, essMin = Infinity;
 const bucket = (m: number) => (m < 2 ? "a  1.1-2x" : m < 5 ? "b  2-5x" : m < 15 ? "c  5-15x" : m < 40 ? "d  15-40x" : "e  40-100x");
 
 for (const day of days) {
-  const text = await Bun.file(`${dataDir}/BTCUSDT-1s-${day}.csv`).text();
+  const text = await Bun.file(`${dataDir}/${process.env.MARKET ?? "BTC-USD"}-1s-${day}.csv`).text();
   const bars: Bar[] = text.trim().split("\n").map((r) => {
     const f = r.split(",");
     return { t: Math.floor(Number(f[0]) / 1000), h: +f[2], l: +f[3], c: +f[4] };

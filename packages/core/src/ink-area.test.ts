@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { areaCells, areaMultiple, areaCostOf, roundedCells, INK_EDGE_CELLS, drawingLayout, CHART_LINE_PX, INK_CELL, MAX_INK_MULTIPLE, MIN_INK_MULTIPLE } from "./ink-area";
 import { cost, liveInkTotals, judge, open, openOn, PEN_CELLS, placeArea, placeRounded, refund, won, type InkBet, type Stroke } from "./ink";
 import { areaTerms, roundedTerms } from "./odds";
-import { features, field, readLibrary, RULES, DIFFICULTY, difficulty, stepFor, type Bar, type Field } from "./dots";
+import { features, field, readLibrary, RULES, DIFFICULTY, difficulty, rtpAt, setDifficulty, stepFor, type Bar, type Field } from "./dots";
 
 const at = 1_800_000_000_000;
 const dot = (rt = 300, rp = 0.35): Stroke => ({ t0: at + 5500, p0: 100.013, rt, rp, pts: [{ t: 0, p: 0 }] });
@@ -217,7 +217,8 @@ test("pricing resolution remains chart-line thick across viewport sizes and pens
   for (const [w, h] of [[390, 844], [1280, 720], [987, 1500], [1920, 1080]]) {
     const layout = drawingLayout(w, h, 20);
     expect(layout.step * INK_CELL / layout.step * layout.pitch).toBeCloseTo(CHART_LINE_PX, 10);
-    expect((layout.bottom - layout.top) * layout.step / layout.pitch).toBeCloseTo(120, 10);
+    // Nine market steps of $20 top to bottom.
+    expect((layout.bottom - layout.top) * layout.step / layout.pitch).toBeCloseTo(180, 10);
     for (const width of Object.values(PEN_CELLS)) {
       const radius = width * 20 / 2;
       const stroke = { ...dot(), rt: radius / layout.pxMs, rp: radius * layout.step / layout.pitch };
@@ -241,10 +242,12 @@ test("a live hit credits immediately and completed drawings stay in the batch P&
   expect(liveInkTotals([], { committed: 2, returned: 5 })).toEqual({ drawings: 0, committed: 2, returned: 5, settledCost: 2, pending: 0, pnl: 3 });
 });
 
-test("the harder default lowers payouts without changing the minimum", () => {
-  expect(DIFFICULTY).toBe(70);
-  expect(difficulty(DIFFICULTY).maxMultiple).toBe(10);
-  expect(difficulty(DIFFICULTY).rtp).toBe(0.716);
+test("the default difficulty sets payouts without changing the minimum", () => {
+  expect(DIFFICULTY).toBe(60);
+  expect(difficulty(DIFFICULTY).maxMultiple).toBe(12);
+  expect(difficulty(DIFFICULTY).rtp).toBe(0.748);
+  expect(difficulty(DIFFICULTY).ladderBest).toBe(0.96);
+  expect(difficulty(DIFFICULTY).ladderFloor).toBe(1.1);
   expect(difficulty(DIFFICULTY).rtp).toBeLessThan(difficulty(50).rtp);
   expect(MIN_INK_MULTIPLE).toBe(1.1);
 });
@@ -317,9 +320,9 @@ test("rounded sections preserve area and price the entire touched band", async (
       for (const t of new Set(quick.cells.map(c=>c.t))) bet=judge(bet,{t,l:80000,h:90000,c:f.price},true);
       expect(won(bet)).toBe(quote.high);
       for (const c of quick.cells) {
-        expect(c.area*c.multiple).toBeGreaterThanOrEqual(1.1-1e-9);
+        expect(c.multiple).toBeGreaterThanOrEqual(1.1-1e-9);
         expect(c.area*c.multiple).toBeLessThanOrEqual(MAX_INK_MULTIPLE + 1e-9);
-        expect(c.multiple*c.chance!).toBeLessThanOrEqual(RULES.rtp+1e-9);
+        expect(c.multiple*c.chance!).toBeLessThanOrEqual(Math.max(RULES.ladderBest, 1.1*c.chance!)+1e-9);
       }
     }
   }
@@ -393,4 +396,112 @@ test("partial losses update realized P&L while the rest remains pending", () => 
   expect(totals.pnl).toBe(-0.03);
   const done: InkBet = { ...live, status: "done", cells: live.cells.map(c => ({ ...c, status: "miss" })) };
   expect(liveInkTotals([done], { committed: cost(done) - refund(done), returned: 0 }).pnl).toBe(-0.07);
+});
+
+test("fair-v1 returns its target per dollar at every size, with a 1.1x floor", async () => {
+  const { fairSection } = await import("./ink-area");
+  const target = RULES.rtp;
+  for (const area of [0.05, 0.3, 1, 1.7, 2]) for (const p of [0.98, 0.9, 0.5, 0.2, 0.08, 0.03, 0.01, 0.001]) {
+    const q = fairSection(p, target, area)!;
+    // Always offered, never under 1.1x a dollar, never over 100x a dot, never a bigger stake than was drawn.
+    expect(q).not.toBeNull();
+    expect(q.multiple).toBeGreaterThanOrEqual(MIN_INK_MULTIPLE);
+    expect(q.area * q.multiple).toBeLessThanOrEqual(MAX_INK_MULTIPLE + 1e-9);
+    expect(q.area).toBeLessThanOrEqual(area + 1e-12);
+    const perDollar = q.multiple * p;
+    if (target / p < MIN_INK_MULTIPLE) { expect(q.multiple).toBe(MIN_INK_MULTIPLE); continue; }
+    // Otherwise: the target per dollar staked, less at most a cent of multiple.
+    expect(perDollar).toBeLessThanOrEqual(target + 1e-12);
+    expect(target - perDollar).toBeLessThanOrEqual(0.01 * p + 1e-12);
+  }
+  // A long shot pays the cap on a smaller stake, exactly fair.
+  const far = fairSection(0.001, target, 1)!;
+  expect(far.area * far.multiple).toBeCloseTo(MAX_INK_MULTIPLE, 9);
+  expect(far.multiple * 0.001).toBeCloseTo(target, 12);
+});
+
+test("new drawings open on ladder-v1, and preview, opening and settlement agree", async () => {
+  const lib = readLibrary(new Uint8Array(await Bun.file(new URL("./dots-lib.bin", import.meta.url)).arrayBuffer()));
+  const bars: Bar[] = Array.from({ length: 320 }, (_, i) => { const c = 84000 + (i % 2 ? 0.5 : -0.5); return { t: at - (320 - i) * 1000, h: c + 0.2, l: c - 0.2, c }; });
+  const f = features(bars, at)!;
+  const { ladderSection, LADDER } = await import("./ink-area");
+  const LADDER_BEST = RULES.ladderBest;
+  for (const [width, height] of [[390, 844], [820, 1180], [1000, 577], [2560, 1300]]) {
+    const { step, pitch, pxMs } = drawingLayout(width, height, stepFor(f.sigma, f.price));
+    const fl = field(lib, f, at, step * INK_CELL, INK_CELL, INK_EDGE_CELLS);
+    const st = { ...dot(), p0: f.price + stepFor(f.sigma, f.price), rt: 7 / pxMs, rp: 7 * step / pitch, pts: [{ t: 0, p: 0 }, { t: 6000, p: -step * 6 }] };
+    const placed = placeRounded(st, 1, step, at - 100, "fair", INK_EDGE_CELLS)!;
+    expect(placed.model).toBe("ladder-v1");
+    const bet = openOn(placed, fl) ?? open(placed, lib, bars);
+    const quote = roundedTerms(fl, at - 100, step, 1).line(st);
+    expect(cost(bet) - refund(bet)).toBeCloseTo(quote.cost, 8);
+    for (const c of bet.cells) {
+      // Re-pricing what opened reproduces it: the stake and the multiple are settled.
+      expect(ladderSection(c.chance!, rtpAt(f, (c.lo + c.hi) / 2), c.area)).toEqual({ area: c.area, multiple: c.multiple });
+      expect([RULES.ladderFloor, ...LADDER]).toContain(c.multiple);
+      expect(c.multiple * c.chance!).toBeLessThanOrEqual(Math.max(LADDER_BEST, MIN_INK_MULTIPLE * c.chance!) + 1e-9);
+    }
+  }
+});
+
+test("ladder-v1 pays a rung, the highest the chance allows, and never beats its best unless floored", async () => {
+  const { ladderSection, LADDER } = await import("./ink-area");
+  const LADDER_BEST = RULES.ladderBest;
+  for (const p of [0.99, 0.95, 0.9, 0.6, 0.45, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01, 0.001]) {
+    const q = ladderSection(p, RULES.rtp, 1)!;
+    const fair = LADDER_BEST / p;
+    expect([RULES.ladderFloor, ...LADDER]).toContain(q.multiple);
+    expect(q.area).toBe(1);
+    expect(ladderSection(p, RULES.rtp, 5)!.area * q.multiple).toBeLessThanOrEqual(256 + 1e-9);
+    const higher = LADDER.filter(r => r > q.multiple);
+    // The next rung up would be more than the chance supports.
+    if (higher.length) expect(higher[0]).toBeGreaterThan(fair - 1e-9);
+    if (fair >= RULES.ladderFloor) expect(q.multiple * p).toBeLessThanOrEqual(LADDER_BEST + 1e-12);
+    else expect(q.multiple).toBe(RULES.ladderFloor);
+  }
+});
+
+test("ink bet as it is drawn adds up to the whole stroke, nothing charged twice", async () => {
+  const { newInk } = await import("./ink-area");
+  const { placeInk } = await import("./ink");
+  const whole = { ...dot(180, 0.35), t0: at + 3000, pts: Array.from({ length: 40 }, (_, k) => ({ t: k * 250, p: Math.sin(k / 3) * 2 })) };
+  const full = areaCells(whole, at, 1).reduce((n, c) => n + c.area, 0);
+  let prev: typeof whole | null = null, sum = 0;
+  for (let n = 4; n <= 40; n += 4) {
+    const st = { ...whole, pts: whole.pts.slice(0, n) };
+    const piece = newInk(st, prev, at, 1);
+    for (const c of piece) expect(c.area).toBeGreaterThan(0);
+    sum += piece.reduce((a, c) => a + c.area, 0);
+    prev = st;
+  }
+  expect(sum).toBeCloseTo(full, 6);
+  // Going back over ink already bet adds nothing.
+  const back = { ...whole, pts: [...whole.pts, ...whole.pts.slice(30, 39).reverse()] };
+  expect(newInk(back, whole, at, 1).reduce((a, c) => a + c.area, 0)).toBeLessThan(0.02);
+  // A piece opens on the second after it was drawn, on the ladder, in the drawing's group.
+  const bet = placeInk(whole, null, 1, 1, at - 100, "piece", "drawing")!;
+  expect(bet.model).toBe("ladder-v1");
+  expect(bet.group).toBe("drawing");
+  expect(bet.openAt).toBe(at);
+  expect(placeInk(whole, whole, 1, 1, at - 100, "none", "drawing")).toBeNull();
+});
+
+test("difficulty lowers the ladder, and nothing ever pays under 1x", async () => {
+  const { ladderSection } = await import("./ink-area");
+  const was = RULES.difficulty;
+  try {
+    let before = Infinity;
+    for (const d of [0, 25, 50, 70, 75, 90, 100]) {
+      setDifficulty(d);
+      expect(RULES.ladderFloor).toBeGreaterThanOrEqual(1);
+      const q = ladderSection(0.04, RULES.rtp, 1)!;
+      expect(q.multiple).toBeLessThanOrEqual(before);
+      before = q.multiple;
+      expect(ladderSection(0.999, RULES.rtp, 1)!.multiple).toBeGreaterThanOrEqual(1);
+    }
+    setDifficulty(100);
+    expect(RULES.ladderFloor).toBe(1);
+  } finally {
+    setDifficulty(was);
+  }
 });
