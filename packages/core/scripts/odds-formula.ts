@@ -1,6 +1,6 @@
 /**
  * A formula for the odds, fitted and backtested, and not used: see
- * docs/INK.md, "A formula for the odds, and why it is not used". Kept so the
+ * docs/HOW-IT-WORKS.md, "Why the chance is measured". Kept so the
  * result can be reproduced; the game prices on measured chances
  * (`src/odds.ts`).
  *

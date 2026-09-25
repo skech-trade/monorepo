@@ -7,9 +7,18 @@ export const INK_CELL = 0.1;
 export const CHART_STEP_PX = 20;
 export const CHART_LINE_PX = INK_CELL * CHART_STEP_PX;
 export const MIN_INK_MULTIPLE = 1.1;
-export const MAX_INK_MULTIPLE = 25;
+/** The most one section of a new drawing pays, in dots. Past it, far ink
+ * stakes less rather than paying less, so this bounds a single payout and
+ * never the return per dollar. */
+export const MAX_INK_MULTIPLE = 256;
+/** rounded-v3's ceiling, kept for drawings saved on those terms. */
+export const V3_MAX_MULTIPLE = 25;
 /** Two CSS pixels of paid price-edge tolerance for new drawings. */
 export const INK_EDGE_CELLS = 1;
+/** Seconds ahead of now the chart shows, on every screen. Ink can be bet up to
+ * RULES.horizon ahead; the view shows the nearer half of that, stretched, so
+ * the chart moves at twice the pace it did showing all thirty seconds. */
+export const VIEW_SECONDS = 15;
 /** Shared by the canvas and replay: pricing atoms stay one chart-line
  * thick even on tall displays. Pen choice never participates in the camera. */
 export function drawingLayout(width: number, height: number, marketStep: number) {
@@ -19,9 +28,9 @@ export function drawingLayout(width: number, height: number, marketStep: number)
   const plotHeight = bottom - top;
   const nowX = Math.round(width * (phone ? 0.24 : 0.28));
   return { top, bottom, nowX, pitch: CHART_STEP_PX,
-    // Six market steps in view: 2x the previous vertical price range.
-    step: marketStep * 6 * CHART_STEP_PX / plotHeight,
-    pxMs: (width - nowX - (phone ? 10 : 20)) / ((RULES.horizon + 1.5) * 1000) };
+    // Nine market steps in view, so the ladder's 32x rung reaches the edge.
+    step: marketStep * 9 * CHART_STEP_PX / plotHeight,
+    pxMs: (width - nowX - (phone ? 10 : 20)) / ((VIEW_SECONDS + 1.5) * 1000) };
 }
 
 const SAMPLES = 24;
@@ -126,8 +135,14 @@ export function areaMultiple(p: number, rtp: number, area: number): number | nul
  * that section once; its probability covers the whole band, not its centre.
  * Area (and therefore stake) is unchanged by grouping. */
 export function roundedCells(st: Stroke, openAt: number, step: number): Cell[] {
+  return sectionsOf(areaCells(st, openAt, step), step);
+}
+
+/** Group fine cells into rounded sections: each second's connected band,
+ * split into adjacent sections of about two dots or less. */
+export function sectionsOf(cells: Cell[], step: number): Cell[] {
   const bands: Cell[][] = [];
-  for (const cell of areaCells(st, openAt, step)) {
+  for (const cell of [...cells].sort((a, b) => a.t - b.t || a.lo - b.lo)) {
     const previous = bands.at(-1);
     const last = previous?.at(-1);
     if (last && last.t === cell.t && cell.lo <= last.hi + step * 1e-8) previous!.push(cell);
@@ -159,6 +174,25 @@ export function roundedCells(st: Stroke, openAt: number, step: number): Cell[] {
   });
 }
 
+/** The ink `st` adds to `prev` (the same stroke, drawn less far), as sections,
+ * for ink bet as it is drawn. Both are measured on the same opening, so ink
+ * that was in play when `prev` was bet and is too soon now is in neither.
+ * The total is exactly the growth of the stroke's measured area, so bets on
+ * successive pieces add up to the whole stroke with nothing charged twice. */
+export function newInk(st: Stroke, prev: Stroke | null, openAt: number, step: number): Cell[] {
+  const full = areaCells(st, openAt, step);
+  if (!prev) return sectionsOf(full, step);
+  const old = new Map(areaCells(prev, openAt, step).map(c => [`${c.t}:${c.lo}`, c.area]));
+  const grown = full.reduce((n, c) => n + c.area, 0) - [...old.values()].reduce((n, a) => n + a, 0);
+  if (!(grown > 1e-6)) return [];
+  // Re-measuring the old ink in the second the stroke grew in moves a little
+  // area between its cells; keep the growth, spread over where it grew.
+  const added = full.map(c => ({ ...c, area: c.area - (old.get(`${c.t}:${c.lo}`) ?? 0) })).filter(c => c.area > 1e-9);
+  const sum = added.reduce((n, c) => n + c.area, 0);
+  if (!(sum > 0)) return [];
+  return sectionsOf(added.map(c => ({ ...c, area: c.area * grown / sum })), step);
+}
+
 /** Rounded sections may quote below fair odds at the cap; a long shot stays
  * drawable without raising its payout or inventing a probability. */
 export function cappedRoundedMultiple(p: number, rtp: number, area: number): number | null {
@@ -184,7 +218,51 @@ export function smoothRoundedMultiple(p: number, rtp: number, area: number): num
   return value >= MIN_INK_MULTIPLE && multiple >= RULES.minMultiple ? multiple : null;
 }
 
-/** New drawing range: preserve ordinary probability-priced returns through
+/** The ladder new drawings pay on, per dollar of ink, from the price outward:
+ * doubling, with a rung between each pair so rounding down costs little. */
+export const LADDER = [1.1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128] as const;
+/** What the best-placed ink returns per dollar at the default difficulty: a
+ * spot whose chance puts it exactly on a rung. Everywhere else rounds down to
+ * the rung below. The game reads RULES.ladderBest, set by difficulty. */
+export const LADDER_BEST = RULES.ladderBest;
+
+/** ladder-v1, the terms for new drawings: a section's fair multiple
+ * (LADDER_BEST over its chance, less the momentum margin rtpAt takes on the
+ * side the price just moved toward) rounded down to a rung, so every label
+ * is a rung from 1.1x to 128x and only ink the price actually crosses pays.
+ * Ink too likely for 1.1x still pays 1.1x, so no stroke is cut; where it is
+ * over 91% likely that ink returns more than a dollar. Ink past 128x pays 128x.
+ * The stake is the ink drawn, up to what MAX_INK_MULTIPLE dots pays for. */
+export function ladderSection(p: number, rtp: number, area: number): { area: number; multiple: number } | null {
+  if (!(p > 0 && p <= 1 && area > 0) || ![p, rtp, area].every(Number.isFinite)) return null;
+  const fair = (RULES.ladderBest - (RULES.rtp - rtp)) / p;
+  // The floor is the first rung: 1.1x, easing to 1x at the hardest setting.
+  let multiple: number = RULES.ladderFloor;
+  for (const rung of LADDER) if (rung <= fair + 1e-9 && rung > multiple) multiple = rung;
+  // One section never pays past MAX_INK_MULTIPLE dots: a big one stakes only what that pays for.
+  return { area: Math.min(area, MAX_INK_MULTIPLE / multiple), multiple };
+}
+
+/** fair-v1 (saved drawings only), the terms before the ladder: every section pays its target
+ * (the difficulty's rtp) over its chance, rounded down to a hundredth per
+ * dollar, so a section returns the same per dollar however big it is,
+ * whatever the pen and whatever screen drew it. Two exceptions:
+ *
+ * - Past MAX_INK_MULTIPLE a section pays that and is charged less instead:
+ *   its stake shrinks to the area that multiple is exactly fair for, so far
+ *   ink stays drawable without a cap taking from it.
+ * - Ink so likely to be touched that its fair price is under 1.1x pays 1.1x,
+ *   so a stroke across the live price is never cut. That ink returns more
+ *   than the target, and more than a dollar where it is over 91% likely.
+ *
+ * Returns the area to charge and the multiple on it, or null. */
+export function fairSection(p: number, rtp: number, area: number): { area: number; multiple: number } | null {
+  if (!(p > 0 && p <= 1 && area > 0) || ![p, rtp, area].every(Number.isFinite)) return null;
+  const multiple = Math.max(MIN_INK_MULTIPLE, Math.floor((rtp / p) * 100 + 1e-9) / 100);
+  return area * multiple > MAX_INK_MULTIPLE ? { area: MAX_INK_MULTIPLE / multiple, multiple } : { area, multiple };
+}
+
+/** rounded-v3 (saved drawings only): preserve ordinary probability-priced returns through
  * 10x, then soften the long-shot tail with a square-root curve up to 25x.
  * For raw >= 10, 1.1 + sqrt((raw-1.1)*8.9) <= raw, so expected payouts
  * remain bounded by the existing pricing target before downward rounding. */
@@ -193,7 +271,7 @@ export function roundedMultiple(p: number, rtp: number, area: number): number | 
   const raw = area * rtp / p;
   if (raw < MIN_INK_MULTIPLE) return null;
   const tail = raw <= 10 ? raw : MIN_INK_MULTIPLE + Math.sqrt((raw - MIN_INK_MULTIPLE) * (10 - MIN_INK_MULTIPLE));
-  const value = Math.floor(Math.min(MAX_INK_MULTIPLE, tail) * 10 + 1e-9) / 10;
+  const value = Math.floor(Math.min(V3_MAX_MULTIPLE, tail) * 10 + 1e-9) / 10;
   const multiple = value / area;
   return value >= MIN_INK_MULTIPLE && multiple >= RULES.minMultiple ? multiple : null;
 }

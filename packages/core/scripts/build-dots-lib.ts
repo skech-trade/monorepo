@@ -1,10 +1,10 @@
 import { type Bar, excursion, features, LIB_SCALE, type Library, RULES, SIGMA_DEFAULT, SWING_SCALE, VOL_LAG, WICK_MS, writeLibrary } from "../src/dots";
 /*
   Build the library dots are priced on: real thirty-second stretches
-  of Bitcoin, from Binance one-second klines, each with the volatility, momentum
+  of Bitcoin, from Coinbase BTC-USD one-second bars (scripts/fetch-coinbase.ts), each with the volatility, momentum
   and in-second swing it started on, as `features()` reads them live.
 
-    bun packages/core/scripts/build-dots-lib.ts <folder of BTCUSDT-1s CSVs> <out.bin> 2026-09-01 ... 2026-09-16
+    bun packages/core/scripts/build-dots-lib.ts <folder of BTC-USD-1s CSVs (MARKET=BTCUSDT for Binance)> <out.bin> 2026-09-01 ... 2026-09-16
 
   Starts are spread evenly over how busy and how fast-moving the market was,
   so a jumpy moment has as many paths to compare with as a quiet one. The
@@ -16,7 +16,7 @@ const S = RULES.horizon;
 
 const bars: Bar[] = [];
 for (const day of days) {
-  const text = await Bun.file(`${dataDir}/BTCUSDT-1s-${day}.csv`).text();
+  const text = await Bun.file(`${dataDir}/${process.env.MARKET ?? "BTC-USD"}-1s-${day}.csv`).text();
   for (const r of text.trim().split("\n")) {
     const f = r.split(",");
     bars.push({ t: Math.floor(Number(f[0]) / 1000), h: +f[2], l: +f[3], c: +f[4] });

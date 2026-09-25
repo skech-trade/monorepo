@@ -3,10 +3,10 @@ import { DIFFICULTY, features, field, readLibrary, RULES, setDifficulty, stepFor
 import { areaCells, drawingLayout, cost, INK_CELL, INK_EDGE_CELLS, judge, MIN_INK_MULTIPLE, MAX_INK_MULTIPLE, open, openOn, PEN_CELLS, placeRounded, refund, won, type Stroke } from "../src/ink";
 import { roundedTerms as areaTerms } from "../src/odds";
 
-/** Replay rounded-v3 with only information available at placement and opening.
+/** Replay ladder-v1 with only information available at placement and opening.
  * Usage: STEP=300 OUT=report.json bun packages/core/scripts/check-ink-area.ts lib.bin csv-folder 2026-09-17 ...
  * This evaluates the shipped model; it never fits or changes calibration.
- * Input CSVs: official Binance spot one-second klines with microsecond timestamps.
+ * Input CSVs: one-second bars in Binance kline column order, microsecond timestamps: Coinbase BTC-USD from fetch-coinbase.ts by default, or MARKET=BTCUSDT for Binance klines.
  */
 const [libPath, dataDir, ...days] = process.argv.slice(2);
 if (!libPath || !dataDir || !days.length) throw new Error("Supply library, CSV folder and day(s)");
@@ -19,7 +19,11 @@ const bytes = new Uint8Array(await Bun.file(libPath).arrayBuffer());
 const lib = readLibrary(bytes);
 const sha = (b: Uint8Array | string) => createHash("sha256").update(b).digest("hex");
 // Canvas fills the viewport; use the exact geometry shared with Stage.
-const views = [{ name: "desktop", width: 1280, height: 672 }, { name: "tall", width: 987, height: 950 }, { name: "mobile", width: 390, height: 788 }];
+const views = [
+  { name: "phone", width: 390, height: 788 }, { name: "ipad-mini", width: 744, height: 1133 }, { name: "ipad", width: 820, height: 1180 },
+  { name: "ipad-pro", width: 1024, height: 1366 }, { name: "ipad-landscape", width: 1180, height: 820 }, { name: "laptop", width: 1000, height: 577 },
+  { name: "desktop", width: 1280, height: 672 }, { name: "macbook", width: 1512, height: 860 }, { name: "1080p", width: 1920, height: 960 }, { name: "1440p", width: 2560, height: 1300 },
+];
 let seed = 42;
 const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
 type Bucket = { attempted: number; placed: number; accepted: number; voids: number; debit: number; refunds: number; stake: number; paid: number; expected: number; profitable: number; pieces: number; hits: number; probability: number; area: number; offeredArea: number; previewPaid: number; blocks: Record<string, [number, number]> };
@@ -32,7 +36,7 @@ let assertions = 0;
 const assert = (ok: boolean, why: string) => { assertions++; if (!ok) throw new Error(why); };
 const started = Date.now();
 for (const day of days) {
-  const text = await Bun.file(`${dataDir}/BTCUSDT-1s-${day}.csv`).text();
+  const text = await Bun.file(`${dataDir}/${process.env.MARKET ?? "BTC-USD"}-1s-${day}.csv`).text();
   hashes[day] = sha(text);
   const bars: Bar[] = text.trim().split("\n").map(row => { const v = row.split(","); return { t: Number(v[0]) / 1000, h: Number(v[2]), l: Number(v[3]), c: Number(v[4]) }; });
   assert(bars.length === 86400, `Incomplete day ${day}`);
@@ -59,6 +63,8 @@ for (const day of days) {
       { name: "level-line", pts: [{ t: 4000, p: offset * marketStep }, { t: 22000, p: offset * marketStep }] },
       { name: "momentum", pts: [{ t: 4000, p: direction * marketStep * 0.5 }, { t: 14000, p: direction * marketStep * 1.5 }] },
       { name: "contrarian", pts: [{ t: 4000, p: -direction * marketStep * 0.5 }, { t: 14000, p: -direction * marketStep * 1.5 }] },
+      // The 1.1x floor's worst case: ink only on the live price, in the first seconds it can be.
+      { name: "on-price", pts: [{ t: 1000, p: 0 }, { t: 3000, p: 0 }] },
     ];
     const block = `${day}:${Math.floor(i / 3600)}`;
     for (const view of views) {
@@ -71,7 +77,7 @@ for (const day of days) {
       const quote = areaTerms(previewMap, now, step, perDot).line(st);
       const buckets = [get("all"), get(`pen:${pen}`), get(`viewport:${view.name}`), get(`strategy:${strategy.name}`), get(`day:${day}`), get(`case:${view.name}/${pen}/${strategy.name}`)];
       const fullArea = areaCells(st, openingAt, step).reduce((s, c) => s + c.area, 0);
-      for (const a of buckets) { a.attempted++; a.area += fullArea; a.offeredArea += quote.units; }
+      for (const a of buckets) { a.attempted++; a.area += fullArea; a.offeredArea += fullArea - quote.out.reduce((s, c) => s + c.area, 0); }
       if (quote.cost < 0.01 || !quote.inPlay.length) continue;
       const placed = placeRounded(st, perDot, step, now, `${samples}:${view.name}:${pen}:${strategy.name}`, INK_EDGE_CELLS)!;
       placed.drawn = quote.inPlay.map(({ t, lo, hi, area }) => ({ t, lo, hi, area }));
@@ -80,11 +86,11 @@ for (const day of days) {
       const debit = cost(bet), back = refund(bet), stake = debit - back;
       assert(Math.abs(debit - quote.cost) < 1e-8 && back >= -1e-8 && back <= debit + 1e-8, "Debit/refund mismatch");
       const expected = bet.cells.reduce((n, c) => n + perDot * c.area * c.multiple * (c.chance ?? 0), 0);
-      assert(expected <= stake * RULES.rtp + 1e-8, "Rounded stake creates positive expected edge");
+      assert(expected <= bet.cells.reduce((n, c) => n + perDot * c.area * Math.max(RULES.ladderBest, RULES.ladderFloor * (c.chance ?? 0)), 0) + 1e-8, "A section beats its best or the 1.1x floor");
       for (const c of bet.cells) {
         const m = c.area * c.multiple;
-        assert(m >= MIN_INK_MULTIPLE - 1e-9 && m <= MAX_INK_MULTIPLE + 1e-9, "Multiplier bounds violated");
-        assert(c.multiple * (c.chance ?? 0) <= RULES.rtp + 1e-9, "Expected payout exceeds pricing target");
+        assert(c.multiple >= RULES.ladderFloor - 1e-9 && c.multiple >= 1 && m <= MAX_INK_MULTIPLE + 1e-9, "Multiplier bounds violated");
+        assert(c.multiple * (c.chance ?? 0) <= Math.max(RULES.ladderBest, RULES.ladderFloor * (c.chance ?? 0)) + 1e-9, "Expected payout exceeds pricing target");
       }
       for (let j = i + 2; j <= i + RULES.horizon + 2 && bet.status === "live"; j++) bet = judge(bet, bars[j], true, bars[j - 1].c);
       assert(bet.status === "void" || bet.status === "done", "Unsettled contract");
@@ -117,7 +123,7 @@ function interval(a: Bucket) {
   return [ratios[Math.floor(ratios.length * 0.025)], ratios[Math.floor(ratios.length * 0.975)]];
 }
 const report = {
-  model: "rounded-v3", cadenceSeconds: cadence, samples, seed: 42, perDot, rules: { ...RULES, maxInkMultiple: MAX_INK_MULTIPLE }, views, days,
+  model: "ladder-v1", cadenceSeconds: cadence, samples, seed: 42, perDot, rules: { ...RULES, maxInkMultiple: MAX_INK_MULTIPLE }, views, days,
   librarySha256: sha(bytes), dataSha256: hashes, assertions, elapsedSeconds: (Date.now() - started) / 1000,
   caveats: ["September 17–23 is out of the library's documented September 1–16 window, but was used to evaluate previous model versions; this is retrospective validation, not an untouched final holdout.", "Replays completed one-second bars, not intrasecond execution latency. Fresh viewport camera and market step at each independent sample.", "Confidence intervals resample hours; they do not guarantee future returns. Four predefined strategies are not an exhaustive exploit search."],
   results: Object.fromEntries([...groups].map(([key, a]) => { const { blocks, ...counts } = a; return [key, { ...counts, returnPerDollar: a.paid / a.stake, modelReturnPerDollar: a.expected / a.stake, return95CI: interval(a), profitableFraction: a.profitable / a.accepted, offeredAreaFraction: a.offeredArea / a.area, observedHitRate: a.hits / a.pieces, predictedHitRate: a.probability / a.pieces, hourBlocks: Object.keys(blocks).length }]; })),

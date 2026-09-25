@@ -4,9 +4,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./venue": "./src/venue.ts",
-    "./shape": "./src/shape.ts",
     "./dots": "./src/dots.ts",
     "./ink": "./src/ink.ts",
     "./odds": "./src/odds.ts"
