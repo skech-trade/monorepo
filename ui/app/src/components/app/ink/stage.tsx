@@ -205,11 +205,11 @@ export function Stage({
     /*
       Time, left to right. Ahead of now, and the last few seconds behind it,
       one scale, so ink runs straight into the price. Further back, the last
-      two minutes (one on a phone) squeezed into what is left, so the line
+      minute (half a minute on a phone) squeezed into what is left, so the line
       has a shape and is seen to move.
     */
     const NEAR_MS = 4000;
-    const pastMs = () => (phone() ? 60_000 : 120_000);
+    const pastMs = () => (phone() ? 30_000 : 60_000);
     const farPxMs = () => Math.max(0.0004, (nowX() - 8 - NEAR_MS * pxMs()) / (pastMs() - NEAR_MS));
     const x = (t: number) => {
       const d = at - t;
@@ -276,7 +276,7 @@ export function Stage({
         sooner, the way the odds are.
       */
       map.labels = [];
-      const every = Math.max(1, Math.ceil((phone() ? 50 : 96) / (pxMs() * 1000)));
+      const every = Math.max(1, Math.ceil((phone() ? 52 : 90) / (pxMs() * 1000)));
       let lo = Number.POSITIVE_INFINITY;
       let hi = Number.NEGATIVE_INFINITY;
       for (let jj = 1; jj <= fl.seconds; jj++) {
@@ -512,20 +512,13 @@ export function Stage({
       centre += (p - centre) * (Math.abs(off) > rowsOnScreen * 0.3 ? 0.12 : Math.abs(off) > rowsOnScreen * 0.12 ? 0.03 : 0.006);
       const fl = g.field;
       if (fl) {
-        // Zoomed so what the map offers, out in the far half, fills most of the height: the ladder is the chart, not a strip across it.
-        const reach = map.field === fl && map.extent > 0 ? map.extent / g.step : (4.8 * fl.f.sigma * fl.f.price * Math.sqrt(20)) / g.step;
-        // And the price's last minutes too, so the line's moves are on screen with room to spare.
-        let hiP = latest;
-        let loP = latest;
-        const since = at - pastMs();
-        for (let k = g.bars.length - 1; k >= 0 && g.bars[k].t >= since; k--) {
-          hiP = Math.max(hiP, g.bars[k].h);
-          loP = Math.min(loP, g.bars[k].l);
-        }
-        // Just enough for the line's last minutes to stay on screen: the ladder fills what is left.
-        const lived = (2 * Math.max(hiP - centre, centre - loP)) / g.step;
-        // The ladder fills the chart top to bottom; the line's last minutes only widen it when they would run off.
-        const want = Math.max(8, Math.min(120, (h * 0.94) / Math.max(1, reach, lived)));
+        /*
+          Rows a fixed size on screen, whatever the pen or the market: big
+          enough to read and to aim at, and close enough that every tick
+          moves the line. The view stays on the price; history that does not
+          fit runs off the edge rather than shrinking the rows to hold it.
+        */
+        const want = (phone() ? 46 : 54) / g.cell;
         pitchY += (want - pitchY) * 0.05;
         if (map.field !== fl || map.pal !== pal) paintMap(fl, pal);
       }
@@ -621,7 +614,7 @@ export function Stage({
         c.drawImage(map.big, x0, y((fl.row0 + fl.rows) * fl.step), x1 - x0, y(fl.row0 * fl.step) - y((fl.row0 + fl.rows) * fl.step));
         c.restore();
         // The ladder's numbers: quiet by the price, in the ink's blue as they grow, on a halo of the page so they read over ink and the line.
-        c.font = `500 12px ${MONO}`;
+        c.font = `600 13px ${MONO}`;
         c.textAlign = "center";
         c.textBaseline = "middle";
         const rowPx = pitchY * (fl.step / g.step);
