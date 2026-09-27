@@ -1,8 +1,0 @@
-.git
-**/node_modules
-**/.next
-.env
-.env.*
-!.env.example
-**/native/vendor
-**/.DS_Store

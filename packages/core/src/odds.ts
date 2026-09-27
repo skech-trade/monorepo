@@ -1,6 +1,6 @@
 /**
- * Legacy per-row odds. The active practice game uses areaTerms below; see
- * docs/INK-AREA.md for its area normalization and 1.1× minimum.
+ * Legacy per-row odds. The active practice game uses roundedTerms below
+ * (ladder-v1); see docs/HOW-IT-WORKS.md.
  *
  * The original odds: everything the game says about a line, from one place.
  *
@@ -26,7 +26,7 @@
  * a worse one.
  *
  * Why the chance is measured and not a formula: one was fitted
- * (`docs/INK.md`, "A formula for the odds") and it lost on both ends. On
+ * (`scripts/odds-formula.ts`) and it lost on both ends. On
  * days it never saw, ordinary lines got back 0.45 to 0.75 a dollar, and a
  * player who knew the real odds and drew only where the formula was wrong
  * got back up to 1.21. Bitcoin a second at a time sits on a tick, jumps,
@@ -34,7 +34,7 @@
  */
 
 import { type Features, type Field, chanceOf, rangeChanceOf, multipleFor, openFor, RULES, rtpAt } from "./dots";
-import { roundedMultiple, roundedCells, areaCells, areaMultiple, areaCostOf, INK_CELL, cellsOf, type Cell, costOf, PEN_CELLS, type Pen, payoutOf, type Stroke } from "./ink";
+import { ladderSection, roundedCells, areaCells, areaMultiple, areaCostOf, INK_CELL, cellsOf, type Cell, costOf, PEN_CELLS, type Pen, payoutOf, type Stroke } from "./ink";
 
 export { PEN_CELLS, type Pen } from "./ink";
 
@@ -119,11 +119,15 @@ export function areaTerms(map: Field, now: number, step: number, perDot: number,
       const points: Priced[] = (rounded ? roundedCells : areaCells)(st, openAt, step).map(c => {
         const t = map.openAt + c.t - openAt;
         const p = !fits ? 0 : rounded ? rangeChanceOf(map, t, c.lo, c.hi, map.edgeCells ?? 0, INK_CELL) : chanceOf(map, { t, row: Math.round(c.lo / size) });
-        return { ...c, multiple: (rounded ? roundedMultiple : areaMultiple)(p, rtpAt(map.f, (c.lo + c.hi) / 2), c.area) };
+        const rtp = rtpAt(map.f, (c.lo + c.hi) / 2);
+        if (!rounded) return { ...c, multiple: areaMultiple(p, rtp, c.area) };
+        const q = ladderSection(p, rtp, c.area);
+        return q ? { ...c, ...q } : { ...c, multiple: null };
       });
       const inPlay = points.filter(c => c.multiple !== null);
       const units = inPlay.reduce((n, c) => n + c.area, 0);
-      const multiples = inPlay.map(c => c.area * c.multiple!);
+      // Rounded (ladder) terms read per dollar of ink: the rungs themselves.
+      const multiples = inPlay.map(c => rounded ? c.multiple! : c.area * c.multiple!);
       const returns = inPlay.map(c => perDot * c.area * c.multiple!);
       return {
         points, inPlay, out: points.filter(c => c.multiple === null), units,

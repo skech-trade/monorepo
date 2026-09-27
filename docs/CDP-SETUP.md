@@ -49,7 +49,6 @@ browser needs, and it is already in `.env.local`.
 ## Checking it worked
 
 ```bash
-bun run dev:feed
 cd ui/app && bun run dev
 ```
 

@@ -10,8 +10,7 @@ import { shortAddress } from "@/lib/market";
  *
  * Coinbase embedded wallets: email, phone or Google, no extension to install
  * and no seed phrase to write down. The wallet is an EOA rather than a smart
- * account because Lighter registers a trading key by asking the wallet to
- * sign one plain message, and a contract wallet cannot sign one off chain.
+ * account, so it can sign a plain message off chain.
  *
  * With no project id configured the app runs signed out and everything else
  * still works, which is what the tests and screenshots use. Coinbase's hooks
@@ -53,9 +52,7 @@ export type Account = {
   /**
    * Sign a plain message with the wallet.
    *
-   * Registering a trading key needs it: Lighter hands back a message that
-   * says which key, on which account, and only the wallet that owns the
-   * account can agree to it. Published through this context like everything
+   * Published through this context like everything
    * else, so a screen can ask for a signature without knowing whether
    * Coinbase's provider is mounted.
    */

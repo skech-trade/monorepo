@@ -85,7 +85,7 @@ export function MarketPicker({
       <DialogPopup className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Markets</DialogTitle>
-          <DialogDescription>Bitcoin and Ethereum, both on Lighter.</DialogDescription>
+          <DialogDescription>Bitcoin and Ethereum.</DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex flex-col gap-3">
           <InputGroup>
@@ -137,7 +137,7 @@ export function MarketPicker({
     half is the button that opens the picker. */
 /**
  * `fixed`: one market and nothing to switch to, and no venue to name: the
- * practice game, on Binance's price. The same heading without the button,
+ * practice game, on Coinbase's price. The same heading without the button,
  * the chevron, the picker or the network badge.
  */
 export function MarketHeader({ market, className, fixed = false }: { market: Market; className?: string; fixed?: boolean }) {

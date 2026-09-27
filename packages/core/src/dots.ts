@@ -32,13 +32,15 @@
  *   maxMultiple     40 * 0.14^(d/100), at least 2x   the most one hit pays
  *   minMultiple     1.01, rising to 1.10 above 50    less than this is not offered
  *   momentumMargin  0.11 at every level          taken off the side it just moved to
+ *   ladderBest      1.20 - 0.40 * d/100          what ink exactly on a ladder rung returns (new drawings)
+ *   ladderFloor     1.1x, easing to 1x from 70 to 100   the least any ink pays when hit
  *
  * The top payout is the trade: a low cap makes wins small and frequent but
  * offers only points near the price, a high one lets a line go anywhere and
  * win rarely. At 50 a point returns 78 cents and pays up to 15x: on 17-23
  * September the house kept about a quarter of what was drawn, a quarter of
  * lines won, and about a third of the rows near the price were on offer
- * (`check-ink.ts`, DIFFICULTY=; docs/INK.md has every level).
+ * (`check-ink.ts`, DIFFICULTY=, prints every level).
  */
 export function difficulty(d: number) {
   const k = Math.min(100, Math.max(0, d)) / 100;
@@ -49,10 +51,16 @@ export function difficulty(d: number) {
     minMultiple: Math.round((1.01 + 0.18 * Math.max(0, k - 0.5)) * 100) / 100,
     // Held where it stopped a bot drawing with the last three seconds' move: raised with the rest, it took a fine pen's far points down to half a dollar back.
     momentumMargin: 0.11,
+    // The ladder new drawings pay on. Higher difficulty lowers every rung a
+    // spot earns; the floor, what near-certain ink pays, never goes under 1x.
+    ladderBest: Math.round((1.2 - 0.4 * k) * 1000) / 1000,
+    ladderFloor: Math.max(1, Math.round((1.1 - 0.1 * Math.max(0, k - 0.7) / 0.3) * 100) / 100),
   };
 }
-/** Default practice difficulty: 71.6% base pricing target, 10× piece cap. */
-export const DIFFICULTY = 70;
+/** The game's difficulty, 0 to 100: the one setting for how much the house
+ * keeps. At 60, ink exactly on a rung returns 96¢ a dollar, about 78¢ on
+ * average once spots round down to their rung. */
+export const DIFFICULTY = 60;
 
 /*
   Calibration. The chance measured on the paths is right on average but not

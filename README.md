@@ -63,18 +63,12 @@ monorepo so the two apps use different ports.
 
 | Doc | What it covers |
 | --- | --- |
-| [docs/TRADING.md](docs/TRADING.md) | how a drawn line becomes a real position, and the guards that must not be removed |
-| [docs/TESTNET.md](docs/TESTNET.md) | what is real on testnet, what cannot follow it there, and how to switch |
-| [docs/LIGHTER-VERIFIED.md](docs/LIGHTER-VERIFIED.md) | what was read off the live venue rather than a spec |
+| [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) | the game end to end: the price feed, what a drawing costs and pays, and the replay that checks it |
 | [docs/CDP-SETUP.md](docs/CDP-SETUP.md) | Coinbase embedded wallets, and the portal page with three names |
-| [docs/VERCEL.md](docs/VERCEL.md) | the env the app needs, and the three things that are not env |
-| [docs/HOSTING.md](docs/HOSTING.md) | running all of it for free on testnet, and when to stop |
-| [docs/BOOSTED-ROUNDS.md](docs/BOOSTED-ROUNDS.md) | skech's money behind the user's: the maths, per coin, and what it risks |
 
 ## Adding a workspace
 
-Anything dropped in `ui/`, `services/` or `packages/` is picked up
-automatically. Depend on one as `"@skech/<name>": "workspace:*"`.
-`packages/core` is the example: the drawn-shape model and the venue's numbers,
-imported by both the browser and the trader so they cannot disagree about what
-a line means.
+Anything dropped in `ui/` or `packages/` is picked up automatically. Depend
+on one as `"@skech/<name>": "workspace:*"`. `packages/core` is the example:
+the game's pricing and settlement, imported by the app and checked by the
+replay scripts so they cannot disagree about what a drawing pays.

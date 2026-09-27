@@ -56,7 +56,6 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
             <span className="sm:hidden">Per dot</span>
             <span className="max-sm:hidden">Pick your price</span>
           </PopoverTitle>
-          <PopoverDescription className="max-sm:hidden">The price of one full dot, $0.10 to $100. Longer strokes cost more. Partial hits pay for the ink touched.</PopoverDescription>
           <div className="pt-3 sm:pt-4">
             <AmountWheel format={amountLabel} label="What per dot costs" onChange={onAmount} value={amount} values={[...POINT_PRICES.values]} />
           </div>

@@ -1,5 +1,3 @@
-import type { Symbol as VenueSymbol } from "./venue";
-
 export type Candle = {
   /** Unix ms of the bar's open. */
   t: number;
@@ -33,10 +31,10 @@ export type Market = {
 // --- the market ------------------------------------------------------------
 
 /**
- * The markets: WBTC's and WETH's mainnet addresses, named for what Lighter trades. Another market
- * is a row in `KNOWN`, its address in `LISTED`, and its symbol in `@skech/core/venue`.
+ * The markets: WBTC's and WETH's mainnet addresses. Another market is a row in `KNOWN` and its
+ * address in `LISTED`.
  */
-const KNOWN: Record<string, { symbol: VenueSymbol; name: string }> = {
+const KNOWN: Record<string, { symbol: "BTC" | "ETH"; name: string }> = {
   "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599": { symbol: "BTC", name: "Bitcoin" },
   "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": { symbol: "ETH", name: "Ethereum" },
 };
