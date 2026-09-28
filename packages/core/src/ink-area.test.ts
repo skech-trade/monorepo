@@ -217,8 +217,8 @@ test("pricing resolution remains chart-line thick across viewport sizes and pens
   for (const [w, h] of [[390, 844], [1280, 720], [987, 1500], [1920, 1080]]) {
     const layout = drawingLayout(w, h, 20);
     expect(layout.step * INK_CELL / layout.step * layout.pitch).toBeCloseTo(CHART_LINE_PX, 10);
-    // Nine market steps of $20 top to bottom.
-    expect((layout.bottom - layout.top) * layout.step / layout.pitch).toBeCloseTo(180, 10);
+    // 6.75 market steps of $20 top to bottom.
+    expect((layout.bottom - layout.top) * layout.step / layout.pitch).toBeCloseTo(135, 10);
     for (const width of Object.values(PEN_CELLS)) {
       const radius = width * 20 / 2;
       const stroke = { ...dot(), rt: radius / layout.pxMs, rp: radius * layout.step / layout.pitch };

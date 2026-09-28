@@ -38,8 +38,8 @@ At each whole second the game reads four things from the bars before it (`featur
 | `wick` | how far the price swings inside a second, beyond close-to-close |
 
 The **market step** is 2.5 typical one-second moves, rounded to a round dollar
-figure (`stepFor`). On every screen the chart shows nine market steps top to
-bottom and 16.5 seconds ahead of now (`drawingLayout`, `VIEW_SECONDS` = 15). Ink can be
+figure (`stepFor`). On every screen the chart shows 6.75 market steps top to
+bottom (`VIEW_STEPS`: nine, zoomed in by 10/7.5) and 16.5 seconds ahead of now (`drawingLayout`, `VIEW_SECONDS` = 15). Ink can be
 bet up to 30 seconds ahead; the view shows the nearer half, stretched, so it moves fast. The pen stops at the chart's
 top and bottom edges.
 
@@ -164,7 +164,7 @@ grouped by the continuous multiple they were quoted:
 
 ### Zoom
 
-The chart shows nine market steps top to bottom. Zooming in moves the edge closer to
+The chart shows 6.75 market steps top to bottom (it showed nine until September 28). Zooming in moves the edge closer to
 the price (lower edge multiples) but makes the same pen cover less price (higher
 multiples everywhere else), so the map gets flatter rather than just shorter. On a
 laptop, a tap's quote by zoom (columns: 5, 17 and 29 seconds ahead):
@@ -173,7 +173,7 @@ laptop, a tap's quote by zoom (columns: 5, 17 and 29 seconds ahead):
 | --- | --- | --- | --- |
 | 3 | 1.5× / 3.3× / 5.4× | 12.7× / 13.9× / 16.1× | 24.7× / 18.4× / 20.3× |
 | 6 | 1.4× / 2.8× / 4.3× | 14.8× / 10.9× / 12.1× | 72.8× / 30.5× / 22.0× |
-| 9 (today) | 1.3× / 2.4× / 3.6× | 24.1× / 12.2× / 10.4× | 92.9× / 57.5× / 35.8× |
+| 9 (until September 28) | 1.3× / 2.4× / 3.6× | 24.1× / 12.2× / 10.4× | 92.9× / 57.5× / 35.8× |
 
 ## 7. Timing
 
