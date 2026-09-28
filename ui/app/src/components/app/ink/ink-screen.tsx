@@ -21,6 +21,7 @@ import { TokenAvatar } from "@/components/app/market-header";
 import { DepositButton, InkControls } from "./ink-controls";
 import feedback from "./drawing-feedback.module.css";
 import { CrispNumber } from "./crisp-number";
+import { introReady } from "./ink-intro";
 
 /**
  * skech. Draw ahead of the Bitcoin price; wherever it runs through your ink
@@ -129,6 +130,10 @@ export function InkScreen() {
     return () => clearTimeout(t);
   }, [result]);
   const [fresh, setFresh] = useState(false);
+  // The way in holds its ink over the screen until there are live prices to show.
+  useEffect(() => {
+    if (fresh) introReady();
+  }, [fresh]);
   /* The balance shows green for a moment when a hit pays into it. */
   const [gained, setGained] = useState(0);
   useEffect(() => {

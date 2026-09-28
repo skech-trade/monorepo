@@ -648,7 +648,9 @@ export function Stage({
       c.font = `600 12px ${SANS}`;
       const tagText = fmtPrice(g.displayPrice || latest, true);
       const tagW = c.measureText(tagText).width + 20;
-      const tag = { x0: nx + 12, x1: nx + 12 + tagW, y0: py - 12, y1: py + 12 };
+      // On a phone the tiles start close to now: the tag sits left of the dot, over the past, so the price's own row keeps its multiples.
+      const tagX = phone() ? nx - 12 - tagW : nx + 12;
+      const tag = { x0: tagX, x1: tagX + tagW, y0: py - 12, y1: py + 12 };
       const tileBox = (tile: Tile) => {
         const ty = y(tile.p);
         return { x0: nx + tile.left, y0: ty - map.rowPx / 2 + 2, w: tile.width, h: map.rowPx - 4 };

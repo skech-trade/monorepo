@@ -38,6 +38,14 @@
 .penControls { display: flex; flex: 1; min-width: 0; gap: 8px; }
 .dockButton { height: 48px !important; min-width: 0; flex: 1 1 0; gap: 8px !important; padding: 0 12px !important; border: 0 !important; border-radius: 999px !important; background: var(--raised) !important; color: var(--foreground) !important; font-size: 16px !important; font-weight: 600; }
 
+/* On a phone the round's result is a small toast bottom right, just over the price button, not a card across the chart. */
+@media (max-width: 639px) {
+ .roundCard { left: auto; right: 16px; translate: none; padding: 8px 14px; border-radius: 16px; align-items: flex-end; text-align: right; }
+ .roundCard > div { align-items: flex-end; gap: 0; }
+ .roundLabel { font-size: 12px; }
+ .roundValue { font-size: 20px; }
+ .bottomPill { left: auto; right: 16px; transform: none; font-size: 12px; padding: 6px 12px; }
+}
 @media (max-width: 359px) {
  .summary { padding: 6px 14px 10px; gap: 8px; }
  .marketName strong { font-size: 20px; }
