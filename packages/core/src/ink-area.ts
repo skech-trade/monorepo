@@ -19,6 +19,9 @@ export const INK_EDGE_CELLS = 1;
  * RULES.horizon ahead; the view shows the nearer half of that, stretched, so
  * the chart moves at twice the pace it did showing all thirty seconds. */
 export const VIEW_SECONDS = 15;
+/** Market steps the chart shows top to bottom. 6.75 is nine steps zoomed in
+ * by 10/7.5: where a $10 step used to fill a row of the chart, $7.50 does. */
+export const VIEW_STEPS = 6.75;
 /** Shared by the canvas and replay: pricing atoms stay one chart-line
  * thick even on tall displays. Pen choice never participates in the camera. */
 export function drawingLayout(width: number, height: number, marketStep: number) {
@@ -28,8 +31,7 @@ export function drawingLayout(width: number, height: number, marketStep: number)
   const plotHeight = bottom - top;
   const nowX = Math.round(width * (phone ? 0.24 : 0.28));
   return { top, bottom, nowX, pitch: CHART_STEP_PX,
-    // Nine market steps in view, so the ladder's 32x rung reaches the edge.
-    step: marketStep * 9 * CHART_STEP_PX / plotHeight,
+    step: marketStep * VIEW_STEPS * CHART_STEP_PX / plotHeight,
     pxMs: (width - nowX - (phone ? 10 : 20)) / ((VIEW_SECONDS + 1.5) * 1000) };
 }
 

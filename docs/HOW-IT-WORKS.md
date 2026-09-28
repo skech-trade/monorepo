@@ -38,8 +38,8 @@ At each whole second the game reads four things from the bars before it (`featur
 | `wick` | how far the price swings inside a second, beyond close-to-close |
 
 The **market step** is 2.5 typical one-second moves, rounded to a round dollar
-figure (`stepFor`). On every screen the chart shows nine market steps top to
-bottom and 16.5 seconds ahead of now (`drawingLayout`, `VIEW_SECONDS` = 15). Ink can be
+figure (`stepFor`). On every screen the chart shows 6.75 market steps top to
+bottom (`VIEW_STEPS`: nine, zoomed in by 10/7.5) and 16.5 seconds ahead of now (`drawingLayout`, `VIEW_SECONDS` = 15). Ink can be
 bet up to 30 seconds ahead; the view shows the nearer half, stretched, so it moves fast. The pen stops at the chart's
 top and bottom edges.
 
@@ -105,15 +105,19 @@ rung   = the highest rung ≤ fair, or the floor if fair is under it, or 128× p
 hit pays d × stake × rung                  (one section pays at most 256 dots)
 ```
 
-- **Difficulty** is one number, 0 to 100 (`DIFFICULTY` in `dots.ts`, 60 by default;
+- **Difficulty** is one number, 0 to 100 (`DIFFICULTY` in `dots.ts`, 55 by default;
   a slider in the help sheet in development, or with `?house`). It sets `ladderBest`,
-  what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 96¢ at 60. It also sets
+  what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 98¢ at 55. It also sets
   the floor, what near-certain ink pays: 1.1× up to 70, easing to 1× at 100. Harder
   lowers every rung a spot earns; nothing ever pays under 1×.
 - A section's chance `p` sets its rung. Ink placed exactly on a rung returns
   `ladderBest` per dollar. Everywhere between rungs rounds down, by at most a third, and 15% on average.
   Rungs double, with one between each pair, so the loss stays small.
 - Only ink the price actually crosses pays.
+- A band is never priced as likelier than one nearer the price. Far out, a band's chance
+  rests on a few library paths, and a handful that ended together once made 12×, 8×, 12×
+  alternate a few pixels apart. Each second, chances are held to fall away from the
+  likeliest price (`fallingChances` in `dots.ts`), which only ever lowers a payout.
 - On the side the price has just moved toward, fair is lowered by 0.11 × momentum,
   at most two units.
 - Ink too likely for the floor still pays the floor, so no stroke is cut. Where it is over 91%
@@ -160,7 +164,7 @@ grouped by the continuous multiple they were quoted:
 
 ### Zoom
 
-The chart shows nine market steps top to bottom. Zooming in moves the edge closer to
+The chart shows 6.75 market steps top to bottom (it showed nine until September 28). Zooming in moves the edge closer to
 the price (lower edge multiples) but makes the same pen cover less price (higher
 multiples everywhere else), so the map gets flatter rather than just shorter. On a
 laptop, a tap's quote by zoom (columns: 5, 17 and 29 seconds ahead):
@@ -169,7 +173,7 @@ laptop, a tap's quote by zoom (columns: 5, 17 and 29 seconds ahead):
 | --- | --- | --- | --- |
 | 3 | 1.5× / 3.3× / 5.4× | 12.7× / 13.9× / 16.1× | 24.7× / 18.4× / 20.3× |
 | 6 | 1.4× / 2.8× / 4.3× | 14.8× / 10.9× / 12.1× | 72.8× / 30.5× / 22.0× |
-| 9 (today) | 1.3× / 2.4× / 3.6× | 24.1× / 12.2× / 10.4× | 92.9× / 57.5× / 35.8× |
+| 9 (until September 28) | 1.3× / 2.4× / 3.6× | 24.1× / 12.2× / 10.4× | 92.9× / 57.5× / 35.8× |
 
 ## 7. Timing
 
@@ -205,7 +209,7 @@ STEP=600 OUT=report.json bun packages/core/scripts/check-ink-area.ts \
 
 Coinbase BTC-USD, September 17–24, library from September 1–16, at difficulty 70
 (ladder best 92¢): 172,777 drawings opened, 8,047,900 invariant checks passed. At the
-default 60 (best 96¢) the same replay returns 0.781 overall (95%: 0.730–0.834), 0.771–0.788 by screen and 0.778–0.784 by pen; at 75 (best 90¢) it was 0.730.
+default 55 (best 98¢), with chances held to fall away from the price, the same replay returns 0.779 overall (95%: 0.729–0.832), 0.777–0.783 by screen and 0.779–0.780 by pen; drawing with the momentum returns 0.876 (95%: 0.789–0.975). Before that rule it was 0.798 at 55; at 60 0.781, at 75 0.730.
 The replay places each drawing whole; pieces bet as they are drawn price each piece
 the same way.
 

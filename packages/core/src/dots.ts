@@ -58,9 +58,9 @@ export function difficulty(d: number) {
   };
 }
 /** The game's difficulty, 0 to 100: the one setting for how much the house
- * keeps. At 60, ink exactly on a rung returns 96¢ a dollar, about 78¢ on
+ * keeps. At 55, ink exactly on a rung returns 98¢ a dollar, about 80¢ on
  * average once spots round down to their rung. */
-export const DIFFICULTY = 60;
+export const DIFFICULTY = 55;
 
 /*
   Calibration. The chance measured on the paths is right on average but not
@@ -371,7 +371,7 @@ export const rowOf = (price: number, step: number) => Math.floor(price / step);
  * over the field once, adding its weight to every dot its range covers in
  * each second.
  */
-export type Field = { lowCdf?: Float64Array; highCdf?: Float64Array; edgeCells?: number; openAt: number; step: number; row0: number; rows: number; seconds: number; chance: Float32Array; rtp: number; f: Features; /** How many paths the chances rest on, as an effective count. */ paths: number };
+export type Field = { lowCdf?: Float64Array; highCdf?: Float64Array; edgeCells?: number; openAt: number; step: number; row0: number; rows: number; seconds: number; chance: Float32Array; rtp: number; f: Features; /** How many paths the chances rest on, as an effective count. */ paths: number; /** Band chances made to fall away from the likeliest price, by second and band height: filled as asked for. */ falling?: Map<number, Float32Array> };
 
 export function field(lib: Library, f: Features, openAt: number, step: number, cell = 0, edgeCells = 0): Field {
   const seconds = lib.seconds - 1;
@@ -562,6 +562,32 @@ export function rangeChanceOf(fl: Field, t: number, lo: number, hi: number, edge
   const a = Math.round(lo / fl.step) - fl.row0 - edgeCells;
   const b = Math.round(hi / fl.step) - fl.row0 + edgeCells;
   if (!fl.lowCdf || !fl.highCdf || j < 0 || j >= fl.seconds || a < 0 || b > fl.rows || a > b || !(fl.paths > 0)) return 0;
-  const p = Math.max(0, fl.lowCdf[j * (fl.rows + 1) + b] - fl.highCdf[j * (fl.rows + 1) + a]);
+  const p = fallingChances(fl, j, b - a)[a];
   return p > 0 ? calibrate(Math.min(1, p + (1 - p) / fl.paths), cell) : 0;
+}
+
+/*
+  Every band of one height in second j, by its lowest row, made to fall away
+  from the likeliest one. Far out, a band's chance rests on a handful of paths,
+  and a few that ended together made a band likelier than one nearer the price:
+  on the map, 12x, 8x, 12x, 8x a few pixels apart, and 64x inside 48x. A band
+  is never less likely than any band beyond it on the same side, so noise can
+  only lower a payout, never raise one.
+*/
+function fallingChances(fl: Field, j: number, height: number): Float32Array {
+  const key = j * 8192 + height;
+  const cached = (fl.falling ??= new Map()).get(key);
+  if (cached) return cached;
+  const span = fl.rows + 1;
+  const n = fl.rows - height + 1;
+  const out = new Float32Array(n);
+  let peak = 0;
+  for (let a = 0; a < n; a++) {
+    out[a] = Math.max(0, fl.lowCdf![j * span + a + height] - fl.highCdf![j * span + a]);
+    if (out[a] > out[peak]) peak = a;
+  }
+  for (let a = n - 2; a > peak; a--) out[a] = Math.max(out[a], out[a + 1]);
+  for (let a = 1; a < peak; a++) out[a] = Math.max(out[a], out[a - 1]);
+  fl.falling.set(key, out);
+  return out;
 }

@@ -6,7 +6,7 @@
  * See docs/HOW-IT-WORKS.md for the equations and the replay.
  */
 
-import { type Bar, calibrate, chanceOf, rangeChanceOf, type Features, features, type Field, type Library, LIB_SCALE, multipleFor, openFor, RULES, rtpAt, SWING_SCALE, weightsFor } from "./dots";
+import { type Bar, calibrate, chanceOf, rangeChanceOf, type Features, features, field, type Field, type Library, LIB_SCALE, multipleFor, openFor, RULES, rtpAt, SWING_SCALE, weightsFor } from "./dots";
 
 import { fairSection, ladderSection, newInk, smoothRoundedMultiple, cappedRoundedMultiple, roundedMultiple, roundedCells, areaCells, areaMultiple, areaCostOf, INK_CELL } from "./ink-area";
 export { VIEW_SECONDS, MAX_INK_MULTIPLE, LADDER, LADDER_BEST, ladderSection, newInk, sectionsOf, fairSection, roundedMultiple, roundedCells, INK_EDGE_CELLS, drawingLayout, areaCells, areaMultiple, areaCostOf, INK_CELL, MIN_INK_MULTIPLE, CHART_STEP_PX, CHART_LINE_PX } from "./ink-area";
@@ -313,6 +313,13 @@ const priced1 = (m: number | null, area: number) => (m === null ? null : { area,
 export function open(bet: InkBet, lib: Library, bars: Bar[]): InkBet {
   const f = features(bars, bet.openAt);
   if (!f) return { ...bet, status: "void", why: "No price to open on." };
+  // New drawings are priced off a map of their own second, as `openOn` does,
+  // so its chances fall away from the likeliest price whichever way it opens.
+  if (bet.model === "ladder-v1") {
+    const cell = bet.cell ?? CELL;
+    const mapped = openOn(bet, field(lib, f, bet.openAt, bet.step * cell, cell, bet.edgeCells ?? 0));
+    if (mapped) return mapped;
+  }
   const pad = (bet.edgeCells ?? 0) * bet.step * INK_CELL;
   const priced = pad ? bet.drawn.map(s => ({ ...s, lo: s.lo - pad, hi: s.hi + pad })) : bet.drawn;
   const ps = chances(lib, priced, bet.openAt, f, bet.cell ?? CELL, pad > 0);
