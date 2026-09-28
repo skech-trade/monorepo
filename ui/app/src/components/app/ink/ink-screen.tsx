@@ -141,7 +141,7 @@ export function InkScreen() {
     const t = setTimeout(() => setGained(0), 1200);
     return () => clearTimeout(t);
   }, [gained]);
-  const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, marketStep: 1, viewport: { width: 1280, height: 800 }, displayPrice: 0, perDot: state.perDot, pen: state.brush, cell: INK_CELL, bets: [], quote: null, fx: [], hint: !state.taught, dark: false });
+  const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, marketStep: 1, viewport: { width: 1280, height: 800 }, displayPrice: 0, perDot: state.perDot, pen: state.brush, cell: INK_CELL, bets: [], quote: null, fx: [], dark: false });
 
   const onViewport = useCallback((size: { width: number; height: number }) => { game.current.viewport = size; }, []);
   const settledTotals = useRef({ committed: 0, returned: 0 });
@@ -164,7 +164,6 @@ export function InkScreen() {
     if (g.field && g.field.rtp !== difficulty(level).rtp) g.field = null;
     g.pen = state.brush;
     g.cell = INK_CELL;
-    g.hint = !state.taught;
   }, [state.perDot, state.brush, state.taught, level]);
 
   /*

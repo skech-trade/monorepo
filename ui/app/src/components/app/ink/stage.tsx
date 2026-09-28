@@ -53,8 +53,6 @@ export type Game = {
   /** Price a stroke as if it were placed now. Set by the screen, which has the paths and the market. */
   quote: ((st: Stroke) => Preview | null) | null;
   fx: Fx[];
-  /** Draw the first-visit guide: a ghost pen drawing a stroke. */
-  hint: boolean;
   /** Whether the screen is dark, read from the page. */
   dark: boolean;
 };
@@ -829,38 +827,6 @@ export function Stage({
           preview.current(keyboardQuote);
         }
 
-      }
-
-      // The first time: a dotted stroke ahead of the price, where to draw, and the spot it ends on.
-      if (g.hint && !pen) {
-        const x0 = nx + WAIT_MS * pxMs() + radius() + 4;
-        const x1 = nx + (w - nx) * 0.72;
-        const along = (f: number) => ({ px: x0 + (x1 - x0) * f, py: py - Math.min(pitchY * 1.5, h * 0.16) * Math.sin(f * Math.PI * 1.3) - f * h * 0.08 });
-        c.beginPath();
-        for (let f = 0; f <= 1.0001; f += 0.01) {
-          const q = along(f);
-          if (f === 0) c.moveTo(q.px, q.py);
-          else c.lineTo(q.px, q.py);
-        }
-        c.save();
-        c.setLineDash([0.001, 18]);
-        c.lineDashOffset = reducedMotion.matches ? 0 : -((ms / 40) % 18);
-        c.strokeStyle = rgba(pal.ink, 0.55);
-        c.lineWidth = Math.max(8, radius() * 2);
-        c.lineCap = "round";
-        c.lineJoin = "round";
-        c.stroke();
-        c.restore();
-        const q = along(1);
-        c.beginPath();
-        c.arc(q.px, q.py, 20, 0, Math.PI * 2);
-        c.fillStyle = rgba(pal.ink, 0.1);
-        c.fill();
-        c.beginPath();
-        c.arc(q.px, q.py, 11, 0, Math.PI * 2);
-        c.strokeStyle = rgba(pal.ink, 0.6);
-        c.lineWidth = 2;
-        c.stroke();
       }
 
       // Hits burst and float what they paid; a drawing pops once when it goes in.
