@@ -697,8 +697,11 @@ export function Stage({
             c.fillStyle = rgba(mix(pal!.faint, pal!.ink, height(m)));
             c.fillText(text, b.x0 + b.w / 2, b.y0 + b.h / 2 + 0.5);
           };
-          if (tile.was !== tile.text && eased < 1) write(tile.was, 1 - eased);
-          write(tile.text, tile.was !== tile.text ? eased : 1);
+          // A changed number goes out, then the new one comes in: never both at once, which read as a smudge.
+          if (tile.was !== tile.text && eased < 1) {
+            if (eased < 0.5) write(tile.was, 1 - eased * 2);
+            else write(tile.text, eased * 2 - 1);
+          } else write(tile.text, 1);
         }
         c.globalAlpha = 1;
         c.restore();
