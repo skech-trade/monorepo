@@ -1,18 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Geist_Mono, Inter } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/app/auth";
 import { ToastProvider } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-sans",
+/* The phone's own face first (SF on Apple devices); Geist everywhere else. */
+const geist = Geist({
+  variable: "--font-geist",
   subsets: ["latin"],
   display: "swap",
-  axes: ["opsz"],
 });
 
-/* Figures are set in mono, the way coss pairs Inter with Geist Mono. */
 const mono = Geist_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
@@ -38,7 +37,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0c0c0c" },
+    { media: "(prefers-color-scheme: dark)", color: "#000000" },
   ],
   colorScheme: "light dark",
 };
@@ -48,7 +47,7 @@ const THEME_BOOT = `(function(){try{var r=document.documentElement;var t=localSt
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html className={`h-full ${inter.variable} ${mono.variable} antialiased`} lang="en" suppressHydrationWarning>
+    <html className={`h-full ${geist.variable} ${mono.variable} antialiased`} lang="en" suppressHydrationWarning>
       <head>
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: must run before paint */}
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />

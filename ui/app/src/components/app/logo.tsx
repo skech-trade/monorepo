@@ -24,8 +24,8 @@ function LogoMark({ className }: { className?: string }) {
 export function Wordmark({ className }: { className?: string }) {
   return (
     <span className={cn("flex items-center gap-2 text-foreground", className)}>
-      <LogoMark className="h-6 w-7" />
-      <span className="font-semibold text-base tracking-tight">skech</span>
+      <LogoMark className="h-6 w-[30px]" />
+      <span className="font-bold text-xl tracking-[-0.03em]">skech</span>
     </span>
   );
 }
