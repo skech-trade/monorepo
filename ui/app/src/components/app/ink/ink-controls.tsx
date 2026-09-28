@@ -21,14 +21,15 @@ import feedback from "./drawing-feedback.module.css";
  */
 
 export const PENS: { id: Brush; name: string; dot: number; says: string }[] = [
-  { id: "fine", name: "Fine", dot: 8, says: "Higher multiples" },
+  { id: "fine", name: "Fine", dot: 9, says: "Higher multiples" },
   { id: "medium", name: "Medium", dot: 14, says: "Balanced" },
-  { id: "wide", name: "Wide", dot: 20, says: "More coverage" },
+  { id: "wide", name: "Wide", dot: 18, says: "More coverage" },
 ];
 export const penFor = (id: Brush) => PENS.find((p) => p.id === id) ?? PENS[1];
 export const amountLabel = (n: number) => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
 
-const Dot = ({ size }: { size: number }) => <span aria-hidden="true" className="block shrink-0 rounded-full bg-current transition-[width,height] duration-150 ease-out motion-reduce:transition-none" style={{ width: size, height: size }} />;
+/** The pen's nib, in the ink it draws with. */
+const Dot = ({ size }: { size: number }) => <span aria-hidden="true" className="block shrink-0 rounded-full bg-brand transition-[width,height] duration-150 ease-out motion-reduce:transition-none" style={{ width: size, height: size }} />;
 
 export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: Brush; amount: number; onPen: (id: Brush) => void; onAmount: (n: number) => void; className?: string }) {
   return (
@@ -68,10 +69,10 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
 const DEPOSITS = [100, 1000, 10000];
 
 /** Practice money in: it lands in the balance at once. Beside the way in, in the app bar. */
-export function DepositButton({ onDeposit }: { onDeposit: (amount: number) => void }) {
+export function DepositButton({ onDeposit, className }: { onDeposit: (amount: number) => void; className?: string }) {
   return (
     <Popover>
-      <PopoverTrigger render={<Button variant="secondary" />}>Deposit</PopoverTrigger>
+      <PopoverTrigger render={<Button className={cn("h-11 rounded-full border-0 bg-secondary px-[18px] font-semibold text-base sm:h-11 sm:px-[18px]", className)} variant="secondary" />}>Deposit</PopoverTrigger>
       <PopoverPopup align="end" className="w-60">
         <PopoverTitle>Add practice money</PopoverTitle>
         <PopoverDescription>It lands in your balance at once. Every point you draw is paid for from there, and every hit paid into it.</PopoverDescription>

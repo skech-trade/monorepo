@@ -1,72 +1,68 @@
-/* Shared Skech colors and buttons; the chart remains the main surface. */
+/* The game's screen: the market row under the bar, the chart, and the dock. */
 .surface { width: 100%; height: 100%; }
 .notice { animation: arrive 180ms ease-out both; }
 @keyframes arrive { from { opacity: .5; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .notice { animation: none; } }
-.topShade { position: absolute; pointer-events: none; z-index: 10; inset: 0 0 auto; height: 155px; background: linear-gradient(var(--background) 30%, color-mix(in oklab, var(--background) 88%, transparent) 65%, transparent); }
-.summary { position: absolute; z-index: 20; top: 65px; left: 20px; right: 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; pointer-events: none; }
-.market { display: flex; align-items: center; min-width: 0; gap: 10px; }
-.assetButton { pointer-events: auto; height: auto !important; padding: 6px !important; justify-content: flex-start; text-align: left; gap: 10px; border-radius: 16px; }
-.marketName { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
-.marketName > span { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; }
-.marketName strong { font-size: 26px; line-height: 32px; font-weight: 600; letter-spacing: -.035em; }
-.dayChange { font-size: 11px; font-weight: 500; align-self: flex-end; margin-bottom: 12px; }
-.accounts { display: flex; align-items: center; gap: 28px; }
-.balance { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
-.balanceValue { font-size: 24px; font-weight: 600; line-height: 1.2; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
-.pnl { min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-.eyebrow { font-size: 11px; font-weight: 500; color: var(--muted-foreground); }
-.pnlValue { font-size: clamp(28px, 3.8vw, 44px); line-height: 1.1; font-weight: 650; letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
-.bottomShade { position: absolute; pointer-events: none; z-index: 10; inset: auto 0 0; height: 100px; background: linear-gradient(transparent, var(--background) 90%); }
-.toolbar { position: absolute; z-index: 20; bottom: max(18px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; width: min(380px, calc(100% - 24px)); padding: 8px; border: 1px solid var(--border); border-radius: 32px; background: var(--card); box-shadow: 0 4px 24px #00000012; }
-.settingsButton { width: 48px !important; height: 48px !important; }
-.penControls { display: flex; flex: 1; min-width: 0; gap: 8px; }
-.dockButton { height: 48px !important; min-width: 0; flex: 1; padding: 0 12px !important; font-size: 14px; }
-@media (max-width: 639px) {
- .summary { top: 67px; left: 6px; right: 14px; gap: 8px; }
- .market { gap: 0; }
- .assetButton { gap: 7px; }
- .marketName > span { font-size: 11px; }
- .marketName strong { font-size: 19px; line-height: 25px; }
- .dayChange { display: none; }
- .pnlValue { font-size: clamp(24px, 7vw, 32px); }
- .eyebrow { font-size: 10px; }
- .toolbar { bottom: max(12px, env(safe-area-inset-bottom)); }
-}
-@media (max-width: 359px) {
- .marketName strong { font-size: 17px; }
- .assetButton { gap: 5px; }
- .toolbar, .penControls { gap: 6px; }
- .dockButton { padding: 0 9px !important; font-size: 13px; }
-}
+.topShade { position: absolute; pointer-events: none; z-index: 10; inset: 0 0 auto; height: 128px; background: linear-gradient(var(--background) 80%, transparent); }
 
-@media (max-width: 639px) {
- .summary { flex-wrap: wrap; row-gap: 4px; }
- .accounts { width: 100%; justify-content: space-between; align-items: flex-end; padding: 0 0 0 6px; gap: 12px; }
- .balance { align-items: flex-start; gap: 2px; }
- .balanceValue { font-size: 16px; }
- .pnl { gap: 2px; }
- .pnlValue { font-size: 24px; }
- .summary .accounts .eyebrow { font-size: 10px; }
- .topShade { height: 175px; }
+/* The market row: the coin, its name and price on the left; the money on the right. */
+.summary { position: absolute; z-index: 20; top: 64px; left: 0; right: 0; padding: 6px 20px 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px; pointer-events: none; }
+.market { display: flex; align-items: center; min-width: 0; gap: 10px; }
+.assetButton { pointer-events: auto; height: auto !important; padding: 0 !important; border: 0 !important; justify-content: flex-start; text-align: left; gap: 10px; border-radius: 12px; }
+.assetButton:hover { background: transparent !important; }
+.marketName { display: flex; flex-direction: column; align-items: flex-start; }
+.marketName > span { display: flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 600; color: var(--muted-foreground); }
+.marketName strong { font-size: 24px; line-height: 1.2; font-weight: 700; letter-spacing: -.02em; color: var(--foreground); }
+.cents { color: var(--faint); }
+.accounts { display: flex; align-items: center; gap: 18px; text-align: right; }
+.balance, .pnl { display: flex; flex-direction: column; align-items: flex-end; }
+.eyebrow { font-size: 12px; font-weight: 400; color: var(--muted-foreground); }
+.balanceValue, .pnlValue { font-size: 16px; font-weight: 600; line-height: 1.35; font-variant-numeric: tabular-nums; transition: color 240ms ease-out; }
+
+/* What floats over the chart: a pill at the top, a card over the dock. */
+.floatPill { position: absolute; z-index: 20; left: 50%; top: 128px; transform: translateX(-50%); display: flex; gap: 16px; max-width: calc(100% - 32px); padding: 8px 16px; border-radius: 999px; background: var(--raised); box-shadow: var(--raised-shadow); font-size: 14px; color: var(--muted-foreground); white-space: nowrap; pointer-events: none; }
+.floatPill strong { font-weight: 600; color: var(--foreground); font-variant-numeric: tabular-nums; }
+.floatPill .win { color: var(--brand); }
+.hintPill { position: absolute; z-index: 20; left: 50%; top: 150px; transform: translateX(-50%); padding: 10px 16px; border-radius: 999px; background: var(--raised); box-shadow: var(--raised-shadow); font-size: 15px; font-weight: 600; white-space: nowrap; pointer-events: none; }
+.roundCard { position: absolute; z-index: 25; left: 16px; right: 16px; bottom: calc(max(22px, env(safe-area-inset-bottom)) + 78px); margin: 0 auto; max-width: 420px; box-sizing: border-box; padding: 16px; border-radius: 22px; background: var(--raised); box-shadow: var(--raised-shadow); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.roundCard > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.roundLabel { font-size: 13px; color: var(--muted-foreground); }
+.roundValue { font-size: 28px; line-height: 1.2; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bottomPill { position: absolute; z-index: 20; left: 50%; bottom: calc(max(22px, env(safe-area-inset-bottom)) + 78px); transform: translateX(-50%); padding: 8px 16px; border-radius: 999px; background: var(--raised); box-shadow: var(--raised-shadow); font-size: 13px; color: var(--muted-foreground); white-space: nowrap; pointer-events: none; }
+
+/* The dock: a grey tray, three white pills in it. */
+.bottomShade { position: absolute; pointer-events: none; z-index: 10; inset: auto 0 0; height: 100px; background: linear-gradient(transparent, var(--background) 70%); }
+.toolbar { position: absolute; z-index: 20; bottom: max(22px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; gap: 8px; width: min(420px, calc(100% - 32px)); height: 64px; box-sizing: border-box; padding: 8px; border: .5px solid var(--border); border-radius: 32px; background: var(--dock); }
+.settingsButton { width: 48px !important; height: 48px !important; flex-shrink: 0; border: 0 !important; border-radius: 999px !important; background: var(--raised) !important; color: var(--foreground) !important; }
+.settingsButton svg { width: 22px !important; height: 22px !important; }
+.penControls { display: flex; flex: 1; min-width: 0; gap: 8px; }
+.dockButton { height: 48px !important; min-width: 0; flex: 1 1 0; gap: 8px !important; padding: 0 12px !important; border: 0 !important; border-radius: 999px !important; background: var(--raised) !important; color: var(--foreground) !important; font-size: 16px !important; font-weight: 600; }
+
+@media (max-width: 359px) {
+ .summary { padding: 6px 14px 10px; gap: 8px; }
+ .marketName strong { font-size: 20px; }
+ .accounts { gap: 12px; }
+ .toolbar, .penControls { gap: 6px; }
+ .dockButton { padding: 0 9px !important; font-size: 14px !important; }
 }
-@media (min-width: 640px) and (max-width: 900px) {
- .accounts { gap: 18px; }
- .balanceValue { font-size: 20px; }
- .pnlValue { font-size: 30px; }
- .dayChange { display: none; }
+@media (min-width: 640px) {
+ .summary { padding: 10px 24px; }
+ .marketName strong { font-size: 28px; }
+ .accounts { gap: 28px; }
+ .eyebrow { font-size: 13px; }
+ .balanceValue, .pnlValue { font-size: 20px; }
 }
 
 /* Values stay opaque and tabular. No whole-number fades or count-up lag. */
 .number { display: inline-block; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .digit { display: inline-block; animation: digit-change 90ms cubic-bezier(.2,.8,.2,1) both; }
 @keyframes digit-change { from { transform: translateY(1.5px); } to { transform: translateY(0); } }
-.pnlValue { min-width: 6.5ch; text-align: right; transition: color 160ms ease-out; }
-.balanceValue { min-width: 7ch; text-align: right; }
-.toolbar button { transition: background-color 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out, transform 160ms cubic-bezier(.2,.8,.2,1); }
+.pnlValue { min-width: 6.5ch; }
+.balanceValue { min-width: 7ch; }
+.toolbar button { transition: background-color 160ms ease-out, color 160ms ease-out, transform 160ms cubic-bezier(.2,.8,.2,1); }
 .toolbar button:active { transform: scale(.97); }
 @media (prefers-reduced-motion: reduce) {
  .digit { animation: none; }
- .pnlValue, .toolbar button { transition: none; }
+ .balanceValue, .pnlValue, .toolbar button { transition: none; }
  .toolbar button:active { transform: none; }
 }

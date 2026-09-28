@@ -26,18 +26,18 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   const anonymous = hasAuth && !me.signedIn;
   const name = me.handle ?? "Your account";
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 sm:h-12 sm:gap-3">
+    <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4 pt-3 pb-2 sm:gap-3">
       <Link aria-label="skech home" className="shrink-0 transition-opacity hover:opacity-70" href="/">
         <Wordmark />
       </Link>
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        {showTheme ? <ThemeToggle className="max-sm:hidden" /> : null}
+        {showTheme ? <ThemeToggle className="size-11 rounded-full border-0 bg-secondary sm:size-11 [&_svg]:size-5" /> : null}
         {lead}
         {anonymous ? <SignInButton /> : null}
         {hasAuth && me.signedIn ? (
           <Menu>
-            <MenuTrigger render={<Button aria-label="Your account" className="rounded-full p-0" size="icon" variant="outline" />}>
-              <Avatar className="size-8 sm:size-7">
+            <MenuTrigger render={<Button aria-label="Your account" className="size-11 rounded-full border-0 bg-secondary p-0 sm:size-11" size="icon" variant="outline" />}>
+              <Avatar className="size-9 bg-transparent">
                 <AvatarFallback>
                   <UserIcon className="size-4 sm:size-3.5" />
                 </AvatarFallback>

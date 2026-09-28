@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckIcon, ChevronDownIcon, CircleHelpIcon, HistoryIcon, Maximize2Icon, Minimize2Icon, Settings2Icon, Volume2Icon, VolumeXIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, ShareIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DIFFICULTY, difficulty, DOT_BETS, features, type Field, type Library, readLibrary, RULES, setDifficulty, START_BALANCE, stepFor } from "@skech/core/dots";
 import { areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type Stroke, won } from "@skech/core/ink";
@@ -8,8 +8,9 @@ import { roundedTerms as areaTerms } from "@skech/core/odds";
 
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverClose, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
-import { ThemeToggle } from "@/components/app/theme-toggle";
+import { setDark, useDark } from "@/components/app/theme-toggle";
 
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { useCoinbase } from "@/lib/coinbase";
@@ -48,32 +49,23 @@ const CLOSE_AFTER_MS = 600;
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${money(Math.abs(n))}`;
 
-/**
- * Bitcoin's day, from Coinbase, for the market header: the same figures the
- * trading screen shows, from the market the game is played on. Read once a
- * minute; the price itself comes from the live trades.
- */
-function useDay(): { changePct: number; high: number; low: number; volume: number } | null {
-  const [day, setDay] = useState<{ changePct: number; high: number; low: number; volume: number } | null>(null);
-  useEffect(() => {
-    let live = true;
-    const read = () =>
-      fetch("https://api.exchange.coinbase.com/products/BTC-USD/stats")
-        .then((r) => r.json())
-        .then((d: { open: string; high: string; low: string; last: string; volume: string }) => {
-          // Coinbase gives the day's open and its volume in bitcoin; the header wants a change and dollars.
-          if (live && +d.open > 0) setDay({ changePct: ((+d.last - +d.open) / +d.open) * 100, high: +d.high, low: +d.low, volume: +d.volume * +d.last });
-        })
-        .catch(() => undefined);
-    void read();
-    const timer = setInterval(read, 60_000);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, []);
-  return day;
+/** A price with its cents quieter than its dollars. */
+const Price = ({ value }: { value: number }) => {
+  const [whole, part] = money(value).split(".");
+  return <><CrispNumber value={whole} /><span className={feedback.cents}>.{part}</span></>;
+};
+
+/** One setting on a switch, in a grouped list. */
+function ToggleRow({ title, detail, checked, onChange }: { title: string; detail: string; checked: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <label className="flex min-h-[60px] cursor-pointer items-center gap-3 px-4">
+      <span className="flex grow flex-col"><span className="text-[17px]">{title}</span><span className="text-[13px] text-muted-foreground">{detail}</span></span>
+      <Switch checked={checked} className="[--thumb-size:27px] data-checked:bg-success sm:[--thumb-size:27px]" onCheckedChange={onChange} />
+    </label>
+  );
 }
+
+const navRow = "flex min-h-[52px] w-full items-center gap-3 px-4 text-left text-[17px] transition-colors hover:bg-accent";
 
 export function InkScreen() {
   const feed = useCoinbase("BTC-USD");
@@ -124,6 +116,7 @@ export function InkScreen() {
     return () => clearTimeout(timer);
   }, [returnedInk]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const dark = useDark();
   /** How hard the game is here: what the house set on this browser, or the game's own. */
   const level = state.houseDifficulty ?? DIFFICULTY;
   /* The house's controls show in development, or with ?house in the address. */
@@ -132,10 +125,17 @@ export function InkScreen() {
   const [result, setResult] = useState<{ key: string; won: number; cost: number; hits: number; points: number; voided: boolean } | null>(null);
   useEffect(() => {
     if (!result) return;
-    const t = setTimeout(() => setResult(null), 2600);
+    const t = setTimeout(() => setResult(null), 5000);
     return () => clearTimeout(t);
   }, [result]);
   const [fresh, setFresh] = useState(false);
+  /* The balance shows green for a moment when a hit pays into it. */
+  const [gained, setGained] = useState(0);
+  useEffect(() => {
+    if (!gained) return;
+    const t = setTimeout(() => setGained(0), 1200);
+    return () => clearTimeout(t);
+  }, [gained]);
   const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, step: 1, marketStep: 1, viewport: { width: 1280, height: 800 }, displayPrice: 0, perDot: state.perDot, pen: state.brush, cell: INK_CELL, bets: [], quote: null, fx: [], hint: !state.taught, dark: false });
 
   const onViewport = useCallback((size: { width: number; height: number }) => { game.current.viewport = size; }, []);
@@ -423,6 +423,7 @@ export function InkScreen() {
       g.bets[i] = bet;
     }
     if (credit) setPractice((s) => ({ balance: cents(s.balance + credit) }));
+    if (credit > 0) setGained(performance.now());
     if (changed || credit) setPractice({ open: g.bets.filter((b) => !decided(b)) });
     setLive(new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size);
     // Keep finished drawings only as long as their dots are still fading.
@@ -513,7 +514,6 @@ export function InkScreen() {
 
   const broke = state.balance < DOT_BETS[0] && live === 0;
   const price = feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0;
-  const day = useDay();
   const [listOpen, setListOpen] = useState(false);
   // The same Skech controls: nib size and the cost of a full dot.
   const controls = (
@@ -526,6 +526,15 @@ export function InkScreen() {
     />
   );
 
+  /* A round's result, to send on: the phone's own share sheet, or the clipboard. */
+  const share = async (net: number) => {
+    const text = `I drew ahead of the Bitcoin price on skech: ${signed(net)}`;
+    try {
+      if (navigator.share) await navigator.share({ text, url: window.location.origin });
+      else await navigator.clipboard.writeText(`${text} ${window.location.origin}`);
+    } catch { /* Dismissed, or not allowed here. */ }
+  };
+
   const latestResult = state.history[0];
   const showingBatch = totals.drawings > 0 || totals.committed > 0;
   const displayedPnl = showingBatch ? totals.pnl : latestResult ? cents(latestResult.won - latestResult.cost) : 0;
@@ -537,8 +546,8 @@ export function InkScreen() {
         <div className={feedback.market}>
           <Popover>
             <PopoverTrigger render={<Button variant="ghost" aria-label="Change asset: Bitcoin" className={feedback.assetButton} />}>
-              <TokenAvatar symbol="BTC" className="size-8 sm:size-10" />
-              <span className={feedback.marketName}><span>Bitcoin <ChevronDownIcon className="size-3.5 text-muted-foreground" /></span><strong className="figures">{price ? <CrispNumber value={money(price)} /> : "Connecting…"}</strong></span>
+              <TokenAvatar symbol="BTC" className="size-9 sm:size-10" />
+              <span className={feedback.marketName}><span>Bitcoin <ChevronDownIcon className="size-3" strokeWidth={2.4} /></span><strong className="figures">{price ? <Price value={price} /> : "Connecting…"}</strong></span>
             </PopoverTrigger>
             <PopoverPopup align="start" sideOffset={10} className="w-64">
               <PopoverTitle>Choose asset</PopoverTitle>
@@ -547,15 +556,14 @@ export function InkScreen() {
               </PopoverClose>
             </PopoverPopup>
           </Popover>
-          {day ? <span className={cn(feedback.dayChange, day.changePct >= 0 ? "text-success-foreground" : "text-destructive-foreground")}>{day.changePct > 0 ? "+" : ""}{day.changePct.toFixed(2)}%</span> : null}
         </div>
         <div className={feedback.accounts}>
           <div className={feedback.balance} aria-label="Practice balance">
             <span className={feedback.eyebrow}>Balance</span>
-            <span className={cn(feedback.balanceValue, "figures")}><CrispNumber value={money(state.balance)} /></span>
+            <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}><CrispNumber value={money(state.balance)} /></span>
           </div>
           <div className={feedback.pnl} aria-label="Profit and loss">
-            <span className={feedback.eyebrow}>{totals.drawings ? "Live P&L" : "Last P&L"}</span>
+            <span className={feedback.eyebrow}>{totals.drawings ? "This round" : "Last round"}</span>
             <span className={cn(feedback.pnlValue, "figures", displayedPnl > 0 ? "text-success-foreground" : displayedPnl < 0 ? "text-destructive-foreground" : "text-foreground")}>
               <CrispNumber value={signed(displayedPnl)} />
             </span>
@@ -577,72 +585,63 @@ export function InkScreen() {
             </div>
           ) : null}
 
-          {/* Before release: cost and maximum return of the whole stroke. */}
+          {/* While drawing: what the stroke has put in play, and the most it can win. */}
           {preview ? (
-            <div className="-translate-x-1/2 pointer-events-none absolute bottom-24 left-1/2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-4 rounded-2xl border bg-card/95 px-5 py-3 text-sm shadow-lg backdrop-blur-md sm:bottom-24" role="status">
+            <div className={feedback.floatPill} role="status">
               {preview.inPlay.length ? (
                 <>
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Drawing cost</span>
-                    <span className="figures text-lg font-semibold tabular-nums">{money(preview.cost)}</span>
-                  </span>
-                  <span aria-hidden="true" className="h-8 w-px bg-border" />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Max return</span>
-                    <span className="figures text-lg font-semibold tabular-nums">{money(preview.high)}</span>
-                  </span>
-                  <span className="hidden flex-col gap-0.5 sm:flex"><span className="text-[10px] uppercase tracking-wider text-muted-foreground">Max multiplier</span><span className="figures text-lg font-semibold">{fmtMultiple(preview.multipleHigh)}</span></span>
-                  <span className="hidden text-xs text-muted-foreground sm:inline">{preview.keyboard ? "Enter" : "Release"}<br />to place</span>
+                  <span>In play <strong>{money(preview.cost)}</strong></span>
+                  <span>Could win <strong className={feedback.win}>{money(preview.high)}</strong></span>
+                  <span className="max-sm:hidden">Up to <strong className={feedback.win}>{fmtMultiple(preview.multipleHigh)}</strong></span>
                 </>
               ) : (
-                <span className="text-muted-foreground">Move to a spot with an offered multiplier</span>
+                <span>Move to a spot with a multiplier on it</span>
               )}
             </div>
+          ) : !state.taught && fresh && owner !== false ? (
+            <div className={feedback.hintPill}>Draw to the right of the line</div>
           ) : null}
 
-          {/* A finished drawing, for a moment: how much of it the price ran through, and what it came to. */}
+          {/* A finished drawing, for a moment: what it came to, and a way to share it. */}
           {result && !preview ? (
-            <div
-              className={cn(
-                feedback.notice,
-                "-translate-x-1/2 pointer-events-none absolute top-40 left-1/2 z-10 flex items-center gap-2 whitespace-nowrap rounded-full border px-4 py-2 font-medium text-sm shadow-lg sm:top-36",
-                result.won > result.cost ? "border-success/30 bg-success/12 text-success-foreground" : "bg-card/90 text-muted-foreground backdrop-blur",
-              )}
-              key={result.key}
-              role="status"
-            >
+            <div className={cn(feedback.notice, feedback.roundCard)} key={result.key} role="status">
               {!result.voided ? (
                 <>
-                  <span className="figures">{result.hits > 0 ? `${Math.round(100 * result.hits / result.points)}% of ink hit` : "Missed"}</span>
-                  <span className="opacity-50">·</span>
-                  {/* What the drawing came to: what came back less what it cost. */}
-                  <span className="figures font-semibold tabular-nums">{signed(cents(result.won - result.cost))}</span>
+                  <div>
+                    <span className={feedback.roundLabel}>Round over</span>
+                    <span className={cn(feedback.roundValue, result.won > result.cost ? "text-success-foreground" : result.won < result.cost ? "text-destructive-foreground" : "text-foreground")}>{signed(cents(result.won - result.cost))}</span>
+                    <span className={cn(feedback.roundLabel, "figures")}>{money(result.cost)} in, {money(result.won)} back{result.hits > 0 ? ` · ${Math.round(100 * result.hits / result.points)}% hit` : ""}</span>
+                  </div>
+                  <Button className="h-11 shrink-0 rounded-full border-0 bg-secondary px-4 font-semibold text-[15px] sm:h-11" onClick={() => void share(cents(result.won - result.cost))} variant="secondary"><ShareIcon className="size-[18px]" />Share</Button>
                 </>
               ) : (
-                <span>The price moved before it opened. Nothing spent.</span>
+                <span className="text-[15px] text-muted-foreground">The price moved before it opened. Nothing spent.</span>
               )}
             </div>
           ) : null}
       </div>
 
-      {returnedInk && !preview ? <div key={returnedInk.id} role="status" className="pointer-events-none absolute bottom-24 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border bg-card px-4 py-2 text-xs text-muted-foreground">Unpriced ink · <span className="figures text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
+      {returnedInk && !preview && !result ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
       <div className={feedback.bottomShade} aria-hidden="true" />
       <footer className={feedback.toolbar}>
-        <Button aria-label="Settings" aria-haspopup="dialog" className={feedback.settingsButton} onClick={() => setSettingsOpen(true)} size="icon" variant="outline"><Settings2Icon /></Button>
+        <Button aria-label="Settings" aria-haspopup="dialog" className={feedback.settingsButton} onClick={() => setSettingsOpen(true)} size="icon" variant="outline"><SlidersHorizontalIcon strokeWidth={1.8} /></Button>
         {controls}
       </footer>
 
       <Sheet onOpenChange={setSettingsOpen} open={settingsOpen}>
         <SheetPopup className="sm:max-w-sm" side="right" variant="inset">
-          <SheetHeader className="px-6 pt-8"><SheetTitle className="text-2xl font-semibold tracking-tight">Settings</SheetTitle><SheetDescription className="sr-only">Drawing preferences and account tools</SheetDescription></SheetHeader>
-          <SheetPanel className="flex flex-col gap-5 px-6 pb-8">
-            <div className="flex items-center justify-between gap-3 rounded-2xl border p-4"><div><p className="text-xs text-muted-foreground">Practice balance</p><p className="figures mt-1 text-xl font-semibold">{money(state.balance)}</p></div><DepositButton onDeposit={amount => setPractice(st => ({ balance: cents(st.balance + amount) }))} /></div>
-            <div className="flex flex-col gap-2">
-              <Button className="h-12 justify-start px-3" variant="ghost" onClick={() => { setSettingsOpen(false); setListOpen(true); }}><HistoryIcon />Your drawings<span className="figures ml-auto text-muted-foreground">{state.history.length}</span></Button>
-              <Button className="h-12 justify-start px-3" variant="ghost" aria-pressed={state.sound} onClick={() => setPractice({ sound: !state.sound })}>{state.sound ? <Volume2Icon /> : <VolumeXIcon />}Sound<span className="ml-auto text-muted-foreground">{state.sound ? "On" : "Off"}</span></Button>
-              <div className="flex h-12 items-center justify-between pl-3 pr-1"><span className="text-sm font-medium">Appearance</span><ThemeToggle /></div>
-              <Button className="hidden h-12 justify-start px-3 sm:flex" variant="ghost" onClick={() => void expand()}>{fullscreen ? <Minimize2Icon /> : <Maximize2Icon />}{fullscreen ? "Exit full screen" : "Full screen"}</Button>
-              <Button className="h-12 justify-start px-3" variant="ghost" onClick={() => { setSettingsOpen(false); setHelp(true); }}><CircleHelpIcon />How it works</Button>
+          <SheetHeader className="px-4 pt-6 sm:px-6 sm:pt-8"><SheetTitle className="font-bold text-xl">Settings</SheetTitle><SheetDescription className="sr-only">Sound, haptics, your balance and your drawings</SheetDescription></SheetHeader>
+          <SheetPanel className="flex flex-col gap-3.5 px-4 pb-10 sm:px-6">
+            <div className="divide-y divide-border overflow-hidden rounded-[14px] bg-muted">
+              <ToggleRow checked={state.sound} detail="Pen, hits and round results" onChange={(on) => setPractice({ sound: on })} title="Sounds" />
+              <ToggleRow checked={state.haptics} detail="A tap when ink goes in and when it hits" onChange={(on) => setPractice({ haptics: on })} title="Haptics" />
+              <ToggleRow checked={dark} detail="Black paper, brighter ink" onChange={setDark} title="Dark mode" />
+            </div>
+            <div className="flex min-h-[60px] items-center justify-between gap-3 rounded-[14px] bg-muted px-4 py-2"><div className="flex flex-col"><span className="text-[13px] text-muted-foreground">Practice balance</span><span className="figures font-semibold text-[17px]">{money(state.balance)}</span></div><DepositButton className="bg-raised" onDeposit={amount => setPractice(st => ({ balance: cents(st.balance + amount) }))} /></div>
+            <div className="divide-y divide-border overflow-hidden rounded-[14px] bg-muted">
+              <button className={navRow} onClick={() => { setSettingsOpen(false); setListOpen(true); }} type="button">Your drawings<span className="figures ml-auto text-muted-foreground">{state.history.length}</span><ChevronRightIcon className="size-4 text-faint" /></button>
+              <button className={cn(navRow, "max-sm:hidden")} onClick={() => void expand()} type="button">{fullscreen ? "Exit full screen" : "Full screen"}<ChevronRightIcon className="ml-auto size-4 text-faint" /></button>
+              <button className={navRow} onClick={() => { setSettingsOpen(false); setHelp(true); }} type="button">How it works<ChevronRightIcon className="ml-auto size-4 text-faint" /></button>
             </div>
           </SheetPanel>
         </SheetPopup>
@@ -651,7 +650,7 @@ export function InkScreen() {
       <Sheet onOpenChange={setListOpen} open={listOpen}>
         <SheetPopup className="sm:max-w-md" side="right" variant="inset">
           <SheetHeader className="px-6 pt-8">
-            <SheetTitle className="font-semibold text-2xl tracking-tight">Your drawings</SheetTitle>
+            <SheetTitle className="font-bold text-xl">Your drawings</SheetTitle>
             <SheetDescription>
               Practice balance <span className="figures text-foreground"><CrispNumber value={money(state.balance)} /></span>
               {state.streak > 0 ? ` · ${state.streak} in a row with a hit` : ""}
@@ -659,7 +658,7 @@ export function InkScreen() {
           </SheetHeader>
           <SheetPanel className="flex flex-col gap-2 px-6 pb-8">
             {state.history.length ? (
-              <ul className="flex flex-col divide-y rounded-2xl border">
+              <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-[14px] bg-muted">
                 {state.history.map((r) => {
                   const net = cents(r.won - r.cost);
                   return (
@@ -692,7 +691,7 @@ export function InkScreen() {
       <Sheet onOpenChange={setHelp} open={help}>
         <SheetPopup className="sm:max-w-md" side="right" variant="inset">
           <SheetHeader className="px-6 pt-8">
-            <SheetTitle className="font-semibold text-2xl tracking-tight">How it works</SheetTitle>
+            <SheetTitle className="font-bold text-xl">How it works</SheetTitle>
             <SheetDescription>Practice money, on the real Bitcoin price.</SheetDescription>
           </SheetHeader>
           <SheetPanel className="flex flex-col gap-4 px-6 pb-8 text-sm leading-relaxed">
@@ -703,7 +702,7 @@ export function InkScreen() {
             <p>Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches {RULES.horizon} seconds ahead.</p>
             <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Nothing pays under {difficulty(level).ladderFloor}×. This is not a guaranteed return. Hits are resolved using one-second price ranges. Your balance is practice money saved in this browser.</p>
             {house ? (
-              <div className="flex flex-col gap-3 rounded-2xl border p-4">
+              <div className="flex flex-col gap-3 rounded-[14px] bg-muted p-4">
                 <div className="flex items-baseline justify-between">
                   <p className="font-medium">Difficulty</p>
                   <p className="figures font-semibold text-lg">

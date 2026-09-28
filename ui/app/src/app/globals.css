@@ -92,43 +92,63 @@
   --sidebar-ring: var(--color-neutral-400);
 }
 
-/* Match skech.trade: warm neutral surfaces, with blue product actions. */
+/* The skech app look: plain white (or black) paper, system greys, one blue
+   ink. The greys are the phone's own, so the game sits in the device like
+   one of its apps. */
 :root {
   --background: #ffffff;
-  --foreground: #343433;
-  --card: #fbfaf9;
-  --card-foreground: #343433;
-  --popover: #fbfaf9;
-  --popover-foreground: #343433;
-  --border: #e9e6e1;
-  --input: #e9e6e1;
-  --muted: #f6f4ef;
-  --muted-foreground: #5f5c59;
-  --secondary: #f6f4ef;
-  --secondary-foreground: #343433;
-  --accent: #efece6;
-  --accent-foreground: #343433;
-  --primary: #2b62de;
+  --foreground: #000000;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  --border: #e5e5ea;
+  --input: #e5e5ea;
+  --muted: #f2f2f7;
+  --muted-foreground: #6c6c70;
+  --secondary: #f2f2f7;
+  --secondary-foreground: #000000;
+  --accent: #e9e9ee;
+  --accent-foreground: #000000;
+  --primary: #000000;
   --primary-foreground: #ffffff;
+  --success: #34c759;
+  --success-foreground: #248a3d;
+  --destructive: #ff3b30;
+  --destructive-foreground: #d70015;
+  /* Quieter than muted text: the cents of a price, tick marks. */
+  --faint: #aeaeb2;
+  /* The dock's tray, and what floats over the chart. */
+  --dock: #f2f2f7;
+  --raised: #ffffff;
+  --raised-shadow: 0 8px 30px rgb(0 0 0 / 12%);
 }
 
 .dark {
-  --background: #121110;
-  --foreground: #fafaf9;
-  --card: #1b1a18;
-  --card-foreground: #fafaf9;
-  --popover: #1b1a18;
-  --popover-foreground: #fafaf9;
-  --border: rgb(255 255 255 / 10%);
-  --input: rgb(255 255 255 / 10%);
-  --muted: #232220;
-  --muted-foreground: #b3ada6;
-  --secondary: #232220;
-  --secondary-foreground: #fafaf9;
-  --accent: #2c2a27;
-  --accent-foreground: #fafaf9;
-  --primary: #2b62de;
-  --primary-foreground: #ffffff;
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #1c1c1e;
+  --card-foreground: #ffffff;
+  --popover: #1c1c1e;
+  --popover-foreground: #ffffff;
+  --border: #38383a;
+  --input: #38383a;
+  --muted: #1c1c1e;
+  --muted-foreground: #98989f;
+  --secondary: #1c1c1e;
+  --secondary-foreground: #ffffff;
+  --accent: #2c2c2e;
+  --accent-foreground: #ffffff;
+  --primary: #ffffff;
+  --primary-foreground: #000000;
+  --success: #30d158;
+  --success-foreground: #30d158;
+  --destructive: #ff453a;
+  --destructive-foreground: #ff453a;
+  --faint: #636366;
+  --dock: #0e0e10;
+  --raised: #1c1c1e;
+  --raised-shadow: 0 8px 30px rgb(0 0 0 / 60%);
 }
 
 /* What a trading screen adds: two directions and one ink for the drawn line.
@@ -139,12 +159,12 @@
   --up-mark: color-mix(in srgb, var(--success) 78%, var(--background));
   --down: var(--destructive-foreground);
   --down-mark: color-mix(in srgb, var(--destructive) 78%, var(--background));
-  --brand: #2b62de;
+  --brand: #2e5bff;
   --grid-line: var(--border);
 }
 
 .dark {
-  --brand: #8fb0ff;
+  --brand: #6f92ff;
 }
 
 [data-palette="colourblind"] {
@@ -212,8 +232,11 @@
   --color-down: var(--down);
   --color-down-mark: var(--down-mark);
   --color-brand: var(--brand);
+  --color-faint: var(--faint);
+  --color-dock: var(--dock);
+  --color-raised: var(--raised);
 
-  --font-sans: var(--font-sans);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", var(--font-geist), "Helvetica Neue", sans-serif;
   --font-mono: var(--font-mono);
   --font-heading: var(--font-sans);
 
@@ -305,7 +328,7 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", var(--font-geist), "Helvetica Neue", sans-serif;
   }
   code, kbd, samp, pre {
     font-family: var(--font-mono);
@@ -316,11 +339,9 @@
   }
 }
 
-/* Figures: mono, tabular, so a column of prices holds still while it ticks. */
+/* Figures: tabular, so a column of prices holds still while it ticks. */
 @utility figures {
-  font-family: var(--font-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
 }
 
 /* The reveal: ribbon segments fade in one after another. */

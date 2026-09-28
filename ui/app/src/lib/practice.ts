@@ -36,6 +36,8 @@ export type Practice = {
    */
   houseDifficulty: number | null;
   sound: boolean;
+  /** A tap under the finger when ink goes in and when it hits, where the phone can. */
+  haptics: boolean;
   /** Whether the first-visit hint has been dismissed. */
   taught: boolean;
   /**
@@ -57,6 +59,7 @@ const DEFAULTS: Practice = {
   houseDifficulty: null,
   brush: "medium",
   sound: true,
+  haptics: true,
   taught: false,
   open: [],
 };
@@ -188,6 +191,7 @@ export const sound = {
 };
 
 export const buzz = (ms: number) => {
+  if (!practice().haptics) return;
   try {
     navigator.vibrate?.(ms);
   } catch {

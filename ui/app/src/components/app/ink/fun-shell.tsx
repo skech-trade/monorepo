@@ -17,7 +17,7 @@ export function FunShell() {
   return (
     <div className="fixed inset-0 flex h-dvh w-full flex-col overflow-hidden overscroll-none bg-background [-webkit-touch-callout:none]" data-blurred={blurred ? "" : undefined}>
       <div className="absolute inset-x-0 top-0 z-30 [&>header]:border-0 [&>header]:bg-transparent [&>header]:px-4 sm:[&>header]:px-6">
-        <AppBar lead={<DepositButton onDeposit={(amount) => setPractice((st) => ({ balance: cents(st.balance + amount) }))} />} showTheme={false} />
+        <AppBar lead={<DepositButton onDeposit={(amount) => setPractice((st) => ({ balance: cents(st.balance + amount) }))} />} />
       </div>
       <main className="absolute inset-0 flex min-h-0 w-full flex-col overflow-hidden">
         <InkScreen />
