@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { areaCells, areaMultiple, areaCostOf, roundedCells, INK_EDGE_CELLS, drawingLayout, CHART_LINE_PX, INK_CELL, MAX_INK_MULTIPLE, MIN_INK_MULTIPLE } from "./ink-area";
 import { cost, liveInkTotals, judge, open, openOn, PEN_CELLS, placeArea, placeRounded, refund, won, type InkBet, type Stroke } from "./ink";
 import { areaTerms, roundedTerms } from "./odds";
-import { features, field, readLibrary, RULES, DIFFICULTY, difficulty, rtpAt, setDifficulty, stepFor, type Bar, type Field } from "./dots";
+import { features, field, rangeChanceOf, readLibrary, RULES, DIFFICULTY, difficulty, rtpAt, setDifficulty, stepFor, type Bar, type Field } from "./dots";
 
 const at = 1_800_000_000_000;
 const dot = (rt = 300, rp = 0.35): Stroke => ({ t0: at + 5500, p0: 100.013, rt, rp, pts: [{ t: 0, p: 0 }] });
@@ -243,10 +243,10 @@ test("a live hit credits immediately and completed drawings stay in the batch P&
 });
 
 test("the default difficulty sets payouts without changing the minimum", () => {
-  expect(DIFFICULTY).toBe(60);
-  expect(difficulty(DIFFICULTY).maxMultiple).toBe(12);
-  expect(difficulty(DIFFICULTY).rtp).toBe(0.748);
-  expect(difficulty(DIFFICULTY).ladderBest).toBe(0.96);
+  expect(DIFFICULTY).toBe(55);
+  expect(difficulty(DIFFICULTY).maxMultiple).toBe(14);
+  expect(difficulty(DIFFICULTY).rtp).toBe(0.764);
+  expect(difficulty(DIFFICULTY).ladderBest).toBe(0.98);
   expect(difficulty(DIFFICULTY).ladderFloor).toBe(1.1);
   expect(difficulty(DIFFICULTY).rtp).toBeLessThan(difficulty(50).rtp);
   expect(MIN_INK_MULTIPLE).toBe(1.1);
@@ -503,5 +503,21 @@ test("difficulty lowers the ladder, and nothing ever pays under 1x", async () =>
     expect(RULES.ladderFloor).toBe(1);
   } finally {
     setDifficulty(was);
+  }
+});
+
+test("a band is never likelier than one nearer the price", async () => {
+  const lib = readLibrary(new Uint8Array(await Bun.file(new URL("./dots-lib.bin", import.meta.url)).arrayBuffer()));
+  const bars: Bar[] = Array.from({ length: 320 }, (_, i) => { const c = 84000 + 3 * Math.sin(i / 7) + (i % 3) * 0.4; return { t: at - (320 - i) * 1000, h: c + 0.3, l: c - 0.3, c }; });
+  const f = features(bars, at)!;
+  const step = stepFor(f.sigma, f.price);
+  const fl = field(lib, f, at, step * INK_CELL, INK_CELL, INK_EDGE_CELLS);
+  const size = step * INK_CELL;
+  for (const second of [2, 5, 10, 20, 29]) for (const height of [4, 7, 10, 20]) {
+    const t = at + second * 1000;
+    const p = Array.from({ length: fl.rows - height }, (_, r) => rangeChanceOf(fl, t, (fl.row0 + r) * size, (fl.row0 + r + height) * size, INK_EDGE_CELLS, INK_CELL));
+    const peak = p.indexOf(Math.max(...p));
+    for (let r = peak + 1; r < p.length; r++) expect(p[r]).toBeLessThanOrEqual(p[r - 1] + 1e-12);
+    for (let r = peak - 1; r >= 0; r--) expect(p[r]).toBeLessThanOrEqual(p[r + 1] + 1e-12);
   }
 });

@@ -105,15 +105,19 @@ rung   = the highest rung ≤ fair, or the floor if fair is under it, or 128× p
 hit pays d × stake × rung                  (one section pays at most 256 dots)
 ```
 
-- **Difficulty** is one number, 0 to 100 (`DIFFICULTY` in `dots.ts`, 60 by default;
+- **Difficulty** is one number, 0 to 100 (`DIFFICULTY` in `dots.ts`, 55 by default;
   a slider in the help sheet in development, or with `?house`). It sets `ladderBest`,
-  what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 96¢ at 60. It also sets
+  what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 98¢ at 55. It also sets
   the floor, what near-certain ink pays: 1.1× up to 70, easing to 1× at 100. Harder
   lowers every rung a spot earns; nothing ever pays under 1×.
 - A section's chance `p` sets its rung. Ink placed exactly on a rung returns
   `ladderBest` per dollar. Everywhere between rungs rounds down, by at most a third, and 15% on average.
   Rungs double, with one between each pair, so the loss stays small.
 - Only ink the price actually crosses pays.
+- A band is never priced as likelier than one nearer the price. Far out, a band's chance
+  rests on a few library paths, and a handful that ended together once made 12×, 8×, 12×
+  alternate a few pixels apart. Each second, chances are held to fall away from the
+  likeliest price (`fallingChances` in `dots.ts`), which only ever lowers a payout.
 - On the side the price has just moved toward, fair is lowered by 0.11 × momentum,
   at most two units.
 - Ink too likely for the floor still pays the floor, so no stroke is cut. Where it is over 91%
@@ -205,7 +209,7 @@ STEP=600 OUT=report.json bun packages/core/scripts/check-ink-area.ts \
 
 Coinbase BTC-USD, September 17–24, library from September 1–16, at difficulty 70
 (ladder best 92¢): 172,777 drawings opened, 8,047,900 invariant checks passed. At the
-default 60 (best 96¢) the same replay returns 0.781 overall (95%: 0.730–0.834), 0.771–0.788 by screen and 0.778–0.784 by pen; at 75 (best 90¢) it was 0.730.
+default 55 (best 98¢), with chances held to fall away from the price, the same replay returns 0.779 overall (95%: 0.729–0.832), 0.777–0.783 by screen and 0.779–0.780 by pen; drawing with the momentum returns 0.876 (95%: 0.789–0.975). Before that rule it was 0.798 at 55; at 60 0.781, at 75 0.730.
 The replay places each drawing whole; pieces bet as they are drawn price each piece
 the same way.
 
