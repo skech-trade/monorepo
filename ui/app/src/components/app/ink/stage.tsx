@@ -234,6 +234,9 @@ export function Stage({
     const gPen = () => game.current!.drawing?.pen ?? game.current!.pen;
     /** Where the tiles start: the wait line, two seconds ahead, where ink always counts. */
     const WAIT_MS = 2000;
+    /** Where drawing may begin: the wait line, less the nib, so ink's edge meets it. Left of it the zone is grey. */
+    const waitX = () => nowX() + WAIT_MS * pxMs();
+    const inkFrom = () => waitX() + radius();
     const paintMap = (fl: Field) => {
       map.field = fl; map.pen = gPen(); map.width = w; map.height = h; map.step = game.current.step;
       const previous = new Map(map.tiles.map(tile => [tile.id, tile]));
@@ -297,7 +300,8 @@ export function Stage({
       const g = game.current;
       if (e.button !== 0 || pen || !g || !price(g) || !g.field) return;
       const q = point(e);
-      if (q.x < nowX() + 4 || q.y < plotTop() || q.y > plotBottom()) return;
+      // Not from the grey zone before the wait line: ink there cannot be bet yet.
+      if (q.x < waitX() || q.y < plotTop() || q.y > plotBottom()) return;
       keyboard = false;
       el.focus({ preventScroll: true });
       try {
@@ -305,8 +309,8 @@ export function Stage({
       } catch {
         /* A pointer the browser no longer tracks: drawing still works while it stays over the canvas. */
       }
-      // Ink starts at now at the earliest: behind it is the past, which no drawing can bet on.
-      q.x = Math.max(q.x, nowX() + 2);
+      // Ink starts at the wait line at the earliest: nothing is written in the grey zone.
+      q.x = Math.max(q.x, inkFrom());
       g.drawing = { step: g.step, perDot: g.perDot, pen: g.pen };
       pen = { id: e.pointerId, drawing: crypto.randomUUID(), why: null, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: priceRadius() }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
       requote(pen, true);
@@ -319,7 +323,7 @@ export function Stage({
       const q = point(e);
       hover = e.pointerType === "mouse" ? q : null;
       if (!pen || e.pointerId !== pen.id) return;
-      q.x = Math.max(q.x, nowX() + 2);
+      q.x = Math.max(q.x, inkFrom());
       // Ink stays on the chart: the pen stops at its top and bottom edges.
       q.y = Math.min(plotBottom(), Math.max(plotTop(), q.y));
       // Every position the pointer passed through since the last frame, not
@@ -329,7 +333,7 @@ export function Stage({
       const trail = (e.getCoalescedEvents?.() ?? []).map(c => ({ x: c.clientX - r.left, y: c.clientY - r.top }));
       let moved = false;
       for (const raw of [...trail.slice(0, -1), q]) {
-        const at = { x: Math.max(raw.x, nowX() + 2), y: Math.min(plotBottom(), Math.max(plotTop(), raw.y)) };
+        const at = { x: Math.max(raw.x, inkFrom()), y: Math.min(plotBottom(), Math.max(plotTop(), raw.y)) };
         const s = { x: pen.last.x + (at.x - pen.last.x) * 0.85, y: pen.last.y + (at.y - pen.last.y) * 0.85 };
         if (pen.stroke.pts.length >= 2048) break;
         if (Math.hypot(s.x - pen.last.x, s.y - pen.last.y) < 1.5) continue;
@@ -352,7 +356,7 @@ export function Stage({
       const p = pen;
       pen = null;
       const q = point(e);
-      q.x = Math.max(q.x, nowX() + 2);
+      q.x = Math.max(q.x, inkFrom());
       q.y = Math.min(plotBottom(), Math.max(plotTop(), q.y));
       // A tap remains a single dot, even while the market clock advances.
       if (Math.hypot(q.x - p.last.x, q.y - p.last.y) > 1.5 && p.stroke.pts.length < 2048)
@@ -382,7 +386,7 @@ export function Stage({
       if (!g.field) return;
       const tip = hover ?? { x: nowX() + (w - nowX()) * 0.5, y: middleY() };
       const move = e.shiftKey ? 30 : 8;
-      hover = { x: Math.min(w - radius(), Math.max(x(openFor(now(g)) + 1000) + radius(), tip.x + (e.key === "ArrowLeft" ? -move : e.key === "ArrowRight" ? move : 0))), y: Math.min(plotBottom(), Math.max(plotTop(), tip.y + (e.key === "ArrowUp" ? -move : e.key === "ArrowDown" ? move : 0))) };
+      hover = { x: Math.min(w - radius(), Math.max(inkFrom(), tip.x + (e.key === "ArrowLeft" ? -move : e.key === "ArrowRight" ? move : 0))), y: Math.min(plotBottom(), Math.max(plotTop(), tip.y + (e.key === "ArrowUp" ? -move : e.key === "ArrowDown" ? move : 0))) };
       const st = { t0: tAt(hover.x), p0: pAt(hover.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: priceRadius() };
       if (e.key === "Enter" || e.key === " ") {
         keyboard = false;
@@ -639,7 +643,7 @@ export function Stage({
       }
 
       /* Where the pen is, and the price's own tag: a tile under either is picked out, or kept clear. */
-      const tip = pen ? pen.last : hover && hover.x > nx ? hover : null;
+      const tip = pen ? pen.last : hover && hover.x >= waitX() ? hover : null;
       const py = y(p);
       c.font = `600 12px ${SANS}`;
       const tagText = fmtPrice(g.displayPrice || latest, true);
@@ -716,6 +720,16 @@ export function Stage({
           c.fill();
         }
         c.restore();
+      }
+
+      // The wait zone, from now to the wait line: greyed out, as nothing can be drawn there.
+      {
+        const wx = waitX();
+        if (wx - nx > 12) {
+          roundRect(c, nx + 4, plotTop(), wx - nx - 8, plotBottom() - plotTop(), phone() ? 9 : 12);
+          c.fillStyle = rgba(pal.fg, dark ? 0.07 : 0.045);
+          c.fill();
+        }
       }
 
       /*
@@ -873,12 +887,12 @@ export function Stage({
             c.arc(ex + Math.cos(a) * d, ey + Math.sin(a) * d, (1.8 + (i % 3) * 0.6) * (1 - age * 0.6), 0, Math.PI * 2);
             c.fill();
           }
-          // The drawing's running result, in a pill over where it was won: green ahead, red behind.
+          // What the hit paid, in a green pill over where it was won.
           if (e.text) {
             c.globalAlpha = Math.max(0, Math.min(1, 1.6 - age * 1.6));
             c.font = `700 ${e.big ? 17 : 15}px ${SANS}`;
             const tw = c.measureText(e.text).width + 24;
-            const cx = Math.min(w - tw / 2 - 8, Math.max(tw / 2 + 8, Math.max(ex, nx)));
+            const cx = Math.min(w - tw / 2 - 8, Math.max(tw / 2 + 8, ex));
             const cy = ey - 62 - (reducedMotion.matches ? 0 : age * 24);
             roundRect(c, cx - tw / 2, cy - 14, tw, 28, 14);
             c.fillStyle = e.loss ? rgba(pal.down) : green;

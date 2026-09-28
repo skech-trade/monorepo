@@ -105,9 +105,9 @@ rung   = the highest rung ≤ fair, or the floor if fair is under it, or 128× p
 hit pays d × stake × rung                  (one section pays at most 256 dots)
 ```
 
-- **Difficulty** is one number, 0 to 100 (`DIFFICULTY` in `dots.ts`, 55 by default;
+- **Difficulty** is one number, 0 to 100 (`DIFFICULTY` in `dots.ts`, 66 by default;
   a slider in the help sheet in development, or with `?house`). It sets `ladderBest`,
-  what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 98¢ at 55. It also sets
+  what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 93.6¢ at 66. It also sets
   the floor, what near-certain ink pays: 1.1× up to 70, easing to 1× at 100. Harder
   lowers every rung a spot earns; nothing ever pays under 1×.
 - A section's chance `p` sets its rung. Ink placed exactly on a rung returns
@@ -180,8 +180,9 @@ laptop, a tap's quote by zoom (columns: 5, 17 and 29 seconds ahead):
 - Each piece of ink opens on the next whole second and is priced there, on everything
   known by then.
 - The second after opening is never in play, so nobody can react faster than the bet.
-  So ink starts counting one to two seconds ahead; the dashed wait line holds still at
-  two seconds, and everything right of it always counts.
+  So ink starts counting one to two seconds ahead. The wait line holds still at two
+  seconds: everything right of it always counts, and the zone left of it is greyed out
+  and cannot be drawn in.
 - Ink reaches 30 seconds ahead of the opening second.
 - The preview uses the last closed second's map; the opening uses its own second's.
   If a section is no longer offered at opening, its stake is refunded.
@@ -209,7 +210,10 @@ STEP=600 OUT=report.json bun packages/core/scripts/check-ink-area.ts \
 
 Coinbase BTC-USD, September 17–24, library from September 1–16, at difficulty 70
 (ladder best 92¢): 172,777 drawings opened, 8,047,900 invariant checks passed. At the
-default 55 (best 98¢), with chances held to fall away from the price, the same replay returns 0.779 overall (95%: 0.729–0.832), 0.777–0.783 by screen and 0.779–0.780 by pen; drawing with the momentum returns 0.876 (95%: 0.789–0.975). Before that rule it was 0.798 at 55; at 60 0.781, at 75 0.730.
+default 55 (best 98¢), with chances held to fall away from the price, the same replay returns 0.779 overall (95%: 0.729–0.832), 0.777–0.783 by screen and 0.779–0.780 by pen; drawing with the momentum returns 0.876 (95%: 0.789–0.975). Before that rule it was 0.798 at 55; at 60 0.781, at 75 0.730. At the default 66
+(best 93.6¢), 172,800 drawings, 11,338,664 invariant checks passed: 0.744 overall
+(95%: 0.695–0.795), 0.741–0.748 by screen, 0.744 for every pen; level line 0.695,
+against momentum 0.710, with momentum 0.839, `on-price` 0.859.
 The replay places each drawing whole; pieces bet as they are drawn price each piece
 the same way.
 

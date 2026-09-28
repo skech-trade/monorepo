@@ -58,9 +58,9 @@ export function difficulty(d: number) {
   };
 }
 /** The game's difficulty, 0 to 100: the one setting for how much the house
- * keeps. At 55, ink exactly on a rung returns 98¢ a dollar, about 80¢ on
- * average once spots round down to their rung. */
-export const DIFFICULTY = 55;
+ * keeps. At 66, ink exactly on a rung returns 93.6¢ a dollar, about 74¢ on
+ * average once spots round down to their rung (Sept 17–24 replay). */
+export const DIFFICULTY = 66;
 
 /*
   Calibration. The chance measured on the paths is right on average but not
