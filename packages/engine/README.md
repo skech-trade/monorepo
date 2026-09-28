@@ -1,0 +1,108 @@
+# @skech/engine
+
+Rust WebSocket server, and skech's price oracle. It streams every BTC-USD
+trade on Coinbase to the app, each checked against Binance and Kraken and
+signed by the engine's wallet as EIP-712 typed data, which
+`packages/contracts` checks on chain. The app shows the price that was signed.
+
+```
+Coinbase ─wss + REST─┐  the price, and 10 min of history
+Binance ───wss───────┤  attesters: sign Coinbase if their median is within the band,
+Kraken ────wss───────┘             else sign their median, else (none heard) sign nothing
+                     └──> engine ──ws://…:3102/ws──> app ──tx(price, time, signature)──> SkechPrice
+```
+
+Every source is a venue's public WebSocket, one connection each, pushing each
+trade as it happens: no API keys, and nowhere near any venue's limits.
+
+Why not an RPC or a DEX for the price: an RPC only has on-chain oracles, and
+Chainlink BTC/USD on Ethereum had not moved in 43 minutes when checked, 0.1%
+from Coinbase. A DEX pool's price only moves on a swap, drifts by up to its fee
+tier, and one large swap can push it. Pyth Pro would sign at the source, but
+needs an API key.
+
+Binance's BTC trades are in USDT, which is not quite a dollar (0.044% off when
+measured), so they are divided by Binance's own USDC/USDT. In dollars, Binance
+was 0.005% from Coinbase at the median. Kraken's WebSocket host could not be
+reached from the network this was built on (a TLS failure even for curl), so
+its feed is written to Kraken's v2 API but has not run live.
+
+## Run
+
+```bash
+bun run dev:engine        # from the repo root; or: cargo run --release
+cargo test                # includes the vector the contract tests recover
+```
+
+It reads the repo root `.env.local`. Variables already in the environment win.
+
+| Env | Default | |
+|---|---|---|
+| `ENGINE_PRIVATE_KEY` | throwaway wallet | Hex key the engine signs with |
+| `ENGINE_CHAIN_ID` | `31337` (anvil) | EIP-712 domain: the chain the contract is on |
+| `ENGINE_VERIFYING_CONTRACT` | `0x000…0` | EIP-712 domain: the deployed `SkechPrice` |
+| `ENGINE_BAND_BPS` | `1` (0.01%) | How far the attesters' median may be from Coinbase before it is signed instead |
+| `ENGINE_PORT` | `3102` | |
+
+`GET /health` returns `ok`. `hello` also carries `"attest": { "by": ["binance", "kraken"], "band": 0.0001 }`.
+
+## Protocol
+
+One WebSocket at `/ws`, JSON text frames, server to client only. The engine
+signs what it saw; a client cannot ask it to sign anything.
+
+```jsonc
+// 1. on connect: the signer, and an eth_signTypedData_v4 payload minus the message
+{ "type": "hello", "signer": "0x…", "typedData": {
+    "domain": { "name": "skech", "version": "1", "chainId": 31337, "verifyingContract": "0x…" },
+    "primaryType": "Price",
+    "types": { "EIP712Domain": [ … ], "Price": [
+      { "name": "market", "type": "string" }, { "name": "price", "type": "uint256" }, { "name": "time", "type": "uint64" } ] } } }
+// 2. then the last ten minutes of trades, oldest first, unsigned: [id, time ms, price]
+{ "type": "history", "trades": [[1099703850, 1790629278967, 83591.44], …] }
+// 3. then every trade as it lands. p is the price to show, and the one signed;
+//    source says whose it is; message is the EIP-712 Price the signature is over
+{ "type": "price", "id": 1099703850, "t": 1790629278967, "p": 83591.44,
+  "source": "coinbase", "coinbase": 83591.44, "attesters": { "binance": 83588.2 },
+  "message": { "market": "BTC-USD", "price": "8359144000000", "time": 1790629278967 },
+  "signature": "0x…" }
+// with no attester heard from in 5 s: "message": null, "signature": null (nothing to post)
+// Coinbase's heartbeat each second
+{ "type": "beat", "t": 1790629279000 }
+```
+
+- `price` has 8 decimals and is sent as a string, because it is a `uint256`
+  and JavaScript numbers lose precision past 2^53. `time` is Coinbase's, in ms.
+- `signature` is 65 bytes, r‖s‖v, with v 27 or 28 and s in the low half.
+- The chain id and contract are inside the signed domain, so a price signed
+  for one chain or contract does not verify on another.
+
+Check a price in the app:
+
+```ts
+import { verifyTypedData } from "viem";
+await verifyTypedData({ ...hello.typedData, address: hello.signer, message: m.message, signature: m.signature });
+```
+
+On chain, pass `message.market`, `message.price`, `message.time` and
+`signature` to `SkechPrice.verify` (see `packages/contracts`).
+
+## Notes
+
+- Once a second the log says what is being signed, as a trade would post it:
+  `signed $83,422.99 (coinbase, binance 0.004%) 0xcb902e30…b260581b · 7 trades`,
+  or `attesters' price; coinbase was …, 0.016% off`, or `NOT signed …: no attester heard from`.
+
+- Each update is serialized once and shared by every client. A client that
+  falls 1024 updates behind skips ahead instead of slowing the others.
+- `TCP_NODELAY` is on for both upstream and client sockets.
+- Signing takes 38 µs a price (release build). Through the engine, a trade
+  reaches a client 1–2 ms (p50) later than from Coinbase directly.
+- An upstream socket that closes or goes quiet (5 s for Coinbase, 10 s for Binance
+  and Kraken) is reopened with backoff, and the trades missed meanwhile are
+  backfilled. A few hundred ms between the backfill and the socket opening can
+  still be missed; the chart carries the price flat through them.
+- A panic ends the process (`panic = "abort"`): a feed that died must not
+  leave a server up, serving nothing.
+- Keep `ENGINE_PRIVATE_KEY` in a wallet that holds nothing: a contract trusts
+  its prices, so it should have no other job.

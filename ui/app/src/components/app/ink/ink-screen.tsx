@@ -13,7 +13,7 @@ import { Popover, PopoverClose, PopoverPopup, PopoverTitle, PopoverTrigger } fro
 import { setDark, useDark } from "@/components/app/theme-toggle";
 
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
-import { useCoinbase } from "@/lib/coinbase";
+import { useEngine } from "@/lib/engine";
 import { buzz, cents, practice, record, setPractice, sound, usePractice } from "@/lib/practice";
 import { cn } from "@/lib/utils";
 import { fmtMultiple, type Game, type Preview, Stage } from "./stage";
@@ -69,7 +69,7 @@ function ToggleRow({ title, detail, checked, onChange }: { title: string; detail
 const navRow = "flex min-h-[52px] w-full items-center gap-3 px-4 text-left text-[17px] transition-colors hover:bg-accent";
 
 export function InkScreen() {
-  const feed = useCoinbase("BTC-USD");
+  const feed = useEngine();
   const state = usePractice();
   /* The paths every chance is measured on: a file of their own, fetched once. Nothing is priced until it is in. */
   const [lib, setLib] = useState<Library | null>(null);

@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { type Bar, type Field, openFor } from "@skech/core/dots";
 import { drawingLayout, INK_CELL, VIEW_SECONDS, CHART_STEP_PX, PEN_CELLS, type Cell, type InkBet, type Pen, type Stroke } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
-import type { Tick } from "@/lib/coinbase";
+import type { Tick } from "@/lib/engine";
 import { tracePricePath } from "./price-path";
 
 /**

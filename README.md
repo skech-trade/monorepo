@@ -6,12 +6,16 @@ Bun-workspaces monorepo.
 
 ```
 .
-├── package.json          # workspace root (workspaces: ui/*)
+├── package.json          # workspace root (workspaces: ui/*, packages/*)
 ├── bunfig.toml           # hoisted install linker
 ├── tsconfig.base.json    # shared TS compiler options
-└── ui/
-    ├── landing/          # @skech/landing — marketing site
-    └── app/              # @skech/app     — product app
+├── ui/
+│   ├── landing/          # @skech/landing   — marketing site
+│   └── app/              # @skech/app       — product app
+└── packages/
+    ├── core/             # @skech/core      — the game's pricing and settlement (TypeScript)
+    ├── engine/           # @skech/engine    — price server: Coinbase in, signed prices out (Rust)
+    └── contracts/        # @skech/contracts — checks the engine's signed prices on chain (Foundry)
 ```
 
 Both apps are Next.js 16 (App Router, TypeScript, Tailwind v4, ESLint, Turbopack)
@@ -21,10 +25,15 @@ with the `@/*` import alias pointing at each app's `src/`.
 
 ```bash
 bun install          # install every workspace from the root
-bun run dev          # run landing + app together
+bun run dev          # engine + app + landing in one terminal, one labelled log
+bun run dev app engine   # just those
+bun run dev --kill   # first stop whatever holds their ports
 bun run dev:landing  # landing on its own
-bun run dev:app      # app on its own
+bun run dev:app      # app on its own (needs the engine for prices)
+bun run dev:engine   # engine on its own
 ```
+
+The engine needs Rust (`cargo`) and the contracts need Foundry (`forge`).
 
 ## Ports
 
@@ -32,6 +41,7 @@ Both apps use fixed default ports for `dev` and `start`:
 
 - Landing: http://localhost:3100
 - App: http://localhost:3101
+- Engine: ws://localhost:3102/ws (`ENGINE_PORT`; the app reads `NEXT_PUBLIC_ENGINE_URL`)
 
 Stop an existing server before restarting it. Keep `http://localhost:3101`
 in your Coinbase CDP development project's allowed origins.
@@ -49,12 +59,13 @@ monorepo so the two apps use different ports.
 
 | Script | What it does |
 | --- | --- |
-| `bun run dev` | dev server for every workspace, in parallel |
+| `bun run dev` | the whole stack, one labelled log (`scripts/dev.ts`); stops it all if one dies |
 | `bun run build` | production build for every workspace |
 | `bun run start` | serve the production builds |
 | `bun run lint` | ESLint across every workspace |
 | `bun run typecheck` | `tsc --noEmit` across every workspace |
-| `bun run clean` | remove `node_modules` and `.next` |
+| `bun run test` | bun tests, `cargo test` and `forge test` |
+| `bun run clean` | remove `node_modules`, `.next`, `target`, and Foundry's `out` and `cache` |
 
 `typecheck` relies on the route types Next generates, so run `bun run build`
 (or `bun run dev`) at least once in a fresh checkout before it will pass.
