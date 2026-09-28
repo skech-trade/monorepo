@@ -4,6 +4,7 @@ import { AppBar } from "@/components/app/app-bar";
 import { cents, setPractice } from "@/lib/practice";
 import { useSettings } from "@/lib/settings";
 import { DepositButton } from "./ink-controls";
+import { InkIntro } from "./ink-intro";
 import { InkScreen } from "./ink-screen";
 
 /**
@@ -22,6 +23,7 @@ export function FunShell() {
       <main className="absolute inset-0 flex min-h-0 w-full flex-col overflow-hidden">
         <InkScreen />
       </main>
+      <InkIntro />
     </div>
   );
 }
