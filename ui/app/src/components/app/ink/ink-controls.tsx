@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
+import { useState } from "react";
 import { POINT_PRICES } from "@skech/core/odds";
 import { AmountWheel } from "./amount-wheel";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,8 @@ export const amountLabel = (n: number) => `$${Number.isInteger(n) ? n : n.toFixe
 const Dot = ({ size }: { size: number }) => <span aria-hidden="true" className="block shrink-0 rounded-full bg-brand transition-[width,height] duration-150 ease-out motion-reduce:transition-none" style={{ width: size, height: size }} />;
 
 export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: Brush; amount: number; onPen: (id: Brush) => void; onAmount: (n: number) => void; className?: string }) {
+  // A tapped price is the pick: the wheel rolls to it, then the panel closes.
+  const [amountOpen, setAmountOpen] = useState(false);
   return (
     <div className={cn(feedback.penControls, className)}>
       <Popover>
@@ -47,7 +50,7 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
           </div>
         </PopoverPopup>
       </Popover>
-      <Popover>
+      <Popover onOpenChange={setAmountOpen} open={amountOpen}>
         <PopoverTrigger render={<Button aria-label={`${amountLabel(amount)} per dot`} className={feedback.dockButton} variant="outline" />}>
           <span className="figures font-semibold">{amountLabel(amount)}</span><ChevronDownIcon className="size-3.5 text-muted-foreground" />
         </PopoverTrigger>
@@ -58,7 +61,7 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
             <span className="max-sm:hidden">Pick your price</span>
           </PopoverTitle>
           <div className="pt-3 sm:pt-4">
-            <AmountWheel format={amountLabel} label="What per dot costs" onChange={onAmount} value={amount} values={[...POINT_PRICES.values]} />
+            <AmountWheel format={amountLabel} label="What per dot costs" onChange={onAmount} onPick={() => setTimeout(() => setAmountOpen(false), 180)} value={amount} values={[...POINT_PRICES.values]} />
           </div>
         </PopoverPopup>
       </Popover>

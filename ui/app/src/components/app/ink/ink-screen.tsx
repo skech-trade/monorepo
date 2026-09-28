@@ -529,6 +529,8 @@ export function InkScreen() {
     />
   );
 
+  /** The round just over, if it came out ahead: the only kind the round card shows. */
+  const ahead = result && !result.voided && result.won > result.cost ? result : null;
   const latestResult = state.history[0];
   const showingBatch = totals.drawings > 0 || totals.committed > 0;
   const displayedPnl = showingBatch ? totals.pnl : latestResult ? cents(latestResult.won - latestResult.cost) : 0;
@@ -596,25 +598,18 @@ export function InkScreen() {
             <div className={feedback.hintPill}>Draw to the right of the line</div>
           ) : null}
 
-          {/* A finished drawing, for a moment: what it came to. */}
-          {result && !preview ? (
-            <div className={cn(feedback.notice, feedback.roundCard)} key={result.key} role="status">
-              {!result.voided ? (
-                <>
-                  <div>
-                    <span className={feedback.roundLabel}>Round over</span>
-                    <span className={cn(feedback.roundValue, result.won > result.cost ? "text-success-foreground" : result.won < result.cost ? "text-destructive-foreground" : "text-foreground")}>{signed(cents(result.won - result.cost))}</span>
-                    <span className={cn(feedback.roundLabel, "figures")}>{money(result.cost)} in, {money(result.won)} back{result.hits > 0 ? ` · ${Math.round(100 * result.hits / result.points)}% hit` : ""}</span>
-                  </div>
-                </>
-              ) : (
-                <span className="text-[15px] text-muted-foreground">The price moved before it opened. Nothing spent.</span>
-              )}
+          {/* A finished drawing that made money, for a moment: what it made. A loss shows nothing here. */}
+          {ahead && !preview ? (
+            <div className={cn(feedback.notice, feedback.roundCard)} key={ahead.key} role="status">
+              <div>
+                <span className={feedback.roundLabel}>Round over</span>
+                <span className={cn(feedback.roundValue, "text-success-foreground")}>{signed(cents(ahead.won - ahead.cost))}</span>
+              </div>
             </div>
           ) : null}
       </div>
 
-      {returnedInk && !preview && !result ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
+      {returnedInk && !preview && !ahead ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
       <div className={feedback.bottomShade} aria-hidden="true" />
       <footer className={feedback.toolbar}>
         <Button aria-label="Settings" aria-haspopup="dialog" className={feedback.settingsButton} onClick={() => setSettingsOpen(true)} size="icon" variant="outline"><SlidersHorizontalIcon strokeWidth={1.8} /></Button>
