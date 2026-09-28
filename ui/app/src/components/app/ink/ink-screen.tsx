@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, ShareIcon, SlidersHorizontalIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DIFFICULTY, difficulty, DOT_BETS, features, type Field, type Library, readLibrary, RULES, setDifficulty, START_BALANCE, stepFor } from "@skech/core/dots";
 import { areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type Stroke, won } from "@skech/core/ink";
@@ -387,17 +387,15 @@ export function InkScreen() {
             const due = Math.max(0, Math.floor(acc.raw * 100 + 1e-8) / 100 - acc.credited);
             acc.credited = cents(acc.credited + due);
             credit += due;
-            // Where it landed, the drawing's running result: what its hits
-            // have paid so far less what it cost. A hit on a drawing that is
-            // still behind reads as a loss, not as the payout.
-            const spent = g.bets.reduce((n, b, j) => (b.group ?? b.id) === line ? n + cost(j === i ? bet : b) - refund(j === i ? bet : b) : n, 0);
-            const net = cents(acc.raw - spent);
+            // Where it landed, what this hit paid: always a gain. What the
+            // drawing came to, win or lose, is the round's card when it ends.
+            const paid = Math.floor((won(bet) - won(before)) * 100 + 1e-8) / 100;
             const best = Math.max(...fresh2.map((d) => d.multiple * (isArea(bet.model) ? d.area : 1)));
             const lo = Math.min(...fresh2.map((d) => d.lo));
             const hi = Math.max(...fresh2.map((d) => d.hi));
             // One number per drawing: a new hit replaces the last one's.
             g.fx = g.fx.map((e) => e.line === line ? { ...e, text: undefined } : e);
-            g.fx.push({ kind: "hit", t: fresh2[0].t + 500, price: Math.min(hi, Math.max(lo, bar.c)), born: performance.now(), text: signed(net), loss: net < 0, line, big: best >= 10 });
+            g.fx.push({ kind: "hit", t: fresh2[0].t + 500, price: Math.min(hi, Math.max(lo, bar.c)), born: performance.now(), text: paid > 0 ? `+${money(paid)}` : undefined, line, big: best >= 10 });
             if (practice().sound) sound.hit(best);
             buzz(best >= 10 ? 40 : 12);
           }
@@ -526,15 +524,6 @@ export function InkScreen() {
     />
   );
 
-  /* A round's result, to send on: the phone's own share sheet, or the clipboard. */
-  const share = async (net: number) => {
-    const text = `I drew ahead of the Bitcoin price on skech: ${signed(net)}`;
-    try {
-      if (navigator.share) await navigator.share({ text, url: window.location.origin });
-      else await navigator.clipboard.writeText(`${text} ${window.location.origin}`);
-    } catch { /* Dismissed, or not allowed here. */ }
-  };
-
   const latestResult = state.history[0];
   const showingBatch = totals.drawings > 0 || totals.committed > 0;
   const displayedPnl = showingBatch ? totals.pnl : latestResult ? cents(latestResult.won - latestResult.cost) : 0;
@@ -602,7 +591,7 @@ export function InkScreen() {
             <div className={feedback.hintPill}>Draw to the right of the line</div>
           ) : null}
 
-          {/* A finished drawing, for a moment: what it came to, and a way to share it. */}
+          {/* A finished drawing, for a moment: what it came to. */}
           {result && !preview ? (
             <div className={cn(feedback.notice, feedback.roundCard)} key={result.key} role="status">
               {!result.voided ? (
@@ -612,7 +601,6 @@ export function InkScreen() {
                     <span className={cn(feedback.roundValue, result.won > result.cost ? "text-success-foreground" : result.won < result.cost ? "text-destructive-foreground" : "text-foreground")}>{signed(cents(result.won - result.cost))}</span>
                     <span className={cn(feedback.roundLabel, "figures")}>{money(result.cost)} in, {money(result.won)} back{result.hits > 0 ? ` · ${Math.round(100 * result.hits / result.points)}% hit` : ""}</span>
                   </div>
-                  <Button className="h-11 shrink-0 rounded-full border-0 bg-secondary px-4 font-semibold text-[15px] sm:h-11" onClick={() => void share(cents(result.won - result.cost))} variant="secondary"><ShareIcon className="size-[18px]" />Share</Button>
                 </>
               ) : (
                 <span className="text-[15px] text-muted-foreground">The price moved before it opened. Nothing spent.</span>

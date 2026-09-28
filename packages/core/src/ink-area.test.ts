@@ -243,10 +243,10 @@ test("a live hit credits immediately and completed drawings stay in the batch P&
 });
 
 test("the default difficulty sets payouts without changing the minimum", () => {
-  expect(DIFFICULTY).toBe(55);
-  expect(difficulty(DIFFICULTY).maxMultiple).toBe(14);
-  expect(difficulty(DIFFICULTY).rtp).toBe(0.764);
-  expect(difficulty(DIFFICULTY).ladderBest).toBe(0.98);
+  expect(DIFFICULTY).toBe(66);
+  expect(difficulty(DIFFICULTY).maxMultiple).toBe(11);
+  expect(difficulty(DIFFICULTY).rtp).toBe(0.729);
+  expect(difficulty(DIFFICULTY).ladderBest).toBe(0.936);
   expect(difficulty(DIFFICULTY).ladderFloor).toBe(1.1);
   expect(difficulty(DIFFICULTY).rtp).toBeLessThan(difficulty(50).rtp);
   expect(MIN_INK_MULTIPLE).toBe(1.1);
