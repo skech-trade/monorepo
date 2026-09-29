@@ -17,7 +17,9 @@
     "lint": "bun run --filter '*' lint",
     "typecheck": "bun run --filter '*' typecheck",
     "clean": "rm -rf node_modules ui/*/node_modules ui/*/.next packages/engine/target packages/contracts/out packages/contracts/cache",
-    "test": "bun run --filter '*' test"
+    "test": "bun run --filter '*' test",
+    "dev:relayer": "bun run --filter @skech/relayer dev",
+    "deploy:contracts": "bun scripts/deploy-contracts.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

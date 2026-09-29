@@ -1,0 +1,80 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { hasAuth, useAccount } from "@/components/app/auth";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { onChain } from "@/lib/chain";
+import { cn } from "@/lib/utils";
+import { MIN_DEPOSIT, useChain } from "./chain-context";
+import feedback from "./drawing-feedback.module.css";
+
+/**
+ * The way in for someone new: sign in, deposit USDC, draw. One card over the
+ * chart, one step at a time, gone once there is money to draw with.
+ * Without a game configured the app plays for practice and none of it shows.
+ */
+
+/** Whether this build plays for real money: a game to play on, and a way to sign in. */
+export const forReal = onChain && hasAuth;
+
+export type Step = "signin" | "connecting" | "deposit" | "setup" | null;
+
+/** Where someone is on the way in. `live`: ink of theirs still out, which counts as money in play. */
+export function useOnboarding(live: number): { step: Step; setupError: string | null; retrySetup: () => void } {
+  const me = useAccount();
+  const chain = useChain();
+  const [setupError, setSetupError] = useState<string | null>(null);
+  // Only once the relayer has said the balance: before that it reads zero, and the deposit sheet would open on
+  // someone with money. Under a dollar with nothing in play is when to offer it; a dollar or more, just play.
+  const known = chain.account !== null;
+  const empty = known && chain.balance < MIN_DEPOSIT && live === 0;
+
+  let step: Step = null;
+  if (!forReal) step = null;
+  else if (!me.signedIn) step = "signin";
+  else if (!chain.real || !known) step = "connecting";
+  else if (empty) step = "deposit";
+  else if (!chain.sessionOk) step = "setup";
+
+  // The drawing key registers by itself, once, the moment there is money to draw with; a failure shows the card.
+  const tried = useRef(false);
+  useEffect(() => {
+    if (step !== "setup" || tried.current || chain.registering || !chain.key) return;
+    tried.current = true;
+    void chain.enableSession().then((why) => why && setSetupError(why));
+  }, [step, chain]);
+  const retrySetup = () => {
+    setSetupError(null);
+    void chain.enableSession().then((why) => why && setSetupError(why));
+  };
+  return { step, setupError, retrySetup };
+}
+
+/** Where someone is, as one quiet line over the game: the game itself stays in play. Only a failed setup needs more. */
+export function Onboarding({ step, setupError, retrySetup }: ReturnType<typeof useOnboarding>) {
+  const chain = useChain();
+  if (step === null) return null;
+  if (step === "setup" && setupError) {
+    return (
+      <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-4" role="dialog" aria-label="Finish setting up">
+        <div className={cn(feedback.notice, "pointer-events-auto w-full max-w-[360px] rounded-[28px] bg-raised p-6 shadow-[var(--raised-shadow)]")}>
+          <h2 className="font-semibold text-[22px] leading-tight">One last step.</h2>
+          <p className="mt-1.5 text-[15px] text-muted-foreground">Let this browser place your drawings.</p>
+          <Button className="mt-5 h-12 w-full rounded-full font-semibold text-base sm:h-12" disabled={chain.registering} onClick={retrySetup}>
+            {chain.registering ? <><Spinner /> Getting ready…</> : "Allow"}
+          </Button>
+          <p className="mt-3 text-center text-sm text-destructive-foreground">That didn&rsquo;t go through. Try again.</p>
+        </div>
+      </div>
+    );
+  }
+  const busy = step === "connecting" || step === "setup" || chain.adding !== null;
+  const text =
+    step === "signin" ? "Sign in to play" : step === "deposit" ? (chain.adding !== null ? `Adding $${chain.adding.toFixed(2)}…` : "Deposit USDC to play") : step === "setup" || chain.registering ? "Getting ready…" : "Connecting…";
+  return (
+    <div className={cn(feedback.hintPill, "flex items-center gap-2")} role="status">
+      {busy ? <Spinner className="size-4" /> : null} {text}
+    </div>
+  );
+}

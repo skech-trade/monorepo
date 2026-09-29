@@ -43,3 +43,6 @@ yarn-error.log*
 .claude/
 skills-lock.json
 .gstack/
+
+# relayer
+.relayer-state*.json

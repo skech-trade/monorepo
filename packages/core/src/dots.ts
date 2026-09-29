@@ -58,9 +58,9 @@ export function difficulty(d: number) {
   };
 }
 /** The game's difficulty, 0 to 100: the one setting for how much the house
- * keeps. At 66, ink exactly on a rung returns 93.6¢ a dollar, about 74¢ on
- * average once spots round down to their rung (Sept 17–24 replay). */
-export const DIFFICULTY = 66;
+ * keeps. At 55, ink exactly on a rung returns 98¢ a dollar, about 78¢ on
+ * average once spots round down to their rung (Sept 17–24 replay: 0.779). */
+export const DIFFICULTY = 55;
 
 /*
   Calibration. The chance measured on the paths is right on average but not
@@ -355,7 +355,7 @@ const weights = (lib: Library, f: Features) => weightsFor(lib, f).w;
 /* ------------------------------------------------------------------ */
 
 /** The price steps a dot can be, so the axis reads in round numbers. */
-const NICE = [0.01, 0.02, 0.025, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100];
+export const NICE = [0.01, 0.02, 0.025, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100];
 
 /** How tall a dot is for this market: `stepSigmas` one-second moves, to the nearest round step. */
 export function stepFor(sigma: number, price: number): number {

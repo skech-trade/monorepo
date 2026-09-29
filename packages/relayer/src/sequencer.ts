@@ -1,0 +1,286 @@
+/**
+ * Pieces come in as they are drawn; every second's worth opens together.
+ *
+ * A piece is checked as it arrives (its shape, its signatures, its session,
+ * its money, that it is not late) and answered at once. Pieces that open on
+ * the same second wait for that second to start and a little longer, for
+ * late trades; then each band is priced on the map of that second, the quote
+ * is signed, and one transaction places them all. What the chain says back
+ * goes to each player.
+ */
+import { features, NICE, stepFor } from "@skech/core/dots";
+import { betIdOf, CHANCE_ONE, decodeStroke, HORIZON, MAX_SECTIONS, momentumE6, stakeOf, toE8, TYPES, unitFor, type Piece, type Section } from "@skech/core/chain";
+import { type Address, type Hex, hashStruct, keccak256, type TypedDataDomain } from "viem";
+import type { ChainClient, GameConfig, Session } from "./chain";
+import type { Config } from "./config";
+import type { Engine } from "./engine";
+import type { Pricer } from "./pricer";
+import type { Settler } from "./settler";
+import { verifyPiece, verifyPrice } from "./verify";
+
+export type PieceWire = {
+  player: Address;
+  drawing: string;
+  index: number;
+  market: number;
+  difficulty: number;
+  openAt: string;
+  perDot: string;
+  unit: string;
+  priceSeen: string;
+  priceTime: string;
+  sections: { second: number; lo: string; hi: string; stake: string }[];
+  strokeHash: Hex;
+};
+export type PieceMsg = { type: "piece"; piece: PieceWire; sessionSig: Hex; priceSig: Hex; stroke: Hex };
+
+export type Placed = { betId: Hex; player: Address; openAt: bigint; staked: bigint; fee: bigint; refunded: bigint; sections: { second: number; lo: bigint; hi: bigint; stake: bigint; rung: number }[]; tx: Hex };
+export type Refused = { betId: Hex; player: Address; why: string; tx?: Hex };
+export type Notify = { placed: (p: Placed) => void; refused: (r: Refused) => void };
+
+type Pending = { piece: Piece; hash: Hex; sessionSig: Hex; priceSig: Hex; stroke: Hex; receivedAt: number; betId: Hex };
+
+const REFUSALS = ["None", "Mismatch", "Replay", "Difficulty", "Late", "StalePrice", "PerDot", "Sections", "PriceSig", "Stroke", "Session", "SessionSig", "NotOffered", "Allowance", "Balance"];
+const isHex = (s: unknown, bytes?: number): s is Hex => typeof s === "string" && /^0x[0-9a-fA-F]*$/.test(s) && (bytes === undefined || s.length === 2 + bytes * 2);
+const big = (s: unknown) => (typeof s === "string" && /^\d{1,20}$/.test(s) ? BigInt(s) : null);
+
+export class Sequencer {
+  difficulty = 51;
+  gameConfig: GameConfig | null = null;
+  private buckets = new Map<bigint, Pending[]>();
+  private timers = new Map<bigint, ReturnType<typeof setTimeout>>();
+  private seen = new Set<Hex>();
+  private sessions = new Map<Address, { at: number; session: Session }>();
+  private balances = new Map<Address, { at: number; balance: bigint }>();
+  /** Stakes accepted but not yet on chain, per player, so a fast hand cannot outrun its balance. */
+  private pending = new Map<Address, bigint>();
+  readonly domain: TypedDataDomain;
+  stats = { accepted: 0, refused: 0, placed: 0, batches: 0 };
+
+  constructor(
+    private readonly cfg: Config,
+    private readonly engine: Engine,
+    private readonly pricer: Pricer,
+    private readonly chain: ChainClient,
+    private readonly settler: Settler,
+    private readonly notify: Notify,
+    private readonly log: (s: string) => void,
+  ) {
+    this.domain = { name: "skech", version: "1", chainId: cfg.chainId, verifyingContract: cfg.game };
+  }
+
+  /**
+   * The grid units a piece may be on now: the market step's, or a round step
+   * near it. The app holds its step while ink is on the chart, up to 1.6x from
+   * the market's; anything within 2.5x of a round step is taken.
+   */
+  units(): bigint[] | null {
+    const f = features(this.engine.book.bars, Math.floor(this.engine.now() / 1000) * 1000);
+    if (!f) return null;
+    const want = stepFor(f.sigma, f.price);
+    return NICE.filter((n) => n >= want / 2.5 && n <= want * 2.5).map((n) => toE8(unitFor(n)));
+  }
+
+  forgetSession(player: Address) {
+    this.sessions.delete(player);
+  }
+  forgetBalance(player: Address) {
+    this.balances.delete(player);
+  }
+
+  /** Check a piece and queue it for its second. */
+  async accept(msg: PieceMsg): Promise<{ ok: true; betId: Hex } | { ok: false; why: string; betId?: Hex }> {
+    const now = Math.floor(this.engine.now());
+    const parsed = this.parse(msg);
+    if (typeof parsed === "string") return { ok: false, why: parsed };
+    const piece = parsed;
+    const betId = betIdOf(piece.player, piece.drawing, piece.index);
+    const bad = (why: string) => ({ ok: false as const, why, betId });
+    if (this.seen.has(betId)) return bad("Already sent");
+    if (piece.market !== this.cfg.market) return bad("Unknown market");
+    if (piece.difficulty !== this.difficulty) return bad(`Difficulty is ${this.difficulty} now`);
+    if (!this.engine.ready() || !this.engine.signer) return bad("Waiting for live prices");
+    const openAt = Number(piece.openAt);
+    if (openAt % 1000 !== 0) return bad("Bad opening second");
+    if (now > openAt + this.cfg.lateMs) return bad("Too late for that second");
+    if (openAt > now + this.cfg.aheadMs) return bad("Your clock is ahead");
+    const gc = this.gameConfig;
+    if (!gc) return bad("Starting up");
+    if (piece.perDot < gc.minPerDot || piece.perDot > gc.maxPerDot) return bad("Per dot out of range");
+    const units = this.units();
+    if (!units) return bad("Waiting for live prices");
+    if (!units.includes(piece.unit)) return bad("Grid out of date");
+    const stake = stakeOf(piece.sections);
+    if (stake > gc.maxPieceStake) return bad("Too much on one piece");
+    // The price seen carries the engine's own time; a trade that reached the player a beat before it reached
+    // here counts as received then. What matters is that it was signed, and that it is not old.
+    const priceTime = Number(piece.priceTime);
+    if (priceTime > now + 2000 || now - priceTime > gc.maxPriceAgeMs) return bad("Price seen is stale");
+    const receivedAt = Math.max(now, priceTime);
+    if (receivedAt > openAt + this.cfg.lateMs) return bad("Too late for that second");
+    if (!(await verifyPrice(this.domain, this.engine.signer, this.cfg.marketName, piece.priceSeen, piece.priceTime, msg.priceSig))) return bad("Price seen is not the engine's");
+    const session = await this.session(piece.player);
+    if (!session || Number(session.validUntil) * 1000 <= now) return bad("No session");
+    if (!(await verifyPiece(this.domain, piece, msg.sessionSig, session))) return bad("Not signed by your session");
+    const pendingStake = this.pending.get(piece.player) ?? 0n;
+    if (session.allowance < stake + pendingStake) return bad("Session allowance used up");
+    const balance = await this.balance(piece.player);
+    if (balance < stake + pendingStake) return bad("Not enough in your balance");
+    // In.
+    this.seen.add(betId);
+    if (this.seen.size > 50_000) this.seen.delete(this.seen.values().next().value!);
+    this.pending.set(piece.player, pendingStake + stake);
+    const hash = hashStruct({ types: TYPES, primaryType: "Piece", data: piece });
+    const entry: Pending = { piece, hash, sessionSig: msg.sessionSig, priceSig: msg.priceSig, stroke: msg.stroke, receivedAt, betId };
+    let bucket = this.buckets.get(piece.openAt);
+    if (!bucket) {
+      this.buckets.set(piece.openAt, (bucket = []));
+      const delay = Math.max(0, openAt + this.cfg.openAfterMs - now);
+      this.timers.set(piece.openAt, setTimeout(() => void this.flush(piece.openAt), delay));
+    }
+    bucket.push(entry);
+    this.stats.accepted++;
+    return { ok: true, betId };
+  }
+
+  private parse(msg: PieceMsg): Piece | string {
+    const w = msg.piece;
+    if (!w || typeof w !== "object") return "No piece";
+    if (!isHex(w.player, 20)) return "Bad player";
+    const drawing = big(w.drawing);
+    const openAt = big(w.openAt);
+    const perDot = big(w.perDot);
+    const unit = big(w.unit);
+    const priceSeen = big(w.priceSeen);
+    const priceTime = big(w.priceTime);
+    if (drawing === null || openAt === null || perDot === null || unit === null || priceSeen === null || priceTime === null) return "Bad numbers";
+    if (!Number.isInteger(w.index) || w.index < 0 || w.index > 0xffffffff) return "Bad index";
+    if (!Number.isInteger(w.market) || !Number.isInteger(w.difficulty) || w.difficulty > 100) return "Bad market";
+    if (!Array.isArray(w.sections) || w.sections.length === 0 || w.sections.length > MAX_SECTIONS) return "Bad sections";
+    if (unit <= 0n) return "Bad unit";
+    const sections: Section[] = [];
+    for (const s of w.sections) {
+      const lo = big(s.lo);
+      const hi = big(s.hi);
+      const stake = big(s.stake);
+      if (!Number.isInteger(s.second) || s.second < 1 || s.second > HORIZON || lo === null || hi === null || stake === null) return "Bad section";
+      if (lo >= hi || stake <= 0n || lo % unit !== 0n || hi % unit !== 0n) return "Section off the grid";
+      sections.push({ second: s.second, lo, hi, stake });
+    }
+    if (!isHex(w.strokeHash, 32) || !isHex(msg.stroke) || !isHex(msg.sessionSig) || !isHex(msg.priceSig)) return "Bad bytes";
+    if (msg.stroke.length > 2 + 2 * (33 + 2048 * 12)) return "Stroke too long";
+    if (keccak256(msg.stroke) !== w.strokeHash) return "Stroke does not match";
+    try {
+      decodeStroke(msg.stroke);
+    } catch {
+      return "Bad stroke";
+    }
+    return { player: w.player, drawing, index: w.index, market: w.market, difficulty: w.difficulty, openAt, perDot, unit, priceSeen, priceTime, sections, strokeHash: w.strokeHash };
+  }
+
+  private async session(player: Address): Promise<Session | null> {
+    const c = this.sessions.get(player);
+    if (c && Date.now() - c.at < 20_000) return c.session;
+    try {
+      const session = await this.chain.sessionOf(player);
+      this.sessions.set(player, { at: Date.now(), session });
+      return session;
+    } catch {
+      return null;
+    }
+  }
+
+  private async balance(player: Address): Promise<bigint> {
+    const c = this.balances.get(player);
+    if (c && Date.now() - c.at < 3_000) return c.balance;
+    const balance = await this.chain.balanceOf(player);
+    this.balances.set(player, { at: Date.now(), balance });
+    return balance;
+  }
+
+  /** Price and place everything that opens on `openAt`. */
+  private async flush(openAt: bigint) {
+    const bucket = this.buckets.get(openAt) ?? [];
+    this.buckets.delete(openAt);
+    this.timers.delete(openAt);
+    if (!bucket.length) return;
+    const release = () => {
+      for (const e of bucket) {
+        const stake = stakeOf(e.piece.sections);
+        const left = (this.pending.get(e.piece.player) ?? 0n) - stake;
+        if (left > 0n) this.pending.set(e.piece.player, left);
+        else this.pending.delete(e.piece.player);
+      }
+    };
+    const f = features(this.engine.book.bars, Number(openAt));
+    if (!f) {
+      release();
+      for (const e of bucket) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "No price to open on" });
+      this.stats.refused += bucket.length;
+      return;
+    }
+    // One map per grid in use; one transaction per grid, since the quote names it.
+    const byUnit = new Map<bigint, Pending[]>();
+    for (const e of bucket) byUnit.set(e.piece.unit, [...(byUnit.get(e.piece.unit) ?? []), e]);
+    await Promise.all(
+      [...byUnit].map(async ([unit, entries]) => {
+        try {
+          const fl = await this.pricer.fieldFor(f, Number(openAt), Number(unit) / 1e8, this.difficulty);
+          const chances = entries.flatMap((e) => this.pricer.chances(fl, e.piece.sections, Number(openAt)));
+          if (chances.some((c) => c < 0 || c > CHANCE_ONE)) throw new Error("a chance out of range");
+          const message = {
+            market: this.cfg.market,
+            openAt,
+            unit,
+            price: toE8(f.price),
+            momentum: BigInt(momentumE6(f.momentum)),
+            pieces: entries.map((e) => e.hash),
+            receivedAt: entries.map((e) => BigInt(e.receivedAt)),
+            chances,
+          };
+          const sig = await this.chain.wallet.signTypedData({ domain: this.domain, types: TYPES, primaryType: "Quote", message });
+          const placements = entries.map((e) => ({ piece: e.piece, sessionSig: e.sessionSig, priceSig: e.priceSig, stroke: e.stroke }));
+          const quote = { market: message.market, openAt, unit, price: message.price, momentum: message.momentum, receivedAt: message.receivedAt, chances };
+          const shape = {
+            kind: "place" as const,
+            pieces: entries.length,
+            sections: entries.reduce((n, e) => n + e.piece.sections.length, 0),
+            strokeBytes: entries.reduce((n, e) => n + (e.stroke.length - 2) / 2, 0),
+            coldSlots: this.chain.ledger.coldSlots,
+          };
+          const receipt = await this.chain.send("place", [placements, quote, sig], `place ${entries.length} at ${openAt}`, shape);
+          this.stats.batches++;
+          const answered = new Set<Hex>();
+          for (const ev of this.chain.events(receipt)) {
+            if (ev.name === "Placed") {
+              const a = ev.args as { betId: Hex; player: Address; openAt: bigint; unit: bigint; staked: bigint; fee: bigint; refunded: bigint; sections: bigint[] };
+              const sections = a.sections.map((w) => ({
+                second: Number(w & 0xffn),
+                lo: (w >> 8n) & 0xffffffffffffffffn,
+                hi: (w >> 72n) & 0xffffffffffffffffn,
+                stake: (w >> 136n) & 0xffffffffffffffffn,
+                rung: Number((w >> 200n) & 0xffffn),
+              }));
+              answered.add(a.betId);
+              this.stats.placed++;
+              for (const s of sections) this.settler.watch(a.betId, a.player, a.unit, { second: Number(openAt) + s.second * 1000, lo: s.lo, hi: s.hi, stake: s.stake, rung: s.rung });
+              this.notify.placed({ betId: a.betId, player: a.player, openAt, staked: a.staked, fee: a.fee, refunded: a.refunded, sections, tx: receipt.transactionHash });
+            } else if (ev.name === "Refused") {
+              const a = ev.args as { betId: Hex; player: Address; why: number };
+              answered.add(a.betId);
+              this.stats.refused++;
+              this.notify.refused({ betId: a.betId, player: a.player, why: REFUSALS[a.why] ?? `Refused (${a.why})`, tx: receipt.transactionHash });
+            }
+          }
+          for (const e of entries) if (!answered.has(e.betId)) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "Not placed", tx: receipt.transactionHash });
+          for (const e of entries) this.balances.delete(e.piece.player);
+        } catch (err) {
+          this.log(`place at ${openAt} (unit ${unit}) failed: ${String((err as Error).message ?? err).split("\n")[0]}`);
+          for (const e of entries) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "Could not reach the chain" });
+          this.stats.refused += entries.length;
+        }
+      }),
+    );
+    release();
+  }
+}

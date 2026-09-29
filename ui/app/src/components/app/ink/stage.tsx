@@ -6,6 +6,7 @@ import { drawingLayout, INK_CELL, VIEW_SECONDS, CHART_STEP_PX, PEN_CELLS, type C
 import { roundedTerms as areaTerms } from "@skech/core/odds";
 import type { Tick } from "@/lib/engine";
 import { tracePricePath } from "./price-path";
+import { feel, pen as penSound } from "@/lib/feel";
 
 /**
  * The stage: the price so far on the left, now in the middle, and the space
@@ -28,7 +29,7 @@ import { tracePricePath } from "./price-path";
  * owns the rules and the money; this owns the picture and the pen.
  */
 
-export type Fx = { kind: "hit" | "placed"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean };
+export type Fx = { kind: "hit" | "placed" | "drop"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean };
 /** What the stroke being drawn costs, the least and most a hit on it pays (in dollars), and which of its points are in play. */
 export type Preview = { multipleLow: number; multipleHigh: number; units: number; cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[]; keyboard?: boolean };
 
@@ -39,7 +40,16 @@ export type Game = {
   skew: number;
   /** Every slice's chance, for a drawing placed now. Null until the paths and the prices are in. */
   field: Field | null;
+  /**
+   * How far ahead of now ink counts as placed, ms: on chain a piece drawn in a second's last moments opens on the
+   * next one, so this is the chain's lateness margin there and nothing in practice. The tiles and the pen's quote
+   * both price from `now + placeLead`, the same moment the placement opens from, so what they show is what is paid.
+   */
+  placeLead: number;
+  /** The chart's scale: price per row of pixels. */
   step: number;
+  /** The pricing grid's scale: what `areaCells` and the map work in, so every screen prices the same. */
+  priceStep: number;
   marketStep: number;
   viewport: { width: number; height: number };
   displayPrice: number;
@@ -48,7 +58,7 @@ export type Game = {
   pen: Pen;
   /** The pen's width, and the height of the rows its points are in, as a share of `step`. */
   cell: number;
-  drawing?: { step: number; perDot: number; pen: Pen };
+  drawing?: { step: number; priceStep: number; perDot: number; pen: Pen };
   bets: InkBet[];
   /** Price a stroke as if it were placed now. Set by the screen, which has the paths and the market. */
   quote: ((st: Stroke) => Preview | null) | null;
@@ -240,7 +250,9 @@ export function Stage({
       const previous = new Map(map.tiles.map(tile => [tile.id, tile]));
       map.tiles = [];
       const sampledAt = now(game.current);
-      const terms = areaTerms(fl, fl.openAt - 1, game.current.step, 1);
+      // Priced from the moment a tap here would be placed, as the pen's quote and the placement itself are: not from
+      // the map's own second, which read every tile one to two seconds further out than a tap there opens.
+      const terms = areaTerms(fl, sampledAt + game.current.placeLead, game.current.priceStep, 1);
       const tap = (t: number, p: number) => {
         const q = terms.line({ t0: t, p0: p, pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: priceRadius() });
         return q.inPlay.length ? Math.max(...q.inPlay.map(c => c.multiple!)) : 0;
@@ -277,6 +289,8 @@ export function Stage({
     let keyboardQuote: Preview | null = null;
     let keyboardQuotedAt = 0;
     let flash: { text: string; x: number; y: number; born: number } | null = null;
+    /** Where the pen was at its last move, for the scratch's speed. */
+    let penFrom = { x: 0, y: 0, at: 0 };
 
     /** The terms of the game for a drawing placed now: what the pen's label says comes from the same place as what a hit pays. */
     /** Re-price the stroke being drawn, at most twenty times a second. */
@@ -298,9 +312,18 @@ export function Stage({
       const g = game.current;
       if (e.button !== 0 || pen || !g || !price(g) || !g.field) return;
       const q = point(e);
-      // Not from the grey zone before the wait line: ink there cannot be bet yet.
-      if (q.x < waitX() || q.y < plotTop() || q.y > plotBottom()) return;
+      if (q.y < plotTop() || q.y > plotBottom()) return;
+      // Not from the grey zone before the wait line: ink there cannot be bet yet. Said, felt, not silently ignored.
+      if (q.x < waitX()) {
+        feel("nope");
+        flash = { text: "Draw right of the dashed line", x: Math.max(q.x, waitX() + 90), y: q.y, born: performance.now() };
+        return;
+      }
       keyboard = false;
+      // Heard and seen the instant the finger lands, before anything is priced: a drop of ink.
+      feel("tap");
+      penSound.down();
+      g.fx.push({ kind: "drop", t: tAt(Math.max(q.x, inkFrom())), price: pAt(q.y), born: performance.now() });
       el.focus({ preventScroll: true });
       try {
         el.setPointerCapture(e.pointerId);
@@ -309,7 +332,8 @@ export function Stage({
       }
       // Ink starts at the wait line at the earliest: nothing is written in the grey zone.
       q.x = Math.max(q.x, inkFrom());
-      g.drawing = { step: g.step, perDot: g.perDot, pen: g.pen };
+      g.drawing = { step: g.step, priceStep: g.priceStep, perDot: g.perDot, pen: g.pen };
+      penFrom = { x: q.x, y: q.y, at: performance.now() };
       pen = { id: e.pointerId, drawing: crypto.randomUUID(), why: null, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: priceRadius() }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
       requote(pen, true);
       const why = place.current(pen.stroke, pen.drawing, false);
@@ -341,6 +365,10 @@ export function Stage({
       }
       if (!moved) return;
       const s = pen.last;
+      // The pen's scratch follows the hand: how far it went since the last move, over how long.
+      const now = performance.now();
+      penSound.move(Math.hypot(s.x - penFrom.x, s.y - penFrom.y) / Math.max(8, now - penFrom.at));
+      penFrom = { x: s.x, y: s.y, at: now };
       requote(pen);
       // Ink is bet as it is drawn, not when the pen lifts.
       const why = place.current(pen.stroke, pen.drawing, false);
@@ -351,6 +379,7 @@ export function Stage({
     };
     const up = (e: PointerEvent) => {
       if (!pen || e.pointerId !== pen.id) return;
+      penSound.up();
       const p = pen;
       pen = null;
       const q = point(e);
@@ -367,6 +396,9 @@ export function Stage({
     };
     const cancel = () => {
       keyboard = false;
+      penSound.up();
+      // The browser took the pointer back mid-stroke (a gesture, a palm): ink drawn since the last piece is not bet.
+      if (pen && process.env.NODE_ENV !== "production") console.warn(`[ink] stroke cancelled by the browser: ink drawn since the last piece (up to 150 ms) is not bet`);
       if (pen && el.hasPointerCapture(pen.id)) el.releasePointerCapture(pen.id);
       game.current.drawing = undefined;
       pen = null;
@@ -405,6 +437,11 @@ export function Stage({
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
     el.addEventListener("pointercancel", cancel);
+    // A finger lifted where the canvas never heard it (capture failed): the stroke ends, and the pen's scratch with it.
+    const lost = (e: PointerEvent) => {
+      if (pen && e.pointerId === pen.id) up(e);
+    };
+    el.addEventListener("lostpointercapture", lost);
     el.addEventListener("pointerleave", leave);
 
     /**
@@ -544,7 +581,9 @@ export function Stage({
       }
       for (const group of renderedGroups) {
         if (group.id !== pen?.drawing) {
-          // Only ink in play is drawn: nothing marks what was refunded.
+          // The whole line faint, as ink too soon is while drawing, then solid wherever it is in play:
+          // a part not in play (refused, or never bet) shows as faint ink, never as a gap in the line.
+          ink(group.stroke, rgba(pal.ink, 0.3));
           inkInPlay(group.stroke, group.cells, solid, group.edgeCells, group.step);
         }
       }
@@ -762,11 +801,18 @@ export function Stage({
         if (line.length > 1) {
           const path = new Path2D();
           tracePricePath(path, line);
+          // The scale is fixed around the live price, so older prices can run off it: the line stays inside the
+          // chart instead of running over the time axis and the dock below it.
+          c.save();
+          c.beginPath();
+          c.rect(0, plotTop() - 6, w, plotBottom() - plotTop() + 12);
+          c.clip();
           c.lineJoin = "round";
           c.lineCap = "round";
           c.strokeStyle = rgba(pal.fg);
           c.lineWidth = 2;
           c.stroke(path);
+          c.restore();
         }
       }
 
@@ -873,6 +919,16 @@ export function Stage({
             c.fillText(e.text, cx, cy + 0.5);
           }
           c.globalAlpha = 1;
+        } else if (e.kind === "drop") {
+          // The drop: a blot that swells under the finger, and a ring running out from it, both in the ink's colour.
+          const life = Math.min(1, (ms - e.born) / 520);
+          if (life >= 1) continue;
+          const out = reducedMotion.matches ? 1 : 1 - (1 - life) ** 3;
+          c.fillStyle = rgba(pal.ink, 0.28 * (1 - life));
+          c.beginPath(); c.arc(ex, ey, 6 + 10 * out, 0, Math.PI * 2); c.fill();
+          c.strokeStyle = rgba(pal.ink, 0.55 * (1 - life));
+          c.lineWidth = 2 * (1 - life) + 0.5;
+          c.beginPath(); c.arc(ex, ey, 10 + 30 * out, 0, Math.PI * 2); c.stroke();
         } else {
           c.beginPath();
           c.arc(ex, ey, 8 + (reducedMotion.matches ? 0 : 20 * (1 - (1 - age) ** 3)), 0, Math.PI * 2);
@@ -909,6 +965,7 @@ export function Stage({
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointercancel", cancel);
+      el.removeEventListener("lostpointercapture", lost);
       el.removeEventListener("pointerleave", leave);
     };
   }, [game]);

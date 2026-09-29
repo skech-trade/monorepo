@@ -7,9 +7,25 @@ cache_path = "cache"
 # Dependencies come from bun, hoisted to the monorepo root, not git submodules.
 libs = ["../../node_modules"]
 solc = "0.8.30"
-evm_version = "prague"
+# Monad's gas model, opcode pricing and 128 KB code size limit (Foundry 1.8+).
+network = "monad"
 optimizer = true
-optimizer_runs = 200
+optimizer_runs = 1000
+# Stack-too-deep in a batch placer with many calldata structs: via IR.
+via_ir = true
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
+# Every top-level call in a test is its own transaction, starting cold, as on chain: test/GasModel.t.sol measures
+# what the relayer's transactions cost and needs that; the rest of the suite is indifferent.
+isolate = true
 
 [fuzz]
-runs = 1000
+runs = 512
+
+[invariant]
+runs = 64
+depth = 32
+fail_on_revert = false
+
+[rpc_endpoints]
+monad_testnet = "https://testnet-rpc.monad.xyz"
+monad = "https://rpc.monad.xyz"

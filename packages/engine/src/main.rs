@@ -54,11 +54,17 @@ async fn main() {
             PrivateKeySigner::random()
         }
     };
-    // Signatures are bound to one chain and one contract. Until there is a contract: a local anvil chain and no address.
-    let chain_id = var("ENGINE_CHAIN_ID").map(|id| id.parse().expect("ENGINE_CHAIN_ID is not a number")).unwrap_or(31337);
+    // Signatures are bound to one chain and one contract. SKECH_NETWORK picks the chain, the deploy's file names the
+    // game on it. ENGINE_CHAIN_ID and ENGINE_VERIFYING_CONTRACT (or SKECH_GAME, as the relayer and app read) still win.
+    let chain_id = chain_id();
     let contract = var("ENGINE_VERIFYING_CONTRACT")
-        .map(|a| a.parse::<Address>().expect("ENGINE_VERIFYING_CONTRACT is not an address"))
-        .unwrap_or(Address::ZERO);
+        .or_else(|| var("SKECH_GAME"))
+        .map(|a| a.parse::<Address>().expect("ENGINE_VERIFYING_CONTRACT / SKECH_GAME is not an address"))
+        .or_else(|| deployed_game(chain_id))
+        .unwrap_or_else(|| {
+            eprintln!("no game deployed on chain {chain_id}: signing for the zero address until bun run deploy:contracts puts one there");
+            Address::ZERO
+        });
     let quoter = Arc::new(Quoter::new(wallet, chain_id, contract));
     eprintln!("signing as {} for chain {chain_id}, contract {contract}", quoter.address());
 
@@ -133,6 +139,37 @@ async fn client(mut socket: WebSocket, app: App) {
             },
             // Read only to notice the client going away; pings are answered by axum.
             msg = socket.recv() => if matches!(msg, Some(Ok(Message::Close(_))) | Some(Err(_)) | None) { return },
+        }
+    }
+}
+
+/// The chain from SKECH_NETWORK (blank is testnet), or ENGINE_CHAIN_ID for anvil. The other network's id is refused:
+/// a leftover testnet id under mainnet would sign prices no mainnet game accepts.
+fn chain_id() -> u64 {
+    let network = var("SKECH_NETWORK").unwrap_or_else(|| "testnet".into()).to_lowercase();
+    let own = match network.as_str() {
+        "testnet" => 10143,
+        "mainnet" => 143,
+        other => panic!("SKECH_NETWORK is \"{other}\": it must be testnet or mainnet"),
+    };
+    match var("ENGINE_CHAIN_ID").map(|id| id.parse::<u64>().expect("ENGINE_CHAIN_ID is not a number")) {
+        None => own,
+        Some(id) if id == own || (id != 10143 && id != 143) => id,
+        Some(id) => panic!("ENGINE_CHAIN_ID is {id} but SKECH_NETWORK is {network}: remove ENGINE_CHAIN_ID, the network picks the chain"),
+    }
+}
+
+/// The game in packages/contracts/deployments/<chain>.json, looked for from here up to the repo root.
+fn deployed_game(chain_id: u64) -> Option<Address> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let file = dir.join("packages/contracts/deployments").join(format!("{chain_id}.json"));
+        if let Ok(text) = std::fs::read_to_string(&file) {
+            let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+            return json.get("game")?.as_str()?.parse().ok();
+        }
+        if !dir.pop() {
+            return None;
         }
     }
 }

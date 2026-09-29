@@ -1,34 +1,62 @@
 # @skech/contracts
 
-Foundry. `SkechPrice` checks a price signed by the engine (`packages/engine`).
+Foundry. skech on Monad: three contracts behind ERC-1967 proxies (UUPS).
 
-```solidity
-uint256 price = oracle.verify(market, price, time, signature); // reverts NotEngine or Stale
-```
+| Contract | What it is |
+| --- | --- |
+| `SkechGame` | The game. Deposits, sessions, pieces of ink, the price by the second, settlement, the ladder, fees, IOUs. |
+| `SkechIOU` | What the game owes when the pool cannot pay a hit at once: an ERC-20 whose value rises every block. |
+| `SkechRevenue` | Where the house's fees go: 4% of every stake, 10% of every profit. A treasurer takes them out. |
+| `SkechLadder` | ladder-v1 in integers: from a band's chance, the difficulty and the momentum, the rung it pays. |
 
-- **EIP-712:** `Price(string market,uint256 price,uint64 time)` under the domain
-  `{name "skech", version "1", chainId, verifyingContract}`. The domain is readable
-  on chain through EIP-5267's `eip712Domain()`.
-- **Freshness:** a price older than `maxAge` seconds is refused. Without this, a
-  user could keep an old price that suits them.
-- Dependencies (OpenZeppelin, forge-std) are installed by bun into the root
-  `node_modules`, not as git submodules. Run `bun install` first.
+How it all fits together is in [docs/HOW-IT-WORKS.md](../../docs/HOW-IT-WORKS.md), section 11.
+The ABI the app and the relayer use is in `abi/`, written by `bun run abi` (and by `bun run build`).
+
+- **EIP-712** under `{name "skech", version "1", chainId, verifyingContract: the game}`, the domain the
+  engine already signs prices under. Pieces are signed by a player's session key (an Ethereum key, or
+  a P-256 key the browser keeps, checked through Monad's P-256 precompile); quotes and bars by the oracle.
+- **Monad:** `network = "monad"` in `foundry.toml` (Foundry 1.8+) tests under Monad's gas model and
+  its 128 KB code limit, which the game needs: it is 37 KB. On Ethereum it would not deploy. Tests run
+  isolated, every call its own transaction starting cold, so gas is measured as the chain charges it.
+- Dependencies (OpenZeppelin, forge-std) are installed by bun into the root `node_modules`, not as git
+  submodules. Run `bun install` first.
 
 ```bash
 bun install
-forge test          # or: bun run --filter @skech/contracts test
+forge test          # 49 tests: units, fuzz, an accounting invariant, the engine's signature vector, the gas model
+bun run test:check  # the same, failing if any gas number in snapshots/ moved
 ```
 
-`test/SkechPrice.t.sol` recovers the signature that
-`packages/engine/src/quote.rs` pins in its own test, so the Rust signer and the
-Solidity checker can't drift apart silently.
+`test/GasModel.t.sol` measures what each of the relayer's transactions costs in the worst state it can
+meet (fresh slots, a hit into an empty balance, a hit the pool cannot pay, a first session), derives
+the linear model the relayer sets gas limits from, checks it against mixed batches it was not fitted
+on, and writes `snapshots/GasModel.json`, which `packages/relayer/src/gas.ts` reads. Monad charges the
+gas limit, so those numbers are money: a change that moves them fails `test:check` until the snapshot
+is re-recorded with `forge test`.
+
+`test/Vectors.t.sol` prints the hashes `packages/core/src/chain.test.ts` pins, so the TypeScript that
+signs and the Solidity that checks cannot drift.
 
 ## Deploy
 
 ```bash
-ENGINE_ADDRESS=<hello.signer> MAX_AGE=5 \
-  forge script script/Deploy.s.sol --rpc-url <rpc> --broadcast --private-key <deployer>
+# from the repo root: ENGINE_PRIVATE_KEY deploys and is the oracle, ENGINE_CHAIN_ID picks the chain (10143)
+bun run deploy:contracts               # --dry-run: gas and addresses, nothing sent
+# by hand
+ORACLE_ADDRESS=<engine signer> forge script script/Deploy.s.sol:Deploy --rpc-url monad_testnet --broadcast --private-key <deployer>
 ```
 
-Then set `ENGINE_CHAIN_ID` and `ENGINE_VERIFYING_CONTRACT` in `.env.local`, so
-the engine signs for that chain and that contract.
+The deployer becomes the admin of everything: config, difficulty, upgrades, pausing, the treasury.
+`ORACLE_ADDRESS` is the engine's wallet (its `hello.signer`); on testnet the deployer, the oracle and
+the relayer are the same key. `SKECH_NETWORK` picks testnet or mainnet, and with it the chain and
+Circle's USDC; a mainnet deploy also wants `--mainnet`. Addresses land in `deployments/<chainId>.json`,
+where the engine, the relayer and the app all find the game for that network. Nothing is written to
+`.env.local`, and a dry run writes nothing at all.
+Verify with
+
+```bash
+forge verify-contract <address> SkechGame --chain 10143 --verifier sourcify --verifier-url https://sourcify-api-monad.blockvision.org/
+```
+
+Upgrade one proxy: `PROXY=<address> WHICH=game|iou|revenue forge script script/Deploy.s.sol:Upgrade ...`.
+`script/DeployLocal.s.sol` deploys the same with a mock USDC on anvil, for `packages/relayer/scripts/e2e.ts`.
