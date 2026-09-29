@@ -217,7 +217,7 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
                       autoCapitalize="off"
                       autoComplete="off"
                       autoCorrect="off"
-                      className="figures h-10 min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
+                      className="figures h-10 min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-muted-foreground"
                       onChange={(e) => take(e.target.value)}
                       placeholder="Address (0x…)"
                       spellCheck={false}
