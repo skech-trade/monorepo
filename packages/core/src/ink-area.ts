@@ -26,7 +26,8 @@ export const VIEW_STEPS = 6.75;
  * thick even on tall displays. Pen choice never participates in the camera. */
 export function drawingLayout(width: number, height: number, marketStep: number) {
   const phone = width < 640;
-  const top = phone ? 160 : 142;
+  // On a phone the chart sits centred between the market row and the dock: about 16px clear of each.
+  const top = phone ? 138 : 142;
   // Room under the chart for the time axis and the dock: on a phone the axis sits 16px over the dock, not 57.
   const bottom = Math.max(top + 120, height - (phone ? 134 : 116));
   const plotHeight = bottom - top;
