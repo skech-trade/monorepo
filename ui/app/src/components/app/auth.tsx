@@ -54,6 +54,8 @@ export type Account = {
   address: string | null;
   /** Whatever they signed in with, for the greeting. */
   handle: string | null;
+  /** Their email, whether they signed in with it or with Google or Apple; null for a phone number. */
+  email: string | null;
   signOut: () => void;
   /**
    * Sign a plain message with the wallet.
@@ -85,7 +87,7 @@ const plain = (v: unknown): unknown =>
 /** The longest the app waits for Coinbase to read a saved session before treating someone as signed out. */
 const READY_WITHIN_MS = 8000;
 
-const SIGNED_OUT: Account = { ready: true, signedIn: false, address: null, handle: null, signOut: () => undefined, signMessage: async () => null, signTypedData: async () => null };
+const SIGNED_OUT: Account = { ready: true, signedIn: false, address: null, handle: null, email: null, signOut: () => undefined, signMessage: async () => null, signTypedData: async () => null };
 const Ctx = createContext<Account>(SIGNED_OUT);
 
 /** Reads Coinbase's hooks. Only ever mounted inside their provider. */
@@ -121,14 +123,17 @@ function Publish({ children }: { children: ReactNode }) {
   const { signOut } = useSignOut();
   const { signEvmMessage } = useSignEvmMessage();
   const { signEvmTypedData } = useSignEvmTypedData();
-  const user = currentUser as { authenticationMethods?: { email?: { email?: string }; sms?: { phoneNumber?: string } } } | null;
+  const user = currentUser as { authenticationMethods?: { email?: { email?: string }; sms?: { phoneNumber?: string }; google?: { email?: string }; apple?: { email?: string } } } | null;
   const account = useMemo<Account>(() => {
-    const handle = user?.authenticationMethods?.email?.email ?? user?.authenticationMethods?.sms?.phoneNumber ?? (evmAddress ? shortAddress(evmAddress) : null);
+    const ways = user?.authenticationMethods;
+    const email = ways?.email?.email ?? ways?.google?.email ?? ways?.apple?.email ?? null;
+    const handle = email ?? ways?.sms?.phoneNumber ?? (evmAddress ? shortAddress(evmAddress) : null);
     return {
       ready,
       signedIn: Boolean(isSignedIn),
       address: evmAddress ?? null,
       handle,
+      email,
       signOut: () => void signOut(),
       signMessage: async (message: string) => {
         if (!evmAddress) return null;
