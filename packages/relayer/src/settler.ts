@@ -11,6 +11,7 @@ import type { ChainClient } from "./chain";
 import type { Config } from "./config";
 import type { Engine } from "./engine";
 import { type Band, type LiveBet, type PostedBar, predictSettle } from "./predict";
+import { report } from "./sentry";
 
 export type Settled = { betId: Hex; player: Address; hitMask: number; missMask: number; paid: bigint; owed: bigint; tx: Hex };
 export type Notify = { settled: (s: Settled) => void; owed: (to: Address, value: bigint) => void; account: (player: Address) => void };
@@ -102,6 +103,7 @@ export class Settler {
       }
     } catch (e) {
       this.log(`settle: ${String((e as Error).message ?? e).split("\n")[0]}`);
+      report("settle", e);
     } finally {
       this.running = false;
     }
@@ -202,6 +204,7 @@ export class Settler {
       }
     } catch (e) {
       this.log(`sweep: ${String((e as Error).message ?? e).split("\n")[0]}`);
+      report("sweep", e);
     } finally {
       this.sweeping = false;
     }
@@ -230,6 +233,7 @@ export class Settler {
       this.log(`settle: restored ${this.watching.size} seconds to settle and ${this.holders.size} IOU holders`);
     } catch (e) {
       this.log(`settle: could not read ${this.statePath}: ${String(e)}`);
+      report("state-read", e);
     }
   }
 
@@ -247,6 +251,7 @@ export class Settler {
       writeFileSync(this.statePath, JSON.stringify(s));
     } catch (e) {
       this.log(`settle: could not write ${this.statePath}: ${String(e)}`);
+      report("state-write", e);
     }
   }
 }

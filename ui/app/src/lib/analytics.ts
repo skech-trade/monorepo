@@ -1,0 +1,142 @@
+import * as Sentry from "@sentry/nextjs";
+import posthog, { type Properties } from "posthog-js";
+
+/**
+ * What the app tells PostHog, and nothing else.
+ *
+ * On the free plan (1M events, 5k replays and 100k exceptions a month), so
+ * every event here is one somebody will read: the way in (ready, sign in,
+ * deposit, the drawing key, the first drawing), each round's result, the
+ * money out, what fails, and one summary a visit for how long it was played.
+ * Errors are Sentry's (src/lib/sentry.ts), not PostHog's: each event here is
+ * also left there as a breadcrumb, so an error shows the play that led to it.
+ * Autocapture, heatmaps and dead clicks are off: on a canvas game they are
+ * mostly noise, and they would spend the plan on it.
+ *
+ * Off unless NEXT_PUBLIC_POSTHOG_KEY is set, and off in development unless
+ * NEXT_PUBLIC_POSTHOG_DEV=1, so a laptop never counts against the plan.
+ * Events go through /ingest on our own domain (next.config.ts), past ad
+ * blockers. Identity is the wallet address, never an email or phone number.
+ */
+
+export type Event =
+  // The way in.
+  | "app_ready"
+  | "connect_slow"
+  | "sign_in_opened"
+  | "signed_in"
+  | "signed_out"
+  | "deposit_opened"
+  | "deposit_completed"
+  | "deposit_failed"
+  | "drawing_key_ready"
+  | "drawing_key_failed"
+  | "first_drawing"
+  // Playing.
+  | "round_finished"
+  | "piece_refused"
+  | "balance_ran_out"
+  | "judge_disagreed"
+  | "price_changed"
+  | "pen_changed"
+  // Money out.
+  | "withdraw_completed"
+  | "withdraw_failed"
+  // Home Screen.
+  | "home_screen_shown"
+  | "home_screen_install_tapped"
+  | "home_screen_dismissed"
+  | "home_screen_installed"
+  // Once a visit: how long it was on screen.
+  | "visit_ended";
+
+const KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY ?? "";
+const REGION = process.env.NEXT_PUBLIC_POSTHOG_REGION === "eu" ? "eu" : "us";
+const ON = KEY !== "" && (process.env.NODE_ENV === "production" || process.env.NEXT_PUBLIC_POSTHOG_DEV === "1");
+
+/** A heavy player can finish hundreds of rounds in a visit: past this many only `visit_ended` counts the rest. */
+const ROUNDS_PER_VISIT = 150;
+
+let started = false;
+let rounds = 0;
+let roundsSent = 0;
+
+export function startAnalytics() {
+  if (!ON || started || typeof window === "undefined") return;
+  started = true;
+  posthog.init(KEY, {
+    api_host: "/ingest",
+    ui_host: `https://${REGION}.posthog.com`,
+    defaults: "2026-08-30",
+    person_profiles: "identified_only",
+    // One page: its load and its leaving, which is where a visit starts and ends.
+    capture_pageview: "history_change",
+    capture_pageleave: true,
+    autocapture: false,
+    capture_dead_clicks: false,
+    capture_heatmaps: false,
+    // Load and responsiveness, a handful of events a visit.
+    capture_performance: { web_vitals: true, network_timing: false },
+    // Crashes go to Sentry, with their stack against our source; counting them twice would only spend both plans.
+    capture_exceptions: false,
+    // Replays follow the project's own settings (sampling, minimum length). What is typed is never in them.
+    session_recording: { maskAllInputs: true },
+  });
+  // On every event: whether it was opened from the Home Screen, and which network.
+  const nav = navigator as Navigator & { standalone?: boolean };
+  posthog.register({
+    standalone: Boolean(nav.standalone) || matchMedia("(display-mode: standalone)").matches,
+    network: process.env.NEXT_PUBLIC_SKECH_NETWORK ?? "testnet",
+  });
+  watchVisit();
+}
+
+export function track(event: Event, props?: Properties) {
+  Sentry.addBreadcrumb({ category: "game", message: event, data: props, level: event.endsWith("_failed") ? "warning" : "info" });
+  if (!started) return;
+  if (event === "round_finished" && ++rounds > ROUNDS_PER_VISIT) return;
+  if (event === "round_finished") roundsSent++;
+  posthog.capture(event, props);
+}
+
+/** Who is playing: the wallet, once signed in. Signing out starts a new anonymous visitor. */
+export function identify(address: string | null) {
+  Sentry.setUser(address ? { id: address.toLowerCase() } : null);
+  if (!started) return;
+  if (address) posthog.identify(address.toLowerCase());
+  else posthog.reset();
+}
+
+/** Something that went wrong and was caught, so it would not reach the automatic capture. */
+export function reportError(error: unknown, props?: Properties) {
+  // Which flow it broke in is a tag, so the issues can be filtered by it.
+  const flow = typeof props?.flow === "string" ? props.flow : undefined;
+  Sentry.captureException(error instanceof Error ? error : new Error(String(error)), { extra: props, tags: flow ? { flow } : undefined });
+}
+
+/*
+  Active time: how long the game was on screen, sent each time it leaves the
+  screen (tab away, lock, close), as one event with that stretch and the
+  rounds finished in it. Summed per person and day this is play time, at the
+  cost of a single event a visit instead of a heartbeat.
+*/
+function watchVisit() {
+  let shownAt = document.visibilityState === "visible" ? performance.now() : null;
+  let roundsAtShow = 0;
+  const flush = () => {
+    if (shownAt === null) return;
+    const activeMs = Math.round(performance.now() - shownAt);
+    shownAt = null;
+    // Under a second is a flicker, not a visit.
+    if (activeMs < 1000) return;
+    posthog.capture("visit_ended", { active_ms: activeMs, active_min: Math.round(activeMs / 6000) / 10, rounds: rounds - roundsAtShow, rounds_capped: rounds > roundsSent }, { transport: "sendBeacon" });
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flush();
+    else {
+      shownAt = performance.now();
+      roundsAtShow = rounds;
+    }
+  });
+  addEventListener("pagehide", flush);
+}

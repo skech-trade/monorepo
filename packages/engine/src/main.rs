@@ -41,8 +41,7 @@ struct App {
     feed: broadcast::Sender<Utf8Bytes>,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     // The monorepo's one `.env.local`, found by walking up from here. Anything already in the environment wins.
     let _ = dotenvy::from_filename(".env.local");
     // One TLS backend for both the WebSocket and the HTTP client: ring, the only one compiled in.
@@ -72,7 +71,19 @@ async fn main() {
     let band_bps: f64 = var("ENGINE_BAND_BPS").map(|b| b.parse().expect("ENGINE_BAND_BPS is not a number")).unwrap_or(1.0);
     let band = band_bps / 10_000.0;
     eprintln!("attesting with binance and kraken, band {}%", band * 100.0);
+    let port = var("ENGINE_PORT").and_then(|p| p.parse().ok()).unwrap_or(3102);
 
+    // Up once the config is read: a bad one panics on every restart, into the journal, not the Sentry plan.
+    // Before the runtime, so each worker thread starts with the client bound.
+    let _sentry = sentry_init(chain_id, quoter.address());
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime")
+        .block_on(serve(quoter, band, port));
+}
+
+async fn serve(quoter: Arc<Quoter>, band: f64, port: u16) {
     let (feed, _) = broadcast::channel(BACKLOG);
     let history = History::default();
     let app = App {
@@ -95,7 +106,6 @@ async fn main() {
         .route("/ws", get(upgrade))
         .with_state(app);
 
-    let port = var("ENGINE_PORT").and_then(|p| p.parse().ok()).unwrap_or(3102);
     let listener = match tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], port))).await {
         Ok(listener) => listener,
         Err(e) => {
@@ -109,6 +119,27 @@ async fn main() {
     });
     eprintln!("listening on ws://localhost:{port}/ws");
     axum::serve(listener, router).await.expect("server stopped");
+}
+
+/// Sentry, for what takes the engine down: a panic is sent, stack and all, before `panic = "abort"` ends the
+/// process. Off unless ENGINE_SENTRY_DSN is set, and off on a laptop (no SENTRY_ENVIRONMENT; the box's unit sets
+/// production) unless ENGINE_SENTRY_DEV=1, so `bun run dev:engine` never spends the plan.
+fn sentry_init(chain_id: u64, signer: Address) -> Option<sentry::ClientInitGuard> {
+    let dsn = var("ENGINE_SENTRY_DSN")?;
+    let environment = var("SENTRY_ENVIRONMENT").unwrap_or_else(|| "development".into());
+    if environment == "development" && var("ENGINE_SENTRY_DEV").is_none() {
+        return None;
+    }
+    let mut options = sentry::ClientOptions::default();
+    // The commit infra/deploy.sh built, else engine@<version>.
+    options.release = option_env!("SKECH_RELEASE").map(Into::into).or_else(|| sentry::release_name!());
+    options.environment = Some(environment.into());
+    let guard = sentry::init((dsn, options));
+    sentry::configure_scope(|scope| {
+        scope.set_tag("chain", chain_id);
+        scope.set_tag("signer", signer);
+    });
+    Some(guard)
 }
 
 /// A variable that is set to something: `KEY=` left blank in `.env.local` counts as unset.

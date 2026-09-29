@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs/config";
 import { chainIdFor, networkOf, network } from "../../packages/core/src/network";
 
 /**
@@ -65,9 +66,44 @@ function chainEnv(settings: Record<string, string | undefined>): Record<string, 
   return out;
 }
 
+const env = rootEnv();
+
+/*
+  PostHog through our own domain: /ingest is proxied to PostHog's, so an ad
+  blocker that knows posthog.com does not drop the events (src/lib/analytics.ts).
+*/
+const region = (process.env.NEXT_PUBLIC_POSTHOG_REGION ?? env.NEXT_PUBLIC_POSTHOG_REGION) === "eu" ? "eu" : "us";
+
 const nextConfig: NextConfig = {
   devIndicators: false,
-  env: rootEnv(),
+  env,
+  async rewrites() {
+    return [
+      { source: "/ingest/static/:path*", destination: `https://${region}-assets.i.posthog.com/static/:path*` },
+      { source: "/ingest/array/:path*", destination: `https://${region}-assets.i.posthog.com/array/:path*` },
+      { source: "/ingest/:path*", destination: `https://${region}.i.posthog.com/:path*` },
+    ];
+  },
+  // PostHog's API paths end in a slash (/e/); a redirect that strips it would lose the event.
+  skipTrailingSlashRedirect: true,
 };
 
-export default nextConfig;
+/*
+  Sentry (src/lib/sentry.ts). At build, source maps go up to Sentry and are then removed from the deploy, so a
+  stack reads as our source and nobody else can; that needs SENTRY_AUTH_TOKEN in the build's environment
+  (Vercel), and without it the build still works, with minified stacks. Events come in through /monitoring on
+  our own domain, past ad blockers.
+*/
+export default withSentryConfig(nextConfig, {
+  org: "sketch-trade",
+  project: "next-app",
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: !process.env.CI,
+  // Dependencies' frames readable too, not only ours.
+  widenClientFileUpload: true,
+  tunnelRoute: "/monitoring",
+  // Marks our bundle, for the filter that drops errors thrown only by extensions (src/instrumentation-client.ts).
+  applicationKey: "skech-app",
+  // Component names on clicks and in replays: "tapped DepositModal > Button", not "tapped button".
+  reactComponentAnnotation: { enabled: true },
+});

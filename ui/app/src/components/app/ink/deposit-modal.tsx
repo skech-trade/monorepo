@@ -1,6 +1,7 @@
 "use client";
 
 import { SignInModal } from "@coinbase/cdp-react";
+import { track } from "@/lib/analytics";
 import { ArrowUpRightIcon, CheckIcon, SendIcon, XIcon } from "lucide-react";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { encode } from "uqr";
@@ -28,7 +29,7 @@ import { NETWORK } from "@/lib/chain";
  */
 
 /** `"tap"`: opened because a tap on the game could not be played. Those are counted: see FOUNDERS_AFTER. */
-type Gate = { openDeposit: (why?: "tap") => void; openSignIn: () => void; openWithdraw: () => void };
+type Gate = { openDeposit: (why?: "tap" | "short") => void; openSignIn: (from?: string) => void; openWithdraw: () => void };
 const GateCtx = createContext<Gate>({ openDeposit: () => undefined, openSignIn: () => undefined, openWithdraw: () => undefined });
 export const useGate = () => useContext(GateCtx);
 
@@ -59,7 +60,8 @@ export function GateProvider({ children }: { children: ReactNode }) {
   const [signIn, setSignIn] = useState(false);
   // Read once, at start: on the server there is no storage and it is 0; the sheet is closed there anyway.
   const [taps, setTaps] = useState(readTaps);
-  const openDeposit = useCallback((why?: "tap") => {
+  const openDeposit = useCallback((why?: "tap" | "short") => {
+    track("deposit_opened", { why: why ?? "button" });
     if (why === "tap") {
       const n = readTaps() + 1;
       writeTaps(n);
@@ -67,7 +69,10 @@ export function GateProvider({ children }: { children: ReactNode }) {
     }
     setDeposit(true);
   }, []);
-  const openSignIn = useCallback(() => setSignIn(true), []);
+  const openSignIn = useCallback((from = "button") => {
+    track("sign_in_opened", { from });
+    setSignIn(true);
+  }, []);
   const [withdraw, setWithdraw] = useState(false);
   const openWithdraw = useCallback(() => setWithdraw(true), []);
   const gate = useMemo(() => ({ openDeposit, openSignIn, openWithdraw }), [openDeposit, openSignIn, openWithdraw]);

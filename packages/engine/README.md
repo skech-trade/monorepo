@@ -44,6 +44,8 @@ It reads the repo root `.env.local`. Variables already in the environment win.
 | `ENGINE_VERIFYING_CONTRACT` | the game in `packages/contracts/deployments/<chain>.json`, else `0x000…0` | EIP-712 domain: the deployed `SkechGame` proxy |
 | `ENGINE_BAND_BPS` | `1` (0.01%) | How far the attesters' median may be from Coinbase before it is signed instead |
 | `ENGINE_PORT` | `3102` | |
+| `ENGINE_SENTRY_DSN` | off | Sentry: a panic, with its stack, is sent before `panic = "abort"` ends the process. Only where `SENTRY_ENVIRONMENT` is set (the box's unit sets `production`) |
+| `ENGINE_SENTRY_DEV` | off | `1` sends from a laptop too, as `development` |
 
 `GET /health` returns `ok`. `hello` also carries `"attest": { "by": ["binance", "kraken"], "band": 0.0001 }`.
 

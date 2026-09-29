@@ -45,7 +45,7 @@ function Money() {
     // Deposit is always in the bar: signed out it asks to sign in first.
     return (
       <div className="flex items-center gap-2">
-        <Button className="h-11 rounded-full border-0 bg-secondary px-[18px] font-semibold text-base sm:h-11 sm:px-[18px]" onClick={() => (chain.player ? gate.openDeposit() : me.ready ? gate.openSignIn() : undefined)} variant="secondary">
+        <Button className="h-11 rounded-full border-0 bg-secondary px-[18px] font-semibold text-base sm:h-11 sm:px-[18px]" onClick={() => (chain.player ? gate.openDeposit() : me.ready ? gate.openSignIn("deposit") : undefined)} variant="secondary">
           Deposit
         </Button>
       </div>
