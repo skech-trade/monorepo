@@ -1,0 +1,16 @@
+# TLS for both servers on one name. Caddy gets the certificate from Let's Encrypt
+# on first start, which needs ports 80 and 443 open to the box.
+# SKECH_DOMAIN comes from /etc/caddy/env, which setup.sh writes: by default the
+# box's IP as an sslip.io name (1.2.3.4 -> 1-2-3-4.sslip.io), so no DNS is needed.
+#
+#   wss://$SKECH_DOMAIN/engine/ws    -> engine  127.0.0.1:3102/ws
+#   wss://$SKECH_DOMAIN/relayer/ws   -> relayer 127.0.0.1:3103/ws
+{$SKECH_DOMAIN} {
+	handle_path /engine/* {
+		reverse_proxy 127.0.0.1:3102
+	}
+	handle_path /relayer/* {
+		reverse_proxy 127.0.0.1:3103
+	}
+	respond 404
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description=skech engine: signed BTC-USD prices on :3102
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=skech
+# Run from the repo root so the engine finds packages/contracts/deployments/<chain>.json.
+WorkingDirectory=/opt/skech
+EnvironmentFile=/etc/skech/env
+ExecStart=/opt/skech/packages/engine/target/release/engine
+# panic = "abort": a dead feed ends the process, and this brings it back.
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
