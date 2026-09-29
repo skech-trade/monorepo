@@ -9,8 +9,8 @@ HOST="${SKECH_HOST:-skech}"
 
 # Only what the engine and relayer read. .env.local holds much more (CDP, Lighter, the database);
 # none of it goes to the box.
-SERVER_KEYS="SKECH_NETWORK ENGINE_PRIVATE_KEY ENGINE_BAND_BPS RELAYER_PRIVATE_KEY RELAYER_SHADOW_EVERY
-  MONAD_RPC_URL MONAD_TESTNET_RPC_URL MONAD_MAINNET_RPC_URL"
+SERVER_KEYS="SKECH_NETWORK ENGINE_PRIVATE_KEY ENGINE_BAND_BPS ENGINE_SENTRY_DSN RELAYER_PRIVATE_KEY RELAYER_SHADOW_EVERY
+  RELAYER_SENTRY_DSN MONAD_RPC_URL MONAD_TESTNET_RPC_URL MONAD_MAINNET_RPC_URL"
 
 if [ "${1:-}" = "--env" ]; then
   [ -f .env.local ] || { echo ".env.local not found" >&2; exit 1; }
@@ -33,9 +33,13 @@ rsync -az --delete --rsync-path="sudo -u skech rsync" \
   --exclude='*' \
   ./ "$HOST:/opt/skech/"
 
-ssh "$HOST" 'bash -s' <<'REMOTE'
+# The commit being shipped, built into the engine as its Sentry release. The box has no .git: rsync
+# copies the working tree, so uncommitted changes are marked.
+RELEASE="$(git rev-parse --short HEAD)$(git diff --quiet HEAD -- packages/engine || echo -dirty)"
+
+ssh "$HOST" "SKECH_RELEASE=$RELEASE bash -s" <<'REMOTE'
 set -euo pipefail
-sudo -u skech -H bash -euc '
+sudo -u skech -H SKECH_RELEASE="$SKECH_RELEASE" bash -euc '
   export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:$PATH"
   cd /opt/skech
   bun install --production --frozen-lockfile --filter @skech/relayer
