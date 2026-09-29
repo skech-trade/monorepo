@@ -56,7 +56,8 @@ export class Sequencer {
   /** Stakes accepted but not yet on chain, per player, so a fast hand cannot outrun its balance. */
   private pending = new Map<Address, bigint>();
   readonly domain: TypedDataDomain;
-  stats = { accepted: 0, refused: 0, placed: 0, batches: 0 };
+  /** `turnedAway`: pieces answered no before they reached the chain, by why. They never show up on chain. */
+  stats = { accepted: 0, refused: 0, placed: 0, batches: 0, turnedAway: {} as Record<string, number> };
 
   constructor(
     private readonly cfg: Config,
@@ -83,20 +84,36 @@ export class Sequencer {
   }
 
   forgetSession(player: Address) {
-    this.sessions.delete(player);
+    this.sessions.delete(player.toLowerCase() as Address);
   }
   forgetBalance(player: Address) {
-    this.balances.delete(player);
+    this.balances.delete(player.toLowerCase() as Address);
+  }
+  /**
+   * A payout, as the chain reported it: added to the cached balance rather
+   * than read again. The cache still expires on its own, so the chain's own
+   * figure comes back within seconds either way.
+   */
+  credit(player: Address, paid: bigint) {
+    const c = this.balances.get(player.toLowerCase() as Address);
+    if (c && paid > 0n) c.balance += paid;
   }
 
   /** Check a piece and queue it for its second. */
   async accept(msg: PieceMsg): Promise<{ ok: true; betId: Hex } | { ok: false; why: string; betId?: Hex }> {
     const now = Math.floor(this.engine.now());
     const parsed = this.parse(msg);
-    if (typeof parsed === "string") return { ok: false, why: parsed };
+    if (typeof parsed === "string") {
+      this.stats.turnedAway[parsed] = (this.stats.turnedAway[parsed] ?? 0) + 1;
+      return { ok: false, why: parsed };
+    }
     const piece = parsed;
     const betId = betIdOf(piece.player, piece.drawing, piece.index);
-    const bad = (why: string) => ({ ok: false as const, why, betId });
+    const bad = (why: string) => {
+      const k = why.replace(/\d+/g, "N");
+      this.stats.turnedAway[k] = (this.stats.turnedAway[k] ?? 0) + 1;
+      return { ok: false as const, why, betId };
+    };
     if (this.seen.has(betId)) return bad("Already sent");
     if (piece.market !== this.cfg.market) return bad("Unknown market");
     if (piece.difficulty !== this.difficulty) return bad(`Difficulty is ${this.difficulty} now`);
@@ -119,13 +136,18 @@ export class Sequencer {
     if (priceTime > now + 2000 || now - priceTime > gc.maxPriceAgeMs) return bad("Price seen is stale");
     const receivedAt = Math.max(now, priceTime);
     if (receivedAt > openAt + this.cfg.lateMs) return bad("Too late for that second");
-    if (!(await verifyPrice(this.domain, this.engine.signer, this.cfg.marketName, piece.priceSeen, piece.priceTime, msg.priceSig))) return bad("Price seen is not the engine's");
-    const session = await this.session(piece.player);
+    // Together: the price's signature, and the player's session and balance (cached, or one batched read).
+    const [priceOk, session, balance] = await Promise.all([
+      verifyPrice(this.domain, this.engine.signer, this.cfg.marketName, piece.priceSeen, piece.priceTime, msg.priceSig),
+      this.session(piece.player),
+      this.balance(piece.player).catch(() => null),
+    ]);
+    if (!priceOk) return bad("Price seen is not the engine's");
     if (!session || Number(session.validUntil) * 1000 <= now) return bad("No session");
     if (!(await verifyPiece(this.domain, piece, msg.sessionSig, session))) return bad("Not signed by your session");
     const pendingStake = this.pending.get(piece.player) ?? 0n;
     if (session.allowance < stake + pendingStake) return bad("Session allowance used up");
-    const balance = await this.balance(piece.player);
+    if (balance === null) return bad("Could not read your balance");
     if (balance < stake + pendingStake) return bad("Not enough in your balance");
     // In.
     this.seen.add(betId);
@@ -180,11 +202,12 @@ export class Sequencer {
   }
 
   private async session(player: Address): Promise<Session | null> {
-    const c = this.sessions.get(player);
+    const k = player.toLowerCase() as Address;
+    const c = this.sessions.get(k);
     if (c && Date.now() - c.at < 20_000) return c.session;
     try {
       const session = await this.chain.sessionOf(player);
-      this.sessions.set(player, { at: Date.now(), session });
+      this.sessions.set(k, { at: Date.now(), session });
       return session;
     } catch {
       return null;
@@ -192,11 +215,25 @@ export class Sequencer {
   }
 
   private async balance(player: Address): Promise<bigint> {
-    const c = this.balances.get(player);
+    const k = player.toLowerCase() as Address;
+    const c = this.balances.get(k);
     if (c && Date.now() - c.at < 3_000) return c.balance;
     const balance = await this.chain.balanceOf(player);
-    this.balances.set(player, { at: Date.now(), balance });
+    this.balances.set(k, { at: Date.now(), balance });
     return balance;
+  }
+
+  /**
+   * A placement, as the chain reported it: its stake off the cached balance
+   * and the session's allowance, exactly as the contract takes it, so the
+   * next piece is checked without a read.
+   */
+  private debit(player: Address, staked: bigint) {
+    const k = player.toLowerCase() as Address;
+    const b = this.balances.get(k);
+    if (b) b.balance = b.balance > staked ? b.balance - staked : 0n;
+    const s = this.sessions.get(k);
+    if (s) s.session = { ...s.session, allowance: s.session.allowance > staked ? s.session.allowance - staked : 0n };
   }
 
   /** Price and place everything that opens on `openAt`. */
@@ -205,8 +242,9 @@ export class Sequencer {
     this.buckets.delete(openAt);
     this.timers.delete(openAt);
     if (!bucket.length) return;
-    const release = () => {
-      for (const e of bucket) {
+    // What was held for these pieces while they were on their way: let go the moment the chain has answered for them.
+    const release = (entries: Pending[]) => {
+      for (const e of entries) {
         const stake = stakeOf(e.piece.sections);
         const left = (this.pending.get(e.piece.player) ?? 0n) - stake;
         if (left > 0n) this.pending.set(e.piece.player, left);
@@ -215,7 +253,7 @@ export class Sequencer {
     };
     const f = features(this.engine.book.bars, Number(openAt));
     if (!f) {
-      release();
+      release(bucket);
       for (const e of bucket) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "No price to open on" });
       this.stats.refused += bucket.length;
       return;
@@ -264,6 +302,7 @@ export class Sequencer {
               }));
               answered.add(a.betId);
               this.stats.placed++;
+              this.debit(a.player, a.staked);
               for (const s of sections) this.settler.watch(a.betId, a.player, a.unit, { second: Number(openAt) + s.second * 1000, lo: s.lo, hi: s.hi, stake: s.stake, rung: s.rung });
               this.notify.placed({ betId: a.betId, player: a.player, openAt, staked: a.staked, fee: a.fee, refunded: a.refunded, sections, tx: receipt.transactionHash });
             } else if (ev.name === "Refused") {
@@ -274,15 +313,15 @@ export class Sequencer {
             }
           }
           for (const e of entries) if (!answered.has(e.betId)) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "Not placed", tx: receipt.transactionHash });
-          for (const e of entries) this.balances.delete(e.piece.player);
         } catch (err) {
           this.log(`place at ${openAt} (unit ${unit}) failed: ${String((err as Error).message ?? err).split("\n")[0]}`);
           report("place", err);
           for (const e of entries) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "Could not reach the chain" });
           this.stats.refused += entries.length;
+        } finally {
+          release(entries);
         }
       }),
     );
-    release();
   }
 }

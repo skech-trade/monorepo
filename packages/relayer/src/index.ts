@@ -73,14 +73,18 @@ settler.profitFeeBps = BigInt(gameConfig.profitFeeBps);
 server.sequencer = sequencer;
 server.settler = settler;
 
+const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
 // The difficulty and the terms live on chain: follow them.
 setInterval(() => {
   void Promise.all([chain.difficultyOf(cfg.market), chain.gameConfig()]).then(([d, gc]) => {
+    const changed = d !== sequencer.difficulty || json(gc) !== json(sequencer.gameConfig);
     if (d !== sequencer.difficulty) log(`difficulty is now ${d}`);
     sequencer.difficulty = d;
     sequencer.gameConfig = gc;
     settler.profitFeeBps = BigInt(gc.profitFeeBps);
     cfg.lateMs = gc.lateMs;
+    // An app still on the old terms would have every piece turned away until it reconnected.
+    if (changed) server.announce();
   }, (e) => log(`reading the chain: ${String((e as Error).message ?? e).split("\n")[0]}`));
 }, 10_000);
 // Monad's reserve: the relayer must keep 10 MON plus what its transactions cost.

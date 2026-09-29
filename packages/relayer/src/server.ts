@@ -61,6 +61,12 @@ export class Server {
     this.d.log(`listening on ws://localhost:${this.d.cfg.port}/ws`);
   }
 
+  /** Tell every app the terms again: after the difficulty or the game's config changed on chain. */
+  announce() {
+    const text = json(this.hello());
+    for (const ws of this.clients) ws.send(text);
+  }
+
   get connections() {
     return this.clients.size;
   }
@@ -91,7 +97,10 @@ export class Server {
   readonly notify = {
     placed: (p: Placed) => this.toPlayer(p.player, { type: "placed", ...p }),
     refused: (r: Refused) => this.toPlayer(r.player, { type: "refused", ...r }),
-    settled: (s: Settled) => this.toPlayer(s.player, { type: "settled", ...s }),
+    settled: (s: Settled) => {
+      this.sequencer?.credit(s.player, s.paid);
+      this.toPlayer(s.player, { type: "settled", ...s });
+    },
     owed: (to: Address, value: bigint) => this.toPlayer(to, { type: "owed", value }),
     account: (player: Address) => void this.sendAccount(player),
   };
@@ -107,12 +116,14 @@ export class Server {
 
   private async sendAccount(player: Address, only?: ServerWebSocket<Data>) {
     try {
-      const [balance, session, iou] = await Promise.all([
+      // One batched read. The nonce rides along so the app can sign a session or a withdrawal without asking first.
+      const [balance, session, iou, nonce] = await Promise.all([
         this.d.chain.balanceOf(player),
         this.d.chain.sessionOf(player),
         this.d.cfg.iou ? this.d.chain.iouAssets(player).catch(() => 0n) : Promise.resolve(0n),
+        this.d.chain.nonceOf(player).catch(() => null),
       ]);
-      const msg = { type: "account", player, balance, session: { key: session.key, x: session.x, y: session.y, validUntil: session.validUntil, allowance: session.allowance }, owed: iou };
+      const msg = { type: "account", player, balance, session: { key: session.key, x: session.x, y: session.y, validUntil: session.validUntil, allowance: session.allowance }, owed: iou, nonce };
       if (only) this.send(only, msg);
       else this.toPlayer(player, msg);
     } catch (e) {
@@ -160,8 +171,8 @@ export class Server {
         const dl = big(deadline);
         if (until === null || allow === null || dl === null || (kind !== 0 && kind !== 1)) return this.send(ws, { type: "session-set", ok: false, why: "Bad session" });
         const args = [player, kind, key, x, y, until, allow, dl, sig];
-        const why = await this.d.chain.simulate("registerSession", args);
-        if (why) return this.send(ws, { type: "session-set", ok: false, why });
+        const checked = await this.d.chain.check("registerSession", args);
+        if ("why" in checked) return this.send(ws, { type: "session-set", ok: false, why: checked.why });
         try {
           const receipt = await this.d.chain.send("registerSession", args, `session ${player}`, { kind: "session" });
           seq.forgetSession(player);
@@ -192,10 +203,11 @@ export class Server {
           fn = "depositWithPermit";
           args = [owner, amt, dl, m.v, m.r, m.s];
         }
-        const why = await this.d.chain.simulate(fn, args);
-        if (why) return this.send(ws, { type: "deposited", ok: false, why });
+        // One round trip to check it and price its gas, not one for each.
+        const checked = await this.d.chain.check(fn, args);
+        if ("why" in checked) return this.send(ws, { type: "deposited", ok: false, why: checked.why });
         try {
-          const receipt = await this.d.chain.send(fn, args, `deposit ${amt} for ${owner}${fn === "depositWithPermit" ? " (permit)" : ""}`);
+          const receipt = await this.d.chain.send(fn, args, `deposit ${amt} for ${owner}${fn === "depositWithPermit" ? " (permit)" : ""}`, undefined, checked.gas);
           seq.forgetBalance(owner);
           // The new balance first, then the answer: an app that celebrates on "deposited" already holds the balance
           // to play with, instead of a moment where it says "added" and still reads the old one.
@@ -213,10 +225,10 @@ export class Server {
         const dl = big(deadline);
         if (!isAddress(player) || !isAddress(to) || amt === null || dl === null || !isHex(sig)) return this.send(ws, { type: "withdrawn", ok: false, why: "Bad withdrawal" });
         const args = [player, amt, to, dl, sig];
-        const why = await this.d.chain.simulate("withdrawBySig", args);
-        if (why) return this.send(ws, { type: "withdrawn", ok: false, why });
+        const checked = await this.d.chain.check("withdrawBySig", args);
+        if ("why" in checked) return this.send(ws, { type: "withdrawn", ok: false, why: checked.why });
         try {
-          const receipt = await this.d.chain.send("withdrawBySig", args, `withdraw ${amt} for ${player}`);
+          const receipt = await this.d.chain.send("withdrawBySig", args, `withdraw ${amt} for ${player}`, undefined, checked.gas);
           seq.forgetBalance(player);
           // The new balance first, then the answer, as with deposits.
           await this.sendAccount(player);

@@ -169,6 +169,7 @@ export class ChainClient {
   }
   balanceOf = (player: Address) => this.read<bigint>("balanceOf", [player]);
   sessionOf = (player: Address) => this.read<Session>("sessionOf", [player]);
+  nonceOf = (player: Address) => this.read<bigint>("nonces", [player]);
   difficultyOf = (market: number) => this.read<number>("difficultyOf", [market]);
   gameConfig = () => this.read<GameConfig>("config");
   oracle = () => this.read<Address>("oracle");
@@ -178,20 +179,23 @@ export class ChainClient {
   iouBalance = (holder: Address) => this.read<bigint>("balanceOf", [holder], this.cfg.iou!, IOU_ABI);
   iouAssets = (holder: Address) => this.read<bigint>("assetsOf", [holder], this.cfg.iou!, IOU_ABI);
 
-  /** Why a call would revert, as the contract names it, or null if it would go through. */
-  async simulate(fn: string, args: unknown[]): Promise<string | null> {
+  /**
+   * Whether a call would go through, and its gas if so, in one round trip:
+   * the estimate reverts where the call would, and says why. For calls whose
+   * gas is not worked out from their shape, the estimate is then sent with,
+   * rather than asked for again.
+   */
+  async check(fn: string, args: unknown[]): Promise<{ why: string } | { gas: bigint }> {
     try {
-      await this.pub.simulateContract({ address: this.cfg.game, abi: GAME_ABI, functionName: fn, args, account: this.account });
-      return null;
+      return { gas: await this.pub.estimateContractGas({ address: this.cfg.game, abi: GAME_ABI, functionName: fn, args, account: this.account }) };
     } catch (e) {
       const err = e as BaseError;
       const revert = typeof err.walk === "function" ? err.walk((x) => x instanceof ContractFunctionRevertedError) : null;
       if (revert instanceof ContractFunctionRevertedError) {
         const name: string | undefined = revert.data?.errorName ?? revert.reason;
-        if (name) return name;
+        if (name) return { why: name };
       }
-      const text: string = err.shortMessage ?? err.message ?? String(e);
-      return text.split("\n")[0];
+      return { why: (err.shortMessage ?? err.message ?? String(e)).split("\n")[0] };
     }
   }
 
@@ -206,7 +210,7 @@ export class ChainClient {
    * and the call goes again wider. The sync send returns the receipt from the
    * proposed block, a few hundred ms on.
    */
-  async send(fn: string, args: unknown[], label: string, shape?: Shape): Promise<TransactionReceipt> {
+  async send(fn: string, args: unknown[], label: string, shape?: Shape, estimated?: bigint): Promise<TransactionReceipt> {
     const data = encodeFunctionData({ abi: GAME_ABI, functionName: fn, args });
     let limit: bigint;
     let how: string;
@@ -214,7 +218,7 @@ export class ChainClient {
       limit = gasLimit(shape, data, this.slack.get(shape.kind) ?? 0n);
       how = describe(shape);
     } else {
-      const estimate = await this.pub.estimateGas({ account: this.account, to: this.cfg.game, data });
+      const estimate = estimated ?? (await this.pub.estimateGas({ account: this.account, to: this.cfg.game, data }));
       limit = (estimate * 115n) / 100n;
       how = `estimated ${estimate}`;
       this.gasStats.estimated++;
