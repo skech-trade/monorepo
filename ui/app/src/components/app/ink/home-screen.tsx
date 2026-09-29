@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerPopup, DrawerTitle } from "@/components/ui/drawer";
+import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import feedback from "./drawing-feedback.module.css";
 
@@ -66,7 +67,10 @@ export function useHomeScreen() {
       e.preventDefault();
       setPrompt(e as InstallPrompt);
     };
-    const installed = () => setGone(true);
+    const installed = () => {
+      track("home_screen_installed", { via: "browser" });
+      setGone(true);
+    };
     addEventListener("beforeinstallprompt", offered);
     addEventListener("appinstalled", installed);
     return () => {
@@ -76,13 +80,18 @@ export function useHomeScreen() {
   }, []);
 
   const install = useCallback(async () => {
+    track("home_screen_install_tapped", { native: prompt !== null });
     if (!prompt) return setOpen(true);
     await prompt.prompt();
-    if ((await prompt.userChoice).outcome === "accepted") setGone(true);
+    if ((await prompt.userChoice).outcome === "accepted") {
+      track("home_screen_installed", { via: "prompt" });
+      setGone(true);
+    }
     setPrompt(null);
   }, [prompt]);
 
   const dismiss = useCallback(() => {
+    track("home_screen_dismissed");
     setGone(true);
     try {
       localStorage.setItem(KEY, String(Date.now()));
@@ -94,6 +103,10 @@ export function useHomeScreen() {
 
 /** The bar, just over the dock: the pen in its tile says hi, then Install and a cross. */
 export function HomeScreenBar({ install, dismiss }: Pick<ReturnType<typeof useHomeScreen>, "install" | "dismiss">) {
+  // Once each time it is on screen: the denominator for installs.
+  useEffect(() => {
+    track("home_screen_shown");
+  }, []);
   return (
     <div className={feedback.homeBar} role="region" aria-label="Add skech to your Home Screen">
       <div aria-hidden="true" className={feedback.homeTile}>

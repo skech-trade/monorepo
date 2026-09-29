@@ -2,7 +2,8 @@
 
 import { useCurrentUser, useEvmAddress, useIsInitialized, useIsSignedIn, useSignEvmMessage, useSignEvmTypedData, useSignOut } from "@coinbase/cdp-hooks";
 import { CDPReactProvider, type Config, type Theme } from "@coinbase/cdp-react";
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { identify, track } from "@/lib/analytics";
 import { shortAddress } from "@/lib/market";
 
 /**
@@ -97,7 +98,25 @@ function Publish({ children }: { children: ReactNode }) {
     return () => clearTimeout(t);
   }, []);
   const { isSignedIn } = useIsSignedIn();
+  // Who is playing, for analytics: the wallet once known. Signed in is counted only when it happens in this visit,
+  // not each time a saved session is read back; signed out likewise.
+  const ready = Boolean(isInitialized) || waited;
   const { evmAddress } = useEvmAddress();
+  const was = useRef<"in" | "out" | null>(null);
+  useEffect(() => {
+    if (!ready) return;
+    if (isSignedIn && evmAddress) {
+      identify(evmAddress);
+      if (was.current === "out") track("signed_in");
+      was.current = "in";
+    } else if (!isSignedIn) {
+      if (was.current === "in") {
+        track("signed_out");
+        identify(null);
+      }
+      was.current = "out";
+    }
+  }, [ready, isSignedIn, evmAddress]);
   const { currentUser } = useCurrentUser();
   const { signOut } = useSignOut();
   const { signEvmMessage } = useSignEvmMessage();
@@ -106,7 +125,7 @@ function Publish({ children }: { children: ReactNode }) {
   const account = useMemo<Account>(() => {
     const handle = user?.authenticationMethods?.email?.email ?? user?.authenticationMethods?.sms?.phoneNumber ?? (evmAddress ? shortAddress(evmAddress) : null);
     return {
-      ready: Boolean(isInitialized) || waited,
+      ready,
       signedIn: Boolean(isSignedIn),
       address: evmAddress ?? null,
       handle,
@@ -131,7 +150,7 @@ function Publish({ children }: { children: ReactNode }) {
         return signature as `0x${string}`;
       },
     };
-  }, [isInitialized, waited, isSignedIn, evmAddress, user, signOut, signEvmMessage, signEvmTypedData]);
+  }, [ready, isSignedIn, evmAddress, user, signOut, signEvmMessage, signEvmTypedData]);
   return <Ctx.Provider value={account}>{children}</Ctx.Provider>;
 }
 
