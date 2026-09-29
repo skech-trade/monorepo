@@ -373,6 +373,8 @@ export function InkScreen() {
   };
   /** A piece the chain refused, or never answered: its ink is let go and its stake is back. */
   const gate = useGate();
+  /** A piece was refused for want of money: offer the deposit sheet once every drawing is settled. */
+  const topUp = useRef(false);
   const gateRef = useRef(gate);
   useEffect(() => {
     gateRef.current = gate;
@@ -380,7 +382,8 @@ export function InkScreen() {
   const letGo = useCallback((key: Hex, why: string) => {
     const g = game.current;
     track("piece_refused", { why: why.slice(0, 120) });
-    if (/not enough|balance|allowance/i.test(why)) gateRef.current.openDeposit("short");
+    // Out of money: the deposit sheet, but not while drawings are still in play, which may yet pay (below).
+    if (/not enough|balance|allowance/i.test(why)) topUp.current = true;
     feel("nope");
     const sent = chainBets.current.get(key);
     chainBets.current.delete(key);
@@ -637,6 +640,8 @@ export function InkScreen() {
           // The line ends here: nothing further of it can go in. Some money, just not this much: the way out is
           // a smaller price per dot (a long line on a big screen is many dots), not the deposit sheet.
           track("balance_ran_out", { per_dot: settings.perDot, pieces: d.pieces, balance: ch.balance });
+          // Nothing at all left: the deposit sheet once this drawing and any others are settled.
+          if (ch.balance < POINT_PRICES.values[0]) topUp.current = true;
           return { stop: ch.balance >= POINT_PRICES.values[0] ? "Balance used up here · lower the price per dot" : "Not enough USDC in the game" };
         }
         const quote = feedRef.current.quote;
@@ -848,6 +853,15 @@ export function InkScreen() {
     if (cannotPlay === "signin") gate.openSignIn("tap");
     else gate.openDeposit("tap");
   };
+  /*
+    The deposit sheet after running out, only when the game has nothing left to say: no drawing still in play
+    (one of them may yet win the balance back), and still not enough for a single dot. A win cancels it.
+  */
+  useEffect(() => {
+    if (!topUp.current || !real || chain.account === null || live > 0) return;
+    topUp.current = false;
+    if (chain.balance < POINT_PRICES.values[0]) gate.openDeposit("short");
+  }, [live, real, chain.account, chain.balance, gate]);
   // No deposit sheet on arrival: the game is there to look at and try first. With nothing to play with, the
   // "Deposit USDC to play" line says so, and a tap on the game (or Deposit) opens the sheet.
   const price = feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0;
