@@ -52,7 +52,7 @@ export function Hero() {
         </Reveal>
 
         <Reveal index={3}>
-          <div className="mt-8 flex justify-center" id="hero-cta">
+          <div className="mt-8 flex justify-center">
             <DrawATrade className="min-h-12 px-6">
               <DrawGlyph className="size-5" />
             </DrawATrade>
