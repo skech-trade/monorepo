@@ -5,7 +5,7 @@ import { track } from "@/lib/analytics";
 import { ArrowUpRightIcon, CheckIcon, SendIcon, XIcon } from "lucide-react";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { encode } from "uqr";
-import { hasAuth } from "@/components/app/auth";
+import { hasAuth, useAccount } from "@/components/app/auth";
 import { useCopy } from "@/components/app/copy";
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { MonadMark, UsdcMark } from "@/components/app/marks";
 import { MIN_DEPOSIT, useChain } from "./chain-context";
 import { feel } from "@/lib/feel";
-import { FOUNDER } from "./founders";
+import { FOUNDER, helpLink } from "./founders";
 import { WithdrawSheet } from "./withdraw-sheet";
 import { NETWORK } from "@/lib/chain";
 
@@ -342,6 +342,9 @@ function Faucet({ href }: { href: string }) {
  * "Help" as well as showing the face.
  */
 function Founders({ nudge }: { nudge: boolean }) {
+  const me = useAccount();
+  // A phone number is the handle when there is no email; it is only sent if they send the message.
+  const href = helpLink({ email: me.email, phone: me.email ? null : me.handle?.startsWith("+") ? me.handle : null, address: me.address });
   return (
     <Popover onOpenChange={(open) => open && track("founders_opened", { stuck: nudge })}>
       <PopoverTrigger
@@ -370,8 +373,8 @@ function Founders({ nudge }: { nudge: boolean }) {
           </div>
           <a
             className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#2AABEE] font-semibold text-[16px] text-white outline-none transition-transform hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring active:scale-[.98]"
-            href={FOUNDER.url}
-            onClick={() => track("founders_messaged", { stuck: nudge })}
+            href={href}
+            onClick={() => track("founders_messaged", { stuck: nudge, with_email: Boolean(me.email) })}
             rel="noopener noreferrer"
             target="_blank"
           >
