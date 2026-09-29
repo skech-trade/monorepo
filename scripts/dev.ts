@@ -1,7 +1,7 @@
 /**
  * `bun run dev`: the whole stack in one terminal, one log.
  *
- *   bun run dev                  engine, app and landing
+ *   bun run dev                  engine, relayer, app and landing
  *   bun run dev app engine       just those
  *   bun run dev --kill           first stop whatever holds their ports
  *
@@ -11,14 +11,18 @@
  * left half up. Ctrl-C stops everything.
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join } from "node:path";
+import { chainIdFor, network } from "../packages/core/src/network";
 
 type Service = { name: string; color: number; cwd: string; cmd: string[]; port: number; url: string };
 
 const ENGINE_PORT = Number(process.env.ENGINE_PORT) || 3102;
+const RELAYER_PORT = Number(process.env.RELAYER_PORT) || 3103;
 const SERVICES: Service[] = [
   { name: "engine", color: 35, cwd: "packages/engine", cmd: ["cargo", "run", "--release"], port: ENGINE_PORT, url: `ws://localhost:${ENGINE_PORT}/ws` },
+  { name: "relayer", color: 34, cwd: "packages/relayer", cmd: ["bun", "run", "dev"], port: RELAYER_PORT, url: `ws://localhost:${RELAYER_PORT}/ws` },
   { name: "app", color: 36, cwd: "ui/app", cmd: ["bun", "run", "dev"], port: 3101, url: "http://localhost:3101" },
   { name: "landing", color: 33, cwd: "ui/landing", cmd: ["bun", "run", "dev"], port: 3100, url: "http://localhost:3100" },
 ];
@@ -32,13 +36,39 @@ if (unknown.length) {
   console.error(`unknown service ${unknown.join(", ")}: pick from ${SERVICES.map((s) => s.name).join(", ")}`);
   process.exit(1);
 }
-const services = asked.length ? SERVICES.filter((s) => asked.includes(s.name)) : SERVICES;
+let services = asked.length ? SERVICES.filter((s) => asked.includes(s.name)) : SERVICES;
+
+// SKECH_NETWORK picks the chain for everything; a bad value stops here rather than in four places.
+let chainId: number;
+let networkLabel: string;
+try {
+  networkLabel = network(process.env.SKECH_NETWORK).label;
+  chainId = chainIdFor(process.env);
+} catch (e) {
+  console.error((e as Error).message);
+  process.exit(1);
+}
+// With no game on the chain the relayer has nothing to talk to: it sits out and the app plays for practice.
+const deployment = `packages/contracts/deployments/${chainId}.json`;
+const noGame = !process.env.SKECH_GAME?.trim() && !existsSync(join(root, deployment));
+let skipped = "";
+if (noGame && services.some((s) => s.name === "relayer")) {
+  const hint = `no game on chain ${chainId} (${deployment} is missing): \x1b[1mbun run deploy:contracts\x1b[0m puts one there`;
+  if (asked.includes("relayer")) {
+    console.error(`relayer cannot start: ${hint}`);
+    process.exit(1);
+  }
+  services = services.filter((s) => s.name !== "relayer");
+  skipped = `relayer skipped: ${hint}; until then the app plays for practice`;
+}
 
 const paint = (code: number | string, text: string) => `\x1b[${code}m${text}\x1b[0m`;
 const width = Math.max(...services.map((s) => s.name.length));
 const label = (s: Service) => paint(s.color, s.name.padEnd(width));
 const clock = () => paint(2, new Date().toTimeString().slice(0, 8));
 const say = (text: string) => console.log(`${clock()} ${" ".repeat(width)} ${text}`);
+say(`network: ${paint(1, networkLabel)} (chain ${chainId}), from SKECH_NETWORK`);
+if (skipped) say(paint(33, skipped));
 
 const listening = (port: number) =>
   new Promise<boolean>((resolve) => {

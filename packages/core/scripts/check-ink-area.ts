@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { DIFFICULTY, features, field, readLibrary, RULES, setDifficulty, stepFor, type Bar } from "../src/dots";
 import { areaCells, drawingLayout, cost, INK_CELL, INK_EDGE_CELLS, judge, MIN_INK_MULTIPLE, MAX_INK_MULTIPLE, open, openOn, PEN_CELLS, placeRounded, refund, won, type Stroke } from "../src/ink";
 import { roundedTerms as areaTerms } from "../src/odds";
+import { gridStep } from "../src/chain";
 
 /** Replay ladder-v1 with only information available at placement and opening.
  * Usage: STEP=300 OUT=report.json bun packages/core/scripts/check-ink-area.ts lib.bin csv-folder 2026-09-17 ...
@@ -67,19 +68,21 @@ for (const day of days) {
       { name: "on-price", pts: [{ t: 1000, p: 0 }, { t: 3000, p: 0 }] },
     ];
     const block = `${day}:${Math.floor(i / 3600)}`;
+    // Ink is priced on a grid of the market step, the same on every screen and on chain; the screen sets only the pen's size in price and time.
+    const priceStep = gridStep(marketStep);
+    const previewMap = field(lib, f, previewAt, priceStep * INK_CELL, INK_CELL, INK_EDGE_CELLS);
+    const openingMap = field(lib, opening, openingAt, priceStep * INK_CELL, INK_CELL, INK_EDGE_CELLS);
     for (const view of views) {
       const { step, pitch, pxMs } = drawingLayout(view.width, view.height, marketStep);
-      const previewMap = field(lib, f, previewAt, step * INK_CELL, INK_CELL, INK_EDGE_CELLS);
-      const openingMap = field(lib, opening, openingAt, step * INK_CELL, INK_CELL, INK_EDGE_CELLS);
       for (const [pen, width] of Object.entries(PEN_CELLS)) for (const strategy of strategies) {
       const radius = width * 20 / 2;
       const st: Stroke = { t0: openingAt, p0: f.price, pts: strategy.pts, rt: radius / pxMs, rp: radius * step / pitch };
-      const quote = areaTerms(previewMap, now, step, perDot).line(st);
+      const quote = areaTerms(previewMap, now, priceStep, perDot).line(st);
       const buckets = [get("all"), get(`pen:${pen}`), get(`viewport:${view.name}`), get(`strategy:${strategy.name}`), get(`day:${day}`), get(`case:${view.name}/${pen}/${strategy.name}`)];
-      const fullArea = areaCells(st, openingAt, step).reduce((s, c) => s + c.area, 0);
+      const fullArea = areaCells(st, openingAt, priceStep).reduce((s, c) => s + c.area, 0);
       for (const a of buckets) { a.attempted++; a.area += fullArea; a.offeredArea += fullArea - quote.out.reduce((s, c) => s + c.area, 0); }
       if (quote.cost < 0.01 || !quote.inPlay.length) continue;
-      const placed = placeRounded(st, perDot, step, now, `${samples}:${view.name}:${pen}:${strategy.name}`, INK_EDGE_CELLS)!;
+      const placed = placeRounded(st, perDot, priceStep, now, `${samples}:${view.name}:${pen}:${strategy.name}`, INK_EDGE_CELLS)!;
       placed.drawn = quote.inPlay.map(({ t, lo, hi, area }) => ({ t, lo, hi, area }));
       let bet = openOn(placed, openingMap) ?? open(placed, lib, bars.slice(i - 304, i + 2));
       assert(!!bet, "Opening field mismatch");

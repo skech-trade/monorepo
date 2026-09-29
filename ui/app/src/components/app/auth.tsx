@@ -1,6 +1,6 @@
 "use client";
 
-import { useCurrentUser, useEvmAddress, useIsSignedIn, useSignEvmMessage, useSignOut } from "@coinbase/cdp-hooks";
+import { useCurrentUser, useEvmAddress, useIsSignedIn, useSignEvmMessage, useSignEvmTypedData, useSignOut } from "@coinbase/cdp-hooks";
 import { CDPReactProvider, type Config, type Theme } from "@coinbase/cdp-react";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import { shortAddress } from "@/lib/market";
@@ -57,9 +57,26 @@ export type Account = {
    * Coinbase's provider is mounted.
    */
   signMessage: (message: string) => Promise<string | null>;
+  /**
+   * Sign EIP-712 typed data with the wallet: a session, a deposit's permit,
+   * a withdrawal. The wallet signs in its enclave with no prompt, so the
+   * values must be plain JSON: bigints go in as decimal strings.
+   */
+  signTypedData: (typedData: TypedDataToSign) => Promise<`0x${string}` | null>;
 };
 
-const SIGNED_OUT: Account = { signedIn: false, address: null, handle: null, signOut: () => undefined, signMessage: async () => null };
+export type TypedDataToSign = {
+  domain: { name: string; version: string; chainId: number; verifyingContract: `0x${string}` };
+  types: Record<string, { name: string; type: string }[]>;
+  primaryType: string;
+  message: Record<string, unknown>;
+};
+
+/** Bigints as decimal strings, all the way down: what the wallet's signer takes. */
+const plain = (v: unknown): unknown =>
+  typeof v === "bigint" ? v.toString() : Array.isArray(v) ? v.map(plain) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, plain(x)])) : v;
+
+const SIGNED_OUT: Account = { signedIn: false, address: null, handle: null, signOut: () => undefined, signMessage: async () => null, signTypedData: async () => null };
 const Ctx = createContext<Account>(SIGNED_OUT);
 
 /** Reads Coinbase's hooks. Only ever mounted inside their provider. */
@@ -69,6 +86,7 @@ function Publish({ children }: { children: ReactNode }) {
   const { currentUser } = useCurrentUser();
   const { signOut } = useSignOut();
   const { signEvmMessage } = useSignEvmMessage();
+  const { signEvmTypedData } = useSignEvmTypedData();
   const user = currentUser as { authenticationMethods?: { email?: { email?: string }; sms?: { phoneNumber?: string } } } | null;
   const account = useMemo<Account>(() => {
     const handle = user?.authenticationMethods?.email?.email ?? user?.authenticationMethods?.sms?.phoneNumber ?? (evmAddress ? shortAddress(evmAddress) : null);
@@ -82,8 +100,22 @@ function Publish({ children }: { children: ReactNode }) {
         const { signature } = await signEvmMessage({ evmAccount: evmAddress, message });
         return signature;
       },
+      signTypedData: async (typedData) => {
+        if (!evmAddress) return null;
+        const types = {
+          EIP712Domain: [
+            { name: "name", type: "string" },
+            { name: "version", type: "string" },
+            { name: "chainId", type: "uint256" },
+            { name: "verifyingContract", type: "address" },
+          ],
+          ...typedData.types,
+        };
+        const { signature } = await signEvmTypedData({ evmAccount: evmAddress, typedData: { domain: typedData.domain, types, primaryType: typedData.primaryType, message: plain(typedData.message) as Record<string, unknown> } });
+        return signature as `0x${string}`;
+      },
     };
-  }, [isSignedIn, evmAddress, user, signOut, signEvmMessage]);
+  }, [isSignedIn, evmAddress, user, signOut, signEvmMessage, signEvmTypedData]);
   return <Ctx.Provider value={account}>{children}</Ctx.Provider>;
 }
 

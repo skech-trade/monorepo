@@ -12,13 +12,10 @@ import { useSyncExternalStore } from "react";
 export type Palette = "classic" | "colourblind";
 export type Settings = {
   palette: Palette;
-  /** Blur every figure, for reading the screen in company. */
-  blurred: boolean;
 };
 
 export const DEFAULTS: Settings = {
   palette: "classic",
-  blurred: false,
 };
 
 const KEY = "skech:settings";

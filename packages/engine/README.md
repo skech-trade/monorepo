@@ -39,8 +39,9 @@ It reads the repo root `.env.local`. Variables already in the environment win.
 | Env | Default | |
 |---|---|---|
 | `ENGINE_PRIVATE_KEY` | throwaway wallet | Hex key the engine signs with |
-| `ENGINE_CHAIN_ID` | `31337` (anvil) | EIP-712 domain: the chain the contract is on |
-| `ENGINE_VERIFYING_CONTRACT` | `0x000…0` | EIP-712 domain: the deployed `SkechPrice` |
+| `SKECH_NETWORK` | `testnet` | Picks the chain for the EIP-712 domain: 10143, or 143 for `mainnet` |
+| `ENGINE_CHAIN_ID` | from `SKECH_NETWORK` | Override for anvil; may not name the other network |
+| `ENGINE_VERIFYING_CONTRACT` | the game in `packages/contracts/deployments/<chain>.json`, else `0x000…0` | EIP-712 domain: the deployed `SkechGame` proxy |
 | `ENGINE_BAND_BPS` | `1` (0.01%) | How far the attesters' median may be from Coinbase before it is signed instead |
 | `ENGINE_PORT` | `3102` | |
 
@@ -84,8 +85,9 @@ import { verifyTypedData } from "viem";
 await verifyTypedData({ ...hello.typedData, address: hello.signer, message: m.message, signature: m.signature });
 ```
 
-On chain, pass `message.market`, `message.price`, `message.time` and
-`signature` to `SkechPrice.verify` (see `packages/contracts`).
+On chain, a piece of ink carries `message.price`, `message.time` and `signature` as the price the
+player saw, and `SkechGame` checks it against this signer (see `packages/contracts`). The relayer
+(`packages/relayer`) signs quotes and bars with the same key.
 
 ## Notes
 

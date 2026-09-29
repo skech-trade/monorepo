@@ -1,12 +1,14 @@
 "use client";
 
-import { LogOutIcon, UserIcon } from "lucide-react";
+import { ArrowUpRightIcon, LogOutIcon, UserIcon } from "lucide-react";
 import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Menu, MenuCheckboxItem, MenuPopup, MenuSeparator, MenuItem, MenuTrigger } from "@/components/ui/menu";
-import { useSettings } from "@/lib/settings";
+import { Menu, MenuPopup, MenuSeparator, MenuItem, MenuTrigger } from "@/components/ui/menu";
 import { hasAuth, useAccount } from "./auth";
+import { useChain } from "./ink/chain-context";
+import { useGate } from "./ink/deposit-modal";
+import { money } from "@/lib/money";
 import { CopyAddress } from "./copy";
 import { Wordmark } from "./logo";
 import { SignInButton } from "./sign-in";
@@ -15,16 +17,18 @@ import { ThemeToggle } from "./theme-toggle";
 /**
  * The bar over the game: the wordmark, light or dark, the page's own button
  * (the practice deposit), and the way in. Signed in, the way in becomes a
- * small menu: who you are, privacy, and signing out.
+ * small menu: who you are, withdrawing, and signing out.
  *
  * Taller on a phone, where the things in it are thumb-sized: fifty-six
  * pixels is what a phone header is on both platforms.
  */
 export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; showTheme?: boolean } = {}) {
-  const [{ blurred }, set] = useSettings();
   const me = useAccount();
+  const chain = useChain();
+  const gate = useGate();
   const anonymous = hasAuth && !me.signedIn;
-  const name = me.handle ?? "Your account";
+  // An email or a phone number names the account; without one it is simply the wallet, and the address says which.
+  const name = me.handle && !me.handle.startsWith("0x") ? me.handle : "Your wallet";
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4 pt-3 pb-2 sm:gap-3">
       <Link aria-label="skech home" className="shrink-0 transition-opacity hover:opacity-70" href="/">
@@ -37,23 +41,34 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
         {hasAuth && me.signedIn ? (
           <Menu>
             <MenuTrigger render={<Button aria-label="Your account" className="size-11 rounded-full border-0 bg-secondary p-0 sm:size-11" size="icon" variant="outline" />}>
-              <Avatar className="size-9 bg-transparent">
-                <AvatarFallback>
-                  <UserIcon className="size-4 sm:size-3.5" />
-                </AvatarFallback>
-              </Avatar>
+              {me.address ? (
+                <span aria-hidden="true" className="size-7 rounded-full ring-1 ring-foreground/10" style={{ background: swatch(me.address) }} />
+              ) : (
+                <Avatar className="size-9 bg-transparent">
+                  <AvatarFallback>
+                    <UserIcon className="size-4 sm:size-3.5" />
+                  </AvatarFallback>
+                </Avatar>
+              )}
             </MenuTrigger>
-            <MenuPopup align="end" className="w-64">
-              <div className="min-w-0 px-2 py-2 leading-tight">
-                <p className="truncate font-medium">{name}</p>
-                {me.address ? <CopyAddress address={me.address} className="text-muted-foreground text-xs" /> : null}
+            <MenuPopup align="end" className="w-[288px] p-1.5">
+              <div className="flex items-center gap-3 px-2.5 pt-2.5 pb-3">
+                <span aria-hidden="true" className="size-11 shrink-0 rounded-full ring-1 ring-foreground/10" style={{ background: me.address ? swatch(me.address) : undefined }} />
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <p className="truncate font-semibold text-[15px] leading-tight">{name}</p>
+                  {me.address ? <CopyAddress address={me.address} className="self-start text-[13px] text-muted-foreground" /> : null}
+                </div>
               </div>
-              <MenuSeparator />
-              <MenuCheckboxItem checked={blurred} onCheckedChange={(next) => set({ blurred: next })}>
-                Privacy
-              </MenuCheckboxItem>
-              <MenuSeparator />
-              <MenuItem onClick={() => me.signOut()} variant="destructive">
+              <MenuSeparator className="mx-1" />
+              {/* Money out lives with the account: the balance it comes from, and the way to send it. */}
+              {chain.real ? (
+                <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" disabled={chain.balance <= 0} onClick={gate.openWithdraw}>
+                  <ArrowUpRightIcon />
+                  <span className="flex-1">Withdraw</span>
+                  <span className="figures text-muted-foreground">{money(chain.balance)}</span>
+                </MenuItem>
+              ) : null}
+              <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={() => me.signOut()} variant="destructive">
                 <LogOutIcon />
                 Sign out
               </MenuItem>
@@ -63,4 +78,12 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
       </div>
     </header>
   );
+}
+
+/** Two hues from the address, so each wallet has a face of its own that stays the same everywhere. */
+function swatch(address: string) {
+  const n = parseInt(address.slice(2, 10), 16);
+  const a = n % 360;
+  const b = (a + 40 + ((n >> 9) % 80)) % 360;
+  return `linear-gradient(135deg, oklch(0.72 0.14 ${a}), oklch(0.55 0.16 ${b}))`;
 }

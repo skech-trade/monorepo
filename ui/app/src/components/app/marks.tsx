@@ -119,7 +119,22 @@ export function UsdcMark({ className }: MarkProps) {
   );
 }
 
+/** Monad's mark: the rounded diamond, hollow, on its purple. */
+export function MonadMark({ className }: MarkProps) {
+  return (
+    <svg aria-hidden="true" className={`${box} ${className ?? ""}`} viewBox="0 0 32 32">
+      <circle cx="16" cy="16" fill="#836EF9" r="16" />
+      <path
+        d="M16 6.2c-2.8 0-9.8 7-9.8 9.8s7 9.8 9.8 9.8 9.8-7 9.8-9.8-7-9.8-9.8-9.8zm-1.5 15.4c-1.2-.3-4.3-5.8-4-7s5.8-4.3 7-4c1.2.3 4.3 5.8 4 7s-5.8 4.3-7 4z"
+        fill="#fff"
+      />
+    </svg>
+  );
+}
+
 const CHAIN_MARKS: Record<number, (p: MarkProps) => React.ReactElement> = {
+  143: MonadMark,
+  10143: MonadMark,
   1: EthereumMark,
   10: OptimismMark,
   137: PolygonMark,

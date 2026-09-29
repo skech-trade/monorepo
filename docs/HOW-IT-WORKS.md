@@ -7,7 +7,10 @@ It is practice money for now: $1,000 in the browser, no sign-in needed.
 | --- | --- |
 | The screen | `ui/app/src/components/app/ink/` |
 | The live price | `packages/engine` (Rust), read by `ui/app/src/lib/engine.ts` |
-| Checking a signed price on chain | `packages/contracts/src/SkechPrice.sol` |
+| The game on chain | `packages/contracts/src/SkechGame.sol`, `SkechIOU.sol`, `SkechRevenue.sol`, `SkechLadder.sol` |
+| Pricing and sending pieces to the chain | `packages/relayer` (Bun) |
+| What the app signs, and the ladder in integers | `packages/core/src/chain.ts` |
+| The browser's drawing key, the relayer, real money on screen | `ui/app/src/lib/session.ts`, `lib/relayer.ts`, `components/app/ink/chain-context.tsx` |
 | Practice balance and settings | `ui/app/src/lib/practice.ts` |
 | Market readings, price paths, chances | `packages/core/src/dots.ts` |
 | Drawings: cost, opening, settlement | `packages/core/src/ink.ts`, `ink-area.ts` |
@@ -110,9 +113,9 @@ rung   = the highest rung ≤ fair, or the floor if fair is under it, or 128× p
 hit pays d × stake × rung                  (one section pays at most 256 dots)
 ```
 
-- **Difficulty** is one number, 0 to 100 (`DIFFICULTY` in `dots.ts`, 66 by default;
+- **Difficulty** is one number, 0 to 100 (`DIFFICULTY` in `dots.ts`, 55 by default;
   a slider in the help sheet in development, or with `?house`). It sets `ladderBest`,
-  what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 93.6¢ at 66. It also sets
+  what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 98¢ at 55. It also sets
   the floor, what near-certain ink pays: 1.1× up to 70, easing to 1× at 100. Harder
   lowers every rung a spot earns; nothing ever pays under 1×.
 - A section's chance `p` sets its rung. Ink placed exactly on a rung returns
@@ -215,7 +218,7 @@ STEP=600 OUT=report.json bun packages/core/scripts/check-ink-area.ts \
 
 Coinbase BTC-USD, September 17–24, library from September 1–16, at difficulty 70
 (ladder best 92¢): 172,777 drawings opened, 8,047,900 invariant checks passed. At the
-default 55 (best 98¢), with chances held to fall away from the price, the same replay returns 0.779 overall (95%: 0.729–0.832), 0.777–0.783 by screen and 0.779–0.780 by pen; drawing with the momentum returns 0.876 (95%: 0.789–0.975). Before that rule it was 0.798 at 55; at 60 0.781, at 75 0.730. At the default 66
+default 55 (best 98¢), with chances held to fall away from the price, the same replay returns 0.779 overall (95%: 0.729–0.832), 0.777–0.783 by screen and 0.779–0.780 by pen; drawing with the momentum returns 0.876 (95%: 0.789–0.975). Before that rule it was 0.798 at 55; at 60 0.781, at 75 0.730. At 66
 (best 93.6¢), 172,800 drawings, 11,338,664 invariant checks passed: 0.744 overall
 (95%: 0.695–0.795), 0.741–0.748 by screen, 0.744 for every pen; level line 0.695,
 against momentum 0.710, with momentum 0.839, `on-price` 0.859.
@@ -268,9 +271,116 @@ Drawings saved in a browser under earlier terms (`area-v1`, `rounded-v1` to `rou
 and the original per-row points) keep the terms they opened on. `ink.ts` never
 reprices a saved drawing.
 
-## Before real money
+## 11. On chain
+
+Signed in, with a game deployed on the network `SKECH_NETWORK` names (testnet, or mainnet), the same
+drawing is played for USDC on Monad. On testnet the USDC is free from Circle's faucet, and the app says
+so where it asks for a deposit. Nothing about the pricing changes; what changes is who vouches for what.
+
+### The grid
+
+Ink is priced and judged on a grid of the market step: one unit is the step over 50 (20¢ on a $10
+step), bands sit on it, and every band is judged one unit wider each way (`gridStep`, `unitFor` in
+`chain.ts`). The screen sets only the pen's size. So a phone and a 1440p screen price the same ink
+the same, and the chain judges exactly what was priced. The replay (`check-ink-area.ts`) runs on the
+same grid.
+
+### Three contracts
+
+ERC-1967 proxies (UUPS), on Monad testnet (chain 10143), Foundry 1.8 with `network = "monad"`.
+
+- **`SkechGame`** holds every player's USDC balance, their session key, every piece placed, the price
+  by the second, and the pool. The house never holds the players' money: every stake goes into one
+  pool, and every hit is paid from it. The difficulty is set here, per market (`setDifficulty`), and the
+  ladder is computed here (`SkechLadder`, the same integers as `chain.ts`), so the engine cannot pay a
+  band more than its chance earns at the difficulty on chain.
+- **`SkechRevenue`** is where the house's take goes: 4% of every stake as it is placed, and 10% of the
+  profit on every hit. Nothing else. `collectFees` moves it there; a treasurer takes it out.
+- **`SkechIOU`** is what the game owes when the pool cannot pay a hit at once: an ERC-20, one share
+  worth one USDC when it started and rising by a fixed amount every block (0.1% a day at 300 ms
+  blocks; `setRate` changes it from then on). Shares transfer like any token and carry their basis,
+  what was owed when they were issued. Anyone may hand a holder's shares back to the game once the
+  pool can pay (`redeem`), and is paid 10% of the growth for it; a holder redeeming their own pays
+  nothing. The house's unpaid fees are owed the same way, behind the player.
+
+### What goes on chain, and who signs it
+
+| Thing | Signed by | Says |
+| --- | --- | --- |
+| A **piece** of a drawing | the player's session key | the bands (second, price from, price to, on the grid), what each stakes, what a dot costs, the second it opens on, the price on the screen and when, the difficulty shown, the stroke's hash |
+| A **quote** | the oracle (the engine's key) | for every piece opening on one second: when it was received, the market's price and momentum then, and each band's chance in billionths |
+| A **price** | the engine | the price the player saw, as the engine already signs every trade |
+| A **bar** | the oracle | one second of the price: the close before it, its high, low and close |
+
+The chance is measured off chain, on the paths, as before; it cannot be measured on chain. The
+rung is computed on chain from the chance, the difficulty and the momentum. One `place`
+transaction carries every piece that opens on a second, from every player; a piece that cannot
+go in is refused with a reason and the rest go in. `postBarAndSettle`, one a second, records the
+bar and settles every band in it: a band is hit if the second's range, from the close before to
+its high and low, reaches it, one unit wider each way, the rule of section 5.
+
+### Timing, and why it cannot be gamed
+
+- A piece must reach the engine before its opening second, give or take 200 ms (`lateMs`, on
+  chain); the engine signs when it received it, and the contract refuses anything later. The app
+  computes the opening second from `now + 200 ms`, so a piece drawn at the end of a second opens on
+  the one after and is never late.
+- The `place` transaction must land within 3 s of the opening second (`placeGraceMs`); a band
+  whose second is already posted is refused and its stake not taken.
+- The price a player saw must be no older than 15 s and no newer than the receipt.
+- A piece is named by its player, drawing and index: sent twice, it is refused as a replay.
+- Everything is EIP-712 under the game's domain, so nothing signed for one chain or one contract
+  verifies on another. High-`s` signatures are refused on both curves.
+
+### Sessions
+
+A session key signs pieces; nothing else. The browser makes a P-256 key with WebCrypto, non-extractable,
+kept in IndexedDB: it will sign but never hand over the key. Registering it takes one signature from the
+wallet (`Session`: the key, an expiry, an allowance of stake) and is sent by the relayer; drawing then
+takes no prompts at all. Monad checks P-256 natively (the precompile at `0x100`), so a piece costs about
+what an Ethereum signature does. Ethereum keys are sessions too, for bots. A session cannot withdraw:
+withdrawals need the wallet, by transaction or by a signed `Withdraw` the relayer sends. Deposits are an
+EIP-3009 authorization on USDC, the signature x402 pays with: one signature, no allowance, a random nonce so
+any number can be in flight, and only the game can carry it out (`depositWithAuthorization`; a permit
+deposit stays for tokens without it). USDC that lands in the player's wallet is moved in by itself, so a
+player sees one address and one balance. Players never hold MON.
+
+### The relayer
+
+`packages/relayer`: prices what players draw with `@skech/core`, on the map of the opening second,
+350 ms into it; signs the quote; sends `place`. Six hundred milliseconds after each second ends it signs
+the bar and sends `postBarAndSettle` for the bets with ink in it. Every fifteen seconds it redeems IOUs
+the pool can pay and collects fees. It sends with Monad's `eth_sendRawTransactionSync`, keeps its own
+nonce, follows the base fee in the background, and sets every gas limit from the call's shape instead
+of estimating it: Monad charges the gas limit, not what is used, and reports the limit as used, so the
+limit has to be right before sending and every unit over it is money. The coefficients (a piece, a band,
+a byte of stroke, a bar, a bet, a hit, an IOU) are measured by `packages/contracts/test/GasModel.t.sol`
+in the worst state each can meet, at Monad's prices, and kept in `snapshots/GasModel.json`; the relayer
+adds the transaction's own cost, 5%, and room for Monad's storage pages. For a settle it first works out,
+with the contract's arithmetic, which bets hit and which the pool cannot pay, since it posts the bar
+itself. Only the calls that reach Circle's USDC are estimated. It keeps 12 MON at least: Monad holds 10
+of every account in reserve. On Monad testnet (2026-09-29) the chain's own estimates came to 87–90% of
+the limits sent for placements and 80–84% for settles, and none was ever short.
+
+### Fees and the pool, by the numbers
+
+A half-dot at 10¢ with a 50% chance at difficulty 51: fair 1.992×, rung 1.5×. Placed: 5¢ leaves the
+balance, 0.2¢ (4%) is the house's, 4.8¢ joins the pool. Hit: 7.5¢ gross, 2.5¢ profit, 0.25¢ (10%) the
+house's, 7.25¢ to the balance, paid from the pool. Missed: the 4.8¢ stays in the pool for the next hit.
+With the pool empty, the 7.25¢ is owed as IOU and paid off as others lose.
+
+### Running it
+
+```bash
+bun run deploy:contracts                 # ENGINE_PRIVATE_KEY from .env.local deploys; writes deployments/10143.json and the env values
+bun run dev                              # engine, relayer, app
+bun packages/relayer/scripts/e2e.ts      # the whole thing on anvil, with a scripted player
+forge test                               # in packages/contracts: 45 tests, the accounting invariant among them
+```
+
+## Before mainnet
 
 - Retrain the library on recent days, and watch live hit rates against priced ones.
-- Route the price through a service, and settle on the same bars the server saw.
-- Settle on a server running this same code, not in the browser.
+- Split the oracle's key from the relayer's, and the admin from both; put the admin behind a multisig.
+- Watch the pool: IOUs are the plan for a shortfall, not for a run.
 - Get legal advice: this is a fixed-odds bet on a price.

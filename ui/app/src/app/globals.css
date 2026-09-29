@@ -357,12 +357,6 @@
   animation: sk-in 240ms ease-out both;
 }
 
-/* Blur balances. One rule: every figure already carries `figures`. */
-[data-blurred] .figures {
-  filter: blur(6px);
-  user-select: none;
-}
-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -414,3 +408,14 @@
     transform: none;
   }
 }
+
+/* The deposit sheet's success mark: the circle springs in, then the tick. */
+@keyframes landed-pop { 0% { opacity: 0; transform: scale(.4); } 60% { opacity: 1; transform: scale(1.12); } 100% { transform: scale(1); } }
+@keyframes landed-tick { from { opacity: 0; transform: scale(.5) rotate(-12deg); } to { opacity: 1; transform: none; } }
+@keyframes row-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+/* The deposit success scene: drawn in left to right like a pen stroke, then a slow float; sparkles pop. */
+@keyframes scene-draw { from { clip-path: inset(0 100% 0 0); opacity: .4; } 30% { opacity: 1; } to { clip-path: inset(0 0 0 0); opacity: 1; } }
+@keyframes scene-float { 50% { transform: translateY(-4px); } }
+@keyframes sparkle { 0% { opacity: 0; transform: scale(0) rotate(-40deg); } 60% { opacity: 1; transform: scale(1.3) rotate(10deg); } 100% { opacity: .85; transform: scale(1) rotate(0); } }
+@keyframes scan-line { 0%, 100% { top: 6%; } 50% { top: 92%; } }

@@ -6,9 +6,15 @@
   "exports": {
     "./dots": "./src/dots.ts",
     "./ink": "./src/ink.ts",
-    "./odds": "./src/odds.ts"
+    "./odds": "./src/odds.ts",
+    "./chain": "./src/chain.ts",
+    "./bars": "./src/bars.ts",
+    "./network": "./src/network.ts"
   },
   "scripts": {
     "test": "bun test"
+  },
+  "dependencies": {
+    "viem": "^2.56.8"
   }
 }
