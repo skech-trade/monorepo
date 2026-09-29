@@ -51,10 +51,13 @@ export function useOnboarding(live: number): { step: Step; setupError: string | 
   return { step, setupError, retrySetup };
 }
 
-/** Where someone is, as one quiet line over the game: the game itself stays in play. Only a failed setup needs more. */
+/**
+ * Where someone is, as one quiet line over the game: the game itself stays in play. Only a failed setup needs more.
+ * Signed out and connecting are the screen's own to say (ink-screen), once, in place of the game.
+ */
 export function Onboarding({ step, setupError, retrySetup }: ReturnType<typeof useOnboarding>) {
   const chain = useChain();
-  if (step === null) return null;
+  if (step === null || step === "signin" || step === "connecting") return null;
   if (step === "setup" && setupError) {
     return (
       <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-4" role="dialog" aria-label="Finish setting up">
@@ -69,9 +72,8 @@ export function Onboarding({ step, setupError, retrySetup }: ReturnType<typeof u
       </div>
     );
   }
-  const busy = step === "connecting" || step === "setup" || chain.adding !== null;
-  const text =
-    step === "signin" ? "Sign in to play" : step === "deposit" ? (chain.adding !== null ? `Adding $${chain.adding.toFixed(2)}…` : "Deposit USDC to play") : step === "setup" || chain.registering ? "Getting ready…" : "Connecting…";
+  const busy = step === "setup" || chain.adding !== null;
+  const text = step === "deposit" ? (chain.adding !== null ? `Adding $${chain.adding.toFixed(2)}…` : "Deposit USDC to play") : "Getting ready…";
   return (
     <div className={cn(feedback.hintPill, "flex items-center gap-2")} role="status">
       {busy ? <Spinner className="size-4" /> : null} {text}
