@@ -1,6 +1,6 @@
 import { CtaScene } from "./illo";
 import { Reveal } from "./motion";
-import { StartApp } from "./start-app";
+import { DrawATrade } from "./app-link";
 import { Display } from "./type";
 import styles from "./story.module.css";
 
@@ -16,7 +16,7 @@ export function Cta() {
           <Display as="h2" className="max-w-[11ch]" id="cta-title">
             Go draw something.
           </Display>
-          <StartApp className="mt-8 min-h-12 px-6" />
+          <DrawATrade className="mt-8 min-h-12 px-6" />
         </div>
         <CtaScene className={styles.ctaArt} />
       </Reveal>

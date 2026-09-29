@@ -1,7 +1,7 @@
 import styles from "./hero.module.css";
 import { HeroScene } from "./illo";
 import { Reveal } from "./motion";
-import { StartApp } from "./start-app";
+import { DrawATrade } from "./app-link";
 import { Body, Display } from "./type";
 
 /**
@@ -52,10 +52,10 @@ export function Hero() {
         </Reveal>
 
         <Reveal index={3}>
-          <div className="mt-8 flex justify-center">
-            <StartApp className="min-h-12 px-6">
+          <div className="mt-8 flex justify-center" id="hero-cta">
+            <DrawATrade className="min-h-12 px-6">
               <DrawGlyph className="size-5" />
-            </StartApp>
+            </DrawATrade>
           </div>
         </Reveal>
       </div>

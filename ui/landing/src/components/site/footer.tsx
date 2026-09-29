@@ -1,6 +1,6 @@
 import { LogoLink } from "./logo";
 import { SoonLink } from "./soon";
-import { APP_URL } from "./start-app";
+import { APP_URL } from "./app-link";
 
 const SOON = [
   { label: "Docs", detail: "Lands with early access." },
