@@ -29,7 +29,8 @@ import { ScoreboardSheet } from "./scoreboard-sheet";
 import { addChange, Ledger } from "./ledger";
 import { WalletButton } from "./wallet-button";
 import { cn } from "@/lib/utils";
-import { fmtMultiple, type Game, type Preview, Stage } from "./stage";
+import { track } from "@/lib/analytics";
+import { fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
 import { TokenAvatar } from "@/components/app/market-header";
 import { DepositButton, InkControls } from "./ink-controls";
 import feedback from "./drawing-feedback.module.css";
@@ -186,6 +187,25 @@ export function InkScreen() {
   useEffect(() => {
     if (fresh && me.ready) introReady();
   }, [fresh, me.ready]);
+  // Once a load: how long until the game could be played, and if it is slow, which part is.
+  const readyAt = useRef<number | null>(null);
+  const health = useRef({ prices: false, account: false, relayer: false, signedIn: false });
+  useEffect(() => {
+    health.current = { prices: fresh, account: me.ready, relayer: chain.real, signedIn: me.signedIn };
+  }, [fresh, me.ready, me.signedIn, chain.real]);
+  useEffect(() => {
+    if (!fresh || !me.ready || readyAt.current !== null) return;
+    readyAt.current = performance.now();
+    track("app_ready", { ms: Math.round(readyAt.current), signed_in: me.signedIn });
+  }, [fresh, me.ready, me.signedIn]);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const h = health.current;
+      if (h.prices && h.account && (!forReal || !h.signedIn || h.relayer)) return;
+      track("connect_slow", { prices: h.prices, account: h.account, relayer: h.relayer, signed_in: h.signedIn });
+    }, 10_000);
+    return () => clearTimeout(t);
+  }, []);
   /* The balance shows green for a moment when a hit pays into it. What paid lands in the changes under it. */
   const [gained, setGained] = useState<number>(0);
   useEffect(() => {
@@ -338,7 +358,12 @@ export function InkScreen() {
     const paidOut = payouts.current.get(line);
     payouts.current.delete(line);
     if (paidOut) t.won = paidOut.credited;
-    if (!t.points) return setResult({ key: line, won: 0, cost: 0, hits: 0, points: 0, voided: true });
+    const played = { pen: practice().brush, per_dot: practice().perDot, real: chainRef.current.real };
+    if (!t.points) {
+      track("round_finished", { ...played, voided: true, cost: 0, won: 0, net: 0 });
+      return setResult({ key: line, won: 0, cost: 0, hits: 0, points: 0, voided: true });
+    }
+    track("round_finished", { ...played, voided: false, cost: cents(t.cost), won: cents(t.won), net: cents(t.won - t.cost), hits: t.hits, dots: t.points, hit_share: Math.round((100 * t.hits) / t.points), best: t.best });
     record({ id: line, at: t.at, cost: cents(t.cost), won: cents(t.won), hits: t.hits, dots: t.points, best: t.best });
     const streak = scoreboard().streak;
     setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false, best: t.best, streak });
@@ -354,7 +379,8 @@ export function InkScreen() {
   }, [gate]);
   const letGo = useCallback((key: Hex, why: string) => {
     const g = game.current;
-    if (/not enough|balance|allowance/i.test(why)) gateRef.current.openDeposit();
+    track("piece_refused", { why: why.slice(0, 120) });
+    if (/not enough|balance|allowance/i.test(why)) gateRef.current.openDeposit("short");
     feel("nope");
     const sent = chainBets.current.get(key);
     chainBets.current.delete(key);
@@ -569,7 +595,7 @@ export function InkScreen() {
     rounded total), so cost does not depend on how often the pen is read.
   */
   const onPlace = useCallback(
-    (stroke: Stroke, line: string, done: boolean): string | null => {
+    (stroke: Stroke, line: string, done: boolean): Placed => {
       const g = game.current;
       if (!owner) return "Playing in another tab";
       if (!fresh || !g.field) return "Waiting for live prices";
@@ -608,8 +634,10 @@ export function InkScreen() {
         charge = Number(stake) / 1e6;
         if (charge > ch.balance) {
           finish();
-          // Some money, just not this much: the way out is a smaller price per dot, not the deposit sheet.
-          return ch.balance >= POINT_PRICES.values[0] ? "Not enough: lower the price per dot" : "Not enough USDC in the game";
+          // The line ends here: nothing further of it can go in. Some money, just not this much: the way out is
+          // a smaller price per dot (a long line on a big screen is many dots), not the deposit sheet.
+          track("balance_ran_out", { per_dot: settings.perDot, pieces: d.pieces, balance: ch.balance });
+          return { stop: ch.balance >= POINT_PRICES.values[0] ? "Balance used up here · lower the price per dot" : "Not enough USDC in the game" };
         }
         const quote = feedRef.current.quote;
         if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key || !gameDomain) {
@@ -656,6 +684,15 @@ export function InkScreen() {
       d.area = area;
       d.charged = cents(d.charged + charge);
       d.pieces++;
+      // The first drawing this browser ever places: where the way in ends and playing starts.
+      if (d.pieces === 1) {
+        try {
+          if (!localStorage.getItem("skech:first-drawing")) {
+            localStorage.setItem("skech:first-drawing", "1");
+            track("first_drawing", { real: ch.real });
+          }
+        } catch {}
+      }
       if (!g.bets.some(b => !decided(b))) settledTotals.current = { committed: 0, returned: 0 };
       tally(line, bet.placedAt).open++;
       g.bets.push(bet);
@@ -743,6 +780,7 @@ export function InkScreen() {
           const next: InkBet = { ...bet, cells, status: cells.every((c) => c.status !== "live") ? "done" : "live" };
           g.bets[i] = next;
           // The chain deciding first is normal; the chain deciding otherwise is worth knowing about.
+          if (disagreed) track("judge_disagreed", { bands: disagreed });
           if (disagreed && process.env.NODE_ENV !== "production") console.warn(`[ink] the chain judged ${disagreed} band${disagreed > 1 ? "s" : ""} of ${bet.id} otherwise: hits ${m.hitMask.toString(2)} misses ${m.missMask.toString(2)}`);
           if (decided(next) && !wasDecided) {
             settledTotals.current.committed += cost(next) - refund(next);
@@ -807,17 +845,11 @@ export function InkScreen() {
     e.stopPropagation();
     // Felt and heard, not just a sheet appearing: the short low double note and a double tap under the finger.
     feel("nope");
-    if (cannotPlay === "signin") gate.openSignIn();
+    if (cannotPlay === "signin") gate.openSignIn("tap");
     else gate.openDeposit("tap");
   };
-  // Signed in with nothing to play with: the deposit sheet, once, without being asked.
-  const offered = useRef(false);
-  useEffect(() => {
-    if (onboarding.step === "deposit" && !offered.current) {
-      offered.current = true;
-      gate.openDeposit();
-    }
-  }, [onboarding.step, gate]);
+  // No deposit sheet on arrival: the game is there to look at and try first. With nothing to play with, the
+  // "Deposit USDC to play" line says so, and a tap on the game (or Deposit) opens the sheet.
   const price = feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0;
   /*
     Until the game can be played the screen says one thing. Signed out: the way in, over the game blurred.
@@ -827,6 +859,8 @@ export function InkScreen() {
   const signedOut = onboarding.step === "signin";
   // On a phone's browser, the Home Screen bar sits in the gap over the dock, and the chart gives up a little for it.
   const home = useHomeScreen();
+  // Not while signed out: the blur covers it there, and its cross could not be reached.
+  const homeBar = home.showing && !signedOut;
   const connecting = !signedOut && (!fresh || onboarding.step === "connecting");
   const [boardOpen, setBoardOpen] = useState(false);
   const board = useScoreboard();
@@ -835,8 +869,14 @@ export function InkScreen() {
     <InkControls
       amount={state.perDot}
       className="w-full sm:w-auto"
-      onAmount={(n) => setPractice({ perDot: n })}
-      onPen={(id) => setPractice({ brush: id })}
+      onAmount={(n) => {
+        if (n !== state.perDot) track("price_changed", { per_dot: n });
+        setPractice({ perDot: n });
+      }}
+      onPen={(id) => {
+        if (id !== state.brush) track("pen_changed", { pen: id });
+        setPractice({ brush: id });
+      }}
       pen={state.brush}
     />
   );
@@ -901,7 +941,7 @@ export function InkScreen() {
         )}
       </div>
 
-      <div className="absolute inset-0" onPointerDownCapture={onGate} style={home.showing ? { bottom: homeBarRoom(window.innerWidth) } : undefined}>
+      <div className="absolute inset-0" onPointerDownCapture={onGate} style={homeBar ? { bottom: homeBarRoom(window.innerWidth) } : undefined}>
           {lib ? <Stage onViewport={onViewport} className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} /> : null}
           {owner === false ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm" role="status">
@@ -953,7 +993,7 @@ export function InkScreen() {
 
       {returnedInk && !preview && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
       <div className={feedback.bottomShade} aria-hidden="true" />
-      {home.showing ? <HomeScreenBar dismiss={home.dismiss} install={home.install} /> : null}
+      {homeBar ? <HomeScreenBar dismiss={home.dismiss} install={home.install} /> : null}
       <HomeScreenSheet open={home.open} setOpen={home.setOpen} where={home.where} />
       <footer className={feedback.toolbar}>
         <Button aria-label="Settings" aria-haspopup="dialog" className={feedback.settingsButton} onClick={() => setSettingsOpen(true)} size="icon" variant="outline"><SlidersHorizontalIcon strokeWidth={1.8} /></Button>
@@ -962,7 +1002,7 @@ export function InkScreen() {
 
       {/* Signed out: the game plays on behind, blurred, and the only thing to do is sign in. A tap anywhere opens it. */}
       {signedOut && owner !== false ? (
-        <div className={cn(feedback.notice, "absolute inset-0 z-30 flex items-center justify-center bg-background/30 backdrop-blur-md")} onClick={gate.openSignIn}>
+        <div className={cn(feedback.notice, "absolute inset-0 z-30 flex items-center justify-center bg-background/30 backdrop-blur-md")} onClick={() => gate.openSignIn("overlay")}>
           <Button className="h-12 rounded-full px-6 font-semibold text-base sm:h-12">Sign in to play</Button>
         </div>
       ) : null}

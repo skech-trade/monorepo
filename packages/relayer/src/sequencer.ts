@@ -15,6 +15,7 @@ import type { ChainClient, GameConfig, Session } from "./chain";
 import type { Config } from "./config";
 import type { Engine } from "./engine";
 import type { Pricer } from "./pricer";
+import { report } from "./sentry";
 import type { Settler } from "./settler";
 import { verifyPiece, verifyPrice } from "./verify";
 
@@ -276,6 +277,7 @@ export class Sequencer {
           for (const e of entries) this.balances.delete(e.piece.player);
         } catch (err) {
           this.log(`place at ${openAt} (unit ${unit}) failed: ${String((err as Error).message ?? err).split("\n")[0]}`);
+          report("place", err);
           for (const e of entries) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "Could not reach the chain" });
           this.stats.refused += entries.length;
         }

@@ -114,6 +114,13 @@ function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number,
   c.closePath();
 }
 
+/**
+ * What placing a piece said: nothing (it went in, or there was nothing new to bet), why not, or why not and
+ * that the stroke ends here, because nothing more of it could go in either (the balance ran out).
+ */
+export type Placed = string | { stop: string } | null;
+const whyOf = (r: Placed) => (r && typeof r === "object" ? r.stop : r);
+
 export function Stage({
   game,
   onPlace,
@@ -124,9 +131,9 @@ export function Stage({
   game: React.RefObject<Game>;
   /**
    * Commit the complete stroke on pointer release. Cancelled gestures
-   * never debit a balance. Returns an explanation if it cannot be placed.
+   * never debit a balance. Returns an explanation if it cannot be placed; `{ stop }` ends the stroke there.
    */
-  onPlace: (stroke: Stroke, drawing: string, done: boolean) => string | null;
+  onPlace: (stroke: Stroke, drawing: string, done: boolean) => Placed;
   onPreview: (p: Preview | null) => void;
   onViewport: (size: { width: number; height: number }) => void;
   className?: string;
@@ -288,7 +295,20 @@ export function Stage({
     let keyboard = false;
     let keyboardQuote: Preview | null = null;
     let keyboardQuotedAt = 0;
-    let flash: { text: string; x: number; y: number; born: number } | null = null;
+    let flash: { text: string; x: number; y: number; born: number; ms?: number } | null = null;
+    /*
+      The stroke ends where it can go no further: the ink stops at the last piece that went in, where the pen
+      is, with the reason held long enough to read. Drawn on, ink past it would vanish when the pen lifts.
+    */
+    const stopPen = (p: Pen, why: string) => {
+      penSound.up();
+      pen = null;
+      preview.current(null);
+      place.current(p.stroke, p.drawing, true);
+      game.current.drawing = undefined;
+      if (el.hasPointerCapture(p.id)) el.releasePointerCapture(p.id);
+      flash = { text: why, x: p.last.x, y: p.last.y, born: performance.now(), ms: 3200 };
+    };
     /** Where the pen was at its last move, for the scratch's speed. */
     let penFrom = { x: 0, y: 0, at: 0 };
 
@@ -336,8 +356,9 @@ export function Stage({
       penFrom = { x: q.x, y: q.y, at: performance.now() };
       pen = { id: e.pointerId, drawing: crypto.randomUUID(), why: null, last: q, stroke: { t0: tAt(q.x), p0: pAt(q.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: priceRadius() }, quote: null, quotedAt: 0, finger: e.pointerType !== "mouse" };
       requote(pen, true);
-      const why = place.current(pen.stroke, pen.drawing, false);
-      if (why) pen.why = why;
+      const placed = place.current(pen.stroke, pen.drawing, false);
+      if (placed && typeof placed === "object") return stopPen(pen, placed.stop);
+      if (placed) pen.why = placed;
     };
     const move = (e: PointerEvent) => {
       if (keyboard) preview.current(null);
@@ -371,7 +392,9 @@ export function Stage({
       penFrom = { x: s.x, y: s.y, at: now };
       requote(pen);
       // Ink is bet as it is drawn, not when the pen lifts.
-      const why = place.current(pen.stroke, pen.drawing, false);
+      const placed = place.current(pen.stroke, pen.drawing, false);
+      if (placed && typeof placed === "object") return stopPen(pen, placed.stop);
+      const why = placed;
       if (why && why !== pen.why) {
         pen.why = why;
         flash = { text: why, x: s.x, y: s.y, born: performance.now() };
@@ -389,7 +412,7 @@ export function Stage({
       if (Math.hypot(q.x - p.last.x, q.y - p.last.y) > 1.5 && p.stroke.pts.length < 2048)
         p.stroke.pts.push({ t: tAt(q.x) - p.stroke.t0, p: pAt(q.y) - p.stroke.p0 });
       preview.current(null);
-      const why = place.current(p.stroke, p.drawing, true);
+      const why = whyOf(place.current(p.stroke, p.drawing, true));
       game.current.drawing = undefined;
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
       if (why && why !== p.why) flash = { text: why, x: q.x, y: q.y, born: performance.now() };
@@ -420,7 +443,7 @@ export function Stage({
       const st = { t0: tAt(hover.x), p0: pAt(hover.y), pts: [{ t: 0, p: 0 }], rt: radius() / pxMs(), rp: priceRadius() };
       if (e.key === "Enter" || e.key === " ") {
         keyboard = false;
-        const why = place.current(st, crypto.randomUUID(), true);
+        const why = whyOf(place.current(st, crypto.randomUUID(), true));
         if (why) flash = { text: why, ...hover, born: performance.now() };
         preview.current(null);
       } else {
@@ -940,7 +963,7 @@ export function Stage({
 
       // Why a drawing did not go in, where the pen was.
       if (flash) {
-        const age = (ms - flash.born) / 1700;
+        const age = (ms - flash.born) / (flash.ms ?? 1700);
         if (age >= 1) flash = null;
         else {
           c.font = `600 12px ${SANS}`;

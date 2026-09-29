@@ -8,6 +8,8 @@ User=skech
 # Run from the repo root so the engine finds packages/contracts/deployments/<chain>.json.
 WorkingDirectory=/opt/skech
 EnvironmentFile=/etc/skech/env
+# Sentry reports only where this is set; a laptop has none (packages/engine/README.md).
+Environment=SENTRY_ENVIRONMENT=production
 ExecStart=/opt/skech/packages/engine/target/release/engine
 # panic = "abort": a dead feed ends the process, and this brings it back.
 Restart=always

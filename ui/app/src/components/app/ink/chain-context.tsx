@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { reportError, track } from "@/lib/analytics";
 import { type Address, bytesToHex, type Hex } from "viem";
 import { RECEIVE_WITH_AUTHORIZATION_TYPES, TYPES } from "@skech/core/chain";
 import { useAccount } from "@/components/app/auth";
@@ -127,10 +128,16 @@ export function ChainProvider({ children }: { children: ReactNode }) {
       if (!sig) return "Not signed";
       const r = await client.request({ type: "session", ...message, sig }, (m): m is Extract<Incoming, { type: "session-set" }> => m.type === "session-set", 30_000);
       if (!r) return "No answer";
-      if (!r.ok) return r.why ?? "Could not get ready";
+      if (!r.ok) {
+        track("drawing_key_failed", { why: r.why ?? "refused" });
+        return r.why ?? "Could not get ready";
+      }
+      track("drawing_key_ready");
       client.send({ type: "account" });
       return null;
     } catch (e) {
+      track("drawing_key_failed", { why: String((e as Error).message ?? e).slice(0, 120) });
+      reportError(e, { flow: "drawing_key" });
       return String((e as Error).message ?? e);
     } finally {
       setRegistering(false);
@@ -150,10 +157,15 @@ export function ChainProvider({ children }: { children: ReactNode }) {
         const sig = await me.signTypedData({ domain: await usdcDomain(), types: { ReceiveWithAuthorization: [...RECEIVE_WITH_AUTHORIZATION_TYPES.ReceiveWithAuthorization] }, primaryType: "ReceiveWithAuthorization", message });
         if (!sig) return "Not signed";
         const r = await client.request({ type: "deposit", owner: player, amount: value, validAfter: 0n, validBefore, nonce, sig }, (m): m is Extract<Incoming, { type: "deposited" }> => m.type === "deposited", 30_000);
-        if (!r) return "No answer";
-        if (!r.ok) return r.why ?? "Could not add";
+        if (!r || !r.ok) {
+          track("deposit_failed", { amount: usdc, why: r ? (r.why ?? "refused") : "no answer" });
+          return r ? (r.why ?? "Could not add") : "No answer";
+        }
+        track("deposit_completed", { amount: usdc });
         return null;
       } catch (e) {
+        track("deposit_failed", { amount: usdc, why: String((e as Error).message ?? e).slice(0, 120) });
+        reportError(e, { flow: "deposit", amount: usdc });
         return String((e as Error).message ?? e);
       }
     },
@@ -173,13 +185,18 @@ export function ChainProvider({ children }: { children: ReactNode }) {
         if (!sig) return { why: "Not signed" };
         const before = saidRef.current;
         const r = await client.request({ type: "withdraw", ...message, sig }, (m): m is Extract<Incoming, { type: "withdrawn" }> => m.type === "withdrawn", 45_000);
-        if (!r) return { why: "No answer" };
-        if (!r.ok) return { why: r.why ?? "Could not withdraw" };
+        if (!r || !r.ok) {
+          track("withdraw_failed", { amount: usdc, why: r ? (r.why ?? "refused") : "no answer" });
+          return { why: r ? (r.why ?? "Could not withdraw") : "No answer" };
+        }
+        track("withdraw_completed", { amount: usdc });
         // As with deposits: the balance drops before the sheet says "sent", counted here only if the relayer's
         // new figure has not arrived, so it can never be taken off twice.
         if (saidRef.current === before) nudgeRef.current(-usdc);
         return { tx: r.tx ?? "" };
       } catch (e) {
+        track("withdraw_failed", { amount: usdc, why: String((e as Error).message ?? e).slice(0, 120) });
+        reportError(e, { flow: "withdraw", amount: usdc });
         return { why: String((e as Error).message ?? e) };
       }
     },

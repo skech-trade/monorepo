@@ -9,6 +9,7 @@
  *   ws://localhost:3103/ws   apps connect here (NEXT_PUBLIC_RELAYER_URL)
  *   GET /health, GET /status
  */
+import { report, trail } from "./sentry";
 import { formatEther } from "viem";
 import { join } from "node:path";
 import { ChainClient } from "./chain";
@@ -20,7 +21,10 @@ import { Server } from "./server";
 import { Settler } from "./settler";
 import { redact } from "./rpc";
 
-const log = (s: string) => console.error(`${new Date().toISOString().slice(11, 23)} ${s}`);
+const log = (s: string) => {
+  console.error(`${new Date().toISOString().slice(11, 23)} ${s}`);
+  trail(s);
+};
 
 const started = Date.now();
 const libBytes = await Bun.file(cfg.libPath).arrayBuffer();
@@ -33,7 +37,10 @@ if (chainId !== cfg.chainId) throw new Error(`the RPC at ${redact(cfg.rpcUrl)} i
 await chain.start();
 const [oracle, gameConfig, difficulty, mon] = await Promise.all([chain.oracle(), chain.gameConfig(), chain.difficultyOf(cfg.market), chain.pub.getBalance({ address: chain.account.address })]);
 log(`chain ${chainId} via ${redact(cfg.rpcUrl)}: game ${cfg.game}, oracle ${oracle}, difficulty ${difficulty}, relayer ${chain.account.address} holds ${formatEther(mon)} MON`);
-if (oracle.toLowerCase() !== chain.account.address.toLowerCase()) log(`WARNING: this relayer's key is not the game's oracle; its quotes and bars will be refused`);
+if (oracle.toLowerCase() !== chain.account.address.toLowerCase()) {
+  log(`WARNING: this relayer's key is not the game's oracle; its quotes and bars will be refused`);
+  report("not-oracle", `relayer ${chain.account.address} is not the game's oracle ${oracle}`);
+}
 if (mon < 12n * 10n ** 18n) log(`WARNING: Monad keeps 10 MON of an account in reserve; with ${formatEther(mon)} MON this relayer may not be able to send`);
 cfg.lateMs = gameConfig.lateMs;
 
@@ -79,13 +86,19 @@ setInterval(() => {
 // Monad's reserve: the relayer must keep 10 MON plus what its transactions cost.
 setInterval(() => {
   void chain.pub.getBalance({ address: chain.account.address }).then((b) => {
-    if (b < 12n * 10n ** 18n) log(`WARNING: relayer holds ${formatEther(b)} MON; top it up`);
+    if (b < 12n * 10n ** 18n) {
+      log(`WARNING: relayer holds ${formatEther(b)} MON; top it up`);
+      report("low-mon", `relayer holds ${formatEther(b)} MON; top it up`, "warning");
+    }
   });
 }, 60_000);
 
 // The engine's signer must be the game's oracle, or nothing a player sees can be checked on chain.
 setTimeout(() => {
-  if (engine.signer && engine.signer.toLowerCase() !== oracle.toLowerCase()) log(`WARNING: the engine signs as ${engine.signer} but the game's oracle is ${oracle}; prices seen will be refused`);
+  if (engine.signer && engine.signer.toLowerCase() !== oracle.toLowerCase()) {
+    log(`WARNING: the engine signs as ${engine.signer} but the game's oracle is ${oracle}; prices seen will be refused`);
+    report("engine-signer", `the engine signs as ${engine.signer} but the game's oracle is ${oracle}`);
+  }
   if (engine.domain && engine.domain.verifyingContract.toLowerCase() !== cfg.game.toLowerCase()) log(`WARNING: the engine signs for ${engine.domain.verifyingContract}, not the game ${cfg.game}: set ENGINE_VERIFYING_CONTRACT`);
 }, 3000);
 
