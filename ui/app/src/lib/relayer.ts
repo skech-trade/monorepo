@@ -22,6 +22,8 @@ export type Hello = {
   lateMs: number;
   units: string[] | null;
   config: { minPerDot: string; maxPerDot: string; maxPieceStake: string; feeBps: number; profitFeeBps: number } | null;
+  /** The relayer counts each player's transactions and answers `activity`. Absent from one that does not. */
+  activity?: boolean;
 };
 export type Account = { player: Address; balance: string; session: { key: Address; x: Hex; y: Hex; validUntil: string; allowance: string }; owed: string; nonce?: string | null };
 export type PlacedMsg = { type: "placed"; betId: Hex; player: Address; openAt: string; staked: string; fee: string; refunded: string; sections: { second: number; lo: string; hi: string; stake: string; rung: number }[]; tx: Hex };

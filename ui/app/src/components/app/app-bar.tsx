@@ -32,6 +32,8 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   // On a phone's browser, not once installed: the way to the Home Screen steps, whether or not the bar is up.
   const installable = useInstallable();
   const [txsOpen, setTxsOpen] = useState(false);
+  // The transaction count, only from a relayer that keeps one.
+  const counted = chain.real && chain.hello?.activity === true;
   // Signed out only once Coinbase has read the saved session: before that, no Sign in to tap by mistake.
   const anonymous = hasAuth && me.ready && !me.signedIn;
   // An email or a phone number names the account; without one it is simply the wallet, and the address says which.
@@ -76,8 +78,9 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
                   <span className="figures text-muted-foreground">{money(chain.balance)}</span>
                 </MenuItem>
               ) : null}
-              {/* How much of their play went on chain: the count, and the transactions to look up. */}
-              {chain.real ? (
+              {/* How much of their play went on chain: the count, and the transactions to look up. Only where the
+                  relayer counts it: an empty sheet of dashes says nothing. */}
+              {counted ? (
                 <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={() => setTxsOpen(true)}>
                   <ActivityIcon />
                   Transactions
@@ -96,7 +99,7 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
             </MenuPopup>
           </Menu>
         ) : null}
-        {hasAuth && me.signedIn && chain.real ? <TransactionsSheet onOpenChange={setTxsOpen} open={txsOpen} /> : null}
+        {hasAuth && me.signedIn && counted ? <TransactionsSheet onOpenChange={setTxsOpen} open={txsOpen} /> : null}
       </div>
     </header>
   );
