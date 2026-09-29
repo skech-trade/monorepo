@@ -54,9 +54,17 @@ const offerOn = () => {
 };
 const unchanging = () => () => {};
 
+/** The phone this is, whether or not the bar was dismissed: null on a desk, or once installed. */
+export const useInstallable = () => useSyncExternalStore(unchanging, platform, () => null);
+
+/** Anywhere in the app (the profile menu): open the steps, as Install on the bar does. */
+const OPEN = "skech:add-to-home";
+export const openHomeScreen = () => dispatchEvent(new Event(OPEN));
+
 /** Whether to offer it, and what to do on Install and on the cross. */
 export function useHomeScreen() {
   const detected = useSyncExternalStore(unchanging, offerOn, () => null);
+  const device = useInstallable();
   const [gone, setGone] = useState(false);
   const where = gone ? null : detected;
   const [prompt, setPrompt] = useState<InstallPrompt | null>(null);
@@ -79,8 +87,8 @@ export function useHomeScreen() {
     };
   }, []);
 
-  const install = useCallback(async () => {
-    track("home_screen_install_tapped", { native: prompt !== null });
+  const install = useCallback(async (from: "bar" | "menu" = "bar") => {
+    track("home_screen_install_tapped", { native: prompt !== null, from });
     if (!prompt) return setOpen(true);
     await prompt.prompt();
     if ((await prompt.userChoice).outcome === "accepted") {
@@ -98,7 +106,15 @@ export function useHomeScreen() {
     } catch {}
   }, []);
 
-  return { where, showing: where !== null, install, dismiss, open, setOpen };
+  // The profile menu's "Add to Home Screen": the same as Install, with or without the bar.
+  useEffect(() => {
+    const fromMenu = () => void install("menu");
+    addEventListener(OPEN, fromMenu);
+    return () => removeEventListener(OPEN, fromMenu);
+  }, [install]);
+
+  // The steps are for this phone even once the bar is gone: the menu can still open them.
+  return { where: device, showing: where !== null, install, dismiss, open, setOpen };
 }
 
 /** The bar, just over the dock: the pen in its tile says hi, then Install and a cross. */
@@ -118,7 +134,7 @@ export function HomeScreenBar({ install, dismiss }: Pick<ReturnType<typeof useHo
         <strong>Add to Home Screen</strong>
         <span><b>hii!</b> Opens like an app</span>
       </div>
-      <Button className="h-9 shrink-0 rounded-full px-4 font-semibold text-sm sm:h-9" onClick={() => void install()} size="sm">
+      <Button className="h-9 shrink-0 rounded-full px-4 font-semibold text-sm sm:h-9" onClick={() => void install("bar")} size="sm">
         Install
       </Button>
       <button aria-label="Not now" className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground" onClick={dismiss} type="button">
