@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRightIcon, LogOutIcon, UserIcon } from "lucide-react";
+import { ArrowUpRightIcon, LogOutIcon, SquarePlusIcon, UserIcon } from "lucide-react";
 import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Menu, MenuPopup, MenuSeparator, MenuItem, MenuTrigger } from "@/compone
 import { hasAuth, useAccount } from "./auth";
 import { useChain } from "./ink/chain-context";
 import { useGate } from "./ink/deposit-modal";
+import { openHomeScreen, useInstallable } from "./ink/home-screen";
 import { money } from "@/lib/money";
 import { CopyAddress } from "./copy";
 import { Wordmark } from "./logo";
@@ -26,6 +27,8 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   const me = useAccount();
   const chain = useChain();
   const gate = useGate();
+  // On a phone's browser, not once installed: the way to the Home Screen steps, whether or not the bar is up.
+  const installable = useInstallable();
   // Signed out only once Coinbase has read the saved session: before that, no Sign in to tap by mistake.
   const anonymous = hasAuth && me.ready && !me.signedIn;
   // An email or a phone number names the account; without one it is simply the wallet, and the address says which.
@@ -68,6 +71,12 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
                   <ArrowUpRightIcon />
                   <span className="flex-1">Withdraw</span>
                   <span className="figures text-muted-foreground">{money(chain.balance)}</span>
+                </MenuItem>
+              ) : null}
+              {installable ? (
+                <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={openHomeScreen}>
+                  <SquarePlusIcon />
+                  Add to Home Screen
                 </MenuItem>
               ) : null}
               <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={() => me.signOut()} variant="destructive">
