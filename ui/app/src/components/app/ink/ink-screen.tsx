@@ -35,6 +35,7 @@ import { DepositButton, InkControls } from "./ink-controls";
 import feedback from "./drawing-feedback.module.css";
 import { CrispNumber } from "./crisp-number";
 import { introReady } from "./ink-intro";
+import { homeBarRoom, HomeScreenBar, HomeScreenSheet, useHomeScreen } from "./home-screen";
 import { forReal, Onboarding, useOnboarding } from "./onboarding";
 import { SignInButton } from "@/components/app/sign-in";
 import { useGate } from "./deposit-modal";
@@ -179,10 +180,12 @@ export function InkScreen() {
     return () => clearTimeout(t);
   }, [result]);
   const [fresh, setFresh] = useState(false);
-  // The way in holds its ink over the screen until there are live prices to show.
+  const me = useAccount();
+  // The way in holds its ink over the screen until there are live prices to show, and it is known who is playing:
+  // the first screen is the right one, never a sign-in flashed at someone already signed in.
   useEffect(() => {
-    if (fresh) introReady();
-  }, [fresh]);
+    if (fresh && me.ready) introReady();
+  }, [fresh, me.ready]);
   /* The balance shows green for a moment when a hit pays into it. What paid lands in the changes under it. */
   const [gained, setGained] = useState<number>(0);
   useEffect(() => {
@@ -790,13 +793,12 @@ export function InkScreen() {
 
   const shownBalance = forReal ? chain.balance : state.balance;
   const onboarding = useOnboarding(live);
-  const me = useAccount();
   /*
     The game plays on for everyone; a tap from someone who cannot play yet opens the way to: Coinbase's sign-in
     signed out, the deposit sheet with less than a dot's worth in the balance. It never reaches the chart, so no
     ink is drawn that could not be placed.
   */
-  const cannotPlay: "signin" | "deposit" | null = !forReal ? null : !me.signedIn ? "signin" : real && chain.account !== null && chain.balance < POINT_PRICES.values[0] && live === 0 ? "deposit" : null;
+  const cannotPlay: "signin" | "deposit" | null = !forReal || !me.ready ? null : !me.signedIn ? "signin" : real && chain.account !== null && chain.balance < POINT_PRICES.values[0] && live === 0 ? "deposit" : null;
   const onGate = (e: React.PointerEvent) => {
     if (!cannotPlay || owner === false) return;
     // A button or link over the game (a card's action) is not a tap on the game.
@@ -823,6 +825,8 @@ export function InkScreen() {
     one in a pill and one on the chart.
   */
   const signedOut = onboarding.step === "signin";
+  // On a phone's browser, the Home Screen bar sits in the gap over the dock, and the chart gives up a little for it.
+  const home = useHomeScreen();
   const connecting = !signedOut && (!fresh || onboarding.step === "connecting");
   const [boardOpen, setBoardOpen] = useState(false);
   const board = useScoreboard();
@@ -869,7 +873,7 @@ export function InkScreen() {
           </Popover>
         </div>
         {/* Signed out there is no balance to show, and connecting it is not known yet: $0.00 twice is noise. */}
-        {forReal && (!me.signedIn || onboarding.step === "connecting") ? null : (
+        {forReal && (!me.ready || !me.signedIn || onboarding.step === "connecting") ? null : (
         <div className={feedback.accounts}>
           {/* The one balance on screen. Playing for real it opens the wallet: deposit, withdraw. */}
           {real ? (
@@ -897,7 +901,7 @@ export function InkScreen() {
         )}
       </div>
 
-      <div className="absolute inset-0" onPointerDownCapture={onGate}>
+      <div className="absolute inset-0" onPointerDownCapture={onGate} style={home.showing ? { bottom: homeBarRoom(window.innerWidth) } : undefined}>
           {lib ? <Stage onViewport={onViewport} className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} /> : null}
           {owner === false ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm" role="status">
@@ -949,6 +953,8 @@ export function InkScreen() {
 
       {returnedInk && !preview && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
       <div className={feedback.bottomShade} aria-hidden="true" />
+      {home.showing ? <HomeScreenBar dismiss={home.dismiss} install={home.install} /> : null}
+      <HomeScreenSheet open={home.open} setOpen={home.setOpen} where={home.where} />
       <footer className={feedback.toolbar}>
         <Button aria-label="Settings" aria-haspopup="dialog" className={feedback.settingsButton} onClick={() => setSettingsOpen(true)} size="icon" variant="outline"><SlidersHorizontalIcon strokeWidth={1.8} /></Button>
         {controls}

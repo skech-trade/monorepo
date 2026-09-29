@@ -30,6 +30,8 @@ export const metadata: Metadata = {
   keywords: ["skech", "draw", "bitcoin", "game", "prediction"],
   openGraph: { title: TITLE, description: DESCRIPTION, type: "website", url: "/", siteName: "skech" },
   twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, site: "@skechtrade", creator: "@skechtrade" },
+  // Added to the Home Screen it opens as "skech", full screen (src/app/manifest.ts, apple-icon.png).
+  appleWebApp: { capable: true, title: "skech", statusBarStyle: "default" },
   // og:image and the icon come from src/app/opengraph-image.tsx and
   // src/app/icon.png, the landing's artwork.
 };

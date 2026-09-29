@@ -3,7 +3,6 @@
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { useState } from "react";
 import { POINT_PRICES } from "@skech/core/odds";
-import { AmountWheel } from "./amount-wheel";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverClose, PopoverDescription, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import type { Brush } from "@/lib/practice";
@@ -17,8 +16,8 @@ import feedback from "./drawing-feedback.module.css";
  * The pen is how wide the ink is, and so how easily the price catches it: a
  * wider pen is caught more often and pays less for it, and the map redraws
  * its multiples for the pen in hand. The amount is what one point costs,
- * on the trading screen's own wheel, so what a hit pays in dollars: the
- * chart shows those dollars, and the multiples stay as they are.
+ * picked with one tap from every price at once, so what a hit pays in
+ * dollars: the chart shows those dollars, and the multiples stay as they are.
  */
 
 export const PENS: { id: Brush; name: string; dot: number; says: string }[] = [
@@ -33,7 +32,7 @@ export const amountLabel = (n: number) => `$${Number.isInteger(n) ? n : n.toFixe
 const Dot = ({ size }: { size: number }) => <span aria-hidden="true" className="block shrink-0 rounded-full bg-brand transition-[width,height] duration-150 ease-out motion-reduce:transition-none" style={{ width: size, height: size }} />;
 
 export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: Brush; amount: number; onPen: (id: Brush) => void; onAmount: (n: number) => void; className?: string }) {
-  // A tapped price is the pick: the wheel rolls to it, then the panel closes.
+  // A tapped price is the pick, and the panel closes on it.
   const [amountOpen, setAmountOpen] = useState(false);
   return (
     <div className={cn(feedback.penControls, className)}>
@@ -54,15 +53,27 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
         <PopoverTrigger render={<Button aria-label={`${amountLabel(amount)} per dot`} className={feedback.dockButton} variant="outline" />}>
           <span className="figures font-semibold">{amountLabel(amount)}</span><ChevronDownIcon className="size-3.5 text-muted-foreground" />
         </PopoverTrigger>
-        {/* The trading screen's size wheel, in cents: what per dot costs, and so what every hit pays. */}
-        <PopoverPopup side="top" sideOffset={12} align="end" className="w-56 max-sm:w-48">
-          <PopoverTitle>
-            <span className="sm:hidden">Per dot</span>
-            <span className="max-sm:hidden">Pick your price</span>
-          </PopoverTitle>
-          <div className="pt-3 sm:pt-4">
-            <AmountWheel format={amountLabel} label="What per dot costs" onChange={onAmount} onPick={() => setTimeout(() => setAmountOpen(false), 180)} value={amount} values={[...POINT_PRICES.values]} />
+        {/* Every price at once, a row to each: tens of cents, then dollars. Nothing to scroll past to find one. */}
+        <PopoverPopup side="top" sideOffset={12} align="end" className="w-[272px]">
+          <PopoverTitle>Per dot</PopoverTitle>
+          <div aria-label="What per dot costs" className="mt-3 grid grid-cols-5 gap-1.5" role="radiogroup">
+            {POINT_PRICES.values.map((n) => (
+              <button
+                aria-checked={n === amount}
+                className={cn("figures h-10 rounded-[10px] font-semibold text-[13px] transition-colors", n === amount ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-accent dark:bg-accent dark:hover:bg-border")}
+                key={n}
+                onClick={() => {
+                  onAmount(n);
+                  setTimeout(() => setAmountOpen(false), 120);
+                }}
+                role="radio"
+                type="button"
+              >
+                {amountLabel(n)}
+              </button>
+            ))}
           </div>
+          <p className="mt-3 text-[12px] text-muted-foreground">A hit pays it times its multiple.</p>
         </PopoverPopup>
       </Popover>
     </div>

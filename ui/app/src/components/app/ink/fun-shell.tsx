@@ -1,6 +1,7 @@
 "use client";
 
 import { AppBar } from "@/components/app/app-bar";
+import { useAccount } from "@/components/app/auth";
 import { cents, setPractice } from "@/lib/practice";
 import { ChainProvider, useChain } from "./chain-context";
 import { DepositButton } from "./ink-controls";
@@ -39,11 +40,12 @@ export function FunShell() {
 function Money() {
   const chain = useChain();
   const gate = useGate();
+  const me = useAccount();
   if (forReal) {
     // Deposit is always in the bar: signed out it asks to sign in first.
     return (
       <div className="flex items-center gap-2">
-        <Button className="h-11 rounded-full border-0 bg-secondary px-[18px] font-semibold text-base sm:h-11 sm:px-[18px]" onClick={() => (chain.player ? gate.openDeposit() : gate.openSignIn())} variant="secondary">
+        <Button className="h-11 rounded-full border-0 bg-secondary px-[18px] font-semibold text-base sm:h-11 sm:px-[18px]" onClick={() => (chain.player ? gate.openDeposit() : me.ready ? gate.openSignIn() : undefined)} variant="secondary">
           Deposit
         </Button>
       </div>

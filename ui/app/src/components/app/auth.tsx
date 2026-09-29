@@ -1,8 +1,8 @@
 "use client";
 
-import { useCurrentUser, useEvmAddress, useIsSignedIn, useSignEvmMessage, useSignEvmTypedData, useSignOut } from "@coinbase/cdp-hooks";
+import { useCurrentUser, useEvmAddress, useIsInitialized, useIsSignedIn, useSignEvmMessage, useSignEvmTypedData, useSignOut } from "@coinbase/cdp-hooks";
 import { CDPReactProvider, type Config, type Theme } from "@coinbase/cdp-react";
-import { createContext, type ReactNode, useContext, useMemo } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { shortAddress } from "@/lib/market";
 
 /**
@@ -43,6 +43,11 @@ const config: Config = {
 };
 
 export type Account = {
+  /**
+   * Whether Coinbase has finished reading the saved session. Until it has, `signedIn` is false for everyone,
+   * someone signed in included: that is not knowing yet, not signed out, and nothing may ask them to sign in.
+   */
+  ready: boolean;
   signedIn: boolean;
   /** The wallet's address, once there is one. */
   address: string | null;
@@ -76,11 +81,21 @@ export type TypedDataToSign = {
 const plain = (v: unknown): unknown =>
   typeof v === "bigint" ? v.toString() : Array.isArray(v) ? v.map(plain) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, plain(x)])) : v;
 
-const SIGNED_OUT: Account = { signedIn: false, address: null, handle: null, signOut: () => undefined, signMessage: async () => null, signTypedData: async () => null };
+/** The longest the app waits for Coinbase to read a saved session before treating someone as signed out. */
+const READY_WITHIN_MS = 8000;
+
+const SIGNED_OUT: Account = { ready: true, signedIn: false, address: null, handle: null, signOut: () => undefined, signMessage: async () => null, signTypedData: async () => null };
 const Ctx = createContext<Account>(SIGNED_OUT);
 
 /** Reads Coinbase's hooks. Only ever mounted inside their provider. */
 function Publish({ children }: { children: ReactNode }) {
+  const { isInitialized } = useIsInitialized();
+  // If Coinbase cannot be reached at all (blocked, offline), it never says; after a while, stop waiting and let them sign in.
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setWaited(true), READY_WITHIN_MS);
+    return () => clearTimeout(t);
+  }, []);
   const { isSignedIn } = useIsSignedIn();
   const { evmAddress } = useEvmAddress();
   const { currentUser } = useCurrentUser();
@@ -91,6 +106,7 @@ function Publish({ children }: { children: ReactNode }) {
   const account = useMemo<Account>(() => {
     const handle = user?.authenticationMethods?.email?.email ?? user?.authenticationMethods?.sms?.phoneNumber ?? (evmAddress ? shortAddress(evmAddress) : null);
     return {
+      ready: Boolean(isInitialized) || waited,
       signedIn: Boolean(isSignedIn),
       address: evmAddress ?? null,
       handle,
@@ -115,7 +131,7 @@ function Publish({ children }: { children: ReactNode }) {
         return signature as `0x${string}`;
       },
     };
-  }, [isSignedIn, evmAddress, user, signOut, signEvmMessage, signEvmTypedData]);
+  }, [isInitialized, waited, isSignedIn, evmAddress, user, signOut, signEvmMessage, signEvmTypedData]);
   return <Ctx.Provider value={account}>{children}</Ctx.Provider>;
 }
 
