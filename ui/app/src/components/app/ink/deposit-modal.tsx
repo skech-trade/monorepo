@@ -13,7 +13,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { shortAddress } from "@/lib/market";
 import { money } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { MonadMark, UsdcMark } from "@/components/app/marks";
+import { UsdcMark } from "@/components/app/marks";
 import { MIN_DEPOSIT, useChain } from "./chain-context";
 import { feel } from "@/lib/feel";
 import { FOUNDER, helpLink } from "./founders";
@@ -133,7 +133,7 @@ export function DepositModal({ open, onOpenChange, stuck = false, onPlayable }: 
       <DialogPopup
         // Taller than a phone's screen with the faucet and the button: it scrolls, within what is visible
         // (dvh, not vh, so the browser's own bars do not hide the bottom), and tightens on a short screen.
-        className="gap-[18px] overflow-y-auto overscroll-contain rounded-[28px] border-border bg-raised p-7 sm:max-w-[480px] max-sm:max-h-[calc(100dvh-12px)] max-sm:gap-[14px] max-sm:rounded-t-[28px] max-sm:px-5 max-sm:pt-2 max-sm:pb-[max(24px,env(safe-area-inset-bottom))]"
+        className="gap-[18px] overflow-y-auto overscroll-contain rounded-[28px] border-border bg-raised p-7 sm:max-w-[480px] max-sm:max-h-[calc(100dvh-12px)] max-sm:gap-[14px] [@media(max-height:720px)]:max-sm:gap-[10px] max-sm:rounded-t-[28px] max-sm:px-5 max-sm:pt-2 max-sm:pb-[max(24px,env(safe-area-inset-bottom))]"
         showCloseButton={false}
       >
         <div aria-hidden="true" className="h-[5px] w-9 self-center rounded-full bg-faint sm:hidden" />
@@ -166,15 +166,12 @@ export function DepositModal({ open, onOpenChange, stuck = false, onPlayable }: 
                     {copied ? "Copied" : "Copy"}
                   </button>
                 </div>
-                {/* The terms, as a statement: one list, label left, value right. */}
+                {/* The terms, as a statement: one list, label left, value right. The network is under the title and
+                    the timing in the waiting line, so the sheet fits a phone's screen without scrolling. */}
                 <dl className="divide-y divide-border rounded-[18px] border border-border px-4">
                   <Term label="Your balance">
                     <span className="figures font-semibold">{money(chain.balance)}</span>
                   </Term>
-                  <Term label="Network">
-                    <MonadMark className="size-[18px]" /> {NETWORK.label}
-                  </Term>
-                  <Term label="Arrives in">A few seconds</Term>
                   <Term label="Minimum">${MIN_DEPOSIT.toFixed(2)}</Term>
                 </dl>
                 {NETWORK.faucet ? <Faucet href={NETWORK.faucet} /> : null}
@@ -186,7 +183,7 @@ export function DepositModal({ open, onOpenChange, stuck = false, onPlayable }: 
                 ) : (
                   <p aria-live="polite" className="flex min-h-5 items-center justify-center gap-2 text-sm text-muted-foreground">
                     <Spinner className="size-3.5" />
-                    {chain.adding !== null ? `Adding ${money(chain.adding)} to your balance…` : "Waiting for USDC. It lands in your balance by itself."}
+                    {chain.adding !== null ? `Adding ${money(chain.adding)} to your balance…` : "Waiting for USDC. It lands in your balance in a few seconds."}
                   </p>
                 )}
               </>
@@ -300,7 +297,7 @@ function AddressQR({ address, className }: { address: string; className?: string
     }
   }
   return (
-    <div className={cn("relative size-[203px] shrink-0 [@media(max-height:800px)]:size-[160px]", className)}>
+    <div className={cn("relative size-[203px] shrink-0 [@media(max-height:800px)]:size-[160px] [@media(max-height:720px)]:size-[128px]!", className)}>
       <svg aria-label={`QR code for ${address}`} height="100%" role="img" viewBox={`-14 -14 ${box + 28} ${box + 28}`} width="100%">
         <rect fill="#FFFFFF" height={box + 28} rx={18} width={box + 28} x={-14} y={-14} />
         {dots}
@@ -327,7 +324,7 @@ function Faucet({ href }: { href: string }) {
       <UsdcMark className="size-7 shrink-0" />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="font-semibold text-[15px]">Get free test USDC</span>
-        <span className="text-[13px] text-muted-foreground">Circle&apos;s faucet: pick Monad Testnet, paste your address</span>
+        <span className="text-[13px] text-muted-foreground">Pick Monad Testnet, paste address</span>
       </span>
       <ArrowUpRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
     </a>
