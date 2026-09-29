@@ -12,6 +12,7 @@ import type { Config } from "./config";
 import type { Engine } from "./engine";
 import type { PieceMsg, Placed, Refused, Sequencer } from "./sequencer";
 import type { Settled, Settler } from "./settler";
+import type { Activity } from "./activity";
 
 type Data = { id: number; player?: Address };
 type Deps = { cfg: Config; engine: Engine; chain: ChainClient; log: (s: string) => void; status: () => Record<string, unknown> };
@@ -28,6 +29,7 @@ export class Server {
   private server: BunServer<Data> | null = null;
   sequencer: Sequencer | null = null;
   settler: Settler | null = null;
+  activity: Activity | null = null;
 
   constructor(private readonly d: Deps) {}
 
@@ -159,6 +161,12 @@ export class Server {
       }
       case "hello":
         return this.send(ws, this.hello());
+      case "activity": {
+        // Anyone's count is public on chain anyway; the watched player's unless another is named.
+        const player = isAddress(msg.player) ? (msg.player.toLowerCase() as Address) : ws.data.player;
+        if (!player || !this.activity) return this.send(ws, { type: "activity", player: player ?? null, txs: 0, pieces: 0, deposits: 0, withdrawals: 0, recent: [], counting: true, progress: 0 });
+        return this.send(ws, { type: "activity", player, ...this.activity.of(player) });
+      }
       case "piece": {
         const r = await seq.accept(msg as unknown as PieceMsg);
         return this.send(ws, { type: "ack", ...r, index: (msg as unknown as PieceMsg).piece?.index, drawing: (msg as unknown as PieceMsg).piece?.drawing });

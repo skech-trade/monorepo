@@ -46,6 +46,7 @@ skills-lock.json
 
 # relayer
 .relayer-state*.json
+.relayer-activity*.json
 
 # infra: the box's address, IDs and to-dos stay off the public repo
 *.local.md

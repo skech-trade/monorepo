@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowUpRightIcon, LogOutIcon, SquarePlusIcon, UserIcon } from "lucide-react";
+import { ActivityIcon, ArrowUpRightIcon, LogOutIcon, SquarePlusIcon, UserIcon } from "lucide-react";
+import { useState } from "react";
 import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { hasAuth, useAccount } from "./auth";
 import { useChain } from "./ink/chain-context";
 import { useGate } from "./ink/deposit-modal";
 import { openHomeScreen, useInstallable } from "./ink/home-screen";
+import { TransactionsSheet } from "./ink/transactions-sheet";
 import { money } from "@/lib/money";
 import { CopyAddress } from "./copy";
 import { Wordmark } from "./logo";
@@ -18,7 +20,7 @@ import { ThemeToggle } from "./theme-toggle";
 /**
  * The bar over the game: the wordmark, light or dark, the page's own button
  * (the practice deposit), and the way in. Signed in, the way in becomes a
- * small menu: who you are, withdrawing, and signing out.
+ * small menu: who you are, withdrawing, their transactions, and signing out.
  *
  * Taller on a phone, where the things in it are thumb-sized: fifty-six
  * pixels is what a phone header is on both platforms.
@@ -29,6 +31,7 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   const gate = useGate();
   // On a phone's browser, not once installed: the way to the Home Screen steps, whether or not the bar is up.
   const installable = useInstallable();
+  const [txsOpen, setTxsOpen] = useState(false);
   // Signed out only once Coinbase has read the saved session: before that, no Sign in to tap by mistake.
   const anonymous = hasAuth && me.ready && !me.signedIn;
   // An email or a phone number names the account; without one it is simply the wallet, and the address says which.
@@ -73,6 +76,13 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
                   <span className="figures text-muted-foreground">{money(chain.balance)}</span>
                 </MenuItem>
               ) : null}
+              {/* How much of their play went on chain: the count, and the transactions to look up. */}
+              {chain.real ? (
+                <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={() => setTxsOpen(true)}>
+                  <ActivityIcon />
+                  Transactions
+                </MenuItem>
+              ) : null}
               {installable ? (
                 <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={openHomeScreen}>
                   <SquarePlusIcon />
@@ -86,6 +96,7 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
             </MenuPopup>
           </Menu>
         ) : null}
+        {hasAuth && me.signedIn && chain.real ? <TransactionsSheet onOpenChange={setTxsOpen} open={txsOpen} /> : null}
       </div>
     </header>
   );

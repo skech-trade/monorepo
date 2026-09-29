@@ -250,11 +250,16 @@ export const sound = {
 };
 
 /*
-  Touch. Android has navigator.vibrate. iPhones do not, but since iOS 18
-  Safari gives a system haptic when a switch control is flipped, so a hidden
-  one is flipped instead. That only works close to a gesture, which is when it
-  matters most (a tap, a hit seconds later may be too late on some devices):
-  it is a bonus there, never relied on.
+  Touch. Android has navigator.vibrate. iPhones do not, but Safari gives a
+  system haptic when a switch control is flipped, so a hidden one is flipped
+  instead. From iOS 17.4 to 26.4 a switch flipped from script did it. iOS
+  26.5 (WebKit bug 309082) ended that: a script's label.click() now reaches
+  the switch as an untrusted click, and those do not buzz. Only a finger on a
+  real label with a switch in it still does: see HapticHost, which wraps the
+  game. A haptic asked for during a tap on it is owed to that tap's own click,
+  and plays then, once; every other tap on it is kept from flipping the
+  switch. A haptic with no finger behind it (a hit, seconds on) cannot be felt
+  on an iPhone any more; it still plays on older iOS, and on Android.
 */
 export type Feel = "tap" | "tick" | "hit" | "big" | "win" | "nope" | "cash";
 
@@ -289,6 +294,20 @@ function flip() {
   flipper.click();
 }
 
+/** When a finger last came down on a HapticHost, and whether a haptic was asked for since. */
+let armedAt = -Infinity;
+let owed = false;
+/** A tap on a HapticHost began: a haptic asked for now is played by its click. */
+export function armHaptic() {
+  armedAt = performance.now();
+  owed = false;
+}
+/** That tap's click, on the host's label: the switch flips (and buzzes) only if a haptic is owed. */
+export function settleHaptic(e: { preventDefault(): void }) {
+  if (owed) owed = false;
+  else e.preventDefault();
+}
+
 export function haptic(kind: Feel) {
   if (typeof window === "undefined" || !practice().haptics) return;
   try {
@@ -296,7 +315,12 @@ export function haptic(kind: Feel) {
       navigator.vibrate(VIBRATE[kind]);
       return;
     }
-    if (!ios()) return;
+    if (!ios() || !FLIPS[kind]) return;
+    // A finger is on the host: its own click plays it, on every iOS from 17.4 on. One buzz: a tap has one click.
+    if (performance.now() - armedAt < 1000) {
+      owed = true;
+      return;
+    }
     for (let i = 0; i < FLIPS[kind]; i++) {
       if (i === 0) flip();
       else setTimeout(flip, i * 90);

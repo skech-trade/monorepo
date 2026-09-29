@@ -195,6 +195,9 @@ teach a gesture.
 **Primary CTA scrolls to the canvas rather than opening a waitlist modal.** The
 first thing we ask for is a finger, not an email.
 
+> **Superseded (2026-09-29):** the app is live, so the primary CTA opens it
+> (**Start the app**) and the landing no longer has a canvas of its own. See §9, item 2.
+
 ### 5.2 Try it
 
 **Job:** the reader draws a line and sees what happens. This section replaces
@@ -450,8 +453,10 @@ to defend every line here to a regulator.
    canvas prints "the most you can lose: $100" as a hard cap. If losses can in
    fact exceed the deposit, that number is a lie and both it and the §5.8
    disclaimer have to change. Needs an answer before this page goes public.
-2. **"Start drawing" vs. "Start sketching"** for the primary action — needs to
-   be one string everywhere. Spec assumes "Start drawing".
+2. ~~**"Start drawing" vs. "Start sketching"**~~ **Settled (2026-09-29):** the
+   app is live, and every call to action is **Start the app**, one string
+   everywhere (nav, hero, close), opening app.skech.trade. The waitlist form,
+   the video and the landing's practice chart are gone.
 3. ~~**Is the landing canvas the real engine or a mock?**~~ **Settled:** the
    gesture, the level rule (shared with the FAQ via `levelsFor`) and the
    arithmetic are real, over real BTC candles. No wallet, no order. Still open
