@@ -32,6 +32,8 @@ export function useOnboarding(live: number): { step: Step; setupError: string | 
 
   let step: Step = null;
   if (!forReal) step = null;
+  // Not yet known is connecting, not signed out: a saved session is being read, and asking to sign in would start over.
+  else if (!me.ready) step = "connecting";
   else if (!me.signedIn) step = "signin";
   else if (!chain.real || !known) step = "connecting";
   else if (empty) step = "deposit";

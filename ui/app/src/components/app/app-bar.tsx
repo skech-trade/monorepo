@@ -26,7 +26,8 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   const me = useAccount();
   const chain = useChain();
   const gate = useGate();
-  const anonymous = hasAuth && !me.signedIn;
+  // Signed out only once Coinbase has read the saved session: before that, no Sign in to tap by mistake.
+  const anonymous = hasAuth && me.ready && !me.signedIn;
   // An email or a phone number names the account; without one it is simply the wallet, and the address says which.
   const name = me.handle && !me.handle.startsWith("0x") ? me.handle : "Your wallet";
   return (
@@ -38,6 +39,7 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
         {showTheme ? <ThemeToggle className="size-11 rounded-full border-0 bg-secondary sm:size-11 [&_svg]:size-5" /> : null}
         {lead}
         {anonymous ? <SignInButton /> : null}
+        {hasAuth && !me.ready ? <span aria-hidden="true" className="size-11 shrink-0 animate-pulse rounded-full bg-secondary" /> : null}
         {hasAuth && me.signedIn ? (
           <Menu>
             <MenuTrigger render={<Button aria-label="Your account" className="size-11 rounded-full border-0 bg-secondary p-0 sm:size-11" size="icon" variant="outline" />}>
