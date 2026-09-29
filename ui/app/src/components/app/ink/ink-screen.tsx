@@ -13,6 +13,8 @@ import { useChain } from "./chain-context";
 
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverClose, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { setDark, useDark } from "@/components/app/theme-toggle";
@@ -815,6 +817,13 @@ export function InkScreen() {
     }
   }, [onboarding.step, gate]);
   const price = feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0;
+  /*
+    Until the game can be played the screen says one thing. Signed out: the way in, over the game blurred.
+    Signed in: one "Connecting…" until the prices and the account are both here, not one in the header,
+    one in a pill and one on the chart.
+  */
+  const signedOut = onboarding.step === "signin";
+  const connecting = !signedOut && (!fresh || onboarding.step === "connecting");
   const [boardOpen, setBoardOpen] = useState(false);
   const board = useScoreboard();
   // The same Skech controls: nib size and the cost of a full dot.
@@ -849,7 +858,7 @@ export function InkScreen() {
           <Popover>
             <PopoverTrigger render={<Button variant="ghost" aria-label="Change asset: Bitcoin" className={feedback.assetButton} />}>
               <TokenAvatar symbol="BTC" className="size-9 sm:size-10" />
-              <span className={feedback.marketName}><span>Bitcoin <ChevronDownIcon className="size-3" strokeWidth={2.4} /></span><strong className="figures">{price ? <Price value={price} /> : "Connecting…"}</strong></span>
+              <span className={feedback.marketName}><span>Bitcoin <ChevronDownIcon className="size-3" strokeWidth={2.4} /></span><strong className="figures">{price ? <Price value={price} /> : <Skeleton className="my-[3px] h-6 w-32 rounded-md" />}</strong></span>
             </PopoverTrigger>
             <PopoverPopup align="start" sideOffset={10} className="w-64">
               <PopoverTitle>Choose asset</PopoverTitle>
@@ -859,8 +868,8 @@ export function InkScreen() {
             </PopoverPopup>
           </Popover>
         </div>
-        {/* Signed out there is no balance to show: $0.00 twice is noise beside the Sign in button. */}
-        {forReal && !me.signedIn ? null : (
+        {/* Signed out there is no balance to show, and connecting it is not known yet: $0.00 twice is noise. */}
+        {forReal && (!me.signedIn || onboarding.step === "connecting") ? null : (
         <div className={feedback.accounts}>
           {/* The one balance on screen. Playing for real it opens the wallet: deposit, withdraw. */}
           {real ? (
@@ -896,9 +905,9 @@ export function InkScreen() {
               <Button onClick={() => takeOver.current?.()}>Play here</Button>
             </div>
           ) : null}
-          {!fresh ? (
+          {connecting && owner !== false ? (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status">
-              <p className="text-sm text-muted-foreground">{!lib ? "Getting the chart ready…" : "Waiting for live prices…"}</p>
+              <p className="flex items-center gap-2 font-semibold text-[15px] text-muted-foreground"><Spinner className="size-4" /> Connecting…</p>
             </div>
           ) : null}
 
@@ -915,7 +924,7 @@ export function InkScreen() {
                 <span>Move to a spot with a multiplier on it</span>
               )}
             </div>
-          ) : onboarding.step && owner !== false ? (
+          ) : signedOut || connecting ? null : onboarding.step && owner !== false ? (
             <Onboarding {...onboarding} />
           ) : !state.taught && fresh && owner !== false ? (
             <div className={feedback.hintPill}>Draw to the right of the line</div>
@@ -944,6 +953,13 @@ export function InkScreen() {
         <Button aria-label="Settings" aria-haspopup="dialog" className={feedback.settingsButton} onClick={() => setSettingsOpen(true)} size="icon" variant="outline"><SlidersHorizontalIcon strokeWidth={1.8} /></Button>
         {controls}
       </footer>
+
+      {/* Signed out: the game plays on behind, blurred, and the only thing to do is sign in. A tap anywhere opens it. */}
+      {signedOut && owner !== false ? (
+        <div className={cn(feedback.notice, "absolute inset-0 z-30 flex items-center justify-center bg-background/30 backdrop-blur-md")} onClick={gate.openSignIn}>
+          <Button className="h-12 rounded-full px-6 font-semibold text-base sm:h-12">Sign in to play</Button>
+        </div>
+      ) : null}
 
       <Sheet onOpenChange={setSettingsOpen} open={settingsOpen}>
         <SheetPopup className="sm:max-w-sm" side="right" variant="inset">
