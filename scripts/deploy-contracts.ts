@@ -12,7 +12,7 @@
  * game there from SKECH_NETWORK, so nothing is written to .env.local and switching networks is one line.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chainIdFor, network, networkOf, rpcFor } from "../packages/core/src/network";
 
@@ -85,7 +85,16 @@ if (forge.status !== 0) fail("forge script failed, see above");
 if (dryRun) process.exit(0);
 
 if (!existsSync(file) || statSync(file).mtimeMs === before) fail(`${file} was not written, so nothing was broadcast`);
-const deployed = JSON.parse(readFileSync(file, "utf8")) as { game: string; iou: string; revenue: string; usdc: string };
+const deployed = JSON.parse(readFileSync(file, "utf8")) as { game: string; iou: string; revenue: string; usdc: string; block?: number };
+// The block it went out in, from forge's own receipts: where the relayer starts counting each player's transactions.
+const broadcast = join(contracts, "broadcast", "Deploy.s.sol", chainId, "run-latest.json");
+if (existsSync(broadcast)) {
+  const receipts = (JSON.parse(readFileSync(broadcast, "utf8")) as { receipts?: { blockNumber: string }[] }).receipts ?? [];
+  if (receipts.length) {
+    deployed.block = Math.min(...receipts.map((r) => Number(BigInt(r.blockNumber))));
+    writeFileSync(file, `${JSON.stringify(deployed, null, 2)}\n`);
+  }
+}
 
 console.log(`
 game     ${deployed.game}

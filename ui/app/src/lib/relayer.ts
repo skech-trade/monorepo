@@ -29,6 +29,8 @@ export type RefusedMsg = { type: "refused"; betId: Hex; player: Address; why: st
 export type SettledMsg = { type: "settled"; betId: Hex; player: Address; hitMask: number; missMask: number; paid: string; owed: string; tx: Hex };
 export type AckMsg = { type: "ack"; ok: boolean; betId?: Hex; why?: string; drawing?: string; index?: number };
 export type Done = { ok: boolean; why?: string; tx?: Hex; amount?: string };
+/** A player's transactions on chain, counted by the relayer from the game's logs. `counting`: the history is still being read. */
+export type ActivityMsg = { type: "activity"; player: Address | null; txs: number; pieces: number; deposits: number; withdrawals: number; recent: Hex[]; counting: boolean; progress: number };
 export type Incoming =
   | Hello
   | ({ type: "account" } & Account)
@@ -36,6 +38,7 @@ export type Incoming =
   | RefusedMsg
   | SettledMsg
   | AckMsg
+  | ActivityMsg
   | { type: "owed"; value: string }
   | ({ type: "session-set" } & Done)
   | ({ type: "deposited" } & Done)

@@ -23,7 +23,7 @@ fi
 # the engine's source, and the contracts' deployments, ABIs and gas snapshot. Nothing excluded
 # is deleted on the box, so node_modules, target/ and the relayer's state survive.
 rsync -az --delete --rsync-path="sudo -u skech rsync" \
-  --exclude='node_modules/' --exclude='.relayer-state*' --exclude='*.tsbuildinfo' --exclude='dist/' --exclude='*.test.ts' \
+  --exclude='node_modules/' --exclude='.relayer-state*' --exclude='.relayer-activity*' --exclude='*.tsbuildinfo' --exclude='dist/' --exclude='*.test.ts' \
   --include='/package.json' --include='/bun.lock' --include='/bunfig.toml' --include='/tsconfig.base.json' \
   --include='/ui/' --include='/ui/*/' --include='/ui/*/package.json' \
   --include='/packages/' --include='/packages/core/***' --include='/packages/relayer/***' \
