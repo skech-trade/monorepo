@@ -35,9 +35,12 @@ export function PopoverPopup({
   tooltipStyle = false,
   anchor,
   portalProps,
+  positionerClassName,
   ...props
 }: PopoverPrimitive.Popup.Props & {
   portalProps?: PopoverPrimitive.Portal.Props;
+  /** For a popover over something that is itself on top, such as a dialog: `z-[60]`. */
+  positionerClassName?: string;
   side?: PopoverPrimitive.Positioner.Props["side"];
   align?: PopoverPrimitive.Positioner.Props["align"];
   sideOffset?: PopoverPrimitive.Positioner.Props["sideOffset"];
@@ -51,7 +54,7 @@ export function PopoverPopup({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
-        className="z-50 h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-[top,left,right,bottom,transform] data-instant:transition-none"
+        className={cn("z-50 h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-[top,left,right,bottom,transform] data-instant:transition-none", positionerClassName)}
         data-slot="popover-positioner"
         side={side}
         sideOffset={sideOffset}

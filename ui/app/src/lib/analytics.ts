@@ -29,6 +29,8 @@ export type Event =
   | "deposit_opened"
   | "deposit_completed"
   | "deposit_failed"
+  | "founders_opened"
+  | "founders_messaged"
   | "drawing_key_ready"
   | "drawing_key_failed"
   | "first_drawing"
