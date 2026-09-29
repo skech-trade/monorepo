@@ -91,6 +91,8 @@ export class Server {
       lateMs: c.lateMs,
       units: this.sequencer?.units() ?? null,
       config: gc ?? null,
+      /** Whether this relayer answers `activity`: the app shows a player's transaction count only if so. */
+      activity: this.activity !== null,
     };
   }
 

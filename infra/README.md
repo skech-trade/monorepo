@@ -46,7 +46,8 @@ The engine compiles on the box, which is slow the first time (several minutes, i
 `target/` stays between deploys. So do `node_modules` and the relayer's state file.
 
 Which game each serves comes from `packages/contracts/deployments/<chainId>.json`, deployed with the rest.
-After a new `bun run deploy:contracts`, run `infra/deploy.sh`.
+After a new `bun run deploy:contracts`, run `infra/deploy.sh`; the whole order, and what happens to the
+old game's money, is in [docs/DEPLOYING.md](../docs/DEPLOYING.md).
 
 The app finds them through `NEXT_PUBLIC_ENGINE_URL=wss://<domain>/engine/ws` and
 `NEXT_PUBLIC_RELAYER_URL=wss://<domain>/relayer/ws`, set in its Vercel project. The app's origin also
