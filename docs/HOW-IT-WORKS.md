@@ -6,7 +6,8 @@ It is practice money for now: $1,000 in the browser, no sign-in needed.
 | Part | Where |
 | --- | --- |
 | The screen | `ui/app/src/components/app/ink/` |
-| The live price | `ui/app/src/lib/coinbase.ts` |
+| The live price | `packages/engine` (Rust), read by `ui/app/src/lib/engine.ts` |
+| Checking a signed price on chain | `packages/contracts/src/SkechPrice.sol` |
 | Practice balance and settings | `ui/app/src/lib/practice.ts` |
 | Market readings, price paths, chances | `packages/core/src/dots.ts` |
 | Drawings: cost, opening, settlement | `packages/core/src/ink.ts`, `ink-area.ts` |
@@ -19,9 +20,13 @@ Nothing is priced twice.
 
 ## 1. The price
 
-- Coinbase BTC-USD, trade by trade, over its public WebSocket (`matches`), straight from the browser.
-- On connect, the last ten minutes of public trades seed the chart.
-- Coinbase sends a heartbeat every second. Five seconds with no message at all and the socket is reopened.
+- Coinbase BTC-USD, trade by trade, over its public WebSocket (`matches`), through the engine (`packages/engine`).
+  The browser talks only to the engine.
+- The engine keeps the last ten minutes of trades, backfilled from Coinbase's REST API when it starts,
+  and sends them to the app on connect to seed the chart.
+- Each live trade comes signed by the engine's wallet as EIP-712 typed data, bound to one chain and one
+  contract, so a contract can take the price a trade was placed at (`packages/contracts`).
+- The engine passes on Coinbase's heartbeat every second. Five seconds with no message at all and the socket is reopened.
 - Each trade is folded into the bar of its second: high, low, close.
 - A second with no trade is closed at the last price once it is 600 ms old.
 - The chart line is drawn from the trades themselves, with no smoothing delay.

@@ -4,28 +4,50 @@ import { useEffect, useState } from "react";
 import type { Bar } from "@skech/core/dots";
 
 /**
- * Bitcoin as the game is priced and judged on: Coinbase BTC-USD, trade by trade.
+ * Bitcoin as the game is priced and judged on: Coinbase BTC-USD, trade by
+ * trade, through the engine (`packages/engine`).
  *
  * The chances are measured on Coinbase's own trades, folded into one-second
  * bars (`packages/core/scripts/fetch-coinbase.ts`), so the game is played on
- * the same market, folded the same way: the last ten minutes of trades to
- * start, then every trade into the bar of its second.
+ * the same market, folded the same way. On connect the engine sends the last
+ * ten minutes of trades, then every trade as it lands. Each is checked against
+ * Binance and Kraken and signed by the engine's wallet as EIP-712 typed data a
+ * contract can check (`packages/contracts`). The price shown is always the
+ * price signed: what a trade placed now would post on chain. What is signed,
+ * and on whose agreement, is in the engine's log.
  *
- * Direct from the browser: Coinbase's public feed and REST API both allow it.
- * The feed sends a heartbeat every second, so a stream that goes quiet
- * without closing is caught and reopened rather than left showing a stale
- * price.
+ * The engine passes on Coinbase's heartbeat every second, so a stream that
+ * goes quiet without closing is caught and reopened rather than left showing
+ * a stale price.
  */
 
-const REST = "https://api.exchange.coinbase.com/products";
-const STREAM = "wss://ws-feed.exchange.coinbase.com";
+const STREAM = process.env.NEXT_PUBLIC_ENGINE_URL || "ws://localhost:3102/ws";
 const KEEP_BARS = 660;
 const KEEP_TICKS = 4000;
-const SEED_MS = 600_000;
 /** No message at all for this long (heartbeats included) and the socket is reopened. */
 const SILENT_MS = 5000;
 
 export type Tick = { t: number; p: number };
+/** The EIP-712 `Price` a trade's signature is over: price with 8 decimals, as a string; time in ms. */
+export type PriceMessage = { market: string; price: string; time: number };
+/** Everything of an `eth_signTypedData_v4` payload but the message, as the engine sends it on connect. */
+export type TypedData = {
+  domain: { name: string; version: string; chainId: number; verifyingContract: `0x${string}` };
+  primaryType: "Price";
+  types: Record<string, { name: string; type: string }[]>;
+};
+/**
+ * The newest price, as a trade placed now would post it: the same price the
+ * chart shows. `message` and `signature` are null when no attester could
+ * check it: nothing to post. `source` is "attesters" when Coinbase was outside
+ * the band and their median was signed instead.
+ */
+export type Quote = {
+  price: number;
+  source: "coinbase" | "attesters";
+  message: PriceMessage | null;
+  signature: `0x${string}` | null;
+};
 export type Market = {
   /** One-second bars, oldest first; the last is still forming. Times in ms, Coinbase's clock. */
   bars: Bar[];
@@ -36,16 +58,23 @@ export type Market = {
   connected: boolean;
   /** Bumped on every trade batch, so a page can react without copying arrays. */
   version: number;
+  /** The engine's wallet and the domain it signs under, once connected. */
+  signer: `0x${string}` | null;
+  typedData: TypedData | null;
+  quote: Quote | null;
 };
 
-type Trade = { trade_id: number; price: string; time: string };
-type Message = { type?: string; trade_id?: number; price?: string; time?: string };
+type Message =
+  | { type: "hello"; signer: `0x${string}`; typedData: TypedData }
+  | { type: "history"; trades: [id: number, t: number, p: number][] }
+  | ({ type: "price"; id: number; t: number; p: number } & Omit<Quote, "price">)
+  | { type: "beat" };
 
-export function useCoinbase(product = "BTC-USD"): Market {
+export function useEngine(): Market {
   const [version, setVersion] = useState(0);
   const [connected, setConnected] = useState(false);
   // One mutable store for the life of the page: trades arrive faster than React should re-render, and arrays this long are not copied per trade.
-  const [m] = useState<Market>(() => ({ bars: [], ticks: [], skew: 0, connected: false, version: 0 }));
+  const [m] = useState<Market>(() => ({ bars: [], ticks: [], skew: 0, connected: false, version: 0, signer: null, typedData: null, quote: null }));
 
   useEffect(() => {
     let stopped = false;
@@ -55,7 +84,7 @@ export function useCoinbase(product = "BTC-USD"): Market {
     let late: ReturnType<typeof setTimeout> | undefined;
     let backoff = 500;
     let heard = 0;
-    /** The newest trade folded in, so a reconnect's replayed trade is not counted twice. */
+    /** The newest trade folded in, so the history a reconnect is sent is not counted twice. */
     let lastId = 0;
     /*
       Tell the page on the next frame, at most twenty times a second (every
@@ -102,59 +131,15 @@ export function useCoinbase(product = "BTC-USD"): Market {
       if (m.ticks.length > KEEP_TICKS) m.ticks.splice(0, m.ticks.length - KEEP_TICKS);
     };
 
-    /*
-      The last ten minutes, from the public trades, a thousand at a time
-      going back. Folded oldest first into bars before any live trade, and
-      only the part older than the first live trade, so nothing is counted twice.
-    */
-    const seed = async () => {
-      const trades: Trade[] = [];
-      let after: number | undefined;
-      for (let pageNo = 0; pageNo < 12 && !stopped; pageNo++) {
-        const res = await fetch(`${REST}/${product}/trades?limit=1000${after ? `&after=${after}` : ""}`).catch(() => null);
-        if (!res?.ok) break;
-        const page = (await res.json()) as Trade[];
-        if (!page.length) break;
-        trades.push(...page);
-        after = page[page.length - 1].trade_id;
-        if (Date.now() - Date.parse(page[page.length - 1].time) > SEED_MS) break;
-      }
-      if (stopped || !trades.length) return;
-      const firstLive = m.ticks[0]?.t ?? Number.POSITIVE_INFINITY;
-      const live = { bars: m.bars, ticks: m.ticks };
-      m.bars = [];
-      m.ticks = [];
-      for (const x of trades.reverse()) {
-        const t = Date.parse(x.time);
-        if (t < firstLive && t > Date.now() - SEED_MS) fold(t, Number(x.price));
-      }
-      // The live trades go back on top, in order.
-      const seeded = m.bars;
-      const from = live.bars[0]?.t ?? Number.POSITIVE_INFINITY;
-      const joined = [...seeded.filter((b) => b.t < from), ...live.bars];
-      // Seconds with no trade between the history and the first live trade still passed.
-      const bars: Bar[] = [];
-      for (const b of joined) {
-        const prev = bars[bars.length - 1];
-        if (prev) for (let s = prev.t + 1000; s < b.t; s += 1000) bars.push({ t: s, h: prev.c, l: prev.c, c: prev.c });
-        bars.push(b);
-      }
-      m.bars = bars.slice(-KEEP_BARS);
-      m.ticks = [...m.ticks, ...live.ticks].slice(-KEEP_TICKS);
-      bump();
-    };
-
     const connect = () => {
       if (stopped) return;
       const sock = new WebSocket(STREAM);
       ws = sock;
       heard = Date.now();
       sock.onopen = () => {
-        sock.send(JSON.stringify({ type: "subscribe", product_ids: [product], channels: ["matches", "heartbeat"] }));
         backoff = 500;
         m.connected = true;
         setConnected(true);
-        if (!m.bars.length) void seed();
       };
       sock.onmessage = (e) => {
         heard = Date.now();
@@ -164,18 +149,27 @@ export function useCoinbase(product = "BTC-USD"): Market {
         } catch {
           return;
         }
-        if (msg.type !== "match" && msg.type !== "last_match") return;
-        const id = Number(msg.trade_id);
-        if (id && id <= lastId) return;
-        const t = Date.parse(String(msg.time));
-        const p = Number(msg.price);
-        if (!Number.isFinite(t) || !(p > 0)) return;
-        if (id) lastId = id;
-        // A trade has just happened: Coinbase's clock is its time, give or take the trip here.
-        const sample = t + 40 - Date.now();
-        m.skew = m.skew === 0 ? sample : m.skew * 0.98 + sample * 0.02;
-        fold(t, p);
-        bump();
+        if (msg.type === "hello") {
+          m.signer = msg.signer;
+          m.typedData = msg.typedData;
+        } else if (msg.type === "history") {
+          // Oldest first; on a reconnect, only what came after the last trade already folded.
+          for (const [id, t, p] of msg.trades) {
+            if (id <= lastId || !(p > 0)) continue;
+            lastId = id;
+            fold(t, p);
+          }
+          bump();
+        } else if (msg.type === "price") {
+          if (msg.id <= lastId || !(msg.p > 0)) return;
+          lastId = msg.id;
+          // A trade has just happened: Coinbase's clock is its time, give or take the trip here.
+          const sample = msg.t + 40 - Date.now();
+          m.skew = m.skew === 0 ? sample : m.skew * 0.98 + sample * 0.02;
+          m.quote = { price: msg.p, source: msg.source, message: msg.message, signature: msg.signature };
+          fold(msg.t, msg.p);
+          bump();
+        }
       };
       sock.onclose = () => {
         if (ws === sock) {
@@ -233,7 +227,7 @@ export function useCoinbase(product = "BTC-USD"): Market {
         opening.onclose = null;
       } else ws?.close();
     };
-  }, [product, m]);
+  }, [m]);
 
-  return { bars: m.bars, ticks: m.ticks, skew: m.skew, connected, version };
+  return { bars: m.bars, ticks: m.ticks, skew: m.skew, connected, version, signer: m.signer, typedData: m.typedData, quote: m.quote };
 }
