@@ -1,4 +1,5 @@
 import { LogoLink } from "./logo";
+import { StartApp } from "./start-app";
 // Dark mode temporarily disabled.
 // import { ThemeToggle } from "./theme-toggle";
 
@@ -18,14 +19,7 @@ export function SiteNav() {
         <div className="flex items-center gap-1.5">
           {/* <ThemeToggle /> */}
 
-          {/* An anchor, not a button with a toast behind it: the thing it
-              promises is on this page. */}
-          <a
-            className="pressable flex h-9 shrink-0 items-center rounded-full bg-primary px-4 font-medium text-[0.9375rem] text-primary-foreground transition-colors duration-micro ease-smooth-out hover:bg-primary/90"
-            href="#start"
-          >
-            Join waitlist
-          </a>
+          <StartApp className="h-9 shrink-0 px-4 text-[0.9375rem]" />
         </div>
       </div>
     </header>

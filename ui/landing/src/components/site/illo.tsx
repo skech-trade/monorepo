@@ -198,7 +198,7 @@ export function BandScene({ className }: { className?: string }) {
   );
 }
 
-/** The closing band scene, under the waitlist form. */
+/** The closing band scene, beside the way into the app. */
 export function CtaScene({ className }: { className?: string }) {
   return (
     <Image
