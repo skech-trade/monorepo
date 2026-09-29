@@ -16,7 +16,7 @@ const env = (name: string) => {
 // SKECH_NETWORK picks the chain; ENGINE_CHAIN_ID only for a local anvil run.
 const chainId = chainIdFor(process.env);
 const deploymentPath = join(root, "packages", "contracts", "deployments", `${chainId}.json`);
-const deployment = existsSync(deploymentPath) ? (JSON.parse(readFileSync(deploymentPath, "utf8")) as { game: Address; iou: Address; revenue: Address; usdc: Address; oracle: Address }) : null;
+const deployment = existsSync(deploymentPath) ? (JSON.parse(readFileSync(deploymentPath, "utf8")) as { game: Address; iou: Address; revenue: Address; usdc: Address; oracle: Address; block?: number }) : null;
 
 const key = env("RELAYER_PRIVATE_KEY") ?? env("ENGINE_PRIVATE_KEY");
 if (!key) throw new Error("RELAYER_PRIVATE_KEY or ENGINE_PRIVATE_KEY must be set: the relayer signs quotes and bars and pays for gas");
@@ -33,6 +33,8 @@ export const cfg = {
   iou: (env("SKECH_IOU") ?? deployment?.iou) as Address | undefined,
   usdc: (env("SKECH_USDC") ?? deployment?.usdc) as Address | undefined,
   revenue: (env("SKECH_REVENUE") ?? deployment?.revenue) as Address | undefined,
+  /** The block the game was deployed in: each player's transactions are counted from there. Unknown, from now. */
+  deployBlock: env("SKECH_DEPLOY_BLOCK") ? BigInt(env("SKECH_DEPLOY_BLOCK")!) : deployment?.block !== undefined ? BigInt(deployment.block) : null,
   libPath: env("SKECH_LIB") ?? join(root, "packages", "core", "src", "dots-lib.bin"),
   market: 0,
   marketName: "BTC-USD",

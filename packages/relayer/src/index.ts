@@ -12,6 +12,7 @@
 import { report, trail } from "./sentry";
 import { formatEther } from "viem";
 import { join } from "node:path";
+import { Activity } from "./activity";
 import { ChainClient } from "./chain";
 import { cfg } from "./config";
 import { Engine } from "./engine";
@@ -65,6 +66,10 @@ const server: Server = new Server({
   }),
 });
 // One state file per chain and game: what is owed on testnet means nothing to a local chain.
+// Each player's transactions on chain, read from the game's logs. Without the deployment block, counted from now.
+const from = cfg.deployBlock ?? (await chain.pub.getBlockNumber());
+if (cfg.deployBlock === null) log(`activity: no deployment block known (deployments/${cfg.chainId}.json "block", or SKECH_DEPLOY_BLOCK); counting from block ${from}`);
+const activity = new Activity(chain, from, join(import.meta.dir, "..", `.relayer-activity.${cfg.chainId}.${cfg.game.toLowerCase()}.json`), log);
 settler = new Settler(cfg, engine, chain, server.notify, log, join(import.meta.dir, "..", `.relayer-state.${cfg.chainId}.${cfg.game.toLowerCase()}.json`));
 sequencer = new Sequencer(cfg, engine, pricer, chain, settler, server.notify, log);
 sequencer.difficulty = difficulty;
@@ -72,6 +77,7 @@ sequencer.gameConfig = gameConfig;
 settler.profitFeeBps = BigInt(gameConfig.profitFeeBps);
 server.sequencer = sequencer;
 server.settler = settler;
+server.activity = activity;
 
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
 // The difficulty and the terms live on chain: follow them.
@@ -107,4 +113,5 @@ setTimeout(() => {
 }, 3000);
 
 settler.start();
+activity.start();
 server.start();
