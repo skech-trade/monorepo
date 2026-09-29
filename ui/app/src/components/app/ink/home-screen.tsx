@@ -13,7 +13,9 @@ import feedback from "./drawing-feedback.module.css";
  * Add skech to the Home Screen: a bar in the gap between the chart's time
  * axis and the dock, on a phone's browser only. Install opens the steps
  * (or, on Android when the browser offers it, its own install prompt). The
- * cross puts the gap back, and the bar stays away for a week.
+ * cross puts the gap back for the rest of the day: the bar is back the next
+ * day they play, until skech is on their Home Screen. Opening the steps and
+ * not following them changes nothing. Never in the installed app.
  */
 
 type Platform = "ios" | "android";
@@ -21,7 +23,8 @@ type Platform = "ios" | "android";
 type InstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
 const KEY = "skech:home-screen";
-const AWAY_MS = 7 * 24 * 3600_000;
+/** The day, on their own clock, that a time falls on: the bar comes back when this changes. */
+const dayOf = (ms: number) => new Date(ms).toDateString();
 /**
  * How much of the chart the bar takes while it shows, in px: the bar and its gaps, 56 + 10 under it + 12 over
  * it, less what `drawingLayout` already leaves between the time axis and the dock (16px on a phone, none wider).
@@ -31,7 +34,8 @@ export const homeBarRoom = (width: number) => (width < 640 ? 62 : 80);
 /** A phone's browser, not the app already on the Home Screen. Null on a desk, or once installed. */
 function platform(): Platform | null {
   const nav = navigator as Navigator & { standalone?: boolean };
-  if (nav.standalone || matchMedia("(display-mode: standalone)").matches) return null;
+  // Opened from the Home Screen: iOS says so on navigator, everything else through the manifest's display mode.
+  if (nav.standalone || ["standalone", "fullscreen", "minimal-ui", "window-controls-overlay"].some((m) => matchMedia(`(display-mode: ${m})`).matches)) return null;
   const ua = nav.userAgent;
   // iPadOS asks for the desktop site and says Macintosh; its touch screen gives it away.
   if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && nav.maxTouchPoints > 1)) return "ios";
@@ -39,9 +43,11 @@ function platform(): Platform | null {
   return null;
 }
 
+/** Closed with the cross today: away until tomorrow. */
 function dismissedRecently(): boolean {
   try {
-    return Date.now() - Number(localStorage.getItem(KEY) ?? 0) < AWAY_MS;
+    const at = Number(localStorage.getItem(KEY) ?? 0);
+    return at > 0 && dayOf(at) === dayOf(Date.now());
   } catch {
     return false;
   }
