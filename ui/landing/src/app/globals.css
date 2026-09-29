@@ -716,15 +716,17 @@
   }
 }
 
-/* The nav's way in, arriving once the hero's has scrolled away. */
-@keyframes nav-cta-in {
-  from {
-    opacity: 0;
-    transform: translateX(8px);
+/* The wordmark in the nav, hovered: a small back-and-forth, as a sticker on a poster is nudged. */
+@keyframes logo-wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg);
   }
-  to {
-    opacity: 1;
-    transform: none;
+  25% {
+    transform: rotate(-4deg);
+  }
+  75% {
+    transform: rotate(4deg);
   }
 }
 
