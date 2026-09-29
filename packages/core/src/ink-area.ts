@@ -27,7 +27,8 @@ export const VIEW_STEPS = 6.75;
 export function drawingLayout(width: number, height: number, marketStep: number) {
   const phone = width < 640;
   const top = phone ? 160 : 142;
-  const bottom = Math.max(top + 120, height - (phone ? 174 : 116));
+  // Room under the chart for the time axis and the dock: on a phone the axis sits 16px over the dock, not 57.
+  const bottom = Math.max(top + 120, height - (phone ? 134 : 116));
   const plotHeight = bottom - top;
   const nowX = Math.round(width * (phone ? 0.24 : 0.28));
   return { top, bottom, nowX, pitch: CHART_STEP_PX,

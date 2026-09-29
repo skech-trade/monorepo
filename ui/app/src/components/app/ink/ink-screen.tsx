@@ -35,6 +35,7 @@ import { DepositButton, InkControls } from "./ink-controls";
 import feedback from "./drawing-feedback.module.css";
 import { CrispNumber } from "./crisp-number";
 import { introReady } from "./ink-intro";
+import { homeBarRoom, HomeScreenBar, HomeScreenSheet, useHomeScreen } from "./home-screen";
 import { forReal, Onboarding, useOnboarding } from "./onboarding";
 import { SignInButton } from "@/components/app/sign-in";
 import { useGate } from "./deposit-modal";
@@ -823,6 +824,8 @@ export function InkScreen() {
     one in a pill and one on the chart.
   */
   const signedOut = onboarding.step === "signin";
+  // On a phone's browser, the Home Screen bar sits in the gap over the dock, and the chart gives up a little for it.
+  const home = useHomeScreen();
   const connecting = !signedOut && (!fresh || onboarding.step === "connecting");
   const [boardOpen, setBoardOpen] = useState(false);
   const board = useScoreboard();
@@ -897,7 +900,7 @@ export function InkScreen() {
         )}
       </div>
 
-      <div className="absolute inset-0" onPointerDownCapture={onGate}>
+      <div className="absolute inset-0" onPointerDownCapture={onGate} style={home.showing ? { bottom: homeBarRoom(window.innerWidth) } : undefined}>
           {lib ? <Stage onViewport={onViewport} className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} /> : null}
           {owner === false ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm" role="status">
@@ -949,6 +952,8 @@ export function InkScreen() {
 
       {returnedInk && !preview && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
       <div className={feedback.bottomShade} aria-hidden="true" />
+      {home.showing ? <HomeScreenBar dismiss={home.dismiss} install={home.install} /> : null}
+      <HomeScreenSheet open={home.open} setOpen={home.setOpen} where={home.where} />
       <footer className={feedback.toolbar}>
         <Button aria-label="Settings" aria-haspopup="dialog" className={feedback.settingsButton} onClick={() => setSettingsOpen(true)} size="icon" variant="outline"><SlidersHorizontalIcon strokeWidth={1.8} /></Button>
         {controls}
