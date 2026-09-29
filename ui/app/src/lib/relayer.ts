@@ -23,7 +23,7 @@ export type Hello = {
   units: string[] | null;
   config: { minPerDot: string; maxPerDot: string; maxPieceStake: string; feeBps: number; profitFeeBps: number } | null;
 };
-export type Account = { player: Address; balance: string; session: { key: Address; x: Hex; y: Hex; validUntil: string; allowance: string }; owed: string };
+export type Account = { player: Address; balance: string; session: { key: Address; x: Hex; y: Hex; validUntil: string; allowance: string }; owed: string; nonce?: string | null };
 export type PlacedMsg = { type: "placed"; betId: Hex; player: Address; openAt: string; staked: string; fee: string; refunded: string; sections: { second: number; lo: string; hi: string; stake: string; rung: number }[]; tx: Hex };
 export type RefusedMsg = { type: "refused"; betId: Hex; player: Address; why: string; tx?: Hex };
 export type SettledMsg = { type: "settled"; betId: Hex; player: Address; hitMask: number; missMask: number; paid: string; owed: string; tx: Hex };

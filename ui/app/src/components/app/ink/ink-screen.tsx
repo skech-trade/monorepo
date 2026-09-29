@@ -2,7 +2,7 @@
 
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DIFFICULTY, difficulty, features, type Field, type Library, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
+import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
 import { areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
 import { betIdOf, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, strokeHash, toE6, toE8, toSections, TYPES, unitFor } from "@skech/core/chain";
@@ -72,6 +72,53 @@ const CHAIN_ANSWER_MS = 8000;
 const drawingIdOf = (line: string) => BigInt(keccak256(stringToHex(line)).slice(0, 18));
 /** A piece's number within its drawing, from its id `line:index`. */
 const pieceIndexOf = (id: string) => Number(id.slice(id.lastIndexOf(":") + 1));
+
+/** A piece on its way to the chain: its bet, its stake, and what it takes to send its ink again. */
+type SentPiece = { id: string; stakeUsd: number; drawing: bigint; stroke: Hex; tries: number };
+/**
+ * Refusals that mean nothing was placed and the same ink can go again on the
+ * next second: too late for its second, a price quote that aged on the way,
+ * a difficulty that changed, a relayer still starting. Not "no answer": that
+ * piece may have gone in.
+ */
+const RESEND = /^(Too late for that second|Price seen is stale|Difficulty|Waiting for live prices|Starting up|No price to open on|Late$|StalePrice$)/;
+/** How many times a piece is sent again before its ink is let go. */
+const RESENDS = 2;
+const RESEND_BASE = 100_000;
+
+type Chain = ReturnType<typeof useChain>;
+/** A piece as it is signed, and as it goes on the wire, with the chain's numbers as strings. */
+function pieceFor(ch: Chain, level: number, drawing: bigint, index: number, openAt: number, perDot: number, unit: number, quote: { price: string | number; time: string | number }, sections: ReturnType<typeof toSections>, stroke: Hex) {
+  const piece = {
+    player: ch.player!,
+    drawing,
+    index,
+    market: ch.hello!.market.id,
+    difficulty: ch.hello!.difficulty ?? level,
+    openAt: BigInt(openAt),
+    perDot: toE6(perDot),
+    unit: toE8(unit),
+    priceSeen: BigInt(quote.price),
+    priceTime: BigInt(quote.time),
+    sections,
+    strokeHash: strokeHash(stroke),
+  };
+  const wire = { ...piece, drawing: drawing.toString(), openAt: piece.openAt.toString(), perDot: piece.perDot.toString(), unit: piece.unit.toString(), priceSeen: piece.priceSeen.toString(), priceTime: piece.priceTime.toString(), sections: sections.map((s) => ({ second: s.second, lo: s.lo.toString(), hi: s.hi.toString(), stake: s.stake.toString() })) };
+  return { piece, wire };
+}
+/** Sign a piece with the session key and send it; `fail` hears why, if the relayer turns it away. */
+function sendPiece(ch: Chain, { piece, wire }: ReturnType<typeof pieceFor>, stroke: Hex, priceSig: Hex, fail: (why: string) => void) {
+  const { key: sessionKey, client } = ch;
+  void (async () => {
+    try {
+      const sig = await sessionKey!.sign(hashTypedData({ domain: gameDomain!, types: TYPES, primaryType: "Piece", message: piece }));
+      const ack = await client.request({ type: "piece", piece: wire, sessionSig: sig, priceSig, stroke }, (m): m is Extract<Incoming, { type: "ack" }> => m.type === "ack" && m.drawing === wire.drawing && m.index === piece.index, 10_000);
+      if (!ack || !ack.ok) fail(ack?.why ?? "No answer. Your money is back.");
+    } catch (e) {
+      fail(String((e as Error).message ?? e));
+    }
+  })();
+}
 /** On chain a hit pays its gross less 10% of the profit: shown that way here too, as each hit lands. */
 function lessProfitFee(bet: InkBet, before: InkBet, profitFeeBps: number): InkBet {
   let touched = false;
@@ -120,7 +167,9 @@ export function InkScreen() {
   });
   const real = chain.real;
   /** Pieces sent to the chain, by the chain's name for them: which local bet each is, and what was staked. */
-  const chainBets = useRef(new Map<Hex, { id: string; stakeUsd: number }>());
+  const chainBets = useRef(new Map<Hex, SentPiece>());
+  /** Pieces sent again this visit: their indices, well clear of any line's own. */
+  const resent = useRef(0);
   /* The paths every chance is measured on: a file of their own, fetched once. Nothing is priced until it is in. */
   const [lib, setLib] = useState<Library | null>(null);
   /* The map is measured in a worker of its own, on its own copy of the paths: see `field.worker.ts`. */
@@ -379,8 +428,52 @@ export function InkScreen() {
   useEffect(() => {
     gateRef.current = gate;
   }, [gate]);
+  const letGoRef = useRef<(key: Hex, why: string) => void>(() => {});
+  /*
+    A piece turned away for a reason that placed nothing (too late for its
+    second, a price that aged on the way, a new difficulty) goes again at
+    once, on the next second: the same ink, a fresh quote, a new index. Ink
+    that is by then too close to the price stays out, and its stake comes
+    back. A refused piece used to leave its ink faint for good: the next
+    piece of the line only carries what was drawn after it.
+  */
+  const resend = useCallback((key: Hex, why: string): boolean => {
+    const g = game.current;
+    const ch = chainRef.current;
+    const sent = chainBets.current.get(key);
+    const quote = feedRef.current.quote;
+    if (!sent || sent.tries >= RESENDS || !RESEND.test(why)) return false;
+    if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key || !gameDomain || !ch.sessionOk) return false;
+    const i = g.bets.findIndex((b) => b.id === sent.id);
+    if (i < 0 || g.bets[i].status !== "opening") return false;
+    const bet = g.bets[i];
+    const line = bet.group ?? bet.id;
+    const openAt = openFor(Date.now() + g.skew + g.placeLead);
+    const drawn = bet.drawn.filter((c) => c.t >= openAt + 1000);
+    // The bet's own grid: its cells are one unit tall.
+    const unit = bet.step * (bet.cell ?? INK_CELL);
+    const sections = toSections(drawn, openAt, toE6(bet.perUnit), unit);
+    if (!sections.length) return false;
+    const stakeUsd = Number(stakeOf(sections)) / 1e6;
+    const index = RESEND_BASE + resent.current++;
+    const next = betIdOf(ch.player, sent.drawing, index);
+    const signed = pieceFor(ch, level, sent.drawing, index, openAt, bet.perUnit, unit, quote.message, sections, sent.stroke);
+    chainBets.current.delete(key);
+    chainBets.current.set(next, { ...sent, id: `${line}:${index}`, stakeUsd, tries: sent.tries + 1 });
+    // The first stake back, the second out: only what dropped out shows, as returned.
+    ch.nudge(sent.stakeUsd - stakeUsd);
+    const back = cents(sent.stakeUsd - stakeUsd);
+    if (back > 0) addChange(back, "back");
+    g.bets[i] = { ...bet, id: `${line}:${index}`, openAt, drawn, charged: stakeUsd };
+    track("piece_resent", { why: why.slice(0, 120), tries: sent.tries + 1 });
+    if (process.env.NODE_ENV !== "production") console.warn(`[ink] piece ${sent.id} refused (${why}); sent again as ${index}, opening ${openAt}`);
+    sendPiece(ch, signed, sent.stroke, quote.signature, (w) => letGoRef.current(next, w));
+    updateTotals();
+    return true;
+  }, [level, updateTotals]);
   const letGo = useCallback((key: Hex, why: string) => {
     const g = game.current;
+    if (resend(key, why)) return;
     track("piece_refused", { why: why.slice(0, 120) });
     // Out of money: the deposit sheet, but not while drawings are still in play, which may yet pay (below).
     if (/not enough|balance|allowance/i.test(why)) topUp.current = true;
@@ -401,7 +494,10 @@ export function InkScreen() {
       updateTotals();
     }
     if (process.env.NODE_ENV !== "production") console.warn(`[ink] piece ${sent.id} not placed: ${why}`);
-  }, [updateTotals]);
+  }, [updateTotals, resend]);
+  useEffect(() => {
+    letGoRef.current = letGo;
+  }, [letGo]);
   /*
     One tab plays at a time. Two tabs of the game each brought back the
     drawings in play from storage, and each paid their hits: every win in
@@ -653,34 +749,10 @@ export function InkScreen() {
         const key = betIdOf(ch.player, drawing, d.pieces);
         const from = d.prev?.pts.length ?? 0;
         const stroke = encodeStroke({ t0: snap.t0, p0: snap.p0, rt: snap.rt, rp: snap.rp, from, pts: snap.pts.slice(from) });
-        const piece = {
-          player: ch.player,
-          drawing,
-          index: d.pieces,
-          market: ch.hello.market.id,
-          difficulty: ch.hello.difficulty ?? level,
-          openAt: BigInt(bet.openAt),
-          perDot: toE6(settings.perDot),
-          unit: toE8(unit),
-          priceSeen: BigInt(quote.message.price),
-          priceTime: BigInt(quote.message.time),
-          sections,
-          strokeHash: strokeHash(stroke),
-        };
-        chainBets.current.set(key, { id: bet.id, stakeUsd: charge });
+        const signed = pieceFor(ch, level, drawing, d.pieces, bet.openAt, settings.perDot, unit, quote.message, sections, stroke);
+        chainBets.current.set(key, { id: bet.id, stakeUsd: charge, drawing, stroke, tries: 0 });
         ch.nudge(-charge);
-        const wire = { ...piece, drawing: drawing.toString(), openAt: piece.openAt.toString(), perDot: piece.perDot.toString(), unit: piece.unit.toString(), priceSeen: piece.priceSeen.toString(), priceTime: piece.priceTime.toString(), sections: sections.map((s) => ({ second: s.second, lo: s.lo.toString(), hi: s.hi.toString(), stake: s.stake.toString() })) };
-        const { key: sessionKey, client } = ch;
-        const { signature } = quote;
-        void (async () => {
-          try {
-            const sig = await sessionKey.sign(hashTypedData({ domain: gameDomain, types: TYPES, primaryType: "Piece", message: piece }));
-            const ack = await client.request({ type: "piece", piece: wire, sessionSig: sig, priceSig: signature, stroke }, (m): m is Extract<Incoming, { type: "ack" }> => m.type === "ack" && m.drawing === wire.drawing && m.index === piece.index, 10_000);
-            if (!ack || !ack.ok) letGo(key, ack?.why ?? "No answer. Your money is back.");
-          } catch (e) {
-            letGo(key, String((e as Error).message ?? e));
-          }
-        })();
+        sendPiece(ch, signed, stroke, quote.signature, (why) => letGo(key, why));
       }
       bet.charged = charge;
       addChange(-charge, "stake");
@@ -748,7 +820,7 @@ export function InkScreen() {
           addChange(cents(sent.stakeUsd - staked), "back");
           setReturnedInk({ id: sent.id, amount: cents(sent.stakeUsd - staked) });
         }
-        chainBets.current.set(m.betId, { id: sent.id, stakeUsd: staked });
+        chainBets.current.set(m.betId, { ...sent, stakeUsd: staked });
         if (!cells.length) {
           chainBets.current.delete(m.betId);
           const line = bet.group ?? bet.id;

@@ -35,6 +35,7 @@ export type Event =
   // Playing.
   | "round_finished"
   | "piece_refused"
+  | "piece_resent"
   | "balance_ran_out"
   | "judge_disagreed"
   | "price_changed"

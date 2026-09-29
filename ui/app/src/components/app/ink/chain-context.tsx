@@ -91,10 +91,18 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   // The relayer's latest word, for async code that must know whether it has spoken since it started.
   const saidRef = useRef(said);
   const nudgeRef = useRef(nudge);
+  const accountRef = useRef(account);
   useEffect(() => {
     saidRef.current = said;
     nudgeRef.current = nudge;
-  }, [said, nudge]);
+    accountRef.current = account;
+  }, [said, nudge, account]);
+  // The game nonce as the relayer last sent it with the account, so signing starts at once; read from the chain only
+  // if it has not come. Every call that uses one up goes through the relayer, which sends the account again after.
+  const nonceFor = useCallback(async (who: Address) => {
+    const a = accountRef.current;
+    return a?.nonce != null && a.player.toLowerCase() === who.toLowerCase() ? BigInt(a.nonce) : gameNonce(who);
+  }, []);
 
   // A session is good for an hour at least: checked against a clock that ticks now and then.
   useEffect(() => {
@@ -120,7 +128,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     }
     setRegistering(true);
     try {
-      const nonce = await gameNonce(player);
+      const nonce = await nonceFor(player);
       const validUntil = BigInt(Math.floor(Date.now() / 1000) + SESSION_DAYS * 86_400);
       const dl = deadline();
       const message = { player, kind: 1, key: "0x0000000000000000000000000000000000000000", x: k.x, y: k.y, validUntil, allowance: SESSION_ALLOWANCE, nonce, deadline: dl };
@@ -142,7 +150,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     } finally {
       setRegistering(false);
     }
-  }, [player, hello, key, me, client]);
+  }, [player, hello, key, me, client, nonceFor]);
 
   const deposit = useCallback(
     async (usdc: number): Promise<string | null> => {
@@ -178,7 +186,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
       const value = BigInt(Math.round(usdc * 1e6));
       if (value <= 0n) return { why: "Nothing to withdraw" };
       try {
-        const nonce = await gameNonce(player);
+        const nonce = await nonceFor(player);
         const dl = deadline();
         const message = { player, amount: value, to, nonce, deadline: dl };
         const sig = await me.signTypedData({ domain, types: { Withdraw: [...TYPES.Withdraw] }, primaryType: "Withdraw", message });
@@ -200,7 +208,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
         return { why: String((e as Error).message ?? e) };
       }
     },
-    [player, me, client],
+    [player, me, client, nonceFor],
   );
 
   const walletUsdc = useCallback(() => (player ? usdcBalance(player) : Promise.resolve(0n)), [player]);

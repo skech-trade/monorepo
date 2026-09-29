@@ -38,6 +38,8 @@ export class Settler {
   private running = false;
   private sweeping = false;
   private lastSweep = 0;
+  /** When each player was last sent their account after a settlement. */
+  private told = new Map<Address, number>();
   /** The house's cut of profits, from the chain's config: what a hit is due depends on it. */
   profitFeeBps = 1000n;
   stats = { bars: 0, settled: 0, redeemed: 0n, collected: 0n };
@@ -73,8 +75,9 @@ export class Settler {
     for (const betId of this.watching.get(second) ?? []) {
       const bet = this.bets.get(betId);
       if (!bet) continue;
+      // Known bands say at once whether the bet has seconds left; only the old format has to look.
       if (bet.bands) bet.bands = bet.bands.filter((b) => b.second !== second);
-      const stillWatched = [...this.watching].some(([s, ids]) => s !== second && ids.has(betId));
+      const stillWatched = bet.bands ? bet.bands.length > 0 : [...this.watching].some(([s, ids]) => s !== second && ids.has(betId));
       if (!stillWatched) this.bets.delete(betId);
     }
     this.watching.delete(second);
@@ -97,7 +100,12 @@ export class Settler {
       const now = this.engine.now();
       const due = [...this.watching.keys()].filter((s) => s + 1000 + CLOSE_AFTER_MS <= now).sort((a, b) => a - b).slice(0, 8);
       if (due.length && this.engine.ready()) await this.post(due);
-      if (Date.now() - this.lastSweep > this.cfg.sweepEveryMs) {
+      // Paying off IOUs and collecting fees takes a few transactions, and settling waits behind it: sweep when no
+      // second is about to be due, so a win is never held up by it. A player who never stops drawing still gets one
+      // every few sweeps' time.
+      const soon = [...this.watching.keys()].some((s) => s + 1000 + CLOSE_AFTER_MS <= now + 1500);
+      const since = Date.now() - this.lastSweep;
+      if (since > this.cfg.sweepEveryMs && (!soon || since > 4 * this.cfg.sweepEveryMs)) {
         this.lastSweep = Date.now();
         await this.sweep();
       }
@@ -164,7 +172,10 @@ export class Settler {
         const a = ev.args as { betId: Hex; player: Address; hitMask: number; missMask: number; paid: bigint; owed: bigint };
         if (a.owed === 0n) cuts += will.due.get(a.betId)?.fee ?? 0n;
         this.stats.settled++;
-        touched.add(a.player);
+        // The stake left the balance when the piece went in: only a payout changes it now. Without one, the chain's
+        // figure is still sent now and then, so what the app counts for itself never drifts for long.
+        const k = a.player.toLowerCase() as Address;
+        if (a.paid > 0n || a.owed > 0n || Date.now() - (this.told.get(k) ?? 0) > 5_000) touched.add(a.player);
         this.notify.settled({ betId: a.betId, player: a.player, hitMask: Number(a.hitMask), missMask: Number(a.missMask), paid: a.paid, owed: a.owed, tx: receipt.transactionHash });
       } else if (ev.name === "Owed") {
         const a = ev.args as { to: Address; value: bigint };
@@ -173,7 +184,11 @@ export class Settler {
       }
     }
     ledger.charge(cuts);
-    for (const p of touched) this.notify.account(p);
+    for (const p of touched) {
+      this.told.set(p.toLowerCase() as Address, Date.now());
+      this.notify.account(p);
+    }
+    if (this.told.size > 5_000) this.told.clear();
   }
 
   /** Pay off what is owed, as far as the pool goes, and move the fees out. */
