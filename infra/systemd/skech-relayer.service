@@ -1,0 +1,18 @@
+[Unit]
+Description=skech relayer: prices, signs and sends every transaction, on :3103
+After=network-online.target skech-engine.service
+Wants=network-online.target skech-engine.service
+
+[Service]
+User=skech
+WorkingDirectory=/opt/skech
+EnvironmentFile=/etc/skech/env
+Environment=NEXT_PUBLIC_ENGINE_URL=ws://127.0.0.1:3102/ws
+ExecStart=/home/skech/.bun/bin/bun packages/relayer/src/index.ts
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
