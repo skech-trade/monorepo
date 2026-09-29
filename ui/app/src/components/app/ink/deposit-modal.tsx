@@ -8,6 +8,7 @@ import { encode } from "uqr";
 import { hasAuth } from "@/components/app/auth";
 import { useCopy } from "@/components/app/copy";
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { shortAddress } from "@/lib/market";
 import { money } from "@/lib/money";
@@ -130,9 +131,9 @@ export function DepositModal({ open, onOpenChange, stuck = false, onPlayable }: 
   return (
     <Dialog onOpenChange={close} onOpenChangeComplete={() => setHeld(null)} open={open}>
       <DialogPopup
-        // Made to fit a phone's screen whole. Only on a very short one does it scroll, within what is visible: dvh,
-        // not vh, so the browser's own bars never hide the bottom, less the 3rem the viewport keeps above it.
-        className="gap-4 overflow-y-auto overscroll-contain rounded-[28px] border-border bg-raised p-6 sm:max-w-[440px] max-sm:max-h-[calc(100dvh-3rem)] max-sm:gap-3 max-sm:rounded-t-[28px] max-sm:px-5 max-sm:pt-2 max-sm:pb-[max(20px,env(safe-area-inset-bottom))]"
+        // Taller than a phone's screen with the faucet and the button: it scrolls, within what is visible
+        // (dvh, not vh, so the browser's own bars do not hide the bottom), and tightens on a short screen.
+        className="gap-[18px] overflow-y-auto overscroll-contain rounded-[28px] border-border bg-raised p-7 sm:max-w-[480px] max-sm:max-h-[calc(100dvh-12px)] max-sm:gap-[14px] max-sm:rounded-t-[28px] max-sm:px-5 max-sm:pt-2 max-sm:pb-[max(24px,env(safe-area-inset-bottom))]"
         showCloseButton={false}
       >
         <div aria-hidden="true" className="h-[5px] w-9 self-center rounded-full bg-faint sm:hidden" />
@@ -140,50 +141,52 @@ export function DepositModal({ open, onOpenChange, stuck = false, onPlayable }: 
           <Landed amount={celebrating} balance={chain.balance} onStart={() => close(false)} />
         ) : (
           <>
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 flex-col gap-1">
-                <DialogTitle className="font-semibold text-[24px] leading-[1.15] tracking-[-0.02em]">Send USDC</DialogTitle>
-                <DialogDescription className="flex items-center gap-1.5 text-[13.5px] text-muted-foreground leading-snug">
-                  <MonadMark className="size-3.5 shrink-0" />
-                  <span>{`Only USDC on ${NETWORK.label}`}</span>
-                </DialogDescription>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-3">
+                <DialogTitle className="font-semibold text-[26px] leading-[1.15] tracking-[-0.02em]">Send USDC</DialogTitle>
+                {/* A person, one tap away: beside the close button, so the sheet is no taller for it. */}
+                <div className="flex shrink-0 items-center gap-2">
+                  <Founders nudge={stuck && !playable} />
+                  <CloseButton onClick={() => close(false)} />
+                </div>
               </div>
-              <CloseButton onClick={() => close(false)} />
+              <DialogDescription className="text-[15px] text-muted-foreground leading-[1.4]">{`Only send USDC on ${NETWORK.label}. Anything else may be lost.`}</DialogDescription>
             </div>
-            {stuck && !playable ? <Founders /> : null}
             {address ? (
               <>
-                {/* The QR beside the address: scan it from another phone, or copy it on this one. One card, not two. */}
-                <div className="flex items-center gap-4 rounded-[20px] bg-foreground/[0.06] p-3">
-                  <AddressQR address={address} className="size-[128px]" />
-                  <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-                    <span className="flex min-w-0 flex-col">
-                      <span className="text-[13px] text-muted-foreground leading-snug">Your skech address</span>
-                      <span className="figures truncate font-medium text-[16px] leading-snug">{shortAddress(address)}</span>
-                    </span>
-                    <button className="flex h-10 w-full items-center justify-center gap-1.5 rounded-full bg-foreground px-4 font-semibold text-[15px] text-background transition-transform active:scale-95" onClick={() => void copy()} type="button">
-                      {copied ? <CheckIcon className="size-4" strokeWidth={2.6} /> : null}
-                      {copied ? "Copied" : "Copy"}
-                    </button>
-                  </div>
+                <AddressQR address={address} className="self-center" />
+                {/* A soft card that reads on light and dark alike, the address large, one solid Copy pill. */}
+                <div className="flex items-center gap-3 rounded-[20px] bg-foreground/[0.06] py-3.5 pr-3.5 pl-5">
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="text-[15px] text-muted-foreground leading-snug">Your skech address</span>
+                    <span className="figures truncate font-medium text-[17px] leading-snug">{shortAddress(address)}</span>
+                  </span>
+                  <button className="flex h-11 min-w-[88px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-foreground px-5 font-semibold text-[17px] text-background transition-transform active:scale-95" onClick={() => void copy()} type="button">
+                    {copied ? <CheckIcon className="size-[18px]" strokeWidth={2.6} /> : null}
+                    {copied ? "Copied" : "Copy"}
+                  </button>
                 </div>
-                {/* The terms in one line: what is there, and the least worth sending. The network is named above. */}
-                <dl className="flex items-center justify-between rounded-[16px] border border-border px-4 py-2.5 text-[14px]">
-                  <Term label="Balance">
+                {/* The terms, as a statement: one list, label left, value right. */}
+                <dl className="divide-y divide-border rounded-[18px] border border-border px-4">
+                  <Term label="Your balance">
                     <span className="figures font-semibold">{money(chain.balance)}</span>
                   </Term>
+                  <Term label="Network">
+                    <MonadMark className="size-[18px]" /> {NETWORK.label}
+                  </Term>
+                  <Term label="Arrives in">A few seconds</Term>
                   <Term label="Minimum">${MIN_DEPOSIT.toFixed(2)}</Term>
                 </dl>
                 {NETWORK.faucet ? <Faucet href={NETWORK.faucet} /> : null}
                 {chain.adding === null && chain.balance >= MIN_DEPOSIT ? (
                   // Already enough to play: the sheet is for topping up, and says so, with the way back to the game.
-                  <button className="flex min-h-12 w-full items-center justify-center rounded-full bg-foreground font-semibold text-[16px] text-background transition-transform active:scale-[.98]" onClick={() => close(false)} type="button">
+                  <button className="flex min-h-[54px] w-full items-center justify-center rounded-full bg-foreground font-semibold text-[17px] text-background transition-transform active:scale-[.98]" onClick={() => close(false)} type="button">
                     Play with {money(chain.balance)}
                   </button>
                 ) : (
                   <p aria-live="polite" className="flex min-h-5 items-center justify-center gap-2 text-sm text-muted-foreground">
                     <Spinner className="size-3.5" />
-                    {chain.adding !== null ? `Adding ${money(chain.adding)} to your balance…` : "Waiting for USDC · lands in a few seconds"}
+                    {chain.adding !== null ? `Adding ${money(chain.adding)} to your balance…` : "Waiting for USDC. It lands in your balance by itself."}
                   </p>
                 )}
               </>
@@ -210,7 +213,7 @@ function CloseButton({ onClick }: { onClick: () => void }) {
 
 function Term({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-h-12 items-center justify-between gap-4 py-3 text-[15px] max-sm:min-h-11 max-sm:py-2.5">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="flex items-center gap-2 font-medium">{children}</dd>
     </div>
@@ -297,13 +300,13 @@ function AddressQR({ address, className }: { address: string; className?: string
     }
   }
   return (
-    <div className={cn("relative size-[203px] shrink-0", className)}>
+    <div className={cn("relative size-[203px] shrink-0 [@media(max-height:800px)]:size-[160px]", className)}>
       <svg aria-label={`QR code for ${address}`} height="100%" role="img" viewBox={`-14 -14 ${box + 28} ${box + 28}`} width="100%">
         <rect fill="#FFFFFF" height={box + 28} rx={18} width={box + 28} x={-14} y={-14} />
         {dots}
       </svg>
       <div aria-hidden="true" className="absolute inset-0 flex items-center justify-center">
-        <UsdcMark className="size-[22%] rounded-full ring-[3px] ring-white" />
+        <UsdcMark className="size-[34px] rounded-full ring-[3px] ring-white" />
       </div>
     </div>
   );
@@ -316,15 +319,15 @@ function AddressQR({ address, className }: { address: string; className?: string
 function Faucet({ href }: { href: string }) {
   return (
     <a
-      className="flex items-center gap-3 rounded-[16px] bg-foreground/[0.06] px-4 py-2.5 outline-none transition-colors hover:bg-foreground/[0.1] focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex items-center gap-3 rounded-[20px] bg-foreground/[0.06] px-5 py-3 outline-none transition-colors hover:bg-foreground/[0.1] focus-visible:ring-2 focus-visible:ring-ring"
       href={href}
       rel="noopener noreferrer"
       target="_blank"
     >
-      <UsdcMark className="size-6 shrink-0" />
+      <UsdcMark className="size-7 shrink-0" />
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="font-semibold text-[14px] leading-snug">Get free test USDC</span>
-        <span className="truncate text-[12.5px] text-muted-foreground leading-snug">Pick Monad Testnet, paste your address</span>
+        <span className="font-semibold text-[15px]">Get free test USDC</span>
+        <span className="text-[13px] text-muted-foreground">Circle&apos;s faucet: pick Monad Testnet, paste your address</span>
       </span>
       <ArrowUpRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
     </a>
@@ -332,31 +335,51 @@ function Faucet({ href }: { href: string }) {
 }
 
 /**
- * For someone stuck at the deposit: a person instead of a form. A founder's face, a promise of a few
- * minutes, and one button straight into a Telegram chat with him.
+ * A person instead of a form: a founder's face beside the close button, and
+ * behind it a promise of a few minutes and one button straight into a
+ * Telegram chat. In a popover, not in the sheet, so the sheet stays short
+ * enough for a phone. For someone who has been stuck here before it says
+ * "Help" as well as showing the face.
  */
-function Founders() {
+function Founders({ nudge }: { nudge: boolean }) {
   return (
-    <div className="flex items-center gap-3 rounded-[16px] border border-foreground/10 bg-foreground/[0.04] p-3 motion-safe:animate-[row-in_360ms_cubic-bezier(.2,.8,.2,1)_both]">
-      <span className="relative shrink-0">
-        {/* eslint-disable-next-line @next/next/no-img-element -- a 19 KB local photo; the optimiser adds nothing here */}
-        <img alt={FOUNDER.name} className="size-10 rounded-full object-cover ring-2 ring-background" height={40} src={FOUNDER.photo} width={40} />
-        <span aria-hidden="true" className="absolute right-0 bottom-0 size-3 rounded-full bg-success-foreground ring-2 ring-raised" title="Online" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <p className="font-semibold text-[14px] leading-snug">Stuck? Talk to us</p>
-        <p className="truncate text-[12.5px] text-muted-foreground leading-snug">{FOUNDER.name} sets you up, fast</p>
-      </div>
-      <a
-        aria-label={`Message @${FOUNDER.handle} on Telegram`}
-        className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-[#2AABEE] px-3.5 font-semibold text-[14px] text-white outline-none transition-transform hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring active:scale-[.97]"
-        href={FOUNDER.url}
-        rel="noopener noreferrer"
-        target="_blank"
+    <Popover onOpenChange={(open) => open && track("founders_opened", { stuck: nudge })}>
+      <PopoverTrigger
+        aria-label={`Talk to ${FOUNDER.name}, a founder`}
+        render={<button className="flex h-10 shrink-0 items-center gap-2 rounded-full bg-foreground/[0.06] pr-3.5 pl-1 font-semibold text-[15px] transition-transform hover:bg-foreground/10 active:scale-95" type="button" />}
       >
-        <SendIcon className="size-4" strokeWidth={2.2} />
-        Telegram
-      </a>
-    </div>
+        <span className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element -- a 19 KB local photo; the optimiser adds nothing here */}
+          <img alt="" className="size-8 rounded-full object-cover" height={32} src={FOUNDER.photo} width={32} />
+          <span aria-hidden="true" className="absolute right-0 bottom-0 size-2.5 rounded-full bg-success-foreground ring-2 ring-raised" />
+        </span>
+        Help
+      </PopoverTrigger>
+      <PopoverPopup align="end" className="w-[min(340px,calc(100vw-32px))]" positionerClassName="z-[60]" sideOffset={8}>
+        <div className="flex flex-col gap-3.5">
+          <div className="flex items-center gap-3.5">
+            <span className="relative shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element -- a 19 KB local photo; the optimiser adds nothing here */}
+              <img alt={FOUNDER.name} className="size-14 rounded-full object-cover ring-2 ring-background" height={56} src={FOUNDER.photo} width={56} />
+              <span aria-hidden="true" className="absolute right-0 bottom-0 size-3.5 rounded-full bg-success-foreground ring-2 ring-background" title="Online" />
+            </span>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <p className="font-semibold text-[17px] leading-tight">Talk to the founders</p>
+              <p className="text-[14px] text-muted-foreground leading-snug">Get onboarded personally. {FOUNDER.name} will set you up in a few minutes.</p>
+            </div>
+          </div>
+          <a
+            className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#2AABEE] font-semibold text-[16px] text-white outline-none transition-transform hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring active:scale-[.98]"
+            href={FOUNDER.url}
+            onClick={() => track("founders_messaged", { stuck: nudge })}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            <SendIcon className="size-[18px]" strokeWidth={2.2} />
+            Message @{FOUNDER.handle} on Telegram
+          </a>
+        </div>
+      </PopoverPopup>
+    </Popover>
   );
 }

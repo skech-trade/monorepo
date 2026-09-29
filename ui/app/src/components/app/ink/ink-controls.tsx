@@ -26,7 +26,8 @@ export const PENS: { id: Brush; name: string; dot: number; says: string }[] = [
   { id: "wide", name: "Wide", dot: 18, says: "More coverage" },
 ];
 export const penFor = (id: Brush) => PENS.find((p) => p.id === id) ?? PENS[1];
-export const amountLabel = (n: number) => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
+/** A price per dot as it is picked: $0.1, $0.5, $1, $2; no trailing zero. */
+export const amountLabel = (n: number) => `$${Number(n.toFixed(2))}`;
 
 /** The pen's nib, in the ink it draws with. */
 const Dot = ({ size }: { size: number }) => <span aria-hidden="true" className="block shrink-0 rounded-full bg-brand transition-[width,height] duration-150 ease-out motion-reduce:transition-none" style={{ width: size, height: size }} />;
