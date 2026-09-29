@@ -38,13 +38,13 @@ import { ladderSection, roundedCells, areaCells, areaMultiple, areaCostOf, INK_C
 
 export { PEN_CELLS, type Pen } from "./ink";
 
-/** What a point can cost, in dollars: 10¢ to $1 in dimes, then $2 to $10 in dollars. $1 unless set. */
+/** What a point can cost, in dollars: 10¢ to $1 in dimes, then $2 to $10 in dollars. 50¢ unless set. */
 export const POINT_PRICES = {
   values: [
     ...Array.from({ length: 10 }, (_, i) => Math.round((i + 1) * 10) / 100),
     ...Array.from({ length: 9 }, (_, i) => i + 2),
   ],
-  default: 1,
+  default: 0.5,
 } as const;
 
 export { costOf, payoutOf } from "./ink";

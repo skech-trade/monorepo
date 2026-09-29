@@ -31,6 +31,7 @@ import { WalletButton } from "./wallet-button";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 import { fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
+import { HapticHost } from "./haptic-host";
 import { TokenAvatar } from "@/components/app/market-header";
 import { DepositButton, InkControls } from "./ink-controls";
 import feedback from "./drawing-feedback.module.css";
@@ -1028,7 +1029,11 @@ export function InkScreen() {
       </div>
 
       <div className="absolute inset-0" onPointerDownCapture={onGate} style={homeBar ? { bottom: homeBarRoom(window.innerWidth) } : undefined}>
-          {lib ? <Stage onViewport={onViewport} className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} /> : null}
+          {lib ? (
+            <HapticHost className="absolute inset-0">
+              <Stage onViewport={onViewport} className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} />
+            </HapticHost>
+          ) : null}
           {owner === false ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm" role="status">
               <p className="text-sm text-muted-foreground">The game is open in another tab.</p>
