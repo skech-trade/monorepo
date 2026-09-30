@@ -836,8 +836,9 @@
         {
           "name": "caller",
           "docs": [
-            "Whoever sends it. If it is not the holder, they earn the house a cut of the growth."
+            "Whoever sends it. If it is not the holder, they earn a cut of the growth, as on Monad."
           ],
+          "writable": true,
           "signer": true
         },
         {
@@ -896,6 +897,38 @@
               }
             ]
           }
+        },
+        {
+          "name": "caller_player",
+          "docs": [
+            "The caller's own account, opened at their cost if need be, where their cut goes. Left out, they take no cut",
+            "and the holder has it all. Never the holder's: a holder redeeming their own takes no cut."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "caller"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -2001,6 +2034,11 @@
       "code": 6032,
       "name": "NotSplToken",
       "msg": "USDC must be an SPL Token mint"
+    },
+    {
+      "code": 6033,
+      "name": "OwnRedeem",
+      "msg": "A holder redeeming their own takes no cut: send no caller_player"
     }
   ],
   "types": [

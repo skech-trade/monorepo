@@ -203,7 +203,7 @@ fn a_win_the_pool_cannot_pay_is_owed_and_paid_off_later() {
     g.place(&loser, &lose, &lq).unwrap();
     g.set_time(S + 86_400);
     let redeem = g.ix(
-        skech::accounts::Redeem { caller: winner.wallet.pubkey(), game: game_pda(), pool: pool_pda(), holder: player_pda(&winner.wallet.pubkey()) },
+        skech::accounts::Redeem { caller: winner.wallet.pubkey(), game: game_pda(), pool: pool_pda(), holder: player_pda(&winner.wallet.pubkey()), caller_player: None, system_program: anchor_lang::system_program::ID },
         skech::instruction::Redeem { shares: u128::MAX },
     );
     g.send(&[redeem], &[&winner.wallet]).unwrap();
@@ -452,4 +452,66 @@ fn a_bet_someone_else_paid_the_rent_of_is_settled_and_left_for_them_to_close() {
     g.send(&[ix], &[]).unwrap();
     assert!(g.account::<skech::state::Bet>(&bet_b).is_none());
     assert!(g.svm.get_balance(&other.pubkey()).unwrap() > before);
+}
+
+/// A player owed an IOU, the pool refilled, and a day gone by: what the IOU is worth has grown.
+fn owed_a_day(g: &mut Game) -> Player {
+    let winner = g.player(10 * E6, 5 * E6);
+    let piece = g.piece(&winner, 1, 0, open_at(), &[AT]);
+    g.place(&winner, &piece, &g.quote(&piece, 10_000_000)).unwrap();
+    g.set_time(S + 5);
+    let (bet, _) = bet_pda(&winner.wallet.pubkey(), 1, 0);
+    g.post_and_settle(open_at() + 1000, 83_000 * E8, 83_000 * E8 + 50_000_000, 83_000 * E8, 83_000 * E8, &[(bet, winner.wallet.pubkey())]).unwrap();
+    let loser = g.player(30 * E6, 25 * E6);
+    let mut lose = g.piece(&loser, 7, 0, (S + 6) * 1000, &[(1, 420_000, 5, 20_000_000)]);
+    lose.per_dot = 1_000_000;
+    lose.price_time = lose.open_at - 1_500;
+    let lq = skech::piece::QuoteArgs { received_at: lose.open_at - 300, ..g.quote(&lose, 900_000_000) };
+    g.place(&loser, &lose, &lq).unwrap();
+    g.set_time(S + 86_400);
+    winner
+}
+
+fn redeem_ix(g: &Game, caller: &Keypair, holder: &Player, caller_player: Option<Pubkey>) -> anchor_lang::solana_program::instruction::Instruction {
+    g.ix(
+        skech::accounts::Redeem { caller: caller.pubkey(), game: game_pda(), pool: pool_pda(), holder: player_pda(&holder.wallet.pubkey()), caller_player, system_program: anchor_lang::system_program::ID },
+        skech::instruction::Redeem { shares: u128::MAX },
+    )
+}
+
+#[test]
+fn whoever_redeems_someone_elses_iou_is_paid_the_cut_as_on_monad() {
+    let mut g = Game::new();
+    let holder = owed_a_day(&mut g);
+    let (owed, before) = (g.player_state(&holder).iou_basis, g.player_state(&holder).balance);
+    let fees = g.pool().fees;
+    // The relayer redeems it, into an account of its own opened on the way.
+    let relayer = g.relayer.insecure_clone();
+    g.send(&[redeem_ix(&g, &relayer, &holder, Some(player_pda(&relayer.pubkey())))], &[]).unwrap();
+    let value = g.player_state(&holder).balance - before;
+    let mine: skech::state::Player = g.account(&player_pda(&relayer.pubkey())).unwrap();
+    let growth = value + mine.balance - owed;
+    assert!(growth > 0);
+    assert_eq!(mine.balance, growth * 1000 / 10_000, "a tenth of the growth");
+    assert_eq!(mine.authority, relayer.pubkey());
+    assert_eq!(g.pool().fees, fees, "none of it to the house");
+    let pool = g.pool();
+    let players: u64 = [holder.wallet.pubkey(), relayer.pubkey()].iter().map(|w| g.account::<skech::state::Player>(&player_pda(w)).unwrap().balance).sum();
+    assert!(token_balance(&g.svm, &g.vault()) >= players + pool.pool + pool.fees);
+}
+
+#[test]
+fn a_redeemer_with_no_account_takes_no_cut_and_a_holder_none_of_their_own() {
+    let mut g = Game::new();
+    let holder = owed_a_day(&mut g);
+    let wallet = holder.wallet.insecure_clone();
+    // Their own, with their own account as the caller's: refused, and no cut however it is sent.
+    let own = redeem_ix(&g, &wallet, &holder, Some(player_pda(&wallet.pubkey())));
+    assert_eq!(custom_error(&g.send(&[own], &[&wallet])), Some(code(SkechError::OwnRedeem)));
+    let relayer = g.relayer.insecure_clone();
+    let before = g.player_state(&holder).balance;
+    let owed = g.player_state(&holder).iou_basis;
+    g.send(&[redeem_ix(&g, &relayer, &holder, None)], &[]).unwrap();
+    assert!(g.player_state(&holder).balance - before > owed, "all of it, growth and all");
+    assert!(g.account::<skech::state::Player>(&player_pda(&relayer.pubkey())).is_none());
 }

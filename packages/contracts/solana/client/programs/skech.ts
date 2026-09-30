@@ -145,7 +145,12 @@ import {
   type SweepAsyncInput,
   type WithdrawAsyncInput,
 } from "../instructions";
-import { findGamePda, findPlayerPda, findPoolPda } from "../pdas";
+import {
+  findCallerPlayerPda,
+  findGamePda,
+  findPlayerPda,
+  findPoolPda,
+} from "../pdas";
 
 export const SKECH_PROGRAM_ADDRESS =
   "2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV" as Address<"2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV">;
@@ -1026,6 +1031,7 @@ export type SkechPluginPdas = {
   game: typeof findGamePda;
   pool: typeof findPoolPda;
   player: typeof findPlayerPda;
+  callerPlayer: typeof findCallerPlayerPda;
 };
 
 export type SkechPluginRequirements = ClientWithRpc<
@@ -1174,7 +1180,12 @@ export function skechProgram() {
               getWithdrawInstructionAsync(input),
             ),
         },
-        pdas: { game: findGamePda, pool: findPoolPda, player: findPlayerPda },
+        pdas: {
+          game: findGamePda,
+          pool: findPoolPda,
+          player: findPlayerPda,
+          callerPlayer: findCallerPlayerPda,
+        },
         identifyAccount: identifySkechAccount,
         identifyInstruction: identifySkechInstruction,
         parseInstruction: parseSkechInstruction,

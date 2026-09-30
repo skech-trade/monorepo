@@ -29,19 +29,20 @@ import {
   type InstructionWithAccounts,
   type InstructionWithData,
   type ReadonlyAccount,
-  type ReadonlySignerAccount,
   type ReadonlyUint8Array,
   type WritableAccount,
+  type WritableSignerAccount,
 } from "@solana/kit";
 import {
   getAccountMetaFactory,
+  getAddressFromResolvedInstructionAccount,
   type InstructionAccountInput,
   type InstructionAccountInputAddress,
   type InstructionSignerInput,
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
-import { findGamePda, findPoolPda } from "../pdas";
+import { findCallerPlayerPda, findGamePda, findPoolPda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
 
 export const REDEEM_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
@@ -58,13 +59,16 @@ export type RedeemInstruction<
   TAccountGame extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountHolder extends string | AccountMeta<string> = string,
+  TAccountCallerPlayer extends string | AccountMeta<string> = string,
+  TAccountSystemProgram extends string | AccountMeta<string> =
+    "11111111111111111111111111111111",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
   InstructionWithAccounts<
     [
       TAccountCaller extends string
-        ? ReadonlySignerAccount<TAccountCaller> &
+        ? WritableSignerAccount<TAccountCaller> &
             AccountSignerMeta<TAccountCaller>
         : TAccountCaller,
       TAccountGame extends string
@@ -76,6 +80,12 @@ export type RedeemInstruction<
       TAccountHolder extends string
         ? WritableAccount<TAccountHolder>
         : TAccountHolder,
+      TAccountCallerPlayer extends string
+        ? WritableAccount<TAccountCallerPlayer>
+        : TAccountCallerPlayer,
+      TAccountSystemProgram extends string
+        ? ReadonlyAccount<TAccountSystemProgram>
+        : TAccountSystemProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -119,12 +129,22 @@ export type RedeemAsyncInput<
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
   TAccountHolder extends InstructionAccountInput = InstructionAccountInput,
+  TAccountCallerPlayer extends InstructionAccountInput =
+    InstructionAccountInput,
+  TAccountSystemProgram extends InstructionAccountInput =
+    InstructionAccountInput,
 > = {
-  /** Whoever sends it. If it is not the holder, they earn the house a cut of the growth. */
+  /** Whoever sends it. If it is not the holder, they earn a cut of the growth, as on Monad. */
   caller: TAccountCaller;
   game?: TAccountGame;
   pool?: TAccountPool;
   holder: TAccountHolder;
+  /**
+   * The caller's own account, opened at their cost if need be, where their cut goes. Left out, they take no cut
+   * and the holder has it all. Never the holder's: a holder redeeming their own takes no cut.
+   */
+  callerPlayer?: TAccountCallerPlayer;
+  systemProgram?: TAccountSystemProgram;
   shares: RedeemInstructionDataArgs["shares"];
 };
 
@@ -133,13 +153,17 @@ export async function getRedeemInstructionAsync<
   TAccountGame extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
   TAccountHolder extends InstructionAccountInput,
+  TAccountCallerPlayer extends InstructionAccountInput,
+  TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
   input: RedeemAsyncInput<
     TAccountCaller,
     TAccountGame,
     TAccountPool,
-    TAccountHolder
+    TAccountHolder,
+    TAccountCallerPlayer,
+    TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
@@ -160,6 +184,14 @@ export async function getRedeemInstructionAsync<
     ResolvedInstructionAccountMeta<
       TAccountHolder,
       InstructionAccountInputAddress<TAccountHolder>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountCallerPlayer,
+      InstructionAccountInputAddress<TAccountCallerPlayer>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountSystemProgram,
+      InstructionAccountInputAddress<TAccountSystemProgram>
     >
   >
 > {
@@ -171,10 +203,20 @@ export async function getRedeemInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    caller: { value: input.caller ?? null, isSigner: true, isWritable: false },
+    caller: { value: input.caller ?? null, isSigner: true, isWritable: true },
     game: { value: input.game ?? null, isSigner: false, isWritable: false },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
     holder: { value: input.holder ?? null, isSigner: false, isWritable: true },
+    callerPlayer: {
+      value: input.callerPlayer ?? null,
+      isSigner: false,
+      isWritable: true,
+    },
+    systemProgram: {
+      value: input.systemProgram ?? null,
+      isSigner: false,
+      isWritable: false,
+    },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -191,6 +233,21 @@ export async function getRedeemInstructionAsync<
   if (!accounts.pool.value) {
     accounts.pool.value = await findPoolPda({ programAddress });
   }
+  if (!accounts.callerPlayer.value) {
+    accounts.callerPlayer.value = await findCallerPlayerPda(
+      {
+        caller: getAddressFromResolvedInstructionAccount(
+          "caller",
+          accounts.caller.value,
+        ),
+      },
+      { programAddress },
+    );
+  }
+  if (!accounts.systemProgram.value) {
+    accounts.systemProgram.value =
+      "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
 
   return Object.freeze({
     accounts: [
@@ -198,6 +255,8 @@ export async function getRedeemInstructionAsync<
       getAccountMeta("game", accounts.game),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("holder", accounts.holder),
+      getAccountMeta("callerPlayer", accounts.callerPlayer),
+      getAccountMeta("systemProgram", accounts.systemProgram),
     ],
     data: getRedeemInstructionDataEncoder().encode(
       args as RedeemInstructionDataArgs,
@@ -220,6 +279,14 @@ export async function getRedeemInstructionAsync<
     ResolvedInstructionAccountMeta<
       TAccountHolder,
       InstructionAccountInputAddress<TAccountHolder>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountCallerPlayer,
+      InstructionAccountInputAddress<TAccountCallerPlayer>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountSystemProgram,
+      InstructionAccountInputAddress<TAccountSystemProgram>
     >
   >);
 }
@@ -229,12 +296,22 @@ export type RedeemInput<
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
   TAccountHolder extends InstructionAccountInput = InstructionAccountInput,
+  TAccountCallerPlayer extends InstructionAccountInput =
+    InstructionAccountInput,
+  TAccountSystemProgram extends InstructionAccountInput =
+    InstructionAccountInput,
 > = {
-  /** Whoever sends it. If it is not the holder, they earn the house a cut of the growth. */
+  /** Whoever sends it. If it is not the holder, they earn a cut of the growth, as on Monad. */
   caller: TAccountCaller;
   game: TAccountGame;
   pool: TAccountPool;
   holder: TAccountHolder;
+  /**
+   * The caller's own account, opened at their cost if need be, where their cut goes. Left out, they take no cut
+   * and the holder has it all. Never the holder's: a holder redeeming their own takes no cut.
+   */
+  callerPlayer?: TAccountCallerPlayer;
+  systemProgram?: TAccountSystemProgram;
   shares: RedeemInstructionDataArgs["shares"];
 };
 
@@ -243,13 +320,17 @@ export function getRedeemInstruction<
   TAccountGame extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
   TAccountHolder extends InstructionAccountInput,
+  TAccountCallerPlayer extends InstructionAccountInput,
+  TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
   input: RedeemInput<
     TAccountCaller,
     TAccountGame,
     TAccountPool,
-    TAccountHolder
+    TAccountHolder,
+    TAccountCallerPlayer,
+    TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
 ): RedeemInstruction<
@@ -269,6 +350,14 @@ export function getRedeemInstruction<
   ResolvedInstructionAccountMeta<
     TAccountHolder,
     InstructionAccountInputAddress<TAccountHolder>
+  >,
+  ResolvedInstructionAccountMeta<
+    TAccountCallerPlayer,
+    InstructionAccountInputAddress<TAccountCallerPlayer>
+  >,
+  ResolvedInstructionAccountMeta<
+    TAccountSystemProgram,
+    InstructionAccountInputAddress<TAccountSystemProgram>
   >
 > {
   // Program address.
@@ -279,10 +368,20 @@ export function getRedeemInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    caller: { value: input.caller ?? null, isSigner: true, isWritable: false },
+    caller: { value: input.caller ?? null, isSigner: true, isWritable: true },
     game: { value: input.game ?? null, isSigner: false, isWritable: false },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
     holder: { value: input.holder ?? null, isSigner: false, isWritable: true },
+    callerPlayer: {
+      value: input.callerPlayer ?? null,
+      isSigner: false,
+      isWritable: true,
+    },
+    systemProgram: {
+      value: input.systemProgram ?? null,
+      isSigner: false,
+      isWritable: false,
+    },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -292,12 +391,20 @@ export function getRedeemInstruction<
   // Original args.
   const args = { ...input };
 
+  // Resolve default values.
+  if (!accounts.systemProgram.value) {
+    accounts.systemProgram.value =
+      "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
+
   return Object.freeze({
     accounts: [
       getAccountMeta("caller", accounts.caller),
       getAccountMeta("game", accounts.game),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("holder", accounts.holder),
+      getAccountMeta("callerPlayer", accounts.callerPlayer),
+      getAccountMeta("systemProgram", accounts.systemProgram),
     ],
     data: getRedeemInstructionDataEncoder().encode(
       args as RedeemInstructionDataArgs,
@@ -320,6 +427,14 @@ export function getRedeemInstruction<
     ResolvedInstructionAccountMeta<
       TAccountHolder,
       InstructionAccountInputAddress<TAccountHolder>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountCallerPlayer,
+      InstructionAccountInputAddress<TAccountCallerPlayer>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountSystemProgram,
+      InstructionAccountInputAddress<TAccountSystemProgram>
     >
   >);
 }
@@ -330,11 +445,17 @@ export type ParsedRedeemInstruction<
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /** Whoever sends it. If it is not the holder, they earn the house a cut of the growth. */
+    /** Whoever sends it. If it is not the holder, they earn a cut of the growth, as on Monad. */
     caller: TAccountMetas[0];
     game: TAccountMetas[1];
     pool: TAccountMetas[2];
     holder: TAccountMetas[3];
+    /**
+     * The caller's own account, opened at their cost if need be, where their cut goes. Left out, they take no cut
+     * and the holder has it all. Never the holder's: a holder redeeming their own takes no cut.
+     */
+    callerPlayer?: TAccountMetas[4] | undefined;
+    systemProgram: TAccountMetas[5];
   };
   data: RedeemInstructionData;
 };
@@ -347,12 +468,12 @@ export function parseRedeemInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedRedeemInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 4) {
+  if (instruction.accounts.length < 6) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 4,
+        expectedAccountMetas: 6,
       },
     );
   }
@@ -362,6 +483,12 @@ export function parseRedeemInstruction<
     accountIndex += 1;
     return accountMeta;
   };
+  const getNextOptionalAccount = () => {
+    const accountMeta = getNextAccount();
+    return accountMeta.address === SKECH_PROGRAM_ADDRESS
+      ? undefined
+      : accountMeta;
+  };
   return {
     programAddress: instruction.programAddress,
     accounts: {
@@ -369,6 +496,8 @@ export function parseRedeemInstruction<
       game: getNextAccount(),
       pool: getNextAccount(),
       holder: getNextAccount(),
+      callerPlayer: getNextOptionalAccount(),
+      systemProgram: getNextAccount(),
     },
     data: getRedeemInstructionDataDecoder().decode(instruction.data),
   };
