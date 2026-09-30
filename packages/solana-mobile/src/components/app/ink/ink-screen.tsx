@@ -26,6 +26,7 @@ import { setDark, useDark } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { type Chain, useChain } from "./chain-context";
 import { InkControls } from "./ink-controls";
+import { introReady } from "./ink-intro";
 import { addChange, Ledger } from "./ledger";
 import { Onboarding, Pill, useOnboarding } from "./onboarding";
 import { fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
@@ -193,6 +194,10 @@ export function InkScreen() {
   }, [result]);
   const [fresh, setFresh] = useState(false);
   const me = useAccount();
+  // The way in holds its ink over the screen until there are live prices to show, and it is known who is playing.
+  useEffect(() => {
+    if (fresh && me.ready) introReady();
+  }, [fresh, me.ready]);
   const [gained, setGained] = useState<number>(0);
   useEffect(() => {
     if (!gained) return;
