@@ -43,7 +43,7 @@ pub struct PostBarAndSettle<'info> {
     pub bars: AccountLoader<'info, Bars>,
     #[account(mut, seeds = [POOL_SEED], bump = pool.bump)]
     pub pool: Box<Account<'info, Pool>>,
-    /// Gets back the rent of the bets closed here: must be who paid it.
+    /// Gets back the rent of the bets closed here: only those it paid for are closed.
     /// CHECK: compared with each bet's `rent_payer`.
     #[account(mut)]
     pub rent_receiver: UncheckedAccount<'info>,
@@ -174,8 +174,9 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
             gross_pay += ladder::gross(s.stake, s.rung);
         }
     }
-    // A bet is not closed while its piece could still be placed: that would let the same piece go in again.
-    let closable = now * 1000 > bet.open_at + game.config.place_grace_ms as i64;
+    // A bet is not closed while its piece could still be placed: that would let the same piece go in again. Nor
+    // here if someone else paid its rent: it waits for them, and the rest of the batch goes on.
+    let closable = now * 1000 > bet.open_at + game.config.place_grace_ms as i64 && rent_receiver.key() == bet.rent_payer;
     if decided == 0 && !(live == 0 && closable) {
         return Ok(());
     }
@@ -204,7 +205,6 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
     let closed = bet.live_mask == 0 && closable;
     if closed {
         // Every band decided: the bet is done. Its rent goes back to whoever paid it.
-        require_keys_eq!(rent_receiver.key(), bet.rent_payer, SkechError::BadSettleAccounts);
         let lamports = bet_info.lamports();
         **rent_receiver.to_account_info().try_borrow_mut_lamports()? += lamports;
         **bet_info.try_borrow_mut_lamports()? = 0;

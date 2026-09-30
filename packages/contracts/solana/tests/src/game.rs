@@ -397,3 +397,39 @@ fn an_oracle_that_stops_leaves_every_stake_to_come_back() {
     assert_eq!(g.player_state(&p).balance, 10 * E6 - fee);
     assert_eq!((g.pool().pool, g.pool().fees), (0, fee));
 }
+
+#[test]
+fn a_bet_someone_else_paid_the_rent_of_is_settled_and_left_for_them_to_close() {
+    let mut g = Game::new();
+    let (a, b) = (g.player(10 * E6, 5 * E6), g.player(10 * E6, 5 * E6));
+    let piece = g.piece(&a, 1, 0, open_at(), &[AT]);
+    g.place(&a, &piece, &g.quote(&piece, HALF)).unwrap();
+    // B's piece is sent, and its rent paid, by another relayer.
+    let other = Keypair::new();
+    g.svm.airdrop(&other.pubkey(), 10_000_000_000).unwrap();
+    let theirs = g.piece(&b, 1, 0, open_at(), &[AT]);
+    let bytes = theirs.try_to_vec().unwrap();
+    let ed = Game::ed25519_ix(&b.session, &bytes, 1, 8, bytes.len() as u16);
+    let mut place = g.place_ix(&theirs, &g.quote(&theirs, HALF));
+    place.accounts[0].pubkey = other.pubkey();
+    g.send(&[ed, place], &[&other]).unwrap();
+    let (bet_a, bet_b) = (bet_pda(&a.wallet.pubkey(), 1, 0).0, bet_pda(&b.wallet.pubkey(), 1, 0).0);
+
+    // Both settle in one batch; only the bet whose rent the receiver paid is closed.
+    g.set_time(S + 5);
+    let pairs = [(bet_a, a.wallet.pubkey()), (bet_b, b.wallet.pubkey())];
+    g.post_and_settle(open_at() + 1000, 83_000 * E8, 83_000 * E8 + 50_000_000, 82_999 * E8 + 80_000_000, 83_000 * E8, &pairs).expect("the batch goes through");
+    assert!(g.account::<skech::state::Bet>(&bet_a).is_none());
+    assert_eq!(g.account::<skech::state::Bet>(&bet_b).unwrap().live_mask, 0);
+    // Both hit, and both are paid the same (B partly owed: the pool ran out on A).
+    let (pa, pb) = (g.player_state(&a), g.player_state(&b));
+    assert_eq!(pa.balance, pb.balance + pb.iou_basis, "both paid");
+    // Whoever paid it closes it, and has the rent back.
+    let before = g.svm.get_balance(&other.pubkey()).unwrap();
+    let mut ix = g.ix(skech::accounts::Settle { game: game_pda(), bars: bars_pda(0), pool: pool_pda(), rent_receiver: other.pubkey() }, skech::instruction::Settle { market: 0 });
+    ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(bet_b, false));
+    ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(player_pda(&b.wallet.pubkey()), false));
+    g.send(&[ix], &[]).unwrap();
+    assert!(g.account::<skech::state::Bet>(&bet_b).is_none());
+    assert!(g.svm.get_balance(&other.pubkey()).unwrap() > before);
+}

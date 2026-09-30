@@ -747,7 +747,7 @@
         {
           "name": "rent_receiver",
           "docs": [
-            "Gets back the rent of the bets closed here: must be who paid it."
+            "Gets back the rent of the bets closed here: only those it paid for are closed."
           ],
           "writable": true
         }
