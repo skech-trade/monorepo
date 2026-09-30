@@ -3,7 +3,7 @@
  * GasModel.t.sol measured and what its model made of each batch, and this recomputes both sides here.
  */
 import { describe, expect, test } from "bun:test";
-import snapshot from "@skech/contracts/snapshots/GasModel.json";
+import snapshot from "@skech/contracts/evm/snapshots/GasModel.json";
 import { bareExecutionGas, executionGas, gasLimit, intrinsicGas, MARGIN_BPS, MODEL } from "./gas";
 
 const t = snapshot as Record<string, string>;

@@ -32,7 +32,7 @@ app ──ws /ws──> relayer ──eth_sendRawTransactionSync──> SkechGam
   receipts report the limit as used, so the limit has to be right beforehand and every unit over it is
   money. EVM gas is deterministic, so the limit follows from the call's shape: pieces, bands and bytes of
   stroke; bars, bets, live bands, hits and IOUs (from `src/predict.ts`). The coefficients are measured by
-  `packages/contracts/test/GasModel.t.sol` in the worst state each can meet, at Monad's prices, and read
+  `packages/contracts/evm/test/GasModel.t.sol` in the worst state each can meet, at Monad's prices, and read
   from `snapshots/GasModel.json`; the limit is the model, the transaction's 21,000 and its calldata, 5%
   over, plus room for a bet's words straddling two of Monad's 128-slot storage pages. Only the calls
   that reach Circle's USDC (deposit, withdraw, collecting fees) are still estimated. Every fifth send

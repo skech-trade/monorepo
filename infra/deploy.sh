@@ -28,8 +28,8 @@ rsync -az --delete --rsync-path="sudo -u skech rsync" \
   --include='/ui/' --include='/ui/*/' --include='/ui/*/package.json' \
   --include='/packages/' --include='/packages/core/***' --include='/packages/relayer/***' \
   --include='/packages/engine/' --include='/packages/engine/Cargo.*' --include='/packages/engine/package.json' --include='/packages/engine/src/***' \
-  --include='/packages/contracts/' --include='/packages/contracts/package.json' \
-  --include='/packages/contracts/deployments/***' --include='/packages/contracts/abi/***' --include='/packages/contracts/snapshots/***' \
+  --include='/packages/contracts/' --include='/packages/contracts/package.json' --include='/packages/contracts/deployments/***' \
+  --include='/packages/contracts/evm/' --include='/packages/contracts/evm/abi/***' --include='/packages/contracts/evm/snapshots/***' \
   --exclude='*' \
   ./ "$HOST:/opt/skech/"
 

@@ -78,7 +78,7 @@ contract Deploy is Script {
         vm.serializeAddress(json, "usdc", usdc);
         vm.serializeAddress(json, "oracle", oracle);
         string memory out = vm.serializeAddress(json, "admin", admin);
-        vm.writeJson(out, string.concat("deployments/", vm.toString(block.chainid), ".json"));
+        vm.writeJson(out, string.concat("../deployments/", vm.toString(block.chainid), ".json"));
     }
 }
 

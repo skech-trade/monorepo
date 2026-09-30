@@ -24,7 +24,7 @@ import {
   unitFor,
 } from "./chain";
 
-/* The game deployed at 0x5Ec4…C0De on chain 31337, as `packages/contracts/test/Vectors.t.sol` prints. */
+/* The game deployed at 0x5Ec4…C0De on chain 31337, as `packages/contracts/evm/test/Vectors.t.sol` prints. */
 const AT = "0x5Ec400000000000000000000000000000000C0De" as const;
 const PLAYER = "0x0376AAc07Ad725E01357B1725B5ceC61aE10473c" as const;
 const DOMAIN = domain(31337, AT);

@@ -5,8 +5,8 @@
  * synchronous send that returns the receipt. Nothing is asked of the node
  * between deciding to send and sending.
  */
-import gameAbiJson from "@skech/contracts/abi/SkechGame.json";
-import iouAbiJson from "@skech/contracts/abi/SkechIOU.json";
+import gameAbiJson from "@skech/contracts/evm/abi/SkechGame.json";
+import iouAbiJson from "@skech/contracts/evm/abi/SkechIOU.json";
 import {
   type Abi,
   type Address,

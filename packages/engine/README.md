@@ -3,7 +3,7 @@
 Rust WebSocket server, and skech's price oracle. It streams every BTC-USD
 trade on Coinbase to the app, each checked against Binance and Kraken and
 signed by the engine's wallet as EIP-712 typed data, which
-`packages/contracts` checks on chain. The app shows the price that was signed.
+`packages/contracts/evm` checks on chain. The app shows the price that was signed.
 
 ```
 Coinbase ─wss + REST─┐  the price, and 10 min of history
@@ -88,7 +88,7 @@ await verifyTypedData({ ...hello.typedData, address: hello.signer, message: m.me
 ```
 
 On chain, a piece of ink carries `message.price`, `message.time` and `signature` as the price the
-player saw, and `SkechGame` checks it against this signer (see `packages/contracts`). The relayer
+player saw, and `SkechGame` checks it against this signer (see `packages/contracts/evm`). The relayer
 (`packages/relayer`) signs quotes and bars with the same key.
 
 ## Notes

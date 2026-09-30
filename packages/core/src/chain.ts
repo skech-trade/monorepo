@@ -1,5 +1,5 @@
 /**
- * skech on chain: the shapes `packages/contracts/src/SkechGame.sol` hashes and
+ * skech on chain: the shapes `packages/contracts/evm/src/SkechGame.sol` hashes and
  * the arithmetic it settles by, mirrored here so the app signs exactly what the
  * contract checks and shows exactly what it will pay.
  *

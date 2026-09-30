@@ -6,18 +6,18 @@
  * unit over it is money. EVM gas is deterministic, so for the relayer's own
  * transactions it follows from the shape of the call: how many pieces, bands and
  * bytes of stroke; how many bars and bets. The coefficients are measured by
- * packages/contracts/test/GasModel.t.sol, each in the worst state it can meet,
+ * packages/contracts/evm/test/GasModel.t.sol, each in the worst state it can meet,
  * at Monad's own prices, and land in snapshots/GasModel.json. This file adds
  * them up, puts back the transaction's own 21,000 and its calldata, and leaves
  * a small margin.
  */
-import snapshot from "@skech/contracts/snapshots/GasModel.json";
+import snapshot from "@skech/contracts/evm/snapshots/GasModel.json";
 import type { Hex } from "viem";
 
 const table = snapshot as Record<string, string>;
 const n = (name: string): bigint => {
   const v = table[name];
-  if (v === undefined) throw new Error(`GasModel.json has no ${name}: run forge test in packages/contracts`);
+  if (v === undefined) throw new Error(`GasModel.json has no ${name}: run forge test in packages/contracts/evm`);
   return BigInt(v);
 };
 
