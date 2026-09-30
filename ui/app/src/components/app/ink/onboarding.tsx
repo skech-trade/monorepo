@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { onChain } from "@/lib/chain";
 import { cn } from "@/lib/utils";
-import { MIN_DEPOSIT, useChain } from "./chain-context";
+import { POINT_PRICES } from "@skech/core/odds";
+import { PlusIcon } from "lucide-react";
+import { useChain } from "./chain-context";
+import { useGate } from "./deposit-modal";
 import feedback from "./drawing-feedback.module.css";
 
 /**
@@ -26,9 +29,11 @@ export function useOnboarding(live: number): { step: Step; setupError: string | 
   const chain = useChain();
   const [setupError, setSetupError] = useState<string | null>(null);
   // Only once the relayer has said the balance: before that it reads zero, and the deposit sheet would open on
-  // someone with money. Under a dollar with nothing in play is when to offer it; a dollar or more, just play.
+  // someone with money. Not enough for one dot, with nothing in play, is when to offer it: the same line the
+  // game draws for taps. It used to be the minimum deposit, a dollar, which told someone with 72¢ to deposit
+  // while the game let them draw.
   const known = chain.account !== null;
-  const empty = known && chain.balance < MIN_DEPOSIT && live === 0;
+  const empty = known && chain.balance < POINT_PRICES.values[0] && live === 0;
 
   let step: Step = null;
   if (!forReal) step = null;
@@ -58,6 +63,7 @@ export function useOnboarding(live: number): { step: Step; setupError: string | 
  * Signed out and connecting are the screen's own to say (ink-screen), once, in place of the game.
  */
 export function Onboarding({ step, setupError, retrySetup }: ReturnType<typeof useOnboarding>) {
+  const gate = useGate();
   const chain = useChain();
   if (step === null || step === "signin" || step === "connecting") return null;
   if (step === "setup" && setupError) {
@@ -74,8 +80,17 @@ export function Onboarding({ step, setupError, retrySetup }: ReturnType<typeof u
       </div>
     );
   }
+  // Nothing to draw with: a button, which opens the deposit sheet (a tap on the game still does too).
+  if (step === "deposit" && chain.adding === null) {
+    return (
+      <button className={feedback.depositButton} onClick={() => gate.openDeposit()} type="button">
+        <PlusIcon aria-hidden="true" className="size-4" strokeWidth={2.6} />
+        Deposit USDC to play
+      </button>
+    );
+  }
   const busy = step === "setup" || chain.adding !== null;
-  const text = step === "deposit" ? (chain.adding !== null ? `Adding $${chain.adding.toFixed(2)}…` : "Deposit USDC to play") : "Getting ready…";
+  const text = step === "deposit" ? `Adding $${chain.adding!.toFixed(2)}…` : "Getting ready…";
   return (
     <div className={cn(feedback.hintPill, "flex items-center gap-2")} role="status">
       {busy ? <Spinner className="size-4" /> : null} {text}
