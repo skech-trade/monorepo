@@ -138,13 +138,14 @@ function Publish({ children }: { children: ReactNode }) {
   const account = useMemo<Account>(() => {
     const coinbase = Boolean(isSignedIn && solanaAddress);
     const email = user?.authenticationMethods?.email?.email ?? user?.authenticationMethods?.google?.email ?? user?.authenticationMethods?.apple?.email ?? null;
+    const phone = user?.authenticationMethods?.sms?.phoneNumber ?? null;
     const address = coinbase ? solanaAddress! : (mwa.saved?.address ?? null);
     return {
       ready,
       signedIn: coinbase || Boolean(mwa.saved),
       kind: coinbase ? "coinbase" : mwa.saved ? "wallet" : null,
       address,
-      handle: coinbase ? (email ?? (address ? shortAddress(address) : null)) : address ? shortAddress(address) : null,
+      handle: coinbase ? (email ?? phone ?? (address ? shortAddress(address) : null)) : address ? shortAddress(address) : null,
       email: coinbase ? email : null,
       signOut: () => {
         if (coinbase) void signOut();
