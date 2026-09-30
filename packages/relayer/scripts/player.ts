@@ -175,8 +175,10 @@ say(`placed ${results.placed} refused ${results.refused} settled ${results.settl
 
 /* ---- and take the money out, by signature ---- */
 const nonce2 = (await pub.readContract({ address: hello.game, abi: [{ type: "function", name: "nonces", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }], functionName: "nonces", args: [player.address] })) as bigint;
-const wsig = await player.signTypedData({ domain, types: TYPES, primaryType: "Withdraw", message: { player: player.address, amount: 1_000_000n, to: player.address, nonce: nonce2, deadline } });
-const w = await ask("withdraw", { type: "withdraw", player: player.address, amount: 1_000_000n, to: player.address, deadline, sig: wsig }, "withdrawn");
+// Its own deadline: the one above was signed before the engine had the minutes of history pricing waits for.
+const wdeadline = BigInt(Math.floor(Date.now() / 1000) + 300);
+const wsig = await player.signTypedData({ domain, types: TYPES, primaryType: "Withdraw", message: { player: player.address, amount: 1_000_000n, to: player.address, nonce: nonce2, deadline: wdeadline } });
+const w = await ask("withdraw", { type: "withdraw", player: player.address, amount: 1_000_000n, to: player.address, deadline: wdeadline, sig: wsig }, "withdrawn");
 say(`withdraw of 1 USDC ${w.ok ? `done (${w.tx})` : `failed: ${w.why}`}`);
 const ok = results.placed > 0 && results.settled > 0 && !!w.ok;
 say(ok ? "OK" : "FAILED");
