@@ -830,6 +830,10 @@ export function InkScreen() {
           if (t.open <= 0 && !drawing.current.has(line)) closeLine(line);
         }
         updateTotals();
+      } else if (m.type === "account") {
+        // Nothing on its way to the chain or waiting on it: the relayer's balance is exact, and the app's own
+        // reckoning since is let go. While anything is in flight it is kept, so a stake shows the moment it goes.
+        if (chainBets.current.size === 0) chainRef.current.resync();
       } else if (m.type === "refused") {
         letGo(m.betId, m.why);
       } else if (m.type === "settled") {
@@ -841,6 +845,7 @@ export function InkScreen() {
         const bet = g.bets[i];
         let changed = false;
         let disagreed = 0;
+        let takeBack = 0;
         const cells = bet.cells.map((c, k) => {
           const hit = (m.hitMask >> k) & 1;
           const miss = (m.missMask >> k) & 1;
@@ -849,6 +854,8 @@ export function InkScreen() {
           if (c.status === status) return c;
           changed = true;
           if (c.status !== "live") disagreed++;
+          // The screen paid a hit the chain calls a miss: take it back, or the balance shows money that is not there.
+          if (c.status === "hit" && !hit) takeBack += c.paid ?? 0;
           const stake = bet.perUnit * c.area;
           const gross = stake * c.multiple;
           return { ...c, status, paid: hit ? gross - Math.max(0, gross - stake) * (feeBps() / 10_000) : undefined };
@@ -859,6 +866,7 @@ export function InkScreen() {
           g.bets[i] = next;
           // The chain deciding first is normal; the chain deciding otherwise is worth knowing about.
           if (disagreed) track("judge_disagreed", { bands: disagreed });
+          if (takeBack > 0) chainRef.current.nudge(-cents(takeBack));
           if (disagreed && process.env.NODE_ENV !== "production") console.warn(`[ink] the chain judged ${disagreed} band${disagreed > 1 ? "s" : ""} of ${bet.id} otherwise: hits ${m.hitMask.toString(2)} misses ${m.missMask.toString(2)}`);
           if (decided(next) && !wasDecided) {
             settledTotals.current.committed += cost(next) - refund(next);

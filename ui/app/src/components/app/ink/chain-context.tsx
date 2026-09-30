@@ -51,6 +51,8 @@ export type Chain = {
   balance: number;
   /** Move the local balance by `usdc` until the relayer says otherwise. */
   nudge: (usdc: number) => void;
+  /** Take the relayer's last word as the balance, dropping what was counted since: for when nothing is in flight. */
+  resync: () => void;
 };
 
 const Ctx = createContext<Chain | null>(null);
@@ -88,6 +90,9 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   const said = account?.balance ?? null;
   const balance = Math.round(((said ? Number(said) / 1e6 : 0) + (moved.said === said ? moved.by : 0)) * 1e6) / 1e6;
   const nudge = useCallback((usdc: number) => setMoved((m) => ({ said, by: (m.said === said ? m.by : 0) + usdc })), [said]);
+  // Nothing in flight: the relayer's word is the whole of it, and what the app counted since is let go, even
+  // when the word is the same number (keyed on the number alone, a drift outlived every word that repeated it).
+  const resync = useCallback(() => setMoved({ said: null, by: 0 }), []);
   // The relayer's latest word, for async code that must know whether it has spoken since it started.
   const saidRef = useRef(said);
   const nudgeRef = useRef(nudge);
@@ -267,8 +272,8 @@ export function ChainProvider({ children }: { children: ReactNode }) {
 
   // Signing out forgets nothing on chain; the key stays for the next sign-in. A key that is not the chain's is replaced on enable.
   const value = useMemo<Chain>(
-    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, walletUsdc, wallet, adding, landed, balance, nudge }),
-    [live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, walletUsdc, wallet, adding, landed, balance, nudge],
+    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, walletUsdc, wallet, adding, landed, balance, nudge, resync }),
+    [live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, walletUsdc, wallet, adding, landed, balance, nudge, resync],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -292,6 +297,7 @@ const OFF: Chain = {
   landed: null,
   balance: 0,
   nudge: () => undefined,
+  resync: () => undefined,
 };
 
 export function useChain(): Chain {
