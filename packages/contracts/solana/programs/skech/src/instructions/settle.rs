@@ -1,7 +1,7 @@
 //! The price, a second at a time, and settling on it. The oracle posts each second once it is over; every band in
-//! that second is then decided by one rule, hit or miss. A bet whose last band is decided is closed, and its rent
-//! goes back to whoever paid it. A band whose second was never posted, and now never can be, is given back by
-//! `expire`.
+//! that second is then decided by one rule, hit or miss. A bet whose last band is decided is closed, once its piece
+//! can no longer be placed, and its rent goes back to whoever paid it. A band whose second was never posted, and now
+//! never can be, is given back by `expire`.
 
 use anchor_lang::prelude::*;
 
@@ -174,7 +174,9 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
             gross_pay += ladder::gross(s.stake, s.rung);
         }
     }
-    if decided == 0 {
+    // A bet is not closed while its piece could still be placed: that would let the same piece go in again.
+    let closable = now * 1000 > bet.open_at + game.config.place_grace_ms as i64;
+    if decided == 0 && !(live == 0 && closable) {
         return Ok(());
     }
     bet.live_mask = live & !decided;
@@ -196,8 +198,10 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
         paid += p;
         owed += o;
     }
-    player.try_serialize(&mut &mut player_info.try_borrow_mut_data()?[..])?;
-    let closed = bet.live_mask == 0;
+    if decided != 0 {
+        player.try_serialize(&mut &mut player_info.try_borrow_mut_data()?[..])?;
+    }
+    let closed = bet.live_mask == 0 && closable;
     if closed {
         // Every band decided: the bet is done. Its rent goes back to whoever paid it.
         require_keys_eq!(rent_receiver.key(), bet.rent_payer, SkechError::BadSettleAccounts);

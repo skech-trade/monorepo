@@ -113,3 +113,29 @@ fn a_signature_for_one_piece_places_no_other_from_inside_another_program() {
     assert_eq!(custom_error(&r), Some(code(SkechError::SessionSig)), "{:?}", r.as_ref().map(|m| &m.logs));
     assert_eq!(g.player_state(&p).balance, 10 * E6);
 }
+
+#[test]
+fn a_bet_decided_while_its_piece_could_still_be_placed_stays_until_it_cannot() {
+    let mut g = Game::new();
+    let p = g.player(10 * E6, 5 * E6);
+    // Two bands; the oracle offers only the first (no chance, no rung for the second).
+    let piece = g.piece(&p, 1, 0, open_at(), &[AT, (5, 416_000, 5, 50_000)]);
+    let mut quote = g.quote(&piece, HALF);
+    quote.chances[1] = 0;
+    g.place(&p, &piece, &quote).unwrap();
+    let (bet, _) = bet_pda(&p.wallet.pubkey(), 1, 0);
+    let balance = g.player_state(&p).balance;
+    // Its one band is decided inside the placing window: the bet stays, so the piece cannot go in again, now
+    // offering the band it was not offered before.
+    g.set_time(S + 3);
+    g.post_and_settle(open_at() + 1000, 82_990 * E8, 82_995 * E8, 82_990 * E8, 82_995 * E8, &[(bet, p.wallet.pubkey())]).unwrap();
+    assert_eq!(g.account::<skech::state::Bet>(&bet).unwrap().live_mask, 0);
+    let again = g.quote(&piece, HALF);
+    assert_eq!(custom_error(&g.place(&p, &piece, &again)), Some(code(SkechError::Replay)));
+    assert_eq!(g.player_state(&p).balance, balance);
+    // Past the window it closes on the next settle, with nothing more to decide; placing it again is too late.
+    g.set_time(S + 5);
+    g.settle_on(false, &[(bet, p.wallet.pubkey())]).unwrap();
+    assert!(g.account::<skech::state::Bet>(&bet).is_none());
+    assert_eq!(custom_error(&g.place(&p, &piece, &again)), Some(code(SkechError::Window)));
+}

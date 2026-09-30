@@ -64,8 +64,9 @@ fn a_piece_is_placed_hit_missed_and_closed() {
     assert_eq!(g.pool().pool, 98_000 - 75_000);
     assert_eq!(g.pool().fees, 2_000 + 2_500);
 
-    // Second 2 stays far below the other band: a miss, and the bet is done, its rent back with the relayer.
-    g.set_time(S + 4);
+    // Second 2 stays far below the other band: a miss, and the bet is done (its piece past its placing window), its
+    // rent back with the relayer.
+    g.set_time(S + 5);
     let r = g.post_and_settle(second + 1000, 83_000 * E8 + 10_000_000, 83_000 * E8 + 20_000_000, 82_999 * E8, 83_000 * E8, &[(bet, p.wallet.pubkey())]).expect("settled");
     println!("post and settle, 1 bet closed: {} CU", r.compute_units_consumed);
     assert!(g.account::<skech::state::Bet>(&bet).is_none());

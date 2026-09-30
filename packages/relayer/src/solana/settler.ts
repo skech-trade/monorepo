@@ -18,7 +18,7 @@ export type Settled = { betId: Address; player: Address; hitMask: number; missMa
 export type Notify = { settled: (s: Settled) => void; owed: (to: Address, value: bigint) => void; account: (player: Address) => void };
 
 type Live = { player: Address; unit: bigint; bands: Band[] };
-type State = { bets: { bet: Address; player: Address; unit: string; bands: { second: number; lo: string; hi: string; stake: string; rung: number }[] }[]; holders: Address[]; approved: Address[]; posted: Record<string, string> };
+type State = { bets: { bet: Address; player: Address; unit: string; bands: { second: number; lo: string; hi: string; stake: string; rung: number }[] }[]; holders: Address[]; approved: Address[]; posted: Record<string, string>; closing?: { bet: Address; player: Address }[] };
 
 /** Every share a holder has: redeem takes what the pool can pay of it. */
 const ALL = (1n << 128n) - 1n;
@@ -37,7 +37,11 @@ export class SolanaSettler {
   private sweeping = false;
   private lastSweep = 0;
   private told = new Map<Address, number>();
+  /** Bets whose every band is decided but that the program keeps until their piece's placing window is over. */
+  private closing = new Map<Address, { player: Address; due: number; tries: number }>();
   stats = { bars: 0, settled: 0, redeemed: 0n, swept: 0n, collected: 0n };
+  /** How long after its opening second a piece may still be placed, from the game's config. */
+  placeGraceMs = 3_000;
 
   constructor(
     private readonly cfg: SolanaConfig,
@@ -103,6 +107,7 @@ export class SolanaSettler {
       const now = this.engine.now();
       const due = [...this.watching.keys()].filter((s) => s + 1000 + CLOSE_AFTER_MS <= now).sort((a, b) => a - b).slice(0, 4);
       for (const second of due) if (this.engine.ready()) await this.post(second);
+      await this.close();
       const soon = [...this.watching.keys()].some((s) => s + 1000 + CLOSE_AFTER_MS <= now + 1500);
       const since = Date.now() - this.lastSweep;
       if (since > this.cfg.sweepEveryMs && (!soon || since > 4 * this.cfg.sweepEveryMs)) {
@@ -117,13 +122,29 @@ export class SolanaSettler {
     }
   }
 
-  private async pairs(bets: Address[]) {
+  private async pairs(bets: Address[], playerOf = (bet: Address) => this.bets.get(bet)!.player) {
     const out: { address: Address; role: AccountRole }[] = [];
     for (const bet of bets) {
-      const b = this.bets.get(bet)!;
-      out.push({ address: bet, role: AccountRole.WRITABLE }, { address: await playerAddress(b.player, this.cfg.deployment.program), role: AccountRole.WRITABLE });
+      out.push({ address: bet, role: AccountRole.WRITABLE }, { address: await playerAddress(playerOf(bet), this.cfg.deployment.program), role: AccountRole.WRITABLE });
     }
     return out;
+  }
+
+  /** Close the bets that were decided inside their placing window, now it is over: a settle with nothing to decide. */
+  private async close() {
+    const now = Date.now();
+    const ready = [...this.closing].filter(([, c]) => c.due <= now).slice(0, this.cfg.betsPerSettle);
+    if (!ready.length) return;
+    for (const [bet, c] of ready) {
+      // Retried until its Settled says closed; given up on after a few (someone else closed it).
+      c.due = now + 2_000;
+      if (++c.tries > 5) this.closing.delete(bet);
+    }
+    const d = this.cfg.deployment;
+    const bets = ready.map(([bet]) => bet);
+    const ix = getSettleInstruction({ game: d.game, bars: d.bars, pool: d.pool, rentReceiver: this.chain.signer.address, market: this.cfg.market });
+    const s = await this.chain.send(`close ${bets.length}`, [withBets(ix, await this.pairs(bets, (b) => ready.find(([x]) => x === b)![1].player))], this.computeFor(bets.length, false));
+    if (!s.err) void this.tell(s.signature);
   }
 
   private async post(second: number) {
@@ -179,6 +200,10 @@ export class SolanaSettler {
     for (const ev of await this.chain.events(signature)) {
       if (ev.name === "Settled") {
         const a = ev.data as { bet: Address; player: Address; hitMask: number; missMask: number; paid: bigint; owed: bigint; closed: boolean };
+        if (a.closed) this.closing.delete(a.bet);
+        else if (!this.bets.has(a.bet)) this.closing.set(a.bet, { player: a.player, due: Date.now() + this.placeGraceMs + 1_000, tries: 0 });
+        // Only closed, nothing decided: nothing to tell.
+        if (!a.hitMask && !a.missMask && !a.paid && !a.owed) continue;
         this.stats.settled++;
         if (a.paid > 0n || a.owed > 0n || Date.now() - (this.told.get(a.player) ?? 0) > 5_000) touched.add(a.player);
         this.notify.settled({ betId: a.bet, player: a.player, hitMask: a.hitMask, missMask: a.missMask, paid: a.paid, owed: a.owed, closed: a.closed, tx: signature });
@@ -258,6 +283,7 @@ export class SolanaSettler {
       for (const b of s.bets) for (const band of b.bands) this.watch(b.bet, b.player, BigInt(b.unit), { second: band.second, lo: BigInt(band.lo), hi: BigInt(band.hi), stake: BigInt(band.stake), rung: band.rung });
       for (const h of s.holders) this.holders.add(h);
       for (const a of s.approved ?? []) this.approved.add(a);
+      for (const c of s.closing ?? []) this.closing.set(c.bet, { player: c.player, due: 0, tries: 0 });
       for (const [second, close] of Object.entries(s.posted)) this.closes.set(Number(second), BigInt(close));
       this.log(`settle: restored ${this.watching.size} seconds to settle, ${this.holders.size} IOU holders, ${this.approved.size} approvals`);
     } catch (e) {
@@ -267,7 +293,7 @@ export class SolanaSettler {
   }
 
   private save() {
-    const s: State = { bets: [], holders: [...this.holders], approved: [...this.approved], posted: {} };
+    const s: State = { bets: [], holders: [...this.holders], approved: [...this.approved], posted: {}, closing: [...this.closing].map(([bet, c]) => ({ bet, player: c.player })) };
     for (const [bet, b] of this.bets) s.bets.push({ bet, player: b.player, unit: b.unit.toString(), bands: b.bands.map((x) => ({ second: x.second, lo: x.lo.toString(), hi: x.hi.toString(), stake: x.stake.toString(), rung: x.rung })) });
     for (const [second, close] of [...this.closes].slice(-600)) s.posted[second] = close.toString();
     try {
