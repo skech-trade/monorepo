@@ -103,6 +103,18 @@ const height = (m: number) => Math.min(1, Math.max(0, Math.log2(m) / 7));
 export const fmtMultiple = (m: number) => `${Math.floor(m * 10 + 1e-8) / 10}×`;
 const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 
+/** The first index at or after time `t`, in a list kept in time order (bars and trades both are). */
+function firstAtOrAfter(list: readonly { t: number }[], t: number) {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid].t < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const rr = Math.min(r, w / 2, h / 2);
   c.beginPath();
@@ -208,7 +220,13 @@ export function Stage({
     let centre = 0;
     let at = 0;
     const phone = () => w < 640;
-    const layout = () => drawingLayout(w, h, game.current.marketStep);
+    // Worked out again only when the size or the scale changes: x() and y() ask for it several times each, many times a frame.
+    let laid = { w: -1, h: -1, step: -1, layout: drawingLayout(0, 0, 1) };
+    const layout = () => {
+      const step = game.current.marketStep;
+      if (laid.w !== w || laid.h !== h || laid.step !== step) laid = { w, h, step, layout: drawingLayout(w, h, step) };
+      return laid.layout;
+    };
     const nowX = () => layout().nowX;
     const pxMs = () => layout().pxMs;
     const pitchY = CHART_STEP_PX;
@@ -480,13 +498,13 @@ export function Stage({
       c.save();
       c.setTransform(dpr * a, 0, 0, dpr * d, dpr * x(st.t0), dpr * y(st.p0));
       c.beginPath();
-      const pts = st.pts.map((q) => ({ u: q.t / st.rt, v: q.p / st.rp }));
-      c.moveTo(pts[0].u, pts[0].v);
+      const pts = st.pts;
+      c.moveTo(pts[0].t / st.rt, pts[0].p / st.rp);
       // Pointer smoothing already happens before storing points. Render exactly
       // the rounded capsules used to price the area, without curving away.
-      for (let i = 1; i < pts.length - 1; i++) c.lineTo(pts[i].u, pts[i].v);
+      for (let i = 1; i < pts.length - 1; i++) c.lineTo(pts[i].t / st.rt, pts[i].p / st.rp);
       const end = pts[pts.length - 1];
-      c.lineTo(end.u + (pts.length === 1 ? 1e-3 : 0), end.v);
+      c.lineTo(end.t / st.rt + (pts.length === 1 ? 1e-3 : 0), end.p / st.rp);
       c.lineCap = "round";
       c.lineJoin = "round";
       c.lineWidth = 2 + grow;
@@ -530,6 +548,8 @@ export function Stage({
     */
     const glowLayer = document.createElement("canvas");
 
+    /** The price line's points, kept from frame to frame and written over rather than made anew. */
+    const line: { x: number; y: number }[] = [];
     let renderedBets: InkBet[] | null = null;
     let renderedGroups: { id: string; stroke: Stroke; cells: Cell[]; edgeCells: number; step: number }[] = [];
     let raf = 0;
@@ -806,21 +826,33 @@ export function Stage({
       {
         const from = tAt(0);
         const firstTick = g.ticks[0]?.t ?? Number.POSITIVE_INFINITY;
-        const line: { x: number; y: number }[] = [];
-        for (const bar of g.bars) {
+        let n = 0;
+        const put = (px: number, py: number) => {
+          const q = line[n++];
+          if (!q) line.push({ x: px, y: py });
+          else {
+            q.x = px;
+            q.y = py;
+          }
+        };
+        // From the first bar and trade on screen, not through the minutes before it.
+        for (let i = firstAtOrAfter(g.bars, from - 1000); i < g.bars.length; i++) {
+          const bar = g.bars[i];
           if (bar.t >= firstTick) break;
-          if (bar.t + 1000 >= from) line.push({ x: x(bar.t + 1000), y: y(bar.c) });
+          put(x(bar.t + 1000), y(bar.c));
         }
         let lastX = Number.NEGATIVE_INFINITY;
-        for (const tk of g.ticks) {
-          if (tk.t < from || tk.t > at) continue;
+        for (let i = firstAtOrAfter(g.ticks, from); i < g.ticks.length; i++) {
+          const tk = g.ticks[i];
+          if (tk.t > at) continue;
           const px = x(tk.t);
           // Far back, many trades land on one pixel: the last of them stands for it.
-          if (px - lastX < 0.75 && line.length) line[line.length - 1] = { x: px, y: y(tk.p) };
-          else line.push({ x: px, y: y(tk.p) });
+          if (px - lastX < 0.75 && n) n--;
+          put(px, y(tk.p));
           lastX = px;
         }
-        line.push({ x: nx, y: y(p) });
+        put(nx, y(p));
+        line.length = n;
         if (line.length > 1) {
           const path = new Path2D();
           tracePricePath(path, line);
