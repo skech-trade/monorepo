@@ -13,7 +13,8 @@ app (Vercel) ──wss://<domain>/engine/ws───> Caddy :443 ──> engine 
 | `setup.sh` | once per box: swap, the users, rustup, bun, Caddy (pinned, its SHA-256 checked), the systemd units. Safe to run again |
 | `deploy.sh` | copy the committed source, build on the box, install it, restart, check `/health`. `--env` also sends the keys |
 | `Caddyfile` | TLS and the paths, on `SKECH_DOMAIN`; the relayers' `/status` stays on the box |
-| `systemd/` | `skech-engine`, `skech-relayer`, `skech-relayer-solana`, `caddy`, all restarting on exit |
+| `systemd/` | `skech-engine`, `skech-relayer`, `skech-relayer-solana`, `caddy`, all restarting on exit; `skech-backup.timer` |
+| `backup-relayer.sh` | the relayers' state files into `/var/backups/skech-relayer`, every 15 minutes |
 | `BOX.local.md` | gitignored: which box, how to get in, what is still to do on it |
 
 ## Access
@@ -84,11 +85,29 @@ Nothing reads a database. The `DATABASE_URL` some `.env.local` files still carry
 | State | Where | If it is lost |
 |---|---|---|
 | balances, bets, IOUs, fees | on chain: `SkechGame`, `SkechIOU`, `SkechRevenue` | not possible to lose |
-| bets placed but not yet settled | `/var/lib/skech-relayer/.relayer-state.<chain>.<game>.json` | survives restarts and deploys, not losing the box: copy it off daily |
+| bets placed but not yet settled | `/var/lib/skech-relayer/.relayer-state.<chain>.<game>.json` | survives restarts and deploys; backed up every 15 minutes (below) |
 | sign-in, wallet | Coinbase CDP | Coinbase keeps it |
 | session key | the player's browser, IndexedDB | the player signs in again |
 | settings, practice money, scoreboard | the player's browser, local and session storage | per device on purpose |
 | waitlist emails | a Google Sheet, via `WAITLIST_SHEET_URL` in `ui/landing` | kept in the Sheet |
+
+## Backups
+
+`skech-backup.timer` runs `/usr/local/sbin/skech-backup-relayer` (`backup-relayer.sh`) every 15 minutes: the
+relayers' state and activity files are copied to `/var/backups/skech-relayer/<UTC time>/` (root only), and
+the newest 672, a week, are kept. A copy on the same disk covers a bad deploy or a deleted file, not losing
+the box. For that, `SKECH_BACKUP_S3=s3://<bucket>/<prefix>` in `/etc/skech/backup.env` also sends each one to
+S3, with the aws CLI (on Amazon Linux already) and an instance role that may `s3:PutObject` there.
+`SKECH_BACKUP_KEEP` and `SKECH_BACKUP_DIR` go there too.
+
+```bash
+sudo skech-backup-relayer                              # one now
+systemctl list-timers skech-backup.timer               # when the next is
+sudo ls /var/backups/skech-relayer | tail -3           # the newest
+```
+
+To restore one: `sudo systemctl stop skech-relayer skech-relayer-solana`, copy its files into
+`/var/lib/skech-relayer/`, `sudo chown skech-relayer: /var/lib/skech-relayer/.relayer-*`, and start them.
 
 ## On the box
 

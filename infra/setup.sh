@@ -19,7 +19,7 @@ if [ -n "$(git status --porcelain -- .)" ]; then
   exit 1
 fi
 
-scp -q Caddyfile systemd/*.service "$HOST:/tmp/"
+scp -q Caddyfile backup-relayer.sh systemd/*.service systemd/*.timer "$HOST:/tmp/"
 ssh "$HOST" sudo BUN_VERSION="$BUN_VERSION" DOMAIN="$DOMAIN" bash -s <<'REMOTE'
 set -euo pipefail
 
@@ -49,6 +49,7 @@ install -d -o root -g root -m 755 /opt/skech
 # The env files are 640, each readable by its own service only; deploy.sh writes them.
 install -d -m 755 -o root -g root /etc/skech
 install -d -m 750 -o skech-relayer -g skech-relayer /var/lib/skech-relayer
+install -d -m 700 -o root -g root /var/backups/skech-relayer
 
 sudo -u skech -H BUN_VERSION="$BUN_VERSION" bash -euc '
   cd ~
@@ -71,11 +72,13 @@ install -d -o root -g root /etc/caddy
 install -m 644 /tmp/Caddyfile /etc/caddy/Caddyfile
 echo "SKECH_DOMAIN=$DOMAIN" > /etc/caddy/env
 
-install -m 644 /tmp/*.service /etc/systemd/system/
+install -m 755 -o root -g root /tmp/backup-relayer.sh /usr/local/sbin/skech-backup-relayer
+install -m 644 /tmp/*.service /tmp/*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable caddy
 # Restart, not reload: an older Caddy's admin API was on localhost:2019, and the new unit reloads through the socket.
 systemctl restart caddy
 systemctl enable skech-engine skech-relayer
+systemctl enable --now skech-backup.timer
 echo "setup done: bun $(/usr/local/bin/bun --version), $(sudo -u skech /home/skech/.cargo/bin/cargo --version), caddy $(/usr/local/bin/caddy version | cut -d' ' -f1), serving $DOMAIN"
 REMOTE

@@ -38,6 +38,7 @@ changes that are not committed. The engine's Sentry release is that commit.
 | Setting | Where | Then |
 |---|---|---|
 | A server key or RPC (`ENGINE_*`, `RELAYER_*`, `MONAD_*_RPC_URL`, the Sentry DSNs) | `.env.local` | `infra/deploy.sh --env` |
+| Where the backups go (`SKECH_BACKUP_S3`, `SKECH_BACKUP_KEEP`) | `/etc/skech/backup.env` on the box | the next backup reads it |
 | An app setting (`NEXT_PUBLIC_*`, `SENTRY_AUTH_TOKEN`) | the app's Vercel project, Production and Preview | redeploy in Vercel: they are read at build |
 | The landing's app link | `NEXT_PUBLIC_APP_URL` in the landing's Vercel project | redeploy |
 
@@ -101,7 +102,7 @@ Locally: a validator (`solana-test-validator --reset --gossip-port 8110 --dynami
 
 [infra/README.md](../infra/README.md): `infra/setup.sh`, then `infra/deploy.sh --env`. Open 80 and
 443 for the certificate, point `api.skech.trade` at it, and copy the relayer's state files across from
-the old box (`/var/lib/skech-relayer`) if it had bets still open.
+the old box (`/var/lib/skech-relayer`, or its newest backup) if it had bets still open.
 
 ## 5. Going back
 

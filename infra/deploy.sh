@@ -19,7 +19,7 @@ SERVER_KEYS="SKECH_NETWORK ENGINE_PRIVATE_KEY ENGINE_BAND_BPS ENGINE_MAX_CLIENTS
 SHIPS=(package.json bun.lock bunfig.toml tsconfig.base.json 'ui/*/package.json' packages/core packages/relayer packages/engine
   packages/contracts/package.json packages/contracts/deployments packages/contracts/evm/abi packages/contracts/evm/snapshots
   packages/contracts/solana/sdk.ts packages/contracts/solana/client packages/contracts/solana/snapshots
-  infra/Caddyfile infra/systemd)
+  infra/Caddyfile infra/backup-relayer.sh infra/systemd)
 if [ -n "$(git status --porcelain -- "${SHIPS[@]}")" ]; then
   echo "not committed, so not shipped; commit them first (a new deployments/<chain>.json too):" >&2
   git status --short -- "${SHIPS[@]}" >&2
@@ -62,8 +62,8 @@ rsync -az --delete --rsync-path="sudo -u skech rsync" \
 # The commit being shipped, built into the engine as its Sentry release.
 RELEASE="$(git rev-parse --short HEAD)"
 
-# The services and Caddy's routes too, so a new one needs no setup.sh rerun.
-scp -q "$TREE/infra/Caddyfile" "$TREE"/infra/systemd/*.service "$HOST:/tmp/"
+# The services, Caddy's routes and the backup, so a new one needs no setup.sh rerun.
+scp -q "$TREE/infra/Caddyfile" "$TREE/infra/backup-relayer.sh" "$TREE"/infra/systemd/*.service "$TREE"/infra/systemd/*.timer "$HOST:/tmp/"
 
 ssh "$HOST" "SKECH_RELEASE=$RELEASE bash -s" <<'REMOTE'
 set -euo pipefail
@@ -120,7 +120,9 @@ sudo rsync -a --delete --chown=root:root --chmod=go-w \
 sudo install -D -m 755 -o root -g root /home/skech/src/packages/engine/target/release/engine /opt/skech/bin/engine
 sudo chown root:root /opt/skech && sudo chmod 755 /opt/skech
 
-sudo install -m 644 /tmp/*.service /etc/systemd/system/ && sudo systemctl daemon-reload
+sudo install -m 755 -o root -g root /tmp/backup-relayer.sh /usr/local/sbin/skech-backup-relayer
+sudo install -m 644 /tmp/*.service /tmp/*.timer /etc/systemd/system/ && sudo systemctl daemon-reload
+sudo systemctl enable -q --now skech-backup.timer
 # Restart if a reload fails: once, the running Caddy is one whose admin API was on localhost:2019.
 sudo install -m 644 /tmp/Caddyfile /etc/caddy/Caddyfile && (sudo systemctl reload caddy || sudo systemctl restart caddy)
 sudo systemctl reset-failed skech-engine skech-relayer skech-relayer-solana 2>/dev/null || true
