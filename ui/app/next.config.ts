@@ -92,6 +92,25 @@ const nextConfig: NextConfig = {
   },
   // PostHog's API paths end in a slash (/e/); a redirect that strips it would lose the event.
   skipTrailingSlashRedirect: true,
+  /*
+    On every response. Never inside another site's frame, where a tap could be steered onto a button with money
+    behind it (both headers, for browsers old and new); only the QR scanner may ask for the camera. The page's
+    full Content-Security-Policy is still report-only, and comes from src/proxy.ts, since it needs a nonce per request.
+  */
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+        ],
+      },
+    ];
+  },
 };
 
 /*

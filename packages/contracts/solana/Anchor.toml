@@ -9,6 +9,12 @@ skip-lint = false
 [programs.localnet]
 skech = "2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV"
 
+[programs.devnet]
+skech = "2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV"
+
+[programs.mainnet]
+skech = "2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV"
+
 [registry]
 url = "https://api.apr.dev"
 
@@ -17,4 +23,4 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "cargo test"
+test = "cargo test -p tests"

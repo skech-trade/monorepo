@@ -234,12 +234,18 @@ export const LADDER_BEST = RULES.ladderBest;
  * (LADDER_BEST over its chance, less the momentum margin rtpAt takes on the
  * side the price just moved toward) rounded down to a rung, so every label
  * is a rung from 1.1x to 128x and only ink the price actually crosses pays.
- * Ink too likely for 1.1x still pays 1.1x, so no stroke is cut; where it is
- * over 91% likely that ink returns more than a dollar. Ink past 128x pays 128x.
+ * Ink too likely for the floor pays its fair multiple, rounded down to the
+ * hundredth and never under 1x: no stroke is cut, and none returns more than
+ * a dollar. Ink past 128x pays 128x.
  * The stake is the ink drawn, up to what MAX_INK_MULTIPLE dots pays for. */
 export function ladderSection(p: number, rtp: number, area: number): { area: number; multiple: number } | null {
   if (!(p > 0 && p <= 1 && area > 0) || ![p, rtp, area].every(Number.isFinite)) return null;
   const fair = (RULES.ladderBest - (RULES.rtp - rtp)) / p;
+  // Under the floor: the fair multiple to the hundredth, at least 1x.
+  if (fair + 1e-9 < RULES.ladderFloor) {
+    const multiple = Math.max(1, Math.floor(fair * 100 + 1e-9) / 100);
+    return { area: Math.min(area, MAX_INK_MULTIPLE / multiple), multiple };
+  }
   // The floor is the first rung: 1.1x, easing to 1x at the hardest setting.
   let multiple: number = RULES.ladderFloor;
   for (const rung of LADDER) if (rung <= fair + 1e-9 && rung > multiple) multiple = rung;

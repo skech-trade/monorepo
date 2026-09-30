@@ -39,6 +39,25 @@ export function trail(line: string) {
   Sentry.addBreadcrumb({ message: line, level: /WARNING/.test(line) ? "warning" : "info" });
 }
 
+/**
+ * A promise that failed with nothing to hear it: logged and reported, not a reason to stop. Bun exits on one
+ * otherwise, and a relayer that is down settles nothing. One line a minute at most, with how many there were.
+ */
+export function survive(log: (s: string) => void) {
+  let last = 0;
+  let quiet = 0;
+  process.on("unhandledRejection", (e) => {
+    report("unhandled", e);
+    if (Date.now() - last < 60_000) {
+      quiet++;
+      return;
+    }
+    log(`unhandled: ${String((e as Error)?.message ?? e).split("\n")[0]}${quiet ? ` (${quiet} more since the last)` : ""}`);
+    last = Date.now();
+    quiet = 0;
+  });
+}
+
 const EVERY_MS = 60 * 60_000;
 const last = new Map<string, number>();
 

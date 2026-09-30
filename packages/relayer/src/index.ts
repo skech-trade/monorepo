@@ -9,7 +9,7 @@
  *   ws://localhost:3103/ws   apps connect here (NEXT_PUBLIC_RELAYER_URL)
  *   GET /health, GET /status
  */
-import { report, trail } from "./sentry";
+import { report, survive, trail } from "./sentry";
 import { formatEther } from "viem";
 import { join } from "node:path";
 import { Activity } from "./activity";
@@ -26,6 +26,7 @@ const log = (s: string) => {
   console.error(`${new Date().toISOString().slice(11, 23)} ${s}`);
   trail(s);
 };
+survive(log);
 
 const started = Date.now();
 const libBytes = await Bun.file(cfg.libPath).arrayBuffer();
@@ -45,7 +46,7 @@ if (oracle.toLowerCase() !== chain.account.address.toLowerCase()) {
 if (mon < 12n * 10n ** 18n) log(`WARNING: Monad keeps 10 MON of an account in reserve; with ${formatEther(mon)} MON this relayer may not be able to send`);
 cfg.lateMs = gameConfig.lateMs;
 
-const engine = new Engine(cfg.engineUrl, log);
+const engine = new Engine(cfg.engineUrl, log, cfg.engineSigner);
 engine.start();
 
 let sequencer: Sequencer;
@@ -69,12 +70,13 @@ const server: Server = new Server({
 // Each player's transactions on chain, read from the game's logs. Without the deployment block, counted from now.
 const from = cfg.deployBlock ?? (await chain.pub.getBlockNumber());
 if (cfg.deployBlock === null) log(`activity: no deployment block known (deployments/${cfg.chainId}.json "block", or SKECH_DEPLOY_BLOCK); counting from block ${from}`);
-const activity = new Activity(chain, from, join(import.meta.dir, "..", `.relayer-activity.${cfg.chainId}.${cfg.game.toLowerCase()}.json`), log);
-settler = new Settler(cfg, engine, chain, server.notify, log, join(import.meta.dir, "..", `.relayer-state.${cfg.chainId}.${cfg.game.toLowerCase()}.json`));
+const activity = new Activity(chain, from, join(cfg.stateDir, `.relayer-activity.${cfg.chainId}.${cfg.game.toLowerCase()}.json`), log);
+settler = new Settler(cfg, engine, chain, server.notify, log, join(cfg.stateDir, `.relayer-state.${cfg.chainId}.${cfg.game.toLowerCase()}.json`));
 sequencer = new Sequencer(cfg, engine, pricer, chain, settler, server.notify, log);
 sequencer.difficulty = difficulty;
 sequencer.gameConfig = gameConfig;
 settler.profitFeeBps = BigInt(gameConfig.profitFeeBps);
+settler.minRedeem = BigInt(gameConfig.minRedeem);
 server.sequencer = sequencer;
 server.settler = settler;
 server.activity = activity;
@@ -88,6 +90,7 @@ setInterval(() => {
     sequencer.difficulty = d;
     sequencer.gameConfig = gc;
     settler.profitFeeBps = BigInt(gc.profitFeeBps);
+    settler.minRedeem = BigInt(gc.minRedeem);
     cfg.lateMs = gc.lateMs;
     // An app still on the old terms would have every piece turned away until it reconnected.
     if (changed) server.announce();
@@ -100,7 +103,7 @@ setInterval(() => {
       log(`WARNING: relayer holds ${formatEther(b)} MON; top it up`);
       report("low-mon", `relayer holds ${formatEther(b)} MON; top it up`, "warning");
     }
-  });
+  }, (e) => log(`reading the relayer's MON: ${String((e as Error).message ?? e).split("\n")[0]}`));
 }, 60_000);
 
 // The engine's signer must be the game's oracle, or nothing a player sees can be checked on chain.
@@ -111,6 +114,16 @@ setTimeout(() => {
   }
   if (engine.domain && engine.domain.verifyingContract.toLowerCase() !== cfg.game.toLowerCase()) log(`WARNING: the engine signs for ${engine.domain.verifyingContract}, not the game ${cfg.game}: set ENGINE_VERIFYING_CONTRACT`);
 }, 3000);
+
+// A restart (systemd stops with SIGTERM) keeps what is still to settle and who is owed: saved on the way out.
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    log(`${signal}: saving the state and stopping`);
+    settler.save();
+    activity.save();
+    process.exit(0);
+  });
+}
 
 settler.start();
 activity.start();

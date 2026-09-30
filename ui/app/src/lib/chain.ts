@@ -1,9 +1,9 @@
 "use client";
 
-import gameAbiJson from "@skech/contracts/evm/abi/SkechGame.json";
-import { type Abi, type Address, createPublicClient, http } from "viem";
+import { type Address, createPublicClient, http } from "viem";
 import { monad, monadTestnet } from "viem/chains";
 import { network, networkOf } from "@skech/core/network";
+import { RPC_URL as RPC } from "./endpoints";
 
 /**
  * Where the game is on chain, for the app. SKECH_NETWORK in the repo's
@@ -12,15 +12,12 @@ import { network, networkOf } from "@skech/core/network";
  * file. With no game deployed there, the app plays for practice money.
  */
 
-export const GAME_ABI = gameAbiJson as Abi;
 export const CHAIN_ID = Number(process.env.NEXT_PUBLIC_SKECH_CHAIN_ID ?? 0);
 export const GAME = (process.env.NEXT_PUBLIC_SKECH_GAME || undefined) as Address | undefined;
 export const USDC = (process.env.NEXT_PUBLIC_SKECH_USDC || undefined) as Address | undefined;
-export const RELAYER_URL = process.env.NEXT_PUBLIC_RELAYER_URL || "ws://localhost:3103/ws";
 /** Testnet or mainnet, and what differs: the label players see, the explorer, the faucet. */
 export const NETWORK = networkOf(CHAIN_ID) ?? network(process.env.NEXT_PUBLIC_SKECH_NETWORK);
 export const testnet = NETWORK.name === "testnet";
-const RPC = process.env.NEXT_PUBLIC_MONAD_RPC_URL || (networkOf(CHAIN_ID)?.rpc ?? "http://127.0.0.1:8545");
 
 /** Whether this build plays for real: a game on a chain, and USDC to put in it. */
 export const onChain = Boolean(GAME && USDC && CHAIN_ID > 0);
@@ -54,5 +51,8 @@ export function usdcDomain() {
   return usdcDomainOnce;
 }
 
+/** The one call the app makes on the game itself, so only it, not the game's whole ABI (60 KB), is in the page. */
+const GAME_ABI = [{ type: "function", name: "nonces", stateMutability: "view", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "uint256" }] }] as const;
+
 /** The player's next nonce on the game, for a session or a withdrawal. */
-export const gameNonce = (player: Address) => publicClient.readContract({ address: GAME!, abi: GAME_ABI, functionName: "nonces", args: [player] }) as Promise<bigint>;
+export const gameNonce = (player: Address) => publicClient.readContract({ address: GAME!, abi: GAME_ABI, functionName: "nonces", args: [player] });

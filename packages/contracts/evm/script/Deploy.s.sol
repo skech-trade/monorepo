@@ -15,12 +15,13 @@ import {ISkechIOU} from "../src/interfaces/ISkechIOU.sol";
 ///
 ///   ORACLE_ADDRESS=<engine signer> forge script script/Deploy.s.sol:Deploy --rpc-url monad_testnet --broadcast --private-key <deployer>
 ///
-/// Or `bun run deploy:contracts` from the repo root, which fills all of this in from .env.local. Without
+/// Or `bun run deploy:contracts` from the repo root, which fills all of this in from .env.local and hands the
+/// deployer's key over as SKECH_DEPLOY_KEY, in the environment, where `ps` does not show it. Without
 /// --broadcast it is a dry run: gas and addresses are printed, nothing is sent and deployments/ is left alone.
 ///
 /// The deployer is the admin of everything. ORACLE_ADDRESS: the engine's wallet (its `hello.signer`); the same
 /// key as the deployer is fine on testnet. USDC: Circle's on Monad testnet unless set. IOU_RATE: how much an IOU
-/// grows per block, x1e18 (3.5e9 is about 0.1% a day at 300 ms blocks). DIFFICULTY: 0 to 100, 51 unless set.
+/// grows per block, x1e18 (3.5e9 is about 0.1% a day at 300 ms blocks). DIFFICULTY: 50 to 100, 51 unless set.
 /// Writes `deployments/<chainId>.json`, which the relayer and the app read.
 contract Deploy is Script {
     function run() external {
@@ -29,8 +30,11 @@ contract Deploy is Script {
         uint256 rate = vm.envOr("IOU_RATE", uint256(3_500_000_000));
         uint8 difficulty = uint8(vm.envOr("DIFFICULTY", uint256(51)));
 
-        vm.startBroadcast();
-        address admin = msg.sender;
+        uint256 key = vm.envOr("SKECH_DEPLOY_KEY", uint256(0));
+        if (key != 0) vm.startBroadcast(key);
+        else vm.startBroadcast();
+        // Broadcasting with a key of its own, the script's msg.sender is still forge's default sender, not the key's.
+        address admin = key != 0 ? vm.addr(key) : msg.sender;
         SkechRevenue revenue = SkechRevenue(
             payable(address(
                     new ERC1967Proxy(address(new SkechRevenue()), abi.encodeCall(SkechRevenue.initialize, (admin)))
@@ -85,6 +89,14 @@ contract Deploy is Script {
 /// Upgrade one proxy to a fresh implementation of the same contract.
 ///
 ///   PROXY=<address> WHICH=game|iou|revenue forge script script/Deploy.s.sol:Upgrade --rpc-url monad_testnet --broadcast --private-key <upgrader>
+///
+/// The game's upgrade from version 1 also sets what it already owes in IOU, which version 1 kept no count of:
+/// OWED, the sum of `SkechIOU.basisOf` over every holder (every address in the IOU's Transfer events), in USDC e6.
+/// It goes in the same transaction as the upgrade (`initializeV2`), and only once.
+///
+/// The new implementation must keep every stored field where the live one has it: run `bun run test:check` from
+/// packages/contracts first, which fails if the storage layout moved from `snapshots/StorageLayout.json`
+/// (`evm/layout.ts`). A script cannot read the compiler's layout itself without FFI, so the check lives there.
 contract Upgrade is Script {
     function run() external {
         address proxy = vm.envAddress("PROXY");
@@ -95,7 +107,9 @@ contract Upgrade is Script {
         else if (keccak256(bytes(which)) == keccak256("iou")) impl = address(new SkechIOU());
         else if (keccak256(bytes(which)) == keccak256("revenue")) impl = address(new SkechRevenue());
         else revert("WHICH must be game, iou or revenue");
-        UUPSUpgradeable(proxy).upgradeToAndCall(impl, "");
+        bytes memory init =
+            keccak256(bytes(which)) == keccak256("game") ? abi.encodeCall(SkechGame.initializeV2, (uint64(vm.envUint("OWED")))) : bytes("");
+        UUPSUpgradeable(proxy).upgradeToAndCall(impl, init);
         vm.stopBroadcast();
         console.log(which, "proxy", proxy, "now runs");
         console.log(impl);

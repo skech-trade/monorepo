@@ -249,11 +249,12 @@ abstract contract Base is Test {
 
     /* ---- bars ---- */
 
+    /// @dev The oracle's bar for `second`. A second is posted only once it is over on chain: the clock moves on to it.
     function bar(uint64 second, uint64 prevClose, uint64 high, uint64 low, uint64 close)
         internal
-        view
         returns (SkechGame.Bar memory b, bytes memory sig)
     {
+        if (vm.getBlockTimestamp() * 1000 < second + 1000) vm.warp((second + 1000) / 1000);
         b = SkechGame.Bar({market: BTC, second: second, prevClose: prevClose, high: high, low: low, close: close});
         sig = sign(ORACLE_KEY, game.barDigest(b));
     }

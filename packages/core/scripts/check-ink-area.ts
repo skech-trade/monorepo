@@ -64,7 +64,7 @@ for (const day of days) {
       { name: "level-line", pts: [{ t: 4000, p: offset * marketStep }, { t: 22000, p: offset * marketStep }] },
       { name: "momentum", pts: [{ t: 4000, p: direction * marketStep * 0.5 }, { t: 14000, p: direction * marketStep * 1.5 }] },
       { name: "contrarian", pts: [{ t: 4000, p: -direction * marketStep * 0.5 }, { t: 14000, p: -direction * marketStep * 1.5 }] },
-      // The 1.1x floor's worst case: ink only on the live price, in the first seconds it can be.
+      // Near-certain ink's worst case: ink only on the live price, in the first seconds it can be.
       { name: "on-price", pts: [{ t: 1000, p: 0 }, { t: 3000, p: 0 }] },
     ];
     const block = `${day}:${Math.floor(i / 3600)}`;
@@ -89,11 +89,11 @@ for (const day of days) {
       const debit = cost(bet), back = refund(bet), stake = debit - back;
       assert(Math.abs(debit - quote.cost) < 1e-8 && back >= -1e-8 && back <= debit + 1e-8, "Debit/refund mismatch");
       const expected = bet.cells.reduce((n, c) => n + perDot * c.area * c.multiple * (c.chance ?? 0), 0);
-      assert(expected <= bet.cells.reduce((n, c) => n + perDot * c.area * Math.max(RULES.ladderBest, RULES.ladderFloor * (c.chance ?? 0)), 0) + 1e-8, "A section beats its best or the 1.1x floor");
+      assert(expected <= bet.cells.reduce((n, c) => n + perDot * c.area * Math.max(RULES.ladderBest, c.chance ?? 0), 0) + 1e-8, "A section beats its best, or returns more than a dollar");
       for (const c of bet.cells) {
         const m = c.area * c.multiple;
-        assert(c.multiple >= RULES.ladderFloor - 1e-9 && c.multiple >= 1 && m <= MAX_INK_MULTIPLE + 1e-9, "Multiplier bounds violated");
-        assert(c.multiple * (c.chance ?? 0) <= Math.max(RULES.ladderBest, RULES.ladderFloor * (c.chance ?? 0)) + 1e-9, "Expected payout exceeds pricing target");
+        assert(c.multiple >= 1 - 1e-9 && m <= MAX_INK_MULTIPLE + 1e-9, "Multiplier bounds violated");
+        assert(c.multiple * (c.chance ?? 0) <= Math.max(RULES.ladderBest, c.chance ?? 0) + 1e-9, "Expected payout exceeds pricing target");
       }
       for (let j = i + 2; j <= i + RULES.horizon + 2 && bet.status === "live"; j++) bet = judge(bet, bars[j], true, bars[j - 1].c);
       assert(bet.status === "void" || bet.status === "done", "Unsettled contract");

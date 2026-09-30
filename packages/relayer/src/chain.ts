@@ -18,6 +18,7 @@ import {
   decodeEventLog,
   encodeFunctionData,
   type Hex,
+  keccak256,
   type Log,
   parseGwei,
   type TransactionReceipt,
@@ -35,6 +36,24 @@ export const IOU_ABI = iouAbiJson as Abi;
 const MONAD_PRIORITY = parseGwei("2");
 /** One shaped send in this many is also estimated, alongside, to check the model against the chain. RELAYER_SHADOW_EVERY=1 checks every one. */
 const SHADOW_EVERY = Math.max(1, Number(process.env.RELAYER_SHADOW_EVERY) || 5);
+/** How long a transaction the send lost track of is waited on before it is given up. */
+const WAIT_MS = 20_000;
+
+/** A send that failed without saying whether the node has the transaction: it may be on chain, or land yet. */
+const unsure = (e: unknown) =>
+  ["TimeoutError", "HttpRequestError"].includes((e as Error)?.name) || /timed? ?out|timeout|took too long|fetch failed|socket|connection|network|already known/i.test(String((e as Error)?.message ?? e));
+
+type Dispatched = { nonce: number; serialized: Hex; sending: Promise<TransactionReceipt> };
+
+/** A call the chain reverted, and why (the contract's error, when it has one): sending it again as it is will not help. */
+export class Reverted extends Error {
+  constructor(
+    message: string,
+    readonly why: string | null,
+  ) {
+    super(message);
+  }
+}
 
 /**
  * What the relayer knows of the pool and the fees without asking: followed from
@@ -61,7 +80,8 @@ export class Ledger {
         if (this.pool !== null) this.pool += (a.staked as bigint) - (a.fee as bigint);
         if ((a.fee as bigint) > 0n) this.feesNonZero = true;
       } else if (ev.name === "Settled") {
-        if (this.pool !== null) this.pool -= a.paid as bigint;
+        // The player's payout, then the house's cut of its profit, both out of the pool.
+        if (this.pool !== null) this.pool -= (a.paid as bigint) + (a.fee as bigint);
         if (this.pool !== null && this.pool < 0n) this.pool = 0n;
       } else if (ev.name === "Owed") {
         this.pool = 0n;
@@ -72,13 +92,6 @@ export class Ledger {
         this.feesNonZero = false;
       }
     }
-  }
-
-  /** Take `amount` off what the pool is thought to hold: the house's cut of a payout, which no event carries. */
-  charge(amount: bigint) {
-    if (this.pool === null || amount === 0n) return;
-    this.epoch++;
-    this.pool = this.pool > amount ? this.pool - amount : 0n;
   }
 
   /** How many of the pool and the fees a placement may find at zero. Unknown counts as zero. */
@@ -112,6 +125,8 @@ export class ChainClient {
   readonly pub;
   readonly wallet;
   private readonly nonces;
+  /** The one writer: nonces are taken, and transactions signed and started, one at a time. */
+  private writing: Promise<unknown> = Promise.resolve();
   private inflight = 0;
   readonly ledger = new Ledger();
   /** The base fee as last seen, and when. */
@@ -224,17 +239,61 @@ export class ChainClient {
       this.gasStats.estimated++;
     }
     // Now and then the model is checked against the chain's own estimate, alongside: the send never waits for it.
+    // An estimate already made (the check before a session) is compared every time, rather than asked for again.
     const shadow =
-      shape && this.sends++ % SHADOW_EVERY === 0
-        ? this.pub.estimateGas({ account: this.account, to: this.cfg.game, data }).then(
-            (g) => g,
-            () => null,
-          )
-        : null;
+      shape && estimated !== undefined
+        ? Promise.resolve(estimated)
+        : shape && this.sends++ % SHADOW_EVERY === 0
+          ? this.pub.estimateGas({ account: this.account, to: this.cfg.game, data }).then(
+              (g) => g,
+              () => null,
+            )
+          : null;
     if (this.baseFee === null) await this.refreshFee();
     let attempt = 0;
     for (;;) {
       attempt++;
+      const started = performance.now();
+      const receipt = await this.deliver(label, await this.dispatch(data, limit), attempt < 3);
+      if (receipt === "again") continue;
+      const ms = Math.round(performance.now() - started);
+      if (receipt.effectiveGasPrice > MONAD_PRIORITY) this.baseFee = receipt.effectiveGasPrice - MONAD_PRIORITY;
+      if (receipt.status !== "success") {
+        const verdict = await this.diagnose(data, limit);
+        if (verdict.kind === "outOfGas" && shape && attempt < 3) {
+          const wider = this.widen(shape.kind, verdict.need, limit);
+          this.gasStats.short++;
+          this.log(
+            `GAS MODEL SHORT: ${label} (${how}) reverted in block ${receipt.blockNumber} with ${limit} gas; the chain wants ${verdict.need}. Slack for ${shape.kind} is now ${wider} bps; sending again`,
+          );
+          limit = gasLimit(shape, data, wider);
+          if (limit < (verdict.need * 115n) / 100n) limit = (((verdict.need * 115n) / 100n + 999n) / 1000n) * 1000n;
+          continue;
+        }
+        if (verdict.kind === "passes" && attempt < 3) {
+          this.log(`${label}: reverted in block ${receipt.blockNumber} (${receipt.transactionHash}) but would go through now; sending again`);
+          continue;
+        }
+        this.log(`${label}: reverted in block ${receipt.blockNumber} (${receipt.transactionHash}) after ${ms} ms${verdict.kind === "reverted" ? `: ${verdict.why}` : ""}`);
+        throw new Reverted(`${label} reverted${verdict.kind === "reverted" ? `: ${verdict.why}` : ""}`, verdict.kind === "reverted" ? verdict.why : null);
+      }
+      const events = this.events(receipt);
+      this.ledger.note(events);
+      this.gasStats.sent++;
+      // Anvil reports what ran; Monad reports the limit. Say the former only when it says something.
+      const used = receipt.gasUsed !== limit ? `, ${receipt.gasUsed} used` : "";
+      this.log(`${label}: block ${receipt.blockNumber}, ${limit} gas (${how}${used}), ${ms} ms, ${receipt.transactionHash}`);
+      if (shadow) void shadow.then((estimate) => this.compare(label, shape!, how, limit, estimate));
+      return receipt;
+    }
+  }
+
+  /**
+   * Take a nonce, sign, and start the send, as the one writer: never two at once, so transactions go out in the
+   * order their nonces were taken. A nonce taken and not sent is lost, and the node asked again.
+   */
+  private dispatch(data: Hex, limit: bigint): Promise<Dispatched> {
+    const run = this.writing.then(async () => {
       const nonce = await this.nonces.take();
       try {
         const base = this.baseFee ?? parseGwei("100");
@@ -249,54 +308,67 @@ export class ChainClient {
           parameters: ["chainId", "type"],
         });
         const serialized = await this.wallet.signTransaction(request);
-        this.inflight++;
-        const started = performance.now();
-        let receipt: TransactionReceipt;
-        try {
-          receipt = await sendRawTransactionSync(this.wallet, { serializedTransaction: serialized, timeout: 8_000 });
-        } finally {
-          this.inflight--;
-        }
-        const ms = Math.round(performance.now() - started);
-        if (receipt.effectiveGasPrice > MONAD_PRIORITY) this.baseFee = receipt.effectiveGasPrice - MONAD_PRIORITY;
-        if (receipt.status !== "success") {
-          const verdict = await this.diagnose(data, limit);
-          if (verdict.kind === "outOfGas" && shape && attempt < 3) {
-            const wider = this.widen(shape.kind, verdict.need, limit);
-            this.gasStats.short++;
-            this.log(
-              `GAS MODEL SHORT: ${label} (${how}) reverted in block ${receipt.blockNumber} with ${limit} gas; the chain wants ${verdict.need}. Slack for ${shape.kind} is now ${wider} bps; sending again`,
-            );
-            limit = gasLimit(shape, data, wider);
-            if (limit < (verdict.need * 115n) / 100n) limit = (((verdict.need * 115n) / 100n + 999n) / 1000n) * 1000n;
-            continue;
-          }
-          if (verdict.kind === "passes" && attempt < 3) {
-            this.log(`${label}: reverted in block ${receipt.blockNumber} (${receipt.transactionHash}) but would go through now; sending again`);
-            continue;
-          }
-          this.log(`${label}: reverted in block ${receipt.blockNumber} (${receipt.transactionHash}) after ${ms} ms${verdict.kind === "reverted" ? `: ${verdict.why}` : ""}`);
-          throw new Error(`${label} reverted${verdict.kind === "reverted" ? `: ${verdict.why}` : ""}`);
-        }
-        const events = this.events(receipt);
-        this.ledger.note(events);
-        this.gasStats.sent++;
-        // Anvil reports what ran; Monad reports the limit. Say the former only when it says something.
-        const used = receipt.gasUsed !== limit ? `, ${receipt.gasUsed} used` : "";
-        this.log(`${label}: block ${receipt.blockNumber}, ${limit} gas (${how}${used}), ${ms} ms, ${receipt.transactionHash}`);
-        if (shadow) void shadow.then((estimate) => this.compare(label, shape!, how, limit, estimate));
-        return receipt;
+        const sending = sendRawTransactionSync(this.wallet, { serializedTransaction: serialized, timeout: 8_000 });
+        sending.catch(() => undefined); // heard in deliver
+        return { nonce, serialized, sending };
       } catch (e) {
-        const text = String((e as Error).message ?? e);
-        // A nonce we no longer have right, or a transaction that did not land: ask the node and go again, once.
-        if (attempt < 3 && /nonce|timed out|timeout|already known|replacement/i.test(text)) {
-          this.log(`${label}: ${text.split("\n")[0]}; syncing the nonce and retrying`);
-          await this.nonces.sync();
-          continue;
+        this.nonces.lost(nonce);
+        throw e;
+      }
+    });
+    this.writing = run.catch(() => undefined);
+    return run;
+  }
+
+  /**
+   * The receipt of a transaction on its way, its nonce accounted for either way; "again" when the node turned it
+   * away over its nonce and it may go again with another.
+   */
+  private async deliver(label: string, { nonce, serialized, sending }: Dispatched, retry: boolean): Promise<TransactionReceipt | "again"> {
+    this.inflight++;
+    try {
+      const receipt = await sending;
+      this.nonces.used(nonce);
+      return receipt;
+    } catch (e) {
+      const text = String((e as Error).message ?? e).split("\n")[0];
+      if (!unsure(e)) {
+        // Turned away: its nonce was never taken.
+        this.nonces.lost(nonce);
+        if (retry && /nonce|replacement/i.test(text)) {
+          this.log(`${label}: ${text}; syncing the nonce and retrying`);
+          return "again";
         }
         throw e;
       }
+      // Timed out, or the connection went: it may be on chain already, or land yet, and sent again under a new nonce
+      // both could land. So this very transaction is waited on, its bytes sent again, before it is given up.
+      const hash = keccak256(serialized);
+      this.log(`${label}: ${text}; waiting on ${hash}`);
+      const receipt = await this.waitFor(hash, serialized);
+      if (receipt) {
+        this.nonces.used(nonce);
+        return receipt;
+      }
+      // Its nonce taken all the same means it is on chain (nothing else sends from this key), out of sight.
+      const taken = await this.pub.getTransactionCount({ address: this.account.address, blockTag: "latest" }).then((n) => n > nonce, () => false);
+      if (taken) this.nonces.used(nonce);
+      else this.nonces.lost(nonce);
+      throw new Error(`${label}: ${hash} ${taken ? "took its nonce but no receipt came" : `not on chain ${WAIT_MS / 1000} s after it was sent`}`);
+    } finally {
+      this.inflight--;
     }
+  }
+
+  /** A transaction the send lost track of: its receipt, looked for every second for WAIT_MS, its bytes sent again every few. */
+  private async waitFor(hash: Hex, serialized: Hex): Promise<TransactionReceipt | null> {
+    for (let i = 1; i <= WAIT_MS / 1000; i++) {
+      await Bun.sleep(1_000);
+      const receipt = await this.pub.getTransactionReceipt({ hash }).catch(() => null);
+      if (receipt) return receipt;
+      if (i % 3 === 0) await this.wallet.sendRawTransaction({ serializedTransaction: serialized }).catch(() => undefined);
+    }
+    return null;
   }
 
   /** Why a call with `limit` gas reverted: the gas ran out, the call fails on its own, or it would pass now. */

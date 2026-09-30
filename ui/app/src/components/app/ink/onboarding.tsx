@@ -8,7 +8,7 @@ import { onChain } from "@/lib/chain";
 import { cn } from "@/lib/utils";
 import { POINT_PRICES } from "@skech/core/odds";
 import { useChain } from "./chain-context";
-import { useGate } from "./deposit-modal";
+import { useGate } from "./gate";
 import feedback from "./drawing-feedback.module.css";
 
 /**

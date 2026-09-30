@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
-import { RELAYER_URL } from "./chain";
+import { jitter, RELAYER_URL, STEADY_MS } from "./endpoints";
 
 /**
  * The relayer: where the app sends what it draws, signed by the session key,
@@ -53,8 +53,11 @@ const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" 
 export class RelayerClient {
   private ws: WebSocket | null = null;
   private handlers = new Set<Handler>();
+  private connectionHandlers = new Set<(connected: boolean) => void>();
   private stopped = false;
   private backoff = 500;
+  private retry: ReturnType<typeof setTimeout> | undefined;
+  private steady: ReturnType<typeof setTimeout> | undefined;
   hello: Hello | null = null;
   connected = false;
   player: Address | null = null;
@@ -62,18 +65,33 @@ export class RelayerClient {
   constructor(private readonly url = RELAYER_URL) {}
 
   start() {
+    if (!this.stopped && this.ws) return;
     this.stopped = false;
+    clearTimeout(this.retry);
     this.connect();
   }
 
   stop() {
     this.stopped = true;
-    this.ws?.close();
+    clearTimeout(this.retry);
+    clearTimeout(this.steady);
+    const sock = this.ws;
+    this.ws = null;
+    this.setConnected(false);
+    // Closing a socket still connecting logs a warning; it closes as soon as it opens instead.
+    if (sock?.readyState === WebSocket.CONNECTING) sock.onopen = () => sock.close();
+    else sock?.close();
   }
 
   on(h: Handler) {
     this.handlers.add(h);
     return () => this.handlers.delete(h);
+  }
+
+  /** Hear the socket open and close. */
+  onConnection(h: (connected: boolean) => void) {
+    this.connectionHandlers.add(h);
+    return () => void this.connectionHandlers.delete(h);
   }
 
   send(msg: unknown): boolean {
@@ -111,10 +129,10 @@ export class RelayerClient {
     const sock = new WebSocket(this.url);
     this.ws = sock;
     sock.onopen = () => {
-      this.backoff = 500;
-      this.connected = true;
+      clearTimeout(this.steady);
+      this.steady = setTimeout(() => (this.backoff = 500), STEADY_MS);
+      this.setConnected(true);
       if (this.player) this.send({ type: "watch", player: this.player });
-      this.emit({ type: "error", why: "" });
     };
     sock.onmessage = (e) => {
       let m: Incoming;
@@ -127,13 +145,19 @@ export class RelayerClient {
       this.emit(m);
     };
     sock.onclose = () => {
-      if (this.ws === sock) this.connected = false;
+      if (this.ws === sock) this.setConnected(false);
       if (this.stopped || this.ws !== sock) return;
-      setTimeout(() => this.connect(), this.backoff);
+      clearTimeout(this.steady);
+      this.retry = setTimeout(() => this.connect(), jitter(this.backoff));
       this.backoff = Math.min(10_000, this.backoff * 2);
-      this.emit({ type: "error", why: "" });
     };
     sock.onerror = () => sock.close();
+  }
+
+  private setConnected(connected: boolean) {
+    if (connected === this.connected) return;
+    this.connected = connected;
+    for (const h of this.connectionHandlers) h(connected);
   }
 
   private emit(m: Incoming) {
@@ -147,20 +171,19 @@ export function useRelayer(player: Address | null, enabled: boolean) {
   const [hello, setHello] = useState<Hello | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
   const [connected, setConnected] = useState(false);
-  const started = useRef(false);
   useEffect(() => {
     if (!enabled) return;
-    if (!started.current) {
-      started.current = true;
-      client.start();
-    }
+    client.start();
     const off = client.on((m) => {
-      setConnected(client.connected);
       if (m.type === "hello") setHello(m);
       else if (m.type === "account") setAccount(m);
     });
+    const offConnection = client.onConnection(setConnected);
+    // Gone from the page: the socket closes, and nothing reopens it.
     return () => {
       off();
+      offConnection();
+      client.stop();
     };
   }, [client, enabled]);
   useEffect(() => {

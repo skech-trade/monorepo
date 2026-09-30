@@ -75,9 +75,24 @@ contract SkechGameTest is Base {
             )
         );
         usdc.permit(player, address(game), 5e6, deadline, v, r, s);
+        // Then only the owner may use the allowance it left.
         vm.prank(keeper);
+        vm.expectRevert(SkechGame.BadSignature.selector);
+        game.depositWithPermit(player, 5e6, deadline, v, r, s);
+        vm.prank(player);
         game.depositWithPermit(player, 5e6, deadline, v, r, s);
         assertEq(game.balanceOf(player), 30e6);
+    }
+
+    /// An allowance the owner left standing cannot be pulled into the game by someone else on a permit that fails.
+    function test_aFailedPermitMovesNobodyElsesAllowance() public {
+        vm.prank(player);
+        usdc.approve(address(game), 50e6);
+        vm.prank(keeper);
+        vm.expectRevert(SkechGame.BadSignature.selector);
+        game.depositWithPermit(player, 50e6, vm.getBlockTimestamp() + 60, 27, bytes32(uint256(1)), bytes32(uint256(2)));
+        assertEq(game.balanceOf(player), 0);
+        assertEq(usdc.allowance(player, address(game)), 50e6);
     }
 
     /* ---- EIP-3009: one signature, no allowance ---- */
@@ -258,14 +273,42 @@ contract SkechGameTest is Base {
 
     function test_revokeSession() public {
         ready();
+        // A session signed and never sent: revoking uses up the nonce it was signed at, so it cannot bring the key back.
+        uint64 until = uint64(vm.getBlockTimestamp() + 1 days);
+        uint256 deadline = vm.getBlockTimestamp() + 60;
+        bytes memory pending = sign(PLAYER_KEY, game.sessionDigest(player, 0, session, 0, 0, until, 100e6, deadline));
         vm.prank(player);
         game.revokeSession();
         assertEq(game.sessionOf(player).validUntil, 0);
+        vm.expectRevert(SkechGame.BadSignature.selector);
+        game.registerSession(player, 0, session, 0, 0, until, 100e6, deadline, pending);
         SkechGame.Piece memory p = piece(1, 0, oneSection(HALF_DOT));
         vm.expectEmit(true, true, false, true);
         emit SkechGame.Refused(game.betIdOf(player, 1, 0), player, 1, 0, SkechGame.Refusal.Session);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         assertEq(game.balanceOf(player), 100e6);
+    }
+
+    function test_revokeSessionBySigIsRelayableOnce() public {
+        ready();
+        uint256 deadline = vm.getBlockTimestamp() + 60;
+        bytes memory sig = sign(PLAYER_KEY, game.revokeDigest(player, deadline));
+        // Someone else's signature, or an expired one, does nothing.
+        bytes memory forged = sign(OTHER_KEY, game.revokeDigest(player, deadline));
+        vm.expectRevert(SkechGame.BadSignature.selector);
+        game.revokeSessionBySig(player, deadline, forged);
+        vm.warp(deadline + 1);
+        vm.expectRevert(SkechGame.Expired.selector);
+        game.revokeSessionBySig(player, deadline, sig);
+        vm.warp(deadline);
+        vm.expectEmit(true, false, false, false);
+        emit SkechGame.SessionRevoked(player);
+        vm.prank(keeper);
+        game.revokeSessionBySig(player, deadline, sig);
+        assertEq(game.sessionOf(player).validUntil, 0);
+        // Spent: it cannot be sent again.
+        vm.expectRevert(SkechGame.BadSignature.selector);
+        game.revokeSessionBySig(player, deadline, sig);
     }
 
     /* ------------------------------------------------------------------ */
@@ -396,80 +439,97 @@ contract SkechGameTest is Base {
         // Replay: the same drawing and index.
         expectRefused(betId, 9, 0, SkechGame.Refusal.Replay);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
-        // Difficulty changed under the player.
+        // Difficulty changed under the player. Every refusal spends its piece's name: each try from here is a new index.
         p.index = 1;
         p.difficulty = 60;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Difficulty);
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Difficulty);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.difficulty = 51;
         // Received too late.
+        p.index++;
         SkechGame.Placement[] memory pls = new SkechGame.Placement[](1);
         pls[0] = placement(p, SESSION_KEY);
         (SkechGame.Quote memory q, bytes memory sig) = quote(pls, p.openAt + 201, chancesOf(500_000_000), 0);
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Late);
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Late);
         game.place(pls, q, sig);
         // The price seen is too old, or from the future.
         p.priceTime = p.openAt - 400 - 15_001;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.StalePrice);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.StalePrice);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.priceTime = p.openAt - 399;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.StalePrice);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.StalePrice);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.priceTime = p.openAt - 500;
         // A dot too cheap or too dear.
         p.perDot = 9_999;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.PerDot);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.PerDot);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.perDot = 100_000_001;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.PerDot);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.PerDot);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.perDot = PER_DOT;
         // Bands off the grid, out of reach, or upside down.
         p.sections[0].lo = LO + 1;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Sections);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Sections);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.sections[0].lo = LO;
         p.sections[0].second = 31;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Sections);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Sections);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.sections[0].second = 0;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Sections);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Sections);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.sections[0].second = 1;
         p.sections[0].hi = LO;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Sections);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Sections);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.sections[0].hi = HI;
         p.sections[0].stake = 10_000_000_001;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Sections);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Sections);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.sections[0].stake = HALF_DOT;
         // The stroke does not match its hash.
+        p.index++;
         pls[0] = placement(p, SESSION_KEY);
         pls[0].stroke = hex"00";
         (q, sig) = quote(pls, p.openAt - 400, chancesOf(500_000_000), 0);
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Stroke);
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Stroke);
         game.place(pls, q, sig);
         // The price the player saw was not signed by the oracle.
+        p.index++;
         pls[0] = placement(p, SESSION_KEY);
         pls[0].priceSig = sign(OTHER_KEY, game.priceDigest("BTC-USD", p.priceSeen, p.priceTime));
         (q, sig) = quote(pls, p.openAt - 400, chancesOf(500_000_000), 0);
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.PriceSig);
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.PriceSig);
         game.place(pls, q, sig);
         // Signed by the wrong session key.
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.SessionSig);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.SessionSig);
         placeOne(p, OTHER_SESSION_KEY, chancesOf(500_000_000));
         // Nothing on offer.
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.NotOffered);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.NotOffered);
         placeOne(p, SESSION_KEY, chancesOf(0));
         // Session expired.
         vm.warp(vm.getBlockTimestamp() + 1 days);
         p.openAt = openAtNow();
         p.priceTime = p.openAt - 500;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Session);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Session);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
-        // Through all of that, nothing was charged.
+        // Through all of that, nothing was charged; and a refused piece is spent, so it never goes in later.
         assertEq(game.balanceOf(player), 100e6 - HALF_DOT);
+        assertTrue(game.wasRefused(game.betIdOf(player, 9, p.index)));
+        assertFalse(game.wasRefused(betId));
         assertEq(game.sessionOf(player).allowance, 100e6 - HALF_DOT);
     }
 
@@ -480,10 +540,34 @@ contract SkechGameTest is Base {
         expectRefused(game.betIdOf(player, 1, 0), 1, 0, SkechGame.Refusal.Allowance);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         registerSession(PLAYER_KEY, SESSION_KEY, 100e6);
+        p.index = 1;
         p.sections[0].stake = 2e6;
-        expectRefused(game.betIdOf(player, 1, 0), 1, 0, SkechGame.Refusal.Balance);
+        expectRefused(game.betIdOf(player, 1, 1), 1, 1, SkechGame.Refusal.Balance);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         assertEq(game.balanceOf(player), 1e6);
+    }
+
+    /// A piece refused for want of money is public calldata: sent again once the price has moved the player's way,
+    /// and the balance topped up, it would be a free option. Its name was spent when it was refused.
+    function test_aRefusedPieceCannotBePlacedLater() public {
+        deposit(player, 30_000);
+        registerSession(PLAYER_KEY, SESSION_KEY, 100e6);
+        SkechGame.Piece memory p = piece(1, 0, oneSection(HALF_DOT));
+        SkechGame.Placement[] memory pls = new SkechGame.Placement[](1);
+        pls[0] = placement(p, SESSION_KEY);
+        (SkechGame.Quote memory q, bytes memory sig) = quote(pls, p.openAt - 400, chancesOf(500_000_000), 0);
+        bytes32 betId = game.betIdOf(player, 1, 0);
+        expectRefused(betId, 1, 0, SkechGame.Refusal.Balance);
+        game.place(pls, q, sig);
+        assertTrue(game.wasRefused(betId));
+        // The same calldata, inside the window, after a top-up: refused as a replay, and nothing moves.
+        deposit(player, 100e6);
+        vm.warp(vm.getBlockTimestamp() + 2);
+        expectRefused(betId, 1, 0, SkechGame.Refusal.Replay);
+        game.place(pls, q, sig);
+        assertEq(game.betOf(betId).player, address(0));
+        assertEq(game.balanceOf(player), 100e6 + 30_000);
+        assertEq(game.pool(), 0);
     }
 
     function test_quoteMustBeTheOraclesAndFitThePieces() public {
@@ -546,6 +630,104 @@ contract SkechGameTest is Base {
         game.place(pls, q, sig);
     }
 
+    /// Closing a market stops new pieces, not settlement: the bets already open are posted and paid as ever.
+    function test_aClosedMarketStillSettles() public {
+        ready();
+        deposit(other, 100e6);
+        registerSession(OTHER_KEY, OTHER_SESSION_KEY, 100e6);
+        SkechGame.Piece memory lost = piece(1, 0, oneSection(10 * PER_DOT));
+        lost.player = other;
+        lost.sections[0].lo = LO + 40 * UNIT;
+        lost.sections[0].hi = HI + 40 * UNIT;
+        placeOne(lost, OTHER_SESSION_KEY, chancesOf(500_000_000));
+        SkechGame.Piece memory p = piece(2, 0, oneSection(HALF_DOT));
+        bytes32 betId = placeOne(p, SESSION_KEY, chancesOf(500_000_000));
+        vm.prank(admin);
+        game.setMarket(BTC, "BTC-USD", false, 51);
+        vm.warp(vm.getBlockTimestamp() + 2);
+        (SkechGame.Bar memory b, bytes memory sig) = bar(p.openAt + 1000, LO, HI, LO, HI);
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = betId;
+        game.postBarAndSettle(b, sig, ids);
+        assertEq(game.betOf(betId).hitMask, 1);
+        assertEq(game.balanceOf(player), 100e6 - HALF_DOT + 72_500);
+        // A market that was never set up still takes no bars.
+        (b, sig) = bar(p.openAt + 2000, HI, HI, HI, HI);
+        b.market = 7;
+        sig = sign(ORACLE_KEY, game.barDigest(b));
+        vm.expectRevert(SkechGame.MarketInactive.selector);
+        game.postBar(b, sig);
+    }
+
+    /// A bet whose bars never come is not stuck: an hour after its last second, its undecided bands are refunded.
+    function test_expireRefundsWhatNoBarDecided() public {
+        ready();
+        deposit(other, 100e6);
+        registerSession(OTHER_KEY, OTHER_SESSION_KEY, 100e6);
+        SkechGame.Piece memory lost = piece(1, 0, oneSection(10 * PER_DOT));
+        lost.player = other;
+        lost.sections[0].lo = LO + 40 * UNIT;
+        lost.sections[0].hi = HI + 40 * UNIT;
+        bytes32 lostId = placeOne(lost, OTHER_SESSION_KEY, chancesOf(500_000_000));
+        SkechGame.Piece memory p = piece(2, 0, twoSections());
+        bytes32 betId = placeOne(p, SESSION_KEY, chancesOf(500_000_000, 500_000_000));
+        // Only the first second is ever posted, and it misses both bets.
+        postBar(p.openAt + 1000, LO - 10 * UNIT, LO - 10 * UNIT, LO - 12 * UNIT, LO - 11 * UNIT);
+        bytes32[] memory ids = new bytes32[](2);
+        ids[0] = betId;
+        ids[1] = lostId;
+        // Not yet due: nothing moves.
+        uint64 due = p.openAt + 30_000 + game.EXPIRE_AFTER_MS();
+        vm.warp(due / 1000 - 1);
+        game.expire(ids);
+        assertEq(game.betOf(betId).liveMask, 3);
+        uint64 poolBefore = game.pool();
+        uint64 fees = game.fees();
+        vm.warp(due / 1000);
+        vm.expectEmit(true, true, false, true);
+        emit SkechGame.Settled(betId, player, 0, 1, 0, 0, 0);
+        vm.expectEmit(true, true, false, true);
+        emit SkechGame.Refunded(betId, player, 2, HALF_DOT, 0);
+        game.expire(ids);
+        // The first band was decided by its bar, a miss; the second never was: its stake is back, from the pool.
+        SkechGame.BetView memory b = game.betOf(betId);
+        assertEq(b.liveMask, 0);
+        assertEq(b.hitMask, 0);
+        assertEq(game.balanceOf(player), 100e6 - 2 * HALF_DOT + HALF_DOT);
+        assertEq(game.pool(), poolBefore - HALF_DOT);
+        assertEq(game.fees(), fees);
+        // The loser's one band was decided: nothing to give back.
+        assertEq(game.betOf(lostId).liveMask, 0);
+        assertEq(game.balanceOf(other), 100e6 - 10 * PER_DOT);
+        // Again, or a bar that turns up late, changes nothing.
+        game.expire(ids);
+        postBar(p.openAt + 2000, LO - 11 * UNIT, HI + 10 * UNIT, LO - 11 * UNIT, HI);
+        settleOne(betId);
+        assertEq(game.balanceOf(player), 100e6 - HALF_DOT);
+        address[] memory ps = new address[](2);
+        ps[0] = player;
+        ps[1] = other;
+        assertAccounted(ps);
+    }
+
+    /// A refund the pool cannot pay is owed, as a win would be.
+    function test_expireOwesWhatThePoolCannotPay() public {
+        ready();
+        SkechGame.Piece memory p = piece(2, 0, oneSection(HALF_DOT));
+        bytes32 betId = placeOne(p, SESSION_KEY, chancesOf(500_000_000));
+        assertEq(game.pool(), HALF_DOT * 96 / 100);
+        vm.warp((p.openAt + 30_000 + game.EXPIRE_AFTER_MS()) / 1000);
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = betId;
+        game.expire(ids);
+        assertEq(game.pool(), 0);
+        assertEq(game.balanceOf(player), 100e6 - HALF_DOT + HALF_DOT * 96 / 100);
+        assertEq(iou.basisOf(player), HALF_DOT * 4 / 100);
+        address[] memory ps = new address[](1);
+        ps[0] = player;
+        assertAccounted(ps);
+    }
+
     function test_inactiveMarket() public {
         ready();
         vm.prank(admin);
@@ -592,6 +774,28 @@ contract SkechGameTest is Base {
         (b, sig) = bar(t + 2500, PRICE + 60, PRICE + 100, PRICE - 100, PRICE + 60);
         vm.expectRevert(SkechGame.BadBar.selector);
         game.postBar(b, sig);
+    }
+
+    /// A second goes up only once it is over by the chain's clock, and fits the seconds either side of it, whichever
+    /// went up first.
+    function test_barsWaitForTheirSecondAndFitBothNeighbours() public {
+        uint64 t = openAtNow() + 5000;
+        // The second after next: its bar is signed, but it is not over on chain yet.
+        SkechGame.Bar memory b = SkechGame.Bar({market: BTC, second: t, prevClose: PRICE, high: PRICE, low: PRICE, close: PRICE});
+        bytes memory sig = sign(ORACLE_KEY, game.barDigest(b));
+        vm.warp(t / 1000);
+        vm.expectRevert(SkechGame.BadBar.selector);
+        game.postBar(b, sig);
+        vm.warp(t / 1000 + 1);
+        game.postBar(b, sig);
+        // Posted out of order: the second before must close where this one opened.
+        (b, sig) = bar(t - 1000, PRICE - 50, PRICE, PRICE - 50, PRICE - 10);
+        vm.expectRevert(SkechGame.BarDiscontinuous.selector);
+        game.postBar(b, sig);
+        postBar(t - 1000, PRICE - 50, PRICE, PRICE - 50, PRICE);
+        (uint64 pc,,, uint64 c) = game.barAt(BTC, t - 1000);
+        assertEq(pc, PRICE - 50);
+        assertEq(c, PRICE);
     }
 
     /* ------------------------------------------------------------------ */
@@ -703,10 +907,50 @@ contract SkechGameTest is Base {
         assertEq(game.balanceOf(player), 100e6 - HALF_DOT + 48_000);
         assertEq(iou.basisOf(player), 365_000 - 48_000);
         assertEq(iou.assetsOf(player), 365_000 - 48_000);
-        // The house's fee is owed too, behind the player.
+        // The house's cut comes after the player, from what the pool has left: nothing, and it is not owed.
         assertEq(game.fees(), 2_000);
-        assertEq(iou.assetsOf(address(revenue)), 35_000);
-        assertEq(iou.totalAssets(), 365_000 - 48_000 + 35_000);
+        assertEq(iou.balanceOf(address(revenue)), 0);
+        assertEq(iou.totalAssets(), 365_000 - 48_000);
+        assertEq(game.owed(), 317_000);
+    }
+
+    /// When the pool pays the player in full but not the house's whole cut, the house takes what is left, no more.
+    function test_theHousesCutIsWhatThePoolHasLeft() public {
+        ready();
+        deposit(other, 100e6);
+        registerSession(OTHER_KEY, OTHER_SESSION_KEY, 100e6);
+        SkechGame.Piece memory lost = piece(1, 0, oneSection(3 * HALF_DOT));
+        lost.player = other;
+        lost.sections[0].lo = LO + 40 * UNIT;
+        lost.sections[0].hi = HI + 40 * UNIT;
+        placeOne(lost, OTHER_SESSION_KEY, chancesOf(500_000_000));
+        SkechGame.Piece memory p = piece(2, 0, oneSection(HALF_DOT));
+        bytes32 betId = placeOne(p, SESSION_KEY, chancesOf(250_000_000)); // 3x
+        // The pool: 96% of 200,000. The hit: 150,000 gross, 100,000 profit, 10,000 the house's; 140,000 to the player.
+        assertEq(game.pool(), 192_000);
+        uint64 fees = game.fees();
+        postBar(p.openAt + 1000, LO, HI, LO, HI);
+        vm.expectEmit(true, true, false, true);
+        emit SkechGame.Settled(betId, player, 1, 0, 140_000, 0, 10_000);
+        settleOne(betId);
+        assertEq(game.fees(), fees + 10_000);
+        assertEq(game.pool(), 192_000 - 150_000);
+        // Now a hit the pool pays the player, all but the house's cut.
+        SkechGame.Piece memory q = piece(3, 0, oneSection(20_000));
+        vm.warp(vm.getBlockTimestamp() + 1);
+        q.openAt = openAtNow();
+        q.priceTime = q.openAt - 500;
+        bytes32 qId = placeOne(q, SESSION_KEY, chancesOf(250_000_000));
+        // Pool 42,000 + 19,200 = 61,200. Hit: 60,000 gross, 40,000 profit, 4,000 cut, 56,000 due: 5,200 left for the cut.
+        assertEq(game.pool(), 61_200);
+        fees = game.fees();
+        postBar(q.openAt + 1000, LO, HI, LO, HI);
+        vm.expectEmit(true, true, false, true);
+        emit SkechGame.Settled(qId, player, 1, 0, 56_000, 0, 4_000);
+        settleOne(qId);
+        assertEq(game.pool(), 1_200);
+        assertEq(game.fees(), fees + 4_000);
+        assertEq(game.owed(), 0);
     }
 
     function test_iouIsRedeemedByAnyoneOnceThePoolHasMoney() public {
@@ -746,12 +990,11 @@ contract SkechGameTest is Base {
         assertEq(iou.balanceOf(player), 0);
         assertEq(iou.basisOf(player), 0);
         assertEq(game.pool(), 960_000 - value);
-        // The house's IOU, redeemed by the keeper too, goes to the fees.
-        uint64 feesBefore = game.fees();
-        uint64 houseValue = iou.assetsOf(address(revenue));
+        assertEq(game.owed(), 0);
+        // The house was never owed: there is nothing of its to redeem.
         vm.prank(keeper);
+        vm.expectRevert(SkechGame.NothingToRedeem.selector);
         game.redeem(address(revenue), type(uint256).max);
-        assertEq(game.fees(), feesBefore + houseValue - (houseValue - 35_000) / 10);
         address[] memory ps = new address[](3);
         ps[0] = player;
         ps[1] = other;
@@ -825,6 +1068,12 @@ contract SkechGameTest is Base {
         iou.transfer(other, shares - shares / 4);
         assertEq(iou.basisOf(player), 0);
         assertEq(iou.basisOf(other), 317_000);
+        // Dust carries its basis with it, rounded up: sent a share-wei at a time, the basis never stays behind.
+        vm.prank(other);
+        iou.transfer(player, 1);
+        assertEq(iou.basisOf(player), 1);
+        assertEq(iou.basisOf(other), 317_000 - 1);
+        assertEq(game.owed(), 317_000);
         // Only the game mints and burns.
         vm.expectRevert();
         iou.mint(other, 1);
@@ -841,6 +1090,10 @@ contract SkechGameTest is Base {
         assertEq(iou.index(), before);
         vm.roll(vm.getBlockNumber() + 1);
         assertEq(iou.index(), before + 7_000_000_000);
+        // No faster than 10% a day.
+        vm.prank(admin);
+        vm.expectRevert(SkechIOU.BadRate.selector);
+        iou.setRate(350_000_000_001);
     }
 
     /* ------------------------------------------------------------------ */
@@ -906,9 +1159,21 @@ contract SkechGameTest is Base {
         assertEq(game.rungFor(BTC, 500_000_000, false, 0), 150);
         assertEq(game.rungFor(BTC, 750_000_000, false, 0), 100);
         assertEq(game.rungFor(BTC, 600_000_000, false, 0), 110);
+        // 90% earns 0.889: under the floor, so its fair multiple, never under 1x.
+        assertEq(game.rungFor(BTC, 900_000_000, false, 0), 100);
         vm.prank(admin);
         vm.expectRevert(SkechGame.BadDifficulty.selector);
         game.setDifficulty(BTC, 101);
+        // Under 50, ink exactly on a rung would return more than a dollar: refused, on its own and with the market.
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadDifficulty.selector);
+        game.setDifficulty(BTC, 49);
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadDifficulty.selector);
+        game.setMarket(BTC, "BTC-USD", true, 0);
+        vm.prank(admin);
+        game.setDifficulty(BTC, 50);
+        assertEq(game.rungFor(BTC, 1_000_000_000, false, 0), 100);
         vm.prank(keeper);
         vm.expectRevert();
         game.setDifficulty(BTC, 10);
@@ -922,6 +1187,32 @@ contract SkechGameTest is Base {
         game.setConfig(c);
         c = game.config();
         c.placeGraceMs = 500;
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadConfig.selector);
+        game.setConfig(c);
+        // Nothing left unbounded: a stale price, a huge dot or piece, a minimum redemption that stops them all.
+        c = game.config();
+        c.maxPriceAgeMs = 60_001;
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadConfig.selector);
+        game.setConfig(c);
+        c = game.config();
+        c.maxPriceAgeMs = 0;
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadConfig.selector);
+        game.setConfig(c);
+        c = game.config();
+        c.maxPerDot = 10_000e6 + 1;
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadConfig.selector);
+        game.setConfig(c);
+        c = game.config();
+        c.maxPieceStake = 1_000_000e6 + 1;
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadConfig.selector);
+        game.setConfig(c);
+        c = game.config();
+        c.minRedeem = 100e6 + 1;
         vm.prank(admin);
         vm.expectRevert(SkechGame.BadConfig.selector);
         game.setConfig(c);
@@ -951,6 +1242,36 @@ contract SkechGameTest is Base {
         vm.prank(admin);
         iou.upgradeToAndCall(address(freshIou), "");
         assertEq(iou.index(), indexBefore);
+    }
+
+    /// A game still at version 1 is upgraded with what it already owes, once, by the upgrader, in the same call.
+    function test_theUpgradeFromVersionOneSetsWhatIsOwed() public {
+        // Initializable's slot (ERC-7201 "openzeppelin.storage.Initializable"): put the proxy back at version 1.
+        bytes32 slot = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+        vm.store(address(game), slot, bytes32(uint256(1)));
+        SkechGame fresh = new SkechGame();
+        vm.prank(keeper);
+        vm.expectRevert();
+        game.upgradeToAndCall(address(fresh), abi.encodeCall(SkechGame.initializeV2, (317_000)));
+        vm.prank(admin);
+        game.upgradeToAndCall(address(fresh), abi.encodeCall(SkechGame.initializeV2, (317_000)));
+        assertEq(game.owed(), 317_000);
+        // Once only; and a fresh deployment starts at version 2, owing nothing.
+        vm.prank(admin);
+        vm.expectRevert();
+        game.initializeV2(1);
+        SkechGame other_ = SkechGame(
+            address(
+                new ERC1967Proxy(
+                    address(new SkechGame()),
+                    abi.encodeCall(SkechGame.initialize, (admin, oracle, IERC20(address(usdc)), ISkechIOU(address(iou)), address(revenue)))
+                )
+            )
+        );
+        vm.prank(admin);
+        vm.expectRevert();
+        other_.initializeV2(1);
+        assertEq(other_.owed(), 0);
     }
 
     /// The vector `packages/engine/src/quote.rs` signs: the engine's price signatures verify under this contract's domain.

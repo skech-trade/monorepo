@@ -13,7 +13,7 @@ optimizer = true
 optimizer_runs = 1000
 # Stack-too-deep in a batch placer with many calldata structs: via IR.
 via_ir = true
-fs_permissions = [{ access = "read-write", path = "../deployments" }]
+fs_permissions = [{ access = "read-write", path = "../deployments" }, { access = "read", path = "../solana/tests/vectors" }]
 # Every top-level call in a test is its own transaction, starting cold, as on chain: test/GasModel.t.sol measures
 # what the relayer's transactions cost and needs that; the rest of the suite is indifferent.
 isolate = true
@@ -24,7 +24,9 @@ runs = 512
 [invariant]
 runs = 64
 depth = 32
-fail_on_revert = false
+# The handler only makes calls that should go through, and checks the reverts it expects itself: any other revert
+# is a failure.
+fail_on_revert = true
 
 [rpc_endpoints]
 monad_testnet = "https://testnet-rpc.monad.xyz"

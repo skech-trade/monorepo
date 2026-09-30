@@ -5,12 +5,29 @@
 #
 #   wss://$SKECH_DOMAIN/engine/ws    -> engine  127.0.0.1:3102/ws
 #   wss://$SKECH_DOMAIN/relayer/ws   -> relayer 127.0.0.1:3103/ws
+#   wss://$SKECH_DOMAIN/solana/ws    -> the Solana relayer 127.0.0.1:3104/ws
+#
+# The relayers' /status is for the box only: `curl localhost:3103/status` there.
+{
+	# The admin API on a socket only caddy (and root) can open, not a port any process on the box can reach.
+	admin unix//run/caddy/admin.sock
+}
+
 {$SKECH_DOMAIN} {
+	# Nothing here takes a body: the sockets upgrade, the rest is GET.
+	request_body {
+		max_size 16KB
+	}
 	handle_path /engine/* {
 		reverse_proxy 127.0.0.1:3102
 	}
 	handle_path /relayer/* {
+		respond /status 404
 		reverse_proxy 127.0.0.1:3103
+	}
+	handle_path /solana/* {
+		respond /status 404
+		reverse_proxy 127.0.0.1:3104
 	}
 	respond 404
 }

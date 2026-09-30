@@ -28,7 +28,7 @@ export function hits(band: Band, unit: bigint, bar: PostedBar): boolean {
 export type Prediction = {
   /** Bets that pay out. */
   hits: number;
-  /** Bets the pool cannot pay in full: the player or the house is minted IOUs. */
+  /** Bets the pool cannot pay the player in full: the player is minted IOUs. */
   ious: number;
   /** Every live band of every bet sent: what settling reads. */
   liveSections: number;
@@ -69,14 +69,17 @@ export function predictSettle(bets: LiveBet[], bars: Map<number, PostedBar>, poo
     }
     if (gross === 0n) continue;
     hitCount++;
-    const fee = ((gross - stakeHit) * profitFeeBps) / BPS;
+    // Rounded up, as the contract takes it.
+    const fee = ((gross - stakeHit) * profitFeeBps + BPS - 1n) / BPS;
     due.set(bet.betId, { gross, fee });
-    // The player first, then the house's cut, both out of the pool; what it cannot cover is owed.
-    if (left === null || left < gross) {
+    // The player first, then the house's cut, both out of the pool. What it cannot pay the player is owed; the
+    // house's cut is only what it has left.
+    if (left === null || left < gross - fee) {
       ious++;
       left = left === null ? null : 0n;
     } else {
-      left -= gross;
+      left -= gross - fee;
+      left -= left < fee ? left : fee;
     }
   }
   return { hits: hitCount, ious, liveSections, due, poolAfter: left };

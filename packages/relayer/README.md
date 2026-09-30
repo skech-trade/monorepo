@@ -17,10 +17,14 @@ app ──ws /ws──> relayer ──eth_sendRawTransactionSync──> SkechGam
   `place` transaction carries them all.
 - `src/settler.ts`: 600 ms after a second ends, its bar is signed and posted with the bets that have ink
   in it, in one `postBarAndSettle`. Every fifteen seconds it redeems IOUs the pool can pay and collects
-  the fees. What is still to settle survives a restart in `.relayer-state.<chainId>.<game>.json`.
+  the fees. What is still to settle survives a restart in `.relayer-state.<chainId>.<game>.json`, written whole
+  or not at all (`src/state.ts`). A state file that is there but cannot be read stops the relayer at start, rather
+  than being saved over: restore it, or move it aside to start without it.
 - `src/chain.ts`: viem with a local nonce and Monad's synchronous send, which returns the receipt from the
   proposed block. Nothing is asked of the node between deciding to send and sending: the gas limit comes
-  from `src/gas.ts` and the base fee is followed in the background.
+  from `src/gas.ts` and the base fee is followed in the background. Nonces are taken and transactions signed
+  one at a time; a send that times out is waited on by its hash, its bytes sent again, never sent again under
+  a new nonce (both could land). A nonce that went unused is filled once every other is accounted for.
 - `src/rpc.ts`: Monad's public RPC allows 15 requests a second and turns the rest away with error -32011,
   which viem does not retry. This waits it out (five tries, under 2.5 s), so a throttled send goes again
   with the same bytes instead of failing and losing its nonce. Set `MONAD_TESTNET_RPC_URL` (or `MONAD_MAINNET_RPC_URL`) to a private RPC for
@@ -54,10 +58,24 @@ bun packages/relayer/scripts/e2e.ts   # anvil + contracts + engine + relayer + a
 | `NEXT_PUBLIC_ENGINE_URL` | `ws://localhost:3102/ws` | Where the engine is. |
 | `RELAYER_PORT` | `3103` | |
 | `RELAYER_SHADOW_EVERY` | `5` | Estimate one shaped send in this many alongside, to check the gas model; `1` checks all. |
+| `RELAYER_HOST` | `127.0.0.1` | Where to listen (both relayers). Caddy fronts it on the box; `0.0.0.0` for a phone on the LAN. |
+| `RELAYER_ENGINE_SIGNER` | none | The engine's signing address. Set, an engine that signs as anyone else is not listened to. |
 
 `GET /health` returns `ok`; `GET /status` says what it is doing, `chain.gas` among it: sends, shadow
 estimates, the worst estimate-to-limit ratio seen, and any slack added. Keep the relayer's wallet above
 12 MON: Monad holds 10 in reserve, and every transaction is charged its gas limit.
+
+## On Solana
+
+`src/solana/` is the same job for the Solana program, as its own process (`bun run dev:relayer:solana`, port 3104), sharing the engine client, the pricer and the price check:
+
+- **One piece, one transaction.** Pieces are checked as they arrive (the session's Ed25519 signature over `pieceBytes`, the engine's price, the balance), then at 350 ms into their second each is priced and sent on its own. The Ed25519 precompile instruction points at the piece inside `place`; the relayer signs as fee payer and oracle.
+- **Sending.** A blockhash and a priority fee kept fresh in the background: the fee is 75% of what recent blocks paid to write the pool, capped. v0 transactions go through the deployment's lookup table. Compute limits come from `packages/contracts/solana/snapshots/compute.json`. Each transaction is rebroadcast every 800 ms until it is confirmed or its blockhash expires.
+- **Settling.** A second's bar goes in with the first dozen bets that have ink in it, and the rest settle on it in parallel transactions. Bets are closed as they are decided and the rent comes back. Every fifteen seconds, when nothing is due: IOUs, the house's IOUs, USDC swept in from wallets that approved it, and fees to the treasury.
+- **Wallet-signed transactions.** Sessions, deposits and withdrawals are `build` → wallet signs → `submit`; the relayer co-signs only a message it built. Players never hold SOL.
+- **Transactions per player** are their `Player` account's signatures, counted incrementally.
+
+`scripts/e2e-solana.ts` plays it end to end on a local validator against the live engine.
 
 ## Protocol
 
@@ -78,3 +96,9 @@ the game, the oracle, the difficulty and the terms. Then:
 { "type": "settled", "betId", "hitMask", "missMask", "paid", "owed", "tx" }
 { "type": "account", "player", "balance", "session": {…}, "owed" }
 ```
+
+Every message is checked before it is read (`src/wire.ts`) and, if it is wrong, answered with why in the reply
+its sender waits for. What the relayer pays for is held to players with money in: a session only with a balance
+(on Solana, or USDC in the wallet), a deposit or withdrawal of at least 1 USDC (or the whole balance), a few an
+hour for one wallet or one address. A piece none of whose bands earns a rung is refused before it is sent, with
+the chain's own `NotOffered`. Each connection is rate limited by type of message (`src/limits.ts`).

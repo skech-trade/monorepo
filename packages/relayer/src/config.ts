@@ -22,10 +22,16 @@ const key = env("RELAYER_PRIVATE_KEY") ?? env("ENGINE_PRIVATE_KEY");
 if (!key) throw new Error("RELAYER_PRIVATE_KEY or ENGINE_PRIVATE_KEY must be set: the relayer signs quotes and bars and pays for gas");
 const game = (env("SKECH_GAME") ?? deployment?.game) as Address | undefined;
 if (!game) throw new Error(`SKECH_GAME is not set and ${deploymentPath} does not exist: deploy the contracts first`);
+const engineSigner = env("RELAYER_ENGINE_SIGNER");
+if (engineSigner && !/^0x[0-9a-fA-F]{40}$/.test(engineSigner)) throw new Error(`RELAYER_ENGINE_SIGNER is not an address: ${engineSigner}`);
 
 export const cfg = {
   port: Number(env("RELAYER_PORT") ?? 3103),
+  /** Where to listen: this machine only, behind Caddy. 0.0.0.0 to be reached from elsewhere (a phone on the same network). */
+  host: env("RELAYER_HOST") ?? "127.0.0.1",
   engineUrl: env("NEXT_PUBLIC_ENGINE_URL") ?? "ws://localhost:3102/ws",
+  /** The engine's signing address, if known: an engine that signs as anyone else is not listened to. */
+  engineSigner: engineSigner as Address | undefined,
   rpcUrl: rpcFor(process.env, chainId),
   chainId,
   key: key as Hex,
@@ -36,6 +42,8 @@ export const cfg = {
   /** The block the game was deployed in: each player's transactions are counted from there. Unknown, from now. */
   deployBlock: env("SKECH_DEPLOY_BLOCK") ? BigInt(env("SKECH_DEPLOY_BLOCK")!) : deployment?.block !== undefined ? BigInt(deployment.block) : null,
   libPath: env("SKECH_LIB") ?? join(root, "packages", "core", "src", "dots-lib.bin"),
+  /** Where the state and activity files go: packages/relayer, or the box's /var/lib/skech-relayer. */
+  stateDir: env("RELAYER_STATE_DIR") ?? join(root, "packages", "relayer"),
   market: 0,
   marketName: "BTC-USD",
   /** A piece opens on a second; it is priced this long after that second starts, once late trades are in. */
@@ -48,5 +56,7 @@ export const cfg = {
   sweepEveryMs: 15_000,
   /** Fees are collected once this much has built up, USDC e6. */
   collectAboveE6: 1_000_000n,
+  /** The least a deposit or withdrawal the relayer pays gas for may move, USDC e6 (a withdrawal of the whole balance always goes): the apps' least deposit. */
+  minMoveE6: 1_000_000n,
 };
 export type Config = typeof cfg;

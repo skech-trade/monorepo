@@ -98,20 +98,6 @@ const pub = createPublicClient({ transport: monadHttp(RPC) });
 const domain = { name: "skech", version: "1", chainId: hello.chainId, verifyingContract: hello.game } as const;
 relayer.send(JSON.stringify({ type: "watch", player: player.address }));
 
-/* ---- a session, signed by the wallet ---- */
-const nonce = (await pub.readContract({ address: hello.game, abi: [{ type: "function", name: "nonces", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }], functionName: "nonces", args: [player.address] })) as bigint;
-const validUntil = BigInt(Math.floor(Date.now() / 1000) + 3600);
-const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
-const allowance = 1_000_000_000n;
-const ZERO32 = `0x${"0".repeat(64)}` as Hex;
-const keyFields = P256
-  ? { kind: 1, key: "0x0000000000000000000000000000000000000000" as Address, x: p256X, y: p256Y }
-  : { kind: 0, key: session.address, x: ZERO32, y: ZERO32 };
-const sessionSig = await player.signTypedData({ domain, types: TYPES, primaryType: "Session", message: { player: player.address, ...keyFields, validUntil, allowance, nonce, deadline } });
-const set = await ask("session", { type: "session", player: player.address, ...keyFields, validUntil, allowance, deadline, sig: sessionSig }, "session-set");
-say(`${P256 ? "P-256" : "Ethereum"} session ${set.ok ? `set (${set.tx})` : `failed: ${set.why}`}`);
-if (!set.ok) process.exit(1);
-
 /* ---- a deposit, by EIP-3009 authorization: one signature, no allowance ---- */
 const usdcAbi = [
   { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
@@ -139,6 +125,20 @@ const authSig = await player.signTypedData({
 const dep = await ask("deposit", { type: "deposit", owner: player.address, amount, validAfter: 0n, validBefore, nonce: authNonce, sig: authSig }, "deposited");
 say(`deposit of ${amount} ${dep.ok ? `done (${dep.tx})` : `failed: ${dep.why}`}`);
 if (!dep.ok) process.exit(1);
+
+/* ---- a session, signed by the wallet: the relayer pays for one only once there is money in ---- */
+const nonce = (await pub.readContract({ address: hello.game, abi: [{ type: "function", name: "nonces", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }], functionName: "nonces", args: [player.address] })) as bigint;
+const validUntil = BigInt(Math.floor(Date.now() / 1000) + 3600);
+const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
+const allowance = 1_000_000_000n;
+const ZERO32 = `0x${"0".repeat(64)}` as Hex;
+const keyFields = P256
+  ? { kind: 1, key: "0x0000000000000000000000000000000000000000" as Address, x: p256X, y: p256Y }
+  : { kind: 0, key: session.address, x: ZERO32, y: ZERO32 };
+const sessionSig = await player.signTypedData({ domain, types: TYPES, primaryType: "Session", message: { player: player.address, ...keyFields, validUntil, allowance, nonce, deadline } });
+const set = await ask("session", { type: "session", player: player.address, ...keyFields, validUntil, allowance, deadline, sig: sessionSig }, "session-set");
+say(`${P256 ? "P-256" : "Ethereum"} session ${set.ok ? `set (${set.tx})` : `failed: ${set.why}`}`);
+if (!set.ok) process.exit(1);
 
 /* ---- drawing: taps on the price a couple of seconds ahead, as the app would ---- */
 while (book.bars.length < 320 || !seen) await sleep(200);
@@ -175,8 +175,10 @@ say(`placed ${results.placed} refused ${results.refused} settled ${results.settl
 
 /* ---- and take the money out, by signature ---- */
 const nonce2 = (await pub.readContract({ address: hello.game, abi: [{ type: "function", name: "nonces", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }], functionName: "nonces", args: [player.address] })) as bigint;
-const wsig = await player.signTypedData({ domain, types: TYPES, primaryType: "Withdraw", message: { player: player.address, amount: 1_000_000n, to: player.address, nonce: nonce2, deadline } });
-const w = await ask("withdraw", { type: "withdraw", player: player.address, amount: 1_000_000n, to: player.address, deadline, sig: wsig }, "withdrawn");
+// Its own deadline: the one above was signed before the engine had the minutes of history pricing waits for.
+const wdeadline = BigInt(Math.floor(Date.now() / 1000) + 300);
+const wsig = await player.signTypedData({ domain, types: TYPES, primaryType: "Withdraw", message: { player: player.address, amount: 1_000_000n, to: player.address, nonce: nonce2, deadline: wdeadline } });
+const w = await ask("withdraw", { type: "withdraw", player: player.address, amount: 1_000_000n, to: player.address, deadline: wdeadline, sig: wsig }, "withdrawn");
 say(`withdraw of 1 USDC ${w.ok ? `done (${w.tx})` : `failed: ${w.why}`}`);
 const ok = results.placed > 0 && results.settled > 0 && !!w.ok;
 say(ok ? "OK" : "FAILED");

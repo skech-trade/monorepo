@@ -156,7 +156,7 @@ contract GasModelTest is Base {
     /* ---- bars ---- */
 
     /// @dev Every bar covers LO..HI: a band there is hit, a band FAR off is missed; the close never moves.
-    function barAt(uint64 second) internal view returns (SkechGame.Bar memory b, bytes memory sig) {
+    function barAt(uint64 second) internal returns (SkechGame.Bar memory b, bytes memory sig) {
         return bar(second, PRICE, HI, LO, PRICE);
     }
 
