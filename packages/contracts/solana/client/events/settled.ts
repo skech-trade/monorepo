@@ -51,6 +51,12 @@ export type SettledEvent = {
   owed: bigint;
   /** Every band decided: the bet is closed. */
   closed: boolean;
+  /**
+   * Bands whose second can no longer be posted, given back by `expire`, and what they gave back (in `paid` and
+   * `owed` with the rest).
+   */
+  expiredMask: number;
+  refunded: bigint;
 };
 
 export type SettledEventArgs = {
@@ -62,6 +68,12 @@ export type SettledEventArgs = {
   owed: number | bigint;
   /** Every band decided: the bet is closed. */
   closed: boolean;
+  /**
+   * Bands whose second can no longer be posted, given back by `expire`, and what they gave back (in `paid` and
+   * `owed` with the rest).
+   */
+  expiredMask: number;
+  refunded: number | bigint;
 };
 
 /** Gets the encoder for {@link SettledEventArgs} event data. */
@@ -75,6 +87,8 @@ export function getSettledEventEncoder(): FixedSizeEncoder<SettledEventArgs> {
       ["paid", getU64Encoder()],
       ["owed", getU64Encoder()],
       ["closed", getBooleanEncoder()],
+      ["expiredMask", getU32Encoder()],
+      ["refunded", getU64Encoder()],
     ]),
     [getConstantEncoder(SETTLED_EVENT_DISCRIMINATOR)],
   );
@@ -91,6 +105,8 @@ export function getSettledEventDecoder(): FixedSizeDecoder<SettledEvent> {
       ["paid", getU64Decoder()],
       ["owed", getU64Decoder()],
       ["closed", getBooleanDecoder()],
+      ["expiredMask", getU32Decoder()],
+      ["refunded", getU64Decoder()],
     ]),
     [getConstantDecoder(SETTLED_EVENT_DISCRIMINATOR)],
   );

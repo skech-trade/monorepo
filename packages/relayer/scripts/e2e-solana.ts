@@ -179,7 +179,8 @@ ok(ack.ok, `piece accepted: ${ack.betId ?? ack.why}`);
 const placed = await next((m) => m.type === "placed" || m.type === "refused", "placed");
 ok(placed.type === "placed", `piece placed on chain, ${(placed.sections as unknown[] | undefined)?.length} bands, staked ${placed.staked}: ${placed.tx ?? placed.why}`);
 const settled: Record<string, unknown>[] = [];
-for (let i = 0; i < 3; i++) {
+// A bet decided inside its placing window is closed by a settle once the window is over: one message more.
+for (let i = 0; i < 4; i++) {
   const s = await next((m) => m.type === "settled", "settled", 30_000);
   settled.push(s);
   if (s.closed) break;

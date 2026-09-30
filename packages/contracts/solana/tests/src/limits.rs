@@ -48,6 +48,12 @@ fn the_widest_piece_fits_one_transaction_with_a_lookup_table() {
     assert!(size <= 1232, "{size} bytes: over Solana's 1232");
 }
 
+/// A drawing, from `from` on, whose bet's canonical bump is `bump`: `place` searches down from 255 for it, and every
+/// bump it tries costs compute.
+fn drawing_at_bump(wallet: &Pubkey, from: u64, bump: impl Fn(u8) -> bool) -> u64 {
+    (from..).find(|&d| bump(bet_pda(wallet, d, 0).1)).unwrap()
+}
+
 #[test]
 fn compute_units() {
     let mut out = serde_json::Map::new();
@@ -55,13 +61,24 @@ fn compute_units() {
     let mut players = vec![];
     for n in [1usize, 8, 16, 32] {
         let p = g.player(100 * E6, 50 * E6);
-        let piece = g.piece(&p, n as u64, 0, (S + 1) * 1000, &widest(n));
+        // Measured at bump 255, where the search ends at once.
+        let drawing = drawing_at_bump(&p.wallet.pubkey(), n as u64, |b| b == 255);
+        let piece = g.piece(&p, drawing, 0, (S + 1) * 1000, &widest(n));
         let quote = g.quote(&piece, 500_000_000);
         let r = g.place(&p, &piece, &quote).expect("placed");
         println!("place, {n} bands: {} CU", r.compute_units_consumed);
         out.insert(format!("place_{n}"), r.compute_units_consumed.into());
-        players.push((bet_pda(&p.wallet.pubkey(), n as u64, 0).0, p.wallet.pubkey()));
+        players.push((bet_pda(&p.wallet.pubkey(), drawing, 0).0, p.wallet.pubkey()));
     }
+    // What each bump below 255 adds: the relayer knows a bet's bump, and budgets for it.
+    let p = g.player(100 * E6, 50 * E6);
+    let drawing = drawing_at_bump(&p.wallet.pubkey(), 1_000, |b| b <= 251);
+    let bump = bet_pda(&p.wallet.pubkey(), drawing, 0).1;
+    let piece = g.piece(&p, drawing, 0, (S + 1) * 1000, &widest(1));
+    let r = g.place(&p, &piece, &g.quote(&piece, 500_000_000)).expect("placed");
+    let per_bump = (r.compute_units_consumed - out["place_1"].as_u64().unwrap()).div_ceil(255 - bump as u64);
+    println!("place, each bump below 255: {per_bump} CU");
+    out.insert("place_per_bump".into(), per_bump.into());
     // Every bet has a band in second 1: settle all four on it.
     g.set_time(S + 3);
     let r = g.post_and_settle((S + 2) * 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &players).expect("settled");
@@ -76,6 +93,15 @@ fn compute_units() {
         std::fs::create_dir_all(std::path::Path::new(path).parent().unwrap()).unwrap();
         std::fs::write(path, serde_json::to_string_pretty(&out).unwrap() + "\n").unwrap();
     }
+}
+
+/// The accounts' sizes, now worked out rather than written out: the same bytes as the accounts already on chain.
+#[test]
+fn account_sizes_are_what_is_on_chain() {
+    assert_eq!(skech::state::Bars::SPACE, 9_624);
+    // A bet's fixed part, and each section.
+    assert_eq!(skech::state::Bet::FIXED, 130);
+    assert_eq!(skech::state::Bet::space(32), 130 + 32 * 27);
 }
 
 /// A piece's bytes and a domain, for `sdk.test.ts` to check the TypeScript encodes them the same.

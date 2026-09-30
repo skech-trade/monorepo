@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { address } from "@solana/kit";
 import vectors from "./tests/vectors/piece.json";
-import { domainFor, ed25519Instruction, pieceBytes, SKECH_PROGRAM_ADDRESS } from "./sdk";
+import { DEFAULT_CONFIG, domainFor, ed25519Instruction, pieceBytes, SKECH_PROGRAM_ADDRESS } from "./sdk";
 
 test("the client is for the program the vectors come from", () => {
   expect(SKECH_PROGRAM_ADDRESS as string).toBe(address(vectors.program));
@@ -39,4 +39,20 @@ test("the Ed25519 instruction points at the piece inside place", () => {
   const v = new DataView(d.buffer, d.byteOffset);
   expect(d.length).toBe(112);
   expect([d[0], v.getUint16(2, true), v.getUint16(4, true), v.getUint16(6, true), v.getUint16(8, true), v.getUint16(10, true), v.getUint16(12, true), v.getUint16(14, true)]).toEqual([1, 48, 0xffff, 16, 0xffff, 8, 172, 2]);
+});
+
+test("the default config is Monad's, as SkechGame.initialize writes it", async () => {
+  const sol = await Bun.file(new URL("../evm/src/SkechGame.sol", import.meta.url)).text();
+  const init = sol.slice(sol.indexOf("function initialize("));
+  const body = init.slice(init.indexOf("Config({") + 8, init.indexOf("})"));
+  const evm = Object.fromEntries(
+    body
+      .split("\n")
+      .map((l) => l.split("//")[0].trim().replace(/,$/, ""))
+      .filter(Boolean)
+      .map((l) => l.split(":").map((x) => x.trim()))
+      .map(([k, v]) => [k, BigInt(v.replaceAll("_", ""))]),
+  );
+  const { maxSessionSecs: _, ...shared } = DEFAULT_CONFIG;
+  expect(Object.fromEntries(Object.entries(shared).map(([k, v]) => [k, BigInt(v)]))).toEqual(evm);
 });

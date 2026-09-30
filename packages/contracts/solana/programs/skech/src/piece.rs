@@ -5,8 +5,13 @@
 //! transaction carries an Ed25519 precompile instruction just before `place` that verifies the signature over
 //! that range of `place`'s own data, so the piece is in the transaction once, not twice. The program then checks
 //! the precompile instruction was pointed at exactly that range and at the player's session key.
+//!
+//! `place` must be one of the transaction's own instructions, not called from another program: the instructions
+//! sysvar knows only the transaction's own, so from inside another program "this instruction's data" is that
+//! program's, which could carry a piece the key once signed while passing on a different one.
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::instruction::{get_stack_height, TRANSACTION_LEVEL_STACK_HEIGHT};
 use anchor_lang::solana_program::sysvar::instructions::{load_current_index_checked, load_instruction_at_checked};
 
 use crate::error::SkechError;
@@ -87,6 +92,8 @@ fn u16_at(d: &[u8], at: usize) -> Option<u16> {
 /// instruction's data from byte 8 for `len` bytes. The precompile has already failed the transaction if the
 /// signature is wrong; what is checked here is that it checked the right thing.
 pub fn verify_session_sig(instructions: &AccountInfo, key: &Pubkey, len: usize) -> Result<()> {
+    // One of the transaction's own instructions, so the one at the current index is this one, its data the piece.
+    require!(get_stack_height() == TRANSACTION_LEVEL_STACK_HEIGHT, SkechError::SessionSig);
     let current = load_current_index_checked(instructions)?;
     require!(current > 0, SkechError::SessionSig);
     let ix = load_instruction_at_checked(current as usize - 1, instructions)?;

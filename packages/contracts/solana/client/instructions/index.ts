@@ -9,6 +9,7 @@
 export * from "./acceptAdmin";
 export * from "./collectFees";
 export * from "./deposit";
+export * from "./expire";
 export * from "./initialize";
 export * from "./initMarket";
 export * from "./place";

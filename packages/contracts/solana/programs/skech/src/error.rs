@@ -68,4 +68,12 @@ pub enum SkechError {
     NotUpgradeAuthority,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("The bar is too late to post")]
+    BarLate,
+    #[msg("USDC must be an SPL Token mint")]
+    NotSplToken,
+    #[msg("A holder redeeming their own takes no cut: send no caller_player")]
+    OwnRedeem,
+    #[msg("Not the proposed admin")]
+    NotPendingAdmin,
 }

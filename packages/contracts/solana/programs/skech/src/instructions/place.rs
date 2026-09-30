@@ -48,7 +48,7 @@ pub struct Place<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs, bet_bump: u8) -> Result<()> {
+pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Result<()> {
     let a = &ctx.accounts;
     let game = &a.game;
     let c = &game.config;
@@ -59,7 +59,7 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs, bet_bum
     // The quote, and the window: not long after the second the piece opens on, and not before it either.
     require!(piece.open_at > 0 && piece.open_at % 1000 == 0 && piece.unit > 0 && quote.price > 0, SkechError::BadQuote);
     // A grid unit is a sliver of the price: it also pads every band, so it cannot be let grow.
-    require!(piece.unit as u128 * 2000 <= quote.price as u128, SkechError::BadQuote);
+    require!(piece.unit as u128 * PRICE_UNITS <= quote.price as u128, SkechError::BadQuote);
     let now_ms = Clock::get()?.unix_timestamp.checked_mul(1000).ok_or(SkechError::Overflow)?;
     let grace = c.place_grace_ms as i64;
     require!(now_ms <= piece.open_at + grace && piece.open_at <= now_ms + grace, SkechError::Window);
@@ -67,9 +67,11 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs, bet_bum
     // The piece itself.
     require!(piece.domain == game.domain && piece.market == market.id, SkechError::Mismatch);
     let player_key = piece.player;
-    let seeds: &[&[u8]] = &[BET_SEED, player_key.as_ref(), &piece.drawing.to_le_bytes(), &piece.index.to_le_bytes(), &[bet_bump]];
-    let bet_key = Pubkey::create_program_address(seeds, ctx.program_id).map_err(|_| SkechError::Mismatch)?;
+    // Only at its canonical bump: a piece has one bet address, or it could be placed again at every other bump.
+    let (drawing, index) = (piece.drawing.to_le_bytes(), piece.index.to_le_bytes());
+    let (bet_key, bet_bump) = Pubkey::find_program_address(&[BET_SEED, player_key.as_ref(), &drawing, &index], ctx.program_id);
     require_keys_eq!(bet_key, a.bet.key(), SkechError::Mismatch);
+    let seeds: &[&[u8]] = &[BET_SEED, player_key.as_ref(), &drawing, &index, &[bet_bump]];
     require!(a.bet.owner != ctx.program_id, SkechError::Replay);
     require!(piece.difficulty == market.difficulty, SkechError::Difficulty);
     // The oracle must have had the piece before its opening second, give or take the network.
@@ -95,8 +97,9 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs, bet_bum
     let mut sections: Vec<BetSection> = Vec::with_capacity(n);
     let mut kept: u64 = 0;
     for (s, &chance) in piece.sections.iter().zip(&quote.chances) {
-        let lo = s.lo as u64 * piece.unit;
-        let hi = (s.lo as u64 + s.width as u64) * piece.unit;
+        // A band beyond any price a u64 holds is not a band.
+        let lo = (s.lo as u64).checked_mul(piece.unit).ok_or(SkechError::Sections)?;
+        let hi = (s.lo as u64 + s.width as u64).checked_mul(piece.unit).ok_or(SkechError::Sections)?;
         if bars.at(piece.open_at + s.second as i64 * 1000).is_some() {
             continue;
         }
@@ -140,7 +143,7 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs, bet_bum
         unit,
         stake: kept,
         rent_payer: ctx.accounts.payer.key(),
-        sections: sections.clone(),
+        sections,
     };
     create_pda(&ctx.accounts.payer, &ctx.accounts.bet, &ctx.accounts.system_program, Bet::space(count), ctx.program_id, seeds)?;
     let info = ctx.accounts.bet.to_account_info();
@@ -162,7 +165,7 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs, bet_bum
         price_seen: piece.price_seen,
         price_time: piece.price_time,
         stroke_hash: piece.stroke_hash,
-        sections,
+        sections: bet.sections,
     });
     Ok(())
 }

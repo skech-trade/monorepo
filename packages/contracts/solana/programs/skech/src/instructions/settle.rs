@@ -1,6 +1,7 @@
 //! The price, a second at a time, and settling on it. The oracle posts each second once it is over; every band in
-//! that second is then decided by one rule, hit or miss. A bet whose last band is decided is closed, and its rent
-//! goes back to whoever paid it.
+//! that second is then decided by one rule, hit or miss. A bet whose last band is decided is closed, once its piece
+//! can no longer be placed, and its rent goes back to whoever paid it. A band whose second was never posted, and now
+//! never can be, is given back by `expire`.
 
 use anchor_lang::prelude::*;
 
@@ -42,7 +43,7 @@ pub struct PostBarAndSettle<'info> {
     pub bars: AccountLoader<'info, Bars>,
     #[account(mut, seeds = [POOL_SEED], bump = pool.bump)]
     pub pool: Box<Account<'info, Pool>>,
-    /// Gets back the rent of the bets closed here: must be who paid it.
+    /// Gets back the rent of the bets closed here: only those it paid for are closed.
     /// CHECK: compared with each bet's `rent_payer`.
     #[account(mut)]
     pub rent_receiver: UncheckedAccount<'info>,
@@ -63,7 +64,6 @@ pub struct Settle<'info> {
 }
 
 fn post(game: &Game, bars: &mut Bars, market: u8, bar: &BarInput) -> Result<()> {
-    require!(bars.market == market, SkechError::BadBar);
     require!(bar.second > 0 && bar.second % 1000 == 0 && bar.low > 0 && bar.prev_close > 0, SkechError::BadBar);
     require!(bar.low <= bar.high && bar.close >= bar.low && bar.close <= bar.high, SkechError::BadBar);
     // A second is posted once it is over, by this chain's clock, give or take the grace: never ahead of the ink in it.
@@ -75,18 +75,20 @@ fn post(game: &Game, bars: &mut Bars, market: u8, bar: &BarInput) -> Result<()> 
         require!(*existing == new, SkechError::BarConflict);
         return Ok(());
     }
+    // Not so late that a bet in it may have been given its stake back, or that its slot may hold a newer second.
+    require!(!Bars::too_late(bar.second, now_ms), SkechError::BarLate);
     // One second follows from the last: the previous bar's close is this one's opening price.
     if let Some(prev) = bars.at(bar.second - 1000) {
         require!(prev.close == bar.prev_close, SkechError::BarDiscontinuous);
     }
-    bars.put(new);
+    require!(bars.put(new), SkechError::BarLate);
     emit!(BarPosted { market, second: bar.second, prev_close: bar.prev_close, high: bar.high, low: bar.low, close: bar.close });
     Ok(())
 }
 
+/// Post a second's bar. A market closed to new pieces is still posted, so the bets already in it are decided.
 pub fn post_bar(ctx: Context<PostBar>, market: u8, bar: BarInput) -> Result<()> {
     require!(!ctx.accounts.game.paused, SkechError::Paused);
-    require!(ctx.accounts.market_account.active, SkechError::MarketInactive);
     let mut bars = ctx.accounts.bars.load_mut()?;
     post(&ctx.accounts.game, &mut bars, market, &bar)
 }
@@ -96,13 +98,12 @@ pub fn post_bar(ctx: Context<PostBar>, market: u8, bar: BarInput) -> Result<()> 
 pub fn post_bar_and_settle<'info>(ctx: Context<'_, '_, 'info, 'info, PostBarAndSettle<'info>>, market: u8, bar: BarInput) -> Result<()> {
     let a = ctx.accounts;
     require!(!a.game.paused, SkechError::Paused);
-    require!(a.market_account.active, SkechError::MarketInactive);
     {
         let mut bars = a.bars.load_mut()?;
         post(&a.game, &mut bars, market, &bar)?;
     }
     let bars = a.bars.load()?;
-    settle_all(ctx.program_id, &a.game, &bars, &mut a.pool, &a.rent_receiver, ctx.remaining_accounts, market)
+    settle_all(ctx.program_id, &a.game, &bars, &mut a.pool, &a.rent_receiver, ctx.remaining_accounts, market, false)
 }
 
 /// Settle bets on the bars already posted: bands in a posted second are hit or missed; the rest wait. Anyone may.
@@ -110,21 +111,31 @@ pub fn settle<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>, market: 
     let a = ctx.accounts;
     require!(!a.game.paused, SkechError::Paused);
     let bars = a.bars.load()?;
-    require!(bars.market == market, SkechError::BadBar);
-    settle_all(ctx.program_id, &a.game, &bars, &mut a.pool, &a.rent_receiver, ctx.remaining_accounts, market)
+    settle_all(ctx.program_id, &a.game, &bars, &mut a.pool, &a.rent_receiver, ctx.remaining_accounts, market, false)
 }
 
-fn settle_all<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut Pool, rent_receiver: &UncheckedAccount<'info>, pairs: &'info [AccountInfo<'info>], market: u8) -> Result<()> {
+/// Settle bets as `settle` does, and give back the stake of every band whose second was never posted and is now too
+/// late to be (`BAR_LATE`), all of it, as Monad's `expire` does. Anyone may, so a player's stake never waits on an
+/// oracle that has stopped.
+pub fn expire<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>, market: u8) -> Result<()> {
+    let a = ctx.accounts;
+    require!(!a.game.paused, SkechError::Paused);
+    let bars = a.bars.load()?;
+    settle_all(ctx.program_id, &a.game, &bars, &mut a.pool, &a.rent_receiver, ctx.remaining_accounts, market, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn settle_all<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut Pool, rent_receiver: &UncheckedAccount<'info>, pairs: &'info [AccountInfo<'info>], market: u8, expire: bool) -> Result<()> {
     require!(pairs.len() % 2 == 0, SkechError::BadSettleAccounts);
     let now = Clock::get()?.unix_timestamp;
     for pair in pairs.chunks(2) {
-        settle_one(program_id, game, bars, pool, rent_receiver, &pair[0], &pair[1], market, now)?;
+        settle_one(program_id, game, bars, pool, rent_receiver, &pair[0], &pair[1], market, now, expire)?;
     }
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut Pool, rent_receiver: &UncheckedAccount<'info>, bet_info: &AccountInfo<'info>, player_info: &AccountInfo<'info>, market: u8, now: i64) -> Result<()> {
+fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut Pool, rent_receiver: &UncheckedAccount<'info>, bet_info: &AccountInfo<'info>, player_info: &AccountInfo<'info>, market: u8, now: i64, expire: bool) -> Result<()> {
     // Already closed (settled in an earlier transaction): nothing to do, and not an error, so a retry is harmless.
     if bet_info.owner != program_id || bet_info.data_is_empty() {
         return Ok(());
@@ -136,14 +147,22 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
     require!(bet.market == market, SkechError::BadSettleAccounts);
 
     let live = bet.live_mask;
-    let (mut hits, mut decided) = (0u32, 0u32);
-    let (mut gross_pay, mut stake_hit) = (0u64, 0u64);
+    let (mut hits, mut decided, mut expired) = (0u32, 0u32, 0u32);
+    let (mut gross_pay, mut stake_hit, mut stake_back) = (0u64, 0u64, 0u64);
     for (i, s) in bet.sections.iter().enumerate() {
         let bit = 1u32 << i;
         if live & bit == 0 {
             continue;
         }
-        let Some(b) = bars.at(bet.open_at + s.second as i64 * 1000) else { continue };
+        let second = bet.open_at + s.second as i64 * 1000;
+        let Some(b) = bars.at(second) else {
+            if expire && Bars::too_late(second, now * 1000) {
+                decided |= bit;
+                expired |= bit;
+                stake_back += s.stake;
+            }
+            continue;
+        };
         decided |= bit;
         if ladder::crosses(b.prev_close, b.high, b.low, s.lo, s.hi, bet.unit) {
             hits |= bit;
@@ -151,7 +170,10 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
             gross_pay += ladder::gross(s.stake, s.rung);
         }
     }
-    if decided == 0 {
+    // A bet is not closed while its piece could still be placed: that would let the same piece go in again. Nor
+    // here if someone else paid its rent: it waits for them, and the rest of the batch goes on.
+    let closable = now * 1000 > bet.open_at + game.config.place_grace_ms as i64 && rent_receiver.key() == bet.rent_payer;
+    if decided == 0 && !(live == 0 && closable) {
         return Ok(());
     }
     bet.live_mask = live & !decided;
@@ -168,11 +190,20 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
         pool.pool -= cut;
         pool.fees += cut;
     }
-    player.try_serialize(&mut &mut player_info.try_borrow_mut_data()?[..])?;
-    let closed = bet.live_mask == 0;
+    let mut refunded = 0;
+    if stake_back > 0 {
+        // All of it, as on Monad: a band its bar never came for never ran. The pool gives back the fee as well.
+        refunded = stake_back;
+        let (p, o) = pay(pool, Some(&mut player), refunded, now);
+        paid += p;
+        owed += o;
+    }
+    if decided != 0 {
+        player.try_serialize(&mut &mut player_info.try_borrow_mut_data()?[..])?;
+    }
+    let closed = bet.live_mask == 0 && closable;
     if closed {
         // Every band decided: the bet is done. Its rent goes back to whoever paid it.
-        require_keys_eq!(rent_receiver.key(), bet.rent_payer, SkechError::BadSettleAccounts);
         let lamports = bet_info.lamports();
         **rent_receiver.to_account_info().try_borrow_mut_lamports()? += lamports;
         **bet_info.try_borrow_mut_lamports()? = 0;
@@ -181,7 +212,7 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
     } else {
         bet.try_serialize(&mut &mut bet_info.try_borrow_mut_data()?[..])?;
     }
-    emit!(Settled { bet: bet_info.key(), player: bet.player, hit_mask: hits, miss_mask: decided & !hits, paid, owed, closed });
+    emit!(Settled { bet: bet_info.key(), player: bet.player, hit_mask: hits, miss_mask: decided & !hits & !expired, paid, owed, closed, expired_mask: expired, refunded });
     Ok(())
 }
 
