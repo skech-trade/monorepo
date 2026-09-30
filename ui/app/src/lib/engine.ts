@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Bar } from "@skech/core/dots";
-import { ENGINE_URL as STREAM } from "./endpoints";
+import { ENGINE_URL as STREAM, jitter, STEADY_MS } from "./endpoints";
 
 /**
  * Bitcoin as the game is priced and judged on: Coinbase BTC-USD, trade by
@@ -102,6 +102,7 @@ export function useEngine(): Market {
     let frame = 0;
     let late: ReturnType<typeof setTimeout> | undefined;
     let backoff = 500;
+    let steady: ReturnType<typeof setTimeout> | undefined;
     let heard = 0;
     /** The newest trade folded in, so the history a reconnect is sent is not counted twice. */
     let lastId = 0;
@@ -156,7 +157,8 @@ export function useEngine(): Market {
       ws = sock;
       heard = Date.now();
       sock.onopen = () => {
-        backoff = 500;
+        clearTimeout(steady);
+        steady = setTimeout(() => (backoff = 500), STEADY_MS);
         m.connected = true;
         setConnected(true);
       };
@@ -196,7 +198,8 @@ export function useEngine(): Market {
           setConnected(false);
         }
         if (stopped || ws !== sock) return;
-        retry = setTimeout(connect, backoff);
+        clearTimeout(steady);
+        retry = setTimeout(connect, jitter(backoff));
         backoff = Math.min(10_000, backoff * 2);
       };
       sock.onerror = () => sock.close();
@@ -215,6 +218,7 @@ export function useEngine(): Market {
         ws = null;
         dead.onclose = null;
         dead.close();
+        clearTimeout(steady);
         m.connected = false;
         setConnected(false);
         connect();
@@ -236,6 +240,7 @@ export function useEngine(): Market {
       clearInterval(clock);
       stopped = true;
       clearTimeout(retry);
+      clearTimeout(steady);
       clearTimeout(late);
       cancelAnimationFrame(frame);
       // Closing a socket still connecting logs a warning; it closes as soon as it opens instead.

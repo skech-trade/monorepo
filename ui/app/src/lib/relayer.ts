@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Address, Hex } from "viem";
-import { RELAYER_URL } from "./endpoints";
+import { jitter, RELAYER_URL, STEADY_MS } from "./endpoints";
 
 /**
  * The relayer: where the app sends what it draws, signed by the session key,
@@ -55,6 +55,8 @@ export class RelayerClient {
   private handlers = new Set<Handler>();
   private stopped = false;
   private backoff = 500;
+  private retry: ReturnType<typeof setTimeout> | undefined;
+  private steady: ReturnType<typeof setTimeout> | undefined;
   hello: Hello | null = null;
   connected = false;
   player: Address | null = null;
@@ -62,13 +64,22 @@ export class RelayerClient {
   constructor(private readonly url = RELAYER_URL) {}
 
   start() {
+    if (!this.stopped && this.ws) return;
     this.stopped = false;
+    clearTimeout(this.retry);
     this.connect();
   }
 
   stop() {
     this.stopped = true;
-    this.ws?.close();
+    clearTimeout(this.retry);
+    clearTimeout(this.steady);
+    const sock = this.ws;
+    this.ws = null;
+    this.connected = false;
+    // Closing a socket still connecting logs a warning; it closes as soon as it opens instead.
+    if (sock?.readyState === WebSocket.CONNECTING) sock.onopen = () => sock.close();
+    else sock?.close();
   }
 
   on(h: Handler) {
@@ -111,7 +122,8 @@ export class RelayerClient {
     const sock = new WebSocket(this.url);
     this.ws = sock;
     sock.onopen = () => {
-      this.backoff = 500;
+      clearTimeout(this.steady);
+      this.steady = setTimeout(() => (this.backoff = 500), STEADY_MS);
       this.connected = true;
       if (this.player) this.send({ type: "watch", player: this.player });
       this.emit({ type: "error", why: "" });
@@ -129,7 +141,8 @@ export class RelayerClient {
     sock.onclose = () => {
       if (this.ws === sock) this.connected = false;
       if (this.stopped || this.ws !== sock) return;
-      setTimeout(() => this.connect(), this.backoff);
+      clearTimeout(this.steady);
+      this.retry = setTimeout(() => this.connect(), jitter(this.backoff));
       this.backoff = Math.min(10_000, this.backoff * 2);
       this.emit({ type: "error", why: "" });
     };
@@ -147,20 +160,18 @@ export function useRelayer(player: Address | null, enabled: boolean) {
   const [hello, setHello] = useState<Hello | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
   const [connected, setConnected] = useState(false);
-  const started = useRef(false);
   useEffect(() => {
     if (!enabled) return;
-    if (!started.current) {
-      started.current = true;
-      client.start();
-    }
+    client.start();
     const off = client.on((m) => {
       setConnected(client.connected);
       if (m.type === "hello") setHello(m);
       else if (m.type === "account") setAccount(m);
     });
+    // Gone from the page: the socket closes, and nothing reopens it.
     return () => {
       off();
+      client.stop();
     };
   }, [client, enabled]);
   useEffect(() => {
