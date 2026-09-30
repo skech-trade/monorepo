@@ -14,6 +14,7 @@ import { remember } from "../limits";
 import type { Pricer } from "../pricer";
 import { report } from "../sentry";
 import { verifyPrice } from "../verify";
+import { big } from "../wire";
 import { customCode, type SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { SolanaSettler } from "./settler";
@@ -47,7 +48,6 @@ const bytesOf = (s: unknown, n?: number): Uint8Array | null => {
   const b = new Uint8Array(hex.encode(s.replace(/^0x/, "").toLowerCase()));
   return n === undefined || b.length === n ? b : null;
 };
-const big = (s: unknown) => (typeof s === "string" && /^\d{1,20}$/.test(s) ? BigInt(s) : null);
 const u = (n: unknown, max: number) => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= max;
 
 export class SolanaSequencer {
@@ -139,6 +139,9 @@ export class SolanaSequencer {
     const held = this.pending.get(piece.player) ?? 0n;
     if (acct.allowance < stake + held) return bad("Session allowance used up", bet);
     if (acct.balance < stake + held) return bad("Not enough in your balance", bet);
+    // Looked at again here, with nothing awaited between it and taking the piece in: the same piece sent twice at
+    // once passed the first look together.
+    if (this.seen.has(bet)) return bad("Already sent", bet);
 
     this.seen.add(bet);
     if (this.seen.size > 50_000) this.seen.delete(this.seen.values().next().value!);

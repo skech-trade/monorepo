@@ -20,11 +20,10 @@ import type { Placed, Refused, SolanaPieceMsg, SolanaSequencer } from "./sequenc
 import type { Settled, SolanaSettler } from "./settler";
 import { clientIp, Door, MESSAGE_BYTES, Rates, remember, Sponsor } from "../limits";
 import { report } from "../sentry";
-import { type Message, read, refusal, SOLANA } from "../wire";
+import { big, type Message, read, refusal, SOLANA } from "../wire";
 
 type Data = { id: number; ip: string; rates: Rates; player?: Address };
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
-const big = (s: unknown) => (typeof s === "string" && /^\d{1,20}$/.test(s) ? BigInt(s) : typeof s === "number" && Number.isInteger(s) && s >= 0 ? BigInt(s) : null);
 const addr = (s: unknown): Address | null => {
   try {
     return typeof s === "string" ? address(s) : null;
@@ -60,6 +59,7 @@ export class SolanaServer {
   start() {
     this.server = Bun.serve<Data>({
       port: this.cfg.port,
+      hostname: this.cfg.host,
       fetch: (req, server) => {
         const url = new URL(req.url);
         if (url.pathname === "/health") return new Response("ok");
@@ -88,7 +88,7 @@ export class SolanaServer {
         maxPayloadLength: MESSAGE_BYTES,
       },
     });
-    this.log(`listening on ws://localhost:${this.cfg.port}/ws (${this.cfg.net.label})`);
+    this.log(`listening on ws://${this.cfg.host}:${this.cfg.port}/ws (${this.cfg.net.label})`);
   }
 
   announce() {

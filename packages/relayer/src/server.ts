@@ -15,7 +15,7 @@ import type { Settled, Settler } from "./settler";
 import type { Activity } from "./activity";
 import { clientIp, Door, MESSAGE_BYTES, Rates, Sponsor } from "./limits";
 import { report } from "./sentry";
-import { MONAD, type Message, read, refusal } from "./wire";
+import { big, type Message, MONAD, read, refusal } from "./wire";
 
 type Data = { id: number; ip: string; rates: Rates; player?: Address };
 type Deps = { cfg: Config; engine: Engine; chain: ChainClient; log: (s: string) => void; status: () => Record<string, unknown> };
@@ -23,7 +23,6 @@ type Deps = { cfg: Config; engine: Engine; chain: ChainClient; log: (s: string) 
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
 const isHex = (s: unknown): s is Hex => typeof s === "string" && /^0x[0-9a-fA-F]*$/.test(s);
 const isAddress = (s: unknown): s is Address => isHex(s) && s.length === 42;
-const big = (s: unknown) => (typeof s === "string" && /^\d{1,30}$/.test(s) ? BigInt(s) : typeof s === "number" && Number.isInteger(s) && s >= 0 ? BigInt(s) : null);
 
 export class Server {
   private clients = new Set<ServerWebSocket<Data>>();
@@ -41,6 +40,7 @@ export class Server {
   start() {
     this.server = Bun.serve<Data>({
       port: this.d.cfg.port,
+      hostname: this.d.cfg.host,
       fetch: (req, server) => {
         const url = new URL(req.url);
         if (url.pathname === "/health") return new Response("ok");
@@ -69,7 +69,7 @@ export class Server {
         maxPayloadLength: MESSAGE_BYTES,
       },
     });
-    this.d.log(`listening on ws://localhost:${this.d.cfg.port}/ws`);
+    this.d.log(`listening on ws://${this.d.cfg.host}:${this.d.cfg.port}/ws`);
   }
 
   /** Tell every app the terms again: after the difficulty or the game's config changed on chain. */
@@ -219,7 +219,7 @@ export class Server {
         const checked = await this.d.chain.check("registerSession", args);
         if ("why" in checked) return this.send(ws, { type: "session-set", ok: false, why: checked.why });
         try {
-          const receipt = await this.d.chain.send("registerSession", args, `session ${player}`, { kind: "session" });
+          const receipt = await this.d.chain.send("registerSession", args, `session ${player}`, { kind: "session" }, checked.gas);
           seq.forgetSession(player);
           this.send(ws, { type: "session-set", ok: true, tx: receipt.transactionHash });
         } catch (e) {

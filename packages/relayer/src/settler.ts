@@ -48,6 +48,8 @@ export class Settler {
   private told = new Map<Address, number>();
   /** The house's cut of profits, from the chain's config: what a hit is due depends on it. */
   profitFeeBps = 1000n;
+  /** The least a partial redemption may pay, from the chain's config. */
+  minRedeem = 10_000n;
   stats = { bars: 0, settled: 0, redeemed: 0n, collected: 0n };
 
   constructor(
@@ -245,7 +247,7 @@ export class Settler {
         }
         const value = await this.chain.iouAssets(holder).catch(() => 0n);
         // A partial redemption must be worth the chain's minimum; a full one always goes.
-        if (value > pool && pool < 10_000n) continue;
+        if (value > pool && pool < this.minRedeem) continue;
         const receipt = await this.chain.send("redeem", [holder, shares], `redeem ${holder}`, { kind: "redeem" });
         for (const ev of this.chain.events(receipt)) if (ev.name === "Redeemed") this.stats.redeemed += (ev.args as { value: bigint }).value;
         this.notify.account(holder);

@@ -22,6 +22,8 @@ export const uint: Rule = (v) => {
   if (typeof v === "string") return /^\d{1,20}$/.test(v) && BigInt(v) <= U64_MAX ? pass : fault;
   return Number.isSafeInteger(v) && (v as number) >= 0 ? pass : fault;
 };
+/** A chain number as a bigint: what `uint` passes, or null. */
+export const big = (v: unknown): bigint | null => (uint(v) === null ? BigInt(v as string | number) : null);
 export const int =
   (min: number, max: number): Rule =>
   (v) =>

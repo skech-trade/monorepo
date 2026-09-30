@@ -41,7 +41,7 @@ if (game.oracle !== chain.signer.address) {
 }
 scfg.lateMs = game.config.lateMs;
 
-const engine = new Engine(scfg.engineUrl, log);
+const engine = new Engine(scfg.engineUrl, log, scfg.engineSigner);
 engine.start();
 
 let sequencer: SolanaSequencer;

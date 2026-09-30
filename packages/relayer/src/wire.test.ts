@@ -3,7 +3,7 @@
  * shape, or it is answered with why, in the reply the app is waiting for.
  */
 import { describe, expect, test } from "bun:test";
-import { MONAD, read, refusal, SOLANA, U64_MAX } from "./wire";
+import { big, MONAD, read, refusal, SOLANA, U64_MAX } from "./wire";
 
 const PLAYER = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const hex = (bytes: number, fill = "ab") => `0x${fill.repeat(bytes)}`;
@@ -73,6 +73,15 @@ describe("a piece", () => {
     expect(why(monad({ ...pieceMsg, piece: { ...piece, perDot: "99999999999999999999" } }))).toBe("Bad piece.perDot");
     expect(why(monad({ ...pieceMsg, piece: { ...piece, perDot: U64_MAX.toString() } }))).toBeNull();
     expect(why(monad({ ...pieceMsg, piece: { ...piece, perDot: 2 ** 53 } }))).toBe("Bad piece.perDot");
+  });
+  test("big() reads a chain number, and nothing past uint64", () => {
+    expect(big(U64_MAX.toString())).toBe(U64_MAX);
+    expect(big((U64_MAX + 1n).toString())).toBeNull();
+    expect(big("1".repeat(30))).toBeNull();
+    expect(big(5)).toBe(5n);
+    expect(big(2 ** 53)).toBeNull();
+    expect(big(-1)).toBeNull();
+    expect(big("0x10")).toBeNull();
   });
   test("is refused with an ack the app can match to what it sent", () => {
     const r = monad({ ...pieceMsg, piece: { ...piece, sections: [null] } });

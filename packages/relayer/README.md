@@ -58,6 +58,8 @@ bun packages/relayer/scripts/e2e.ts   # anvil + contracts + engine + relayer + a
 | `NEXT_PUBLIC_ENGINE_URL` | `ws://localhost:3102/ws` | Where the engine is. |
 | `RELAYER_PORT` | `3103` | |
 | `RELAYER_SHADOW_EVERY` | `5` | Estimate one shaped send in this many alongside, to check the gas model; `1` checks all. |
+| `RELAYER_HOST` | `127.0.0.1` | Where to listen (both relayers). Caddy fronts it on the box; `0.0.0.0` for a phone on the LAN. |
+| `RELAYER_ENGINE_SIGNER` | none | The engine's signing address. Set, an engine that signs as anyone else is not listened to. |
 
 `GET /health` returns `ok`; `GET /status` says what it is doing, `chain.gas` among it: sends, shadow
 estimates, the worst estimate-to-limit ratio seen, and any slack added. Keep the relayer's wallet above

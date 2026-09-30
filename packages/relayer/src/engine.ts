@@ -5,6 +5,7 @@
  */
 import { BarBook } from "@skech/core/bars";
 import type { Address, Hex } from "viem";
+import { report } from "./sentry";
 
 export type PriceQuote = { price: number; priceE8: bigint; time: number; signature: Hex };
 type Message =
@@ -27,7 +28,12 @@ export class Engine {
   private stopped = false;
   private backoff = 500;
 
-  constructor(private readonly url: string, private readonly log: (s: string) => void) {}
+  /** `expected`: the engine's signing address, when it is known (RELAYER_ENGINE_SIGNER). An engine that signs as anyone else is not listened to. */
+  constructor(
+    private readonly url: string,
+    private readonly log: (s: string) => void,
+    private readonly expected?: Address,
+  ) {}
 
   now() {
     return Date.now() + this.skew;
@@ -60,6 +66,9 @@ export class Engine {
     const sock = new WebSocket(this.url);
     this.ws = sock;
     this.heard = Date.now();
+    // Nothing is taken from an engine until its hello says it signs as the one expected: its prices would be vouched
+    // for to the chain, and its bars settled on.
+    let trusted = !this.expected;
     sock.onopen = () => {
       this.backoff = 500;
       this.connected = true;
@@ -74,9 +83,18 @@ export class Engine {
         return;
       }
       if (msg.type === "hello") {
+        if (this.expected && msg.signer?.toLowerCase() !== this.expected.toLowerCase()) {
+          this.log(`WARNING: engine: ${this.url} signs as ${msg.signer}, not ${this.expected} (RELAYER_ENGINE_SIGNER); not listening to it`);
+          report("engine-signer", `the engine at ${this.url} signs as ${msg.signer}, not ${this.expected}`);
+          sock.close();
+          return;
+        }
+        trusted = true;
         this.signer = msg.signer;
         this.domain = msg.typedData.domain;
         this.log(`engine: signs as ${msg.signer} for chain ${msg.typedData.domain.chainId}, contract ${msg.typedData.domain.verifyingContract}`);
+      } else if (!trusted) {
+        return;
       } else if (msg.type === "history") {
         // A history that reaches further back than our bars (the engine had not backfilled when we first
         // connected) replaces them: bars cannot be folded in behind the first one.

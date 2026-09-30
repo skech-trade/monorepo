@@ -19,6 +19,7 @@ import type { Pricer } from "./pricer";
 import { report } from "./sentry";
 import type { Settler } from "./settler";
 import { verifyPiece, verifyPrice } from "./verify";
+import { big } from "./wire";
 
 export type PieceWire = {
   player: Address;
@@ -44,7 +45,6 @@ type Pending = { piece: Piece; hash: Hex; sessionSig: Hex; priceSig: Hex; stroke
 
 const REFUSALS = ["None", "Mismatch", "Replay", "Difficulty", "Late", "StalePrice", "PerDot", "Sections", "PriceSig", "Stroke", "Session", "SessionSig", "NotOffered", "Allowance", "Balance"];
 const isHex = (s: unknown, bytes?: number): s is Hex => typeof s === "string" && /^0x[0-9a-fA-F]*$/.test(s) && (bytes === undefined || s.length === 2 + bytes * 2);
-const big = (s: unknown) => (typeof s === "string" && /^\d{1,20}$/.test(s) ? BigInt(s) : null);
 /** Players whose session and balance are kept between reads: any address can be asked about. */
 const CACHED = 20_000;
 
@@ -153,6 +153,9 @@ export class Sequencer {
     if (session.allowance < stake + pendingStake) return bad("Session allowance used up");
     if (balance === null) return bad("Could not read your balance");
     if (balance < stake + pendingStake) return bad("Not enough in your balance");
+    // Looked at again here, with nothing awaited between it and taking the piece in: the same piece sent twice at
+    // once passed the first look together.
+    if (this.seen.has(betId)) return bad("Already sent");
     // In.
     this.seen.add(betId);
     if (this.seen.size > 50_000) this.seen.delete(this.seen.values().next().value!);

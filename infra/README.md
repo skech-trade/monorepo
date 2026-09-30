@@ -39,7 +39,7 @@ once its A record points at the box. Either way ports 80 and 443 have to be open
 3102 and 3103 never are.
 
 `--env` writes `/etc/skech/env` (root:skech, 640) from `.env.local`, keeping only what the servers read:
-`SKECH_NETWORK`, `ENGINE_PRIVATE_KEY`, `ENGINE_BAND_BPS`, `ENGINE_SENTRY_DSN`, `RELAYER_PRIVATE_KEY`, `RELAYER_SHADOW_EVERY`
+`SKECH_NETWORK`, `ENGINE_PRIVATE_KEY`, `ENGINE_BAND_BPS`, `ENGINE_SENTRY_DSN`, `RELAYER_PRIVATE_KEY`, `RELAYER_SHADOW_EVERY`, `RELAYER_ENGINE_SIGNER`
 and the `MONAD_*_RPC_URL`s. Nothing else in `.env.local` leaves this machine.
 
 The engine compiles on the box, which is slow the first time (several minutes, in swap) and quick after:

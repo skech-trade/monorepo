@@ -245,13 +245,16 @@ export class ChainClient {
       this.gasStats.estimated++;
     }
     // Now and then the model is checked against the chain's own estimate, alongside: the send never waits for it.
+    // An estimate already made (the check before a session) is compared every time, rather than asked for again.
     const shadow =
-      shape && this.sends++ % SHADOW_EVERY === 0
-        ? this.pub.estimateGas({ account: this.account, to: this.cfg.game, data }).then(
-            (g) => g,
-            () => null,
-          )
-        : null;
+      shape && estimated !== undefined
+        ? Promise.resolve(estimated)
+        : shape && this.sends++ % SHADOW_EVERY === 0
+          ? this.pub.estimateGas({ account: this.account, to: this.cfg.game, data }).then(
+              (g) => g,
+              () => null,
+            )
+          : null;
     if (this.baseFee === null) await this.refreshFee();
     let attempt = 0;
     for (;;) {
