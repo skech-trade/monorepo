@@ -9,7 +9,7 @@
  * goes to each player.
  */
 import { features, NICE, stepFor } from "@skech/core/dots";
-import { betIdOf, CHANCE_ONE, decodeStroke, HORIZON, MAX_SECTIONS, momentumE6, stakeOf, toE8, TYPES, unitFor, type Piece, type Section } from "@skech/core/chain";
+import { betIdOf, CHANCE_ONE, decodeStroke, HORIZON, MAX_SECTIONS, momentumE6, rungE2, stakeOf, toE8, TYPES, unitFor, withMomentum, type Piece, type Section } from "@skech/core/chain";
 import { type Address, type Hex, hashStruct, keccak256, type TypedDataDomain } from "viem";
 import type { ChainClient, GameConfig, Session } from "./chain";
 import type { Config } from "./config";
@@ -56,7 +56,7 @@ export class Sequencer {
   private seen = new Set<Hex>();
   private sessions = new Map<Address, { at: number; session: Session }>();
   private balances = new Map<Address, { at: number; balance: bigint }>();
-  /** Stakes accepted but not yet on chain, per player, so a fast hand cannot outrun its balance. */
+  /** Stakes accepted but not yet on chain, per player (lowercased: one player however the address is cased), so a fast hand cannot outrun its balance. */
   private pending = new Map<Address, bigint>();
   readonly domain: TypedDataDomain;
   /** `turnedAway`: pieces answered no before they reached the chain, by why. They never show up on chain. */
@@ -148,14 +148,15 @@ export class Sequencer {
     if (!priceOk) return bad("Price seen is not the engine's");
     if (!session || Number(session.validUntil) * 1000 <= now) return bad("No session");
     if (!(await verifyPiece(this.domain, piece, msg.sessionSig, session))) return bad("Not signed by your session");
-    const pendingStake = this.pending.get(piece.player) ?? 0n;
+    const who = piece.player.toLowerCase() as Address;
+    const pendingStake = this.pending.get(who) ?? 0n;
     if (session.allowance < stake + pendingStake) return bad("Session allowance used up");
     if (balance === null) return bad("Could not read your balance");
     if (balance < stake + pendingStake) return bad("Not enough in your balance");
     // In.
     this.seen.add(betId);
     if (this.seen.size > 50_000) this.seen.delete(this.seen.values().next().value!);
-    this.pending.set(piece.player, pendingStake + stake);
+    this.pending.set(who, pendingStake + stake);
     const hash = hashStruct({ types: TYPES, primaryType: "Piece", data: piece });
     const entry: Pending = { piece, hash, sessionSig: msg.sessionSig, priceSig: msg.priceSig, stroke: msg.stroke, receivedAt, betId };
     let bucket = this.buckets.get(piece.openAt);
@@ -252,10 +253,10 @@ export class Sequencer {
     // What was held for these pieces while they were on their way: let go the moment the chain has answered for them.
     const release = (entries: Pending[]) => {
       for (const e of entries) {
-        const stake = stakeOf(e.piece.sections);
-        const left = (this.pending.get(e.piece.player) ?? 0n) - stake;
-        if (left > 0n) this.pending.set(e.piece.player, left);
-        else this.pending.delete(e.piece.player);
+        const who = e.piece.player.toLowerCase() as Address;
+        const left = (this.pending.get(who) ?? 0n) - stakeOf(e.piece.sections);
+        if (left > 0n) this.pending.set(who, left);
+        else this.pending.delete(who);
       }
     };
     const f = features(this.engine.book.bars, Number(openAt));
@@ -270,31 +271,45 @@ export class Sequencer {
     for (const e of bucket) byUnit.set(e.piece.unit, [...(byUnit.get(e.piece.unit) ?? []), e]);
     await Promise.all(
       [...byUnit].map(async ([unit, entries]) => {
+        // What goes on chain: the pieces that keep a band.
+        let sending = entries;
         try {
           const fl = await this.pricer.fieldFor(f, Number(openAt), Number(unit) / 1e8, this.difficulty);
-          const chances = entries.flatMap((e) => this.pricer.chances(fl, e.piece.sections, Number(openAt)));
-          if (chances.some((c) => c < 0 || c > CHANCE_ONE)) throw new Error("a chance out of range");
+          const each = entries.map((e) => this.pricer.chances(fl, e.piece.sections, Number(openAt)));
+          if (each.flat().some((c) => c < 0 || c > CHANCE_ONE)) throw new Error("a chance out of range");
+          const price = toE8(f.price);
+          const momentum = momentumE6(f.momentum);
+          // A piece none of whose bands earns a rung, the chain refuses, and the gas to send it would be paid for
+          // nothing: turned away here instead, with the chain's own reason.
+          const keeps = entries.map((e, i) => e.piece.sections.some((s, j) => rungE2(each[i][j], e.piece.difficulty, withMomentum(s.lo, s.hi, price, momentum), momentum) > 0));
+          sending = entries.filter((_, i) => keeps[i]);
+          for (const e of entries.filter((_, i) => !keeps[i])) {
+            this.stats.refused++;
+            this.notify.refused({ betId: e.betId, player: e.piece.player, why: "NotOffered" });
+          }
+          if (!sending.length) return;
+          const chances = entries.flatMap((_, i) => (keeps[i] ? each[i] : []));
           const message = {
             market: this.cfg.market,
             openAt,
             unit,
-            price: toE8(f.price),
-            momentum: BigInt(momentumE6(f.momentum)),
-            pieces: entries.map((e) => e.hash),
-            receivedAt: entries.map((e) => BigInt(e.receivedAt)),
+            price,
+            momentum: BigInt(momentum),
+            pieces: sending.map((e) => e.hash),
+            receivedAt: sending.map((e) => BigInt(e.receivedAt)),
             chances,
           };
           const sig = await this.chain.wallet.signTypedData({ domain: this.domain, types: TYPES, primaryType: "Quote", message });
-          const placements = entries.map((e) => ({ piece: e.piece, sessionSig: e.sessionSig, priceSig: e.priceSig, stroke: e.stroke }));
+          const placements = sending.map((e) => ({ piece: e.piece, sessionSig: e.sessionSig, priceSig: e.priceSig, stroke: e.stroke }));
           const quote = { market: message.market, openAt, unit, price: message.price, momentum: message.momentum, receivedAt: message.receivedAt, chances };
           const shape = {
             kind: "place" as const,
-            pieces: entries.length,
-            sections: entries.reduce((n, e) => n + e.piece.sections.length, 0),
-            strokeBytes: entries.reduce((n, e) => n + (e.stroke.length - 2) / 2, 0),
+            pieces: sending.length,
+            sections: sending.reduce((n, e) => n + e.piece.sections.length, 0),
+            strokeBytes: sending.reduce((n, e) => n + (e.stroke.length - 2) / 2, 0),
             coldSlots: this.chain.ledger.coldSlots,
           };
-          const receipt = await this.chain.send("place", [placements, quote, sig], `place ${entries.length} at ${openAt}`, shape);
+          const receipt = await this.chain.send("place", [placements, quote, sig], `place ${sending.length} at ${openAt}`, shape);
           this.stats.batches++;
           const answered = new Set<Hex>();
           for (const ev of this.chain.events(receipt)) {
@@ -319,12 +334,12 @@ export class Sequencer {
               this.notify.refused({ betId: a.betId, player: a.player, why: REFUSALS[a.why] ?? `Refused (${a.why})`, tx: receipt.transactionHash });
             }
           }
-          for (const e of entries) if (!answered.has(e.betId)) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "Not placed", tx: receipt.transactionHash });
+          for (const e of sending) if (!answered.has(e.betId)) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "Not placed", tx: receipt.transactionHash });
         } catch (err) {
           this.log(`place at ${openAt} (unit ${unit}) failed: ${String((err as Error).message ?? err).split("\n")[0]}`);
           report("place", err);
-          for (const e of entries) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "Could not reach the chain" });
-          this.stats.refused += entries.length;
+          for (const e of sending) this.notify.refused({ betId: e.betId, player: e.piece.player, why: "Could not reach the chain" });
+          this.stats.refused += sending.length;
         } finally {
           release(entries);
         }

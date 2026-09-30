@@ -48,5 +48,7 @@ export const cfg = {
   sweepEveryMs: 15_000,
   /** Fees are collected once this much has built up, USDC e6. */
   collectAboveE6: 1_000_000n,
+  /** The least a deposit or withdrawal the relayer pays gas for may move, USDC e6 (a withdrawal of the whole balance always goes): the apps' least deposit. */
+  minMoveE6: 1_000_000n,
 };
 export type Config = typeof cfg;

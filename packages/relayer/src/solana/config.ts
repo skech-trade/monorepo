@@ -51,6 +51,8 @@ export const scfg = {
   /** Sweep IOUs, deposits and fees this often. */
   sweepEveryMs: 15_000,
   collectAboveE6: 1_000_000n,
+  /** The least a deposit or withdrawal the relayer pays for may move, USDC e6 (a withdrawal of the whole balance always goes): the app's least deposit. */
+  minMoveE6: 1_000_000n,
   /** Compute units each instruction takes, measured in LiteSVM (`bun run solana:snapshot`). */
   compute,
   /** Priority fee, micro-lamports per compute unit: a fixed one, or what recent blocks paid to write the pool, capped. */

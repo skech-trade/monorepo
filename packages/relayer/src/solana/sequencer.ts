@@ -231,6 +231,8 @@ export class SolanaSequencer {
           const bands = this.bandsOf(p);
           const chances = this.pricer.chances(fl, bands, openAt);
           if (chances.some((c) => c < 0 || c > CHANCE_ONE)) throw new Error("a chance out of range");
+          // Nothing the program would keep: it refuses the piece, and the fee would be paid for nothing.
+          if (!this.predict(p, bands, chances, price, momentum).sections.length) return this.refuse(e, "NotOffered");
           const bytes = pieceBytes(p);
           const place = getPlaceInstruction({
             // The piece first: its `player` and `market` are the wallet and the market id, which the accounts below replace.

@@ -13,7 +13,7 @@ import type { Engine } from "./engine";
 import type { PieceMsg, Placed, Refused, Sequencer } from "./sequencer";
 import type { Settled, Settler } from "./settler";
 import type { Activity } from "./activity";
-import { clientIp, Door, MESSAGE_BYTES, Rates } from "./limits";
+import { clientIp, Door, MESSAGE_BYTES, Rates, Sponsor } from "./limits";
 import { report } from "./sentry";
 import { MONAD, type Message, read, refusal } from "./wire";
 
@@ -30,6 +30,7 @@ export class Server {
   private byPlayer = new Map<Address, Set<ServerWebSocket<Data>>>();
   private nextId = 1;
   private door = new Door();
+  private sponsor = new Sponsor();
   private server: BunServer<Data> | null = null;
   sequencer: Sequencer | null = null;
   settler: Settler | null = null;
@@ -209,6 +210,11 @@ export class Server {
         const allow = big(allowance);
         const dl = big(deadline);
         if (until === null || allow === null || dl === null || (kind !== 0 && kind !== 1)) return this.send(ws, { type: "session-set", ok: false, why: "Bad session" });
+        if (!this.sponsor.take(ws.data.ip, player)) return this.send(ws, { type: "session-set", ok: false, why: TOO_MANY });
+        // The relayer pays for a session: only for a player with money in the game to play with.
+        const held = await this.d.chain.balanceOf(player).catch(() => null);
+        if (held === null) return this.send(ws, { type: "session-set", ok: false, why: "Could not read your balance" });
+        if (held === 0n) return this.send(ws, { type: "session-set", ok: false, why: "Deposit first" });
         const args = [player, kind, key, x, y, until, allow, dl, sig];
         const checked = await this.d.chain.check("registerSession", args);
         if ("why" in checked) return this.send(ws, { type: "session-set", ok: false, why: checked.why });
@@ -242,6 +248,8 @@ export class Server {
           fn = "depositWithPermit";
           args = [owner, amt, dl, m.v, m.r, m.s];
         }
+        if (amt < this.d.cfg.minMoveE6) return this.send(ws, { type: "deposited", ok: false, why: `At least ${usdc(this.d.cfg.minMoveE6)} USDC` });
+        if (!this.sponsor.take(ws.data.ip, owner)) return this.send(ws, { type: "deposited", ok: false, why: TOO_MANY });
         // One round trip to check it and price its gas, not one for each.
         const checked = await this.d.chain.check(fn, args);
         if ("why" in checked) return this.send(ws, { type: "deposited", ok: false, why: checked.why });
@@ -263,6 +271,11 @@ export class Server {
         const amt = big(amount);
         const dl = big(deadline);
         if (!isAddress(player) || !isAddress(to) || amt === null || dl === null || !isHex(sig)) return this.send(ws, { type: "withdrawn", ok: false, why: "Bad withdrawal" });
+        // Less than the least is taken only as the whole balance, so dust cannot be moved out a piece at a time on the relayer's gas.
+        if (amt < this.d.cfg.minMoveE6 && amt !== (await this.d.chain.balanceOf(player).catch(() => null))) {
+          return this.send(ws, { type: "withdrawn", ok: false, why: `At least ${usdc(this.d.cfg.minMoveE6)} USDC, or all of it` });
+        }
+        if (!this.sponsor.take(ws.data.ip, player)) return this.send(ws, { type: "withdrawn", ok: false, why: TOO_MANY });
         const args = [player, amt, to, dl, sig];
         const checked = await this.d.chain.check("withdrawBySig", args);
         if ("why" in checked) return this.send(ws, { type: "withdrawn", ok: false, why: checked.why });
@@ -284,4 +297,6 @@ export class Server {
   }
 }
 
+const TOO_MANY = "Too many transactions for now; try again in a few minutes";
+const usdc = (e6: bigint) => (Number(e6) / 1e6).toString();
 const reason = (e: unknown) => String((e as Error).message ?? e).split("\n")[0].slice(0, 160);

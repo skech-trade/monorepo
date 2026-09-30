@@ -86,8 +86,8 @@ export class SolanaChain {
   private height = 0n;
   /** Micro-lamports per compute unit, from what recent blocks paid to write the pool. */
   priority = 0;
-  /** Built transactions awaiting a wallet's signature: their message, so only what we built is ever co-signed. */
-  private built = new Map<string, { message: Uint8Array; at: number; kind: string; player: Address }>();
+  /** Built transactions awaiting a wallet's signature: their message, so only what we built is ever co-signed, and whether it approves the game to sweep. */
+  private built = new Map<string, { message: Uint8Array; at: number; kind: string; player: Address; approve: boolean }>();
   inflight = 0;
   stats = { sent: 0, landed: 0, failed: 0, expired: 0, rebroadcasts: 0 };
 
@@ -195,16 +195,16 @@ export class SolanaChain {
    * A transaction for a player's wallet to sign (the relayer's own signature already on it, as fee payer): what it
    * is kept, so `submit` co-signs nothing but this.
    */
-  async build(kind: string, player: Address, instructions: Instruction[], computeUnits: number): Promise<{ id: string; tx: string }> {
+  async build(kind: string, player: Address, instructions: Instruction[], computeUnits: number, approve = false): Promise<{ id: string; tx: string }> {
     const tx = await partiallySignTransactionMessageWithSigners(this.message(instructions, computeUnits));
     const id = crypto.randomUUID();
     for (const [k, v] of this.built) if (Date.now() - v.at > 120_000) this.built.delete(k);
-    remember(this.built, id, { message: new Uint8Array(tx.messageBytes), at: Date.now(), kind, player }, 10_000);
+    remember(this.built, id, { message: new Uint8Array(tx.messageBytes), at: Date.now(), kind, player, approve }, 10_000);
     return { id, tx: getBase64EncodedWireTransaction(tx) };
   }
 
   /** The same transaction back, signed by the wallet: sent if it is exactly what was built. */
-  async submit(id: string, signed: string): Promise<{ kind: string; player: Address; sent: Sent }> {
+  async submit(id: string, signed: string): Promise<{ kind: string; player: Address; approve: boolean; sent: Sent }> {
     const b = this.built.get(id);
     if (!b) throw new Error("Unknown or expired transaction: build it again");
     const tx = getTransactionDecoder().decode(b64.encode(signed));
@@ -214,7 +214,7 @@ export class SolanaChain {
     const wire = getBase64Decoder().decode(getTransactionEncoder().encode(tx)) as Base64EncodedWireTransaction;
     const signature = getSignatureFromTransaction(tx);
     const sent = await this.broadcast(b.kind, wire, signature, this.hash!.lastValidBlockHeight + 150n);
-    return { kind: b.kind, player: b.player, sent };
+    return { kind: b.kind, player: b.player, approve: b.approve, sent };
   }
 
   /* ---- reading ---- */

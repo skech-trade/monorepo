@@ -90,3 +90,9 @@ the game, the oracle, the difficulty and the terms. Then:
 { "type": "settled", "betId", "hitMask", "missMask", "paid", "owed", "tx" }
 { "type": "account", "player", "balance", "session": {…}, "owed" }
 ```
+
+Every message is checked before it is read (`src/wire.ts`) and, if it is wrong, answered with why in the reply
+its sender waits for. What the relayer pays for is held to players with money in: a session only with a balance
+(on Solana, or USDC in the wallet), a deposit or withdrawal of at least 1 USDC (or the whole balance), a few an
+hour for one wallet or one address. A piece none of whose bands earns a rung is refused before it is sent, with
+the chain's own `NotOffered`. Each connection is rate limited by type of message (`src/limits.ts`).

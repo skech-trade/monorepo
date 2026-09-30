@@ -118,6 +118,27 @@ export function clientIp(req: Request, peer: string | undefined): string {
   return peer ?? "unknown";
 }
 
+/**
+ * What the relayer pays for on a wallet's say (a session, a deposit, a withdrawal; on Solana, the rent of the
+ * accounts they open): a few an hour for one wallet and a few more from one address, whichever connection asks.
+ */
+export class Sponsor {
+  private byIp = new Map<string, Bucket>();
+  private byWallet = new Map<string, Bucket>();
+
+  constructor(private readonly now: () => number = Date.now) {}
+
+  take(ip: string, wallet: string): boolean {
+    return this.bucket(this.byIp, ip, 20, 1 / 30) && this.bucket(this.byWallet, wallet.toLowerCase(), 6, 1 / 120);
+  }
+
+  private bucket(map: Map<string, Bucket>, key: string, burst: number, perSec: number): boolean {
+    let b = map.get(key);
+    if (!b) remember(map, key, (b = new Bucket(burst, perSec, this.now)), 50_000);
+    return b.take();
+  }
+}
+
 /** Put `key` in `map` as the newest, and let the oldest go past `most`: a cache nobody can grow without end. */
 export function remember<K, V>(map: Map<K, V>, key: K, value: V, most: number) {
   map.delete(key);
