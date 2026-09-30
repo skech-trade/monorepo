@@ -18,7 +18,53 @@ const ENDPOINT = process.env.WAITLIST_SHEET_URL;
  */
 const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
+/**
+ * A cell that starts with one of these is a formula to a spreadsheet, and the
+ * sheet is opened by people: `=HYPERLINK(...)` would be a live link in it. No
+ * address anyone uses starts with one.
+ */
+const FORMULA = /^[=+\-@]/;
+
+/**
+ * Sign-ups from one address, at most this many in the window: enough for a
+ * household behind one router, too few to fill the sheet.
+ *
+ * Counted in this instance's memory, so it is a speed bump, not a wall: each
+ * serverless instance keeps its own count and a cold start forgets it. A
+ * shared store (Vercel's firewall, or KV) is the fix if the sheet is ever
+ * flooded for real.
+ */
+const PER_WINDOW = 5;
+const WINDOW_MS = 10 * 60_000;
+const recent = new Map<string, { count: number; until: number }>();
+
+function tooMany(ip: string) {
+  const now = Date.now();
+  // Forget windows that are over before the map can grow without end.
+  if (recent.size > 10_000) for (const [k, v] of recent) if (v.until <= now) recent.delete(k);
+  const hit = recent.get(ip);
+  if (!hit || hit.until <= now) {
+    recent.set(ip, { count: 1, until: now + WINDOW_MS });
+    return false;
+  }
+  hit.count++;
+  return hit.count > PER_WINDOW;
+}
+
+/** The visitor's address, as the platform in front of us reports it. */
+const ipOf = (request: Request) =>
+  request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+  request.headers.get("x-real-ip") ||
+  "unknown";
+
 export async function POST(request: Request) {
+  if (tooMany(ipOf(request))) {
+    return Response.json(
+      { error: "That's a lot of sign-ups. Try again in a few minutes." },
+      { status: 429 },
+    );
+  }
+
   let email: unknown;
   try {
     ({ email } = await request.json());
@@ -26,7 +72,11 @@ export async function POST(request: Request) {
     return Response.json({ error: "Malformed request." }, { status: 400 });
   }
 
-  if (typeof email !== "string" || !LOOKS_LIKE_EMAIL.test(email.trim())) {
+  if (
+    typeof email !== "string" ||
+    !LOOKS_LIKE_EMAIL.test(email.trim()) ||
+    FORMULA.test(email.trim())
+  ) {
     return Response.json(
       { error: "That doesn't look like an email address." },
       { status: 400 },
@@ -35,8 +85,9 @@ export async function POST(request: Request) {
 
   if (!ENDPOINT) {
     // Loud on the server, vague to the visitor: a missing deploy step is our
-    // problem, and "not configured" tells a stranger about our plumbing.
-    console.error("WAITLIST_SHEET_URL is not set; dropped:", email);
+    // problem, and "not configured" tells a stranger about our plumbing. The
+    // address itself stays out of the logs, which are kept and read elsewhere.
+    console.error("WAITLIST_SHEET_URL is not set; a sign-up was dropped");
     return Response.json(
       { error: "Sign-ups aren't open yet. Try again shortly." },
       { status: 503 },
