@@ -2,7 +2,7 @@ import { BlendMode, Canvas, ClipOp, matchFont, PaintStyle, Picture, Skia, Stroke
 import { type RefObject, useEffect, useRef } from "react";
 import { type LayoutChangeEvent, Platform, View } from "react-native";
 import { Gesture, GestureDetector, State } from "react-native-gesture-handler";
-import { useSharedValue } from "react-native-reanimated";
+import { useReducedMotion, useSharedValue } from "react-native-reanimated";
 import { type Bar, type Field, openFor } from "@skech/core/dots";
 import { CHART_STEP_PX, type Cell, drawingLayout, INK_CELL, type InkBet, type Pen, PEN_CELLS, type Stroke, VIEW_SECONDS } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
@@ -133,10 +133,14 @@ export function Stage({
   const place = useRef(onPlace);
   const preview = useRef(onPreview);
   const viewport = useRef(onViewport);
+  // The phone's Reduce Motion: the picture jumps to where it is going, and nothing bursts or floats.
+  const reduced = useReducedMotion();
+  const still = useRef(reduced);
   useEffect(() => {
     place.current = onPlace;
     preview.current = onPreview;
     viewport.current = onViewport;
+    still.current = reduced;
   });
   const picture = useSharedValue<SkPicture>(EMPTY);
   const size = useRef({ w: 0, h: 0 });
@@ -364,7 +368,7 @@ export function Stage({
       const ms = performance.now();
       const dt = Math.min(64, Math.max(0, ms - previousFrame));
       previousFrame = ms;
-      const ease = (rate: number) => 1 - Math.exp(-rate * dt);
+      const ease = (rate: number) => (still.current ? 1 : 1 - Math.exp(-rate * dt));
       const p = latest;
       if (!p) return;
       const pal = g.dark ? PALETTES.dark : PALETTES.light;
@@ -455,7 +459,7 @@ export function Stage({
       // Now: a line top to bottom, and the price on it, in a tag of its own.
       const axisY = plotBottom() + 14;
       c.drawRect(Skia.XYWHRect(Math.round(nx) - 0.5, 0, 1, axisY), paintOf(color(pal.fg, 0.16)));
-      const pulse = (ms % 1400) / 1400;
+      const pulse = still.current ? 0 : (ms % 1400) / 1400;
       c.drawCircle(nx, py, 10 + pulse * 6, paintOf(color(pal.fg, 0.12 * (1 - pulse * 0.6))));
       c.drawCircle(nx, py, 4.5, paintOf(color(pal.fg)));
       c.drawRRect(rrect(tag.x0, tag.y0, tagW, 24, 12), paintOf(color(pal.fg)));
@@ -558,7 +562,7 @@ export function Stage({
         for (const tile of tiles) {
           if (tile.opacity < 0.01) continue;
           const b = tileBox(tile);
-          const k = Math.min(1, (ms - tile.changed) / 260);
+          const k = still.current ? 1 : Math.min(1, (ms - tile.changed) / 260);
           const eased = k * k * (3 - 2 * k);
           const write = (s: string, alpha: number) => {
             if (alpha < 0.01 || !s) return;
@@ -587,10 +591,10 @@ export function Stage({
         const ex = x(e.t);
         const ey = y(e.price);
         if (e.kind === "hit") {
-          const grow = 0.6 + age * 0.8;
+          const grow = still.current ? 1 : 0.6 + age * 0.8;
           c.drawCircle(ex, ey, (e.big ? 34 : 26) * grow, paintOf(color(pal.up, 0.5 * (1 - age)), 2));
           c.drawCircle(ex, ey, (e.big ? 52 : 40) * grow, paintOf(color(pal.up, 0.25 * (1 - age)), 1.2));
-          const n = e.big ? 22 : 14;
+          const n = still.current ? 0 : e.big ? 22 : 14;
           for (let i = 0; i < n; i++) {
             const a = (i / n) * Math.PI * 2 + e.born;
             const d = (e.big ? 44 : 30) * (0.55 + (0.45 * ((i * 7919) % 11)) / 11) * Math.min(1, age * 2.2);
@@ -601,18 +605,18 @@ export function Stage({
             const f = font(700, e.big ? 17 : 15);
             const tw = f.measureText(e.text).width + 24;
             const cx = Math.min(w - tw / 2 - 8, Math.max(tw / 2 + 8, ex));
-            const cy = ey - 62 - age * 24;
+            const cy = ey - 62 - (still.current ? 0 : age * 24);
             c.drawRRect(rrect(cx - tw / 2, cy - 14, tw, 28, 14), paintOf(e.loss ? color(pal.down, alpha) : color(pal.up, alpha)));
             text(c, e.text, cx, cy + 0.5, f, Skia.Color(`rgba(255,255,255,${alpha})`));
           }
         } else if (e.kind === "drop") {
           const life = Math.min(1, (ms - e.born) / 520);
           if (life >= 1) continue;
-          const out = 1 - (1 - life) ** 3;
+          const out = still.current ? 1 : 1 - (1 - life) ** 3;
           c.drawCircle(ex, ey, 6 + 10 * out, paintOf(color(pal.ink, 0.28 * (1 - life))));
           c.drawCircle(ex, ey, 10 + 30 * out, paintOf(color(pal.ink, 0.55 * (1 - life)), 2 * (1 - life) + 0.5));
         } else {
-          c.drawCircle(ex, ey, 8 + 20 * (1 - (1 - age) ** 3), paintOf(color(pal.fg, 0.4 * (1 - age)), 1.5));
+          c.drawCircle(ex, ey, 8 + (still.current ? 0 : 20 * (1 - (1 - age) ** 3)), paintOf(color(pal.fg, 0.4 * (1 - age)), 1.5));
         }
       }
 
