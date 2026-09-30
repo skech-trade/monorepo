@@ -561,10 +561,6 @@
               "name": "QuoteArgs"
             }
           }
-        },
-        {
-          "name": "bet_bump",
-          "type": "u8"
         }
       ]
     },

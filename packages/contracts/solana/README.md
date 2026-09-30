@@ -12,7 +12,7 @@ The game on Solana: one Anchor program, `skech`, the same game as [`../evm`](../
 | Quotes and bars | EIP-712, signed by the oracle and checked on chain | the oracle **signs the transaction**: the quote and the bar are instruction data it vouches for, with no second signature to check |
 | The price | every second's bar kept forever | a **ring of the last 240 seconds** per market (9.6 KB, rent once); settling looks back 30 at most |
 | Bets | stored forever | **an account per bet, closed when decided**; the rent goes back to the relayer, so the float is only what is live |
-| Replays | a stored bet id | the bet account exists while live; once closed, every band's second is posted, so a replay has nothing to offer and is refused |
+| Replays | a stored bet id | the bet account, at the one address a piece has (its canonical bump), exists while live; once closed, every band's second is posted, so a replay has nothing to offer and is refused |
 | IOUs | an ERC-20 with a growing index | the same shares and index, **on the holder's `Player` account**: redeemable by anyone, not transferable (a token would need Token-2022 transfer hooks for a feature nothing uses) |
 | Deposits | EIP-3009 authorization | `deposit` signed by the wallet, or `sweep` on a standing SPL approval, so USDC that lands in the wallet moves in by itself |
 | Gas | players never hold MON | players never hold SOL: the relayer is fee payer and pays every rent |

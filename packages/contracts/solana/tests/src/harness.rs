@@ -307,7 +307,7 @@ impl Game {
     }
 
     pub fn place_ix(&self, piece: &PieceMessage, quote: &QuoteArgs) -> Instruction {
-        let (bet, bet_bump) = bet_pda(&piece.player, piece.drawing, piece.index);
+        let (bet, _) = bet_pda(&piece.player, piece.drawing, piece.index);
         self.ix(
             skech::accounts::Place {
                 payer: self.relayer.pubkey(),
@@ -321,7 +321,7 @@ impl Game {
                 instructions: anchor_lang::solana_program::sysvar::instructions::ID,
                 system_program: system_program::ID,
             },
-            skech::instruction::Place { piece: piece.clone(), quote: quote.clone(), bet_bump },
+            skech::instruction::Place { piece: piece.clone(), quote: quote.clone() },
         )
     }
 

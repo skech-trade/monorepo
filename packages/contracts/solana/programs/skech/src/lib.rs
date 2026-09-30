@@ -86,8 +86,8 @@ pub mod skech {
     /* ---- playing ---- */
 
     /// Place one piece. `piece` must be the first argument: its bytes are what the session key signed.
-    pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs, bet_bump: u8) -> Result<()> {
-        place::place(ctx, piece, quote, bet_bump)
+    pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Result<()> {
+        place::place(ctx, piece, quote)
     }
     pub fn post_bar(ctx: Context<PostBar>, market: u8, bar: BarInput) -> Result<()> {
         settle::post_bar(ctx, market, bar)

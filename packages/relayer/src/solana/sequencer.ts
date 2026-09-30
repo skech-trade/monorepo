@@ -196,9 +196,10 @@ export class SolanaSequencer {
     return p.sections.map((s) => ({ second: s.second, lo: BigInt(s.lo) * p.unit, hi: BigInt(s.lo + s.width) * p.unit, stake: BigInt(s.stake) }));
   }
 
-  private computeFor(n: number) {
+  /** What placing `n` bands costs, and the program's search for the bet's bump, down from 255. */
+  private computeFor(n: number, bump: number) {
     const c = this.cfg.compute;
-    const at = c.place_1 + ((c.place_32 - c.place_1) * (n - 1)) / 31;
+    const at = c.place_1 + ((c.place_32 - c.place_1) * (n - 1)) / 31 + c.place_per_bump * (255 - bump);
     return Math.ceil(at * 1.2) + 2_000;
   }
 
@@ -247,10 +248,9 @@ export class SolanaSequencer {
             momentum: BigInt(momentum),
             receivedAt: BigInt(e.receivedAt),
             chances,
-            betBump: e.bump,
           });
           // The compute budget's two instructions come first: the signature check is third, the placement fourth.
-          const sent = await this.chain.send(`place ${e.bet}`, [ed25519Instruction(e.key, e.sig, 3, bytes.length), place], this.computeFor(p.sections.length));
+          const sent = await this.chain.send(`place ${e.bet}`, [ed25519Instruction(e.key, e.sig, 3, bytes.length), place], this.computeFor(p.sections.length, e.bump));
           if (sent.err) {
             const code = customCode(sent.err);
             this.refuse(e, code !== null ? (getSkechErrorMessage(code as Parameters<typeof getSkechErrorMessage>[0]) ?? `Refused (${code})`) : "Not placed", sent.signature);

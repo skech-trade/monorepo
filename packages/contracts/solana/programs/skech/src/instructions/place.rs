@@ -48,7 +48,7 @@ pub struct Place<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs, bet_bump: u8) -> Result<()> {
+pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Result<()> {
     let a = &ctx.accounts;
     let game = &a.game;
     let c = &game.config;
@@ -67,9 +67,11 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs, bet_bum
     // The piece itself.
     require!(piece.domain == game.domain && piece.market == market.id, SkechError::Mismatch);
     let player_key = piece.player;
-    let seeds: &[&[u8]] = &[BET_SEED, player_key.as_ref(), &piece.drawing.to_le_bytes(), &piece.index.to_le_bytes(), &[bet_bump]];
-    let bet_key = Pubkey::create_program_address(seeds, ctx.program_id).map_err(|_| SkechError::Mismatch)?;
+    // Only at its canonical bump: a piece has one bet address, or it could be placed again at every other bump.
+    let (drawing, index) = (piece.drawing.to_le_bytes(), piece.index.to_le_bytes());
+    let (bet_key, bet_bump) = Pubkey::find_program_address(&[BET_SEED, player_key.as_ref(), &drawing, &index], ctx.program_id);
     require_keys_eq!(bet_key, a.bet.key(), SkechError::Mismatch);
+    let seeds: &[&[u8]] = &[BET_SEED, player_key.as_ref(), &drawing, &index, &[bet_bump]];
     require!(a.bet.owner != ctx.program_id, SkechError::Replay);
     require!(piece.difficulty == market.difficulty, SkechError::Difficulty);
     // The oracle must have had the piece before its opening second, give or take the network.
