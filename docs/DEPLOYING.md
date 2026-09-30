@@ -86,6 +86,17 @@ override the file, for a one-off; the file is what everything should agree on.
 To change one contract's code without new addresses, upgrade its proxy instead: see
 [packages/contracts/evm/README.md](../packages/contracts/evm/README.md). Balances and bets stay where they are.
 
+## Solana
+
+The game on Solana is its own program (`packages/contracts/solana`), its own relayer process (`packages/relayer/src/solana`, port 3104, `wss://…/solana/ws` on the box) and the mobile app. The engine is shared.
+
+1. **Deploy the program and set the game up**, once per cluster: `bun run deploy:solana` (devnet by default; `--mainnet` for mainnet-beta). It writes `packages/contracts/deployments/solana-<cluster>.json`; commit it. The deployer needs about 5 SOL for the program's rent; devnet SOL is free from `solana airdrop` or faucet.solana.com.
+2. **Give the relayer its key and SOL.** `SOLANA_RELAYER_KEYPAIR` locally, or `SOLANA_RELAYER_SECRET_KEY` (the 64 bytes as JSON) in `.env.local` for the box, plus `SKECH_SOLANA_CLUSTER`. Its key must be the game's oracle: the deploy uses `SOLANA_RELAYER_KEYPAIR`'s. It pays every fee and every rent (a bet's comes back when it settles): keep 1 SOL or more in it.
+3. **Ship it**: `infra/deploy.sh --env`. With both Solana keys in the box's env, the Solana relayer starts beside the Monad one; without them it stays off.
+4. **Check it**: `curl https://api.skech.trade/solana/status`.
+
+Locally: a validator (`solana-test-validator --reset --gossip-port 8110 --dynamic-port-range 8111-8140`, off port 8000, which Docker holds), `SKECH_SOLANA_CLUSTER=localnet bun run deploy:solana`, then `bun packages/relayer/scripts/e2e-solana.ts` plays the whole game through the relayer.
+
 ## 4. A new box
 
 [infra/README.md](../infra/README.md): `infra/setup.sh`, then `infra/deploy.sh --env`. Open 80 and

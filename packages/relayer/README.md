@@ -59,6 +59,18 @@ bun packages/relayer/scripts/e2e.ts   # anvil + contracts + engine + relayer + a
 estimates, the worst estimate-to-limit ratio seen, and any slack added. Keep the relayer's wallet above
 12 MON: Monad holds 10 in reserve, and every transaction is charged its gas limit.
 
+## On Solana
+
+`src/solana/` is the same job for the Solana program, as its own process (`bun run dev:relayer:solana`, port 3104), sharing the engine client, the pricer and the price check:
+
+- **One piece, one transaction.** Pieces are checked as they arrive (the session's Ed25519 signature over `pieceBytes`, the engine's price, the balance), then at 350 ms into their second each is priced and sent on its own. The Ed25519 precompile instruction points at the piece inside `place`; the relayer signs as fee payer and oracle.
+- **Sending.** A blockhash and a priority fee kept fresh in the background: the fee is 75% of what recent blocks paid to write the pool, capped. v0 transactions go through the deployment's lookup table. Compute limits come from `packages/contracts/solana/snapshots/compute.json`. Each transaction is rebroadcast every 800 ms until it is confirmed or its blockhash expires.
+- **Settling.** A second's bar goes in with the first dozen bets that have ink in it, and the rest settle on it in parallel transactions. Bets are closed as they are decided and the rent comes back. Every fifteen seconds, when nothing is due: IOUs, the house's IOUs, USDC swept in from wallets that approved it, and fees to the treasury.
+- **Wallet-signed transactions.** Sessions, deposits and withdrawals are `build` → wallet signs → `submit`; the relayer co-signs only a message it built. Players never hold SOL.
+- **Transactions per player** are their `Player` account's signatures, counted incrementally.
+
+`scripts/e2e-solana.ts` plays it end to end on a local validator against the live engine.
+
 ## Protocol
 
 JSON over one WebSocket; the chain's numbers are decimal strings. On connect: `hello` with the chain,
