@@ -202,9 +202,8 @@ export class SolanaSettler {
         const a = ev.data as { bet: Address; player: Address; hitMask: number; missMask: number; paid: bigint; owed: bigint; closed: boolean };
         if (a.closed) this.closing.delete(a.bet);
         else if (!this.bets.has(a.bet)) this.closing.set(a.bet, { player: a.player, due: Date.now() + this.placeGraceMs + 1_000, tries: 0 });
-        // Only closed, nothing decided: nothing to tell.
-        if (!a.hitMask && !a.missMask && !a.paid && !a.owed) continue;
-        this.stats.settled++;
+        // A close with nothing left to decide still tells the app the bet is done.
+        if (a.hitMask || a.missMask) this.stats.settled++;
         if (a.paid > 0n || a.owed > 0n || Date.now() - (this.told.get(a.player) ?? 0) > 5_000) touched.add(a.player);
         this.notify.settled({ betId: a.bet, player: a.player, hitMask: a.hitMask, missMask: a.missMask, paid: a.paid, owed: a.owed, closed: a.closed, tx: signature });
       } else if (ev.name === "Owed") {
