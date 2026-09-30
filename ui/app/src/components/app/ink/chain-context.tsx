@@ -85,6 +85,21 @@ export function ChainProvider({ children }: { children: ReactNode }) {
       live = false;
     };
   }, []);
+  /*
+    Signing out throws the browser's key away, from storage and from this page: the session it was registered
+    for can sign nothing more here, and whoever signs in next registers a key of their own.
+  */
+  const wasSignedIn = useRef(false);
+  useEffect(() => {
+    if (me.signedIn) {
+      wasSignedIn.current = true;
+      return;
+    }
+    if (!wasSignedIn.current) return;
+    wasSignedIn.current = false;
+    setKey(null);
+    if (canHoldSession()) void forgetSessionKey().catch(() => undefined);
+  }, [me.signedIn]);
 
   // The relayer's word on the balance is the balance; between its words, what we know moves it.
   const said = account?.balance ?? null;
@@ -270,7 +285,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     };
   }, [live, player, deposit]);
 
-  // Signing out forgets nothing on chain; the key stays for the next sign-in. A key that is not the chain's is replaced on enable.
+  // A key that is not the chain's is replaced on enable.
   const value = useMemo<Chain>(
     () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, walletUsdc, wallet, adding, landed, balance, nudge, resync }),
     [live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, walletUsdc, wallet, adding, landed, balance, nudge, resync],
@@ -304,5 +319,4 @@ export function useChain(): Chain {
   return useContext(Ctx) ?? OFF;
 }
 
-export { forgetSessionKey };
 export type { Hex };
