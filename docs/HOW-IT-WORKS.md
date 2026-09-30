@@ -294,8 +294,9 @@ ERC-1967 proxies (UUPS), on Monad testnet (chain 10143), Foundry 1.8 with `netwo
   pool, and every hit is paid from it. The difficulty is set here, per market (`setDifficulty`), and the
   ladder is computed here (`SkechLadder`, the same integers as `chain.ts`), so the engine cannot pay a
   band more than its chance earns at the difficulty on chain.
-- **`SkechRevenue`** is where the house's take goes: 4% of every stake as it is placed, and 10% of the
-  profit on every hit. Nothing else. `collectFees` moves it there; a treasurer takes it out.
+- **`SkechRevenue`** is where the house's take goes: a share of every stake as it is placed (2% on
+  Monad testnet since 2026-09-29; a fresh deployment starts at 4%), and 10% of the profit on every hit.
+  Both are the admin's to set (`setConfig`). Nothing else. `collectFees` moves it there; a treasurer takes it out.
 - **`SkechIOU`** is what the game owes when the pool cannot pay a hit at once: an ERC-20, one share
   worth one USDC when it started and rising by a fixed amount every block (0.1% a day at 300 ms
   blocks; `setRate` changes it from then on). Shares transfer like any token and carry their basis,
@@ -364,10 +365,10 @@ the limits sent for placements and 80–84% for settles, and none was ever short
 
 ### Fees and the pool, by the numbers
 
-A half-dot at 10¢ with a 50% chance at difficulty 51: fair 1.992×, rung 1.5×. Placed: 5¢ leaves the
-balance, 0.2¢ (4%) is the house's, 4.8¢ joins the pool. Hit: 7.5¢ gross, 2.5¢ profit, 0.25¢ (10%) the
-house's, 7.25¢ to the balance, paid from the pool. Missed: the 4.8¢ stays in the pool for the next hit.
-With the pool empty, the 7.25¢ is owed as IOU and paid off as others lose.
+A half-dot at 10¢ with a 50% chance at difficulty 40, with the 2% stake fee: fair 2.080×, rung 2×.
+Placed: 5¢ leaves the balance, 0.1¢ (2%) is the house's, 4.9¢ joins the pool. Hit: 10¢ gross, 5¢
+profit, 0.5¢ (10%) the house's, 9.5¢ to the balance, paid from the pool. Missed: the 4.9¢ stays in the
+pool for the next hit. With the pool empty, the 9.5¢ is owed as IOU and paid off as others lose.
 
 ### Running it
 
