@@ -841,8 +841,10 @@ export function InkScreen() {
       g.bets.push(bet);
       updateTotals();
       if (process.env.NODE_ENV !== "production") (window as unknown as { __lastBet?: unknown }).__lastBet = bet;
-      if (ch.real) setPractice({ taught: true });
-      else setPractice(st => ({ balance: cents(st.balance - charge), taught: true, open: g.bets.filter(b => !decided(b)) }));
+      // On chain the hint is all practice keeps: written once, as each write re-rendered everything that reads it.
+      if (ch.real) {
+        if (!practice().taught) setPractice({ taught: true });
+      } else setPractice(st => ({ balance: cents(st.balance - charge), taught: true, open: g.bets.filter(b => !decided(b)) }));
       setLive(new Set(g.bets.filter(b => !decided(b)).map(b => b.group ?? b.id)).size);
       if (done) {
         const tip = stroke.pts.at(-1)!;
