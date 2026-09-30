@@ -128,7 +128,8 @@ const sessionAddress = getAddressDecoder().decode(ed25519.getPublicKey(sessionKe
 await walletSigns("session", { key: sessionAddress, validUntil: String(Math.floor(Date.now() / 1000) + 86_400), allowance: "20000000", approve: "5000000" });
 await walletSigns("deposit", { amount: "10000000" });
 const acct = await next((m) => m.type === "account" && BigInt(m.balance as string) >= 10_000_000n, "the balance");
-ok(BigInt(acct.balance as string) === 10_000_000n, "$10 deposited; the wallet never paid a fee");
+// $15 when the approval's sweep landed first.
+ok([10_000_000n, 15_000_000n].includes(BigInt(acct.balance as string)), "$10 deposited; the wallet never paid a fee");
 
 // The standing approval sweeps in whatever else lands in the wallet ($5 approved), on the relayer's next sweep.
 const swept = await next((m) => m.type === "account" && BigInt(m.balance as string) >= 15_000_000n, "the sweep", 40_000).catch(() => null);
