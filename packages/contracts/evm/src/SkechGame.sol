@@ -225,6 +225,7 @@ contract SkechGame is
         /// @dev Fees taken and not yet collected.
         uint64 fees;
         Config config;
+        /// @dev Deprecated: written by version 1, read by nothing. Kept so every field after it stays where it is.
         uint8 marketCount;
         mapping(uint8 => Market) markets;
         mapping(address => uint64) balances;
@@ -250,6 +251,10 @@ contract SkechGame is
     uint8 public constant MIN_DIFFICULTY = SkechLadder.MIN_DIFFICULTY;
     /// @notice Sections in one piece, at most.
     uint8 public constant MAX_SECTIONS = 32;
+    /// @notice A second, in ms: every time here is in ms on the exchange's clock, and pieces and bars are on whole seconds.
+    uint64 public constant SECOND_MS = 1000;
+    /// @notice The price is at least this many grid units: a unit, which also pads every band, is a sliver of it.
+    uint256 public constant MIN_UNITS_IN_PRICE = 2000;
 
     bytes32 public constant PRICE_TYPEHASH = keccak256("Price(string market,uint256 price,uint64 time)");
     bytes32 public constant BAR_TYPEHASH =
@@ -451,7 +456,6 @@ contract SkechGame is
         if (difficulty < SkechLadder.MIN_DIFFICULTY || difficulty > 100) revert BadDifficulty();
         if (bytes(name).length == 0) revert BadConfig();
         GameStorage storage $ = _s();
-        if ($.markets[id].nameHash == bytes32(0)) $.marketCount++;
         $.markets[id] = Market({active: active, difficulty: difficulty, nameHash: keccak256(bytes(name))});
         emit MarketSet(id, name, active, difficulty);
     }
@@ -620,11 +624,11 @@ contract SkechGame is
         if (n == 0 || quote.receivedAt.length != n) revert BadQuote();
         Market storage market = $.markets[quote.market];
         if (!market.active) revert MarketInactive();
-        if (quote.openAt % 1000 != 0 || quote.unit == 0 || quote.price == 0) revert BadQuote();
+        if (quote.openAt % SECOND_MS != 0 || quote.unit == 0 || quote.price == 0) revert BadQuote();
         // A grid unit is a sliver of the price: it also pads every band, so it cannot be let grow.
-        if (uint256(quote.unit) * 2000 > quote.price) revert BadQuote();
+        if (uint256(quote.unit) * MIN_UNITS_IN_PRICE > quote.price) revert BadQuote();
         // Inside the window: not long after the second the pieces open on, and not before it either.
-        uint256 nowMs = block.timestamp * 1000;
+        uint256 nowMs = block.timestamp * SECOND_MS;
         uint32 grace = $.config.placeGraceMs;
         if (nowMs > quote.openAt + grace || quote.openAt > nowMs + grace) revert Window();
 
@@ -690,7 +694,7 @@ contract SkechGame is
             Section calldata s = p.sections[i];
             total += s.stake;
             // Not offered: its second is already over on chain, or its chance earns no rung. Its stake is not taken.
-            if (_bar(q.market, p.openAt + uint64(s.second) * 1000) != 0) continue;
+            if (_bar(q.market, p.openAt + uint64(s.second) * SECOND_MS) != 0) continue;
             uint16 rung = SkechLadder.rungFor(chances[i], p.difficulty, _withIt(s, q), q.momentum);
             if (rung == 0) continue;
             // One section never pays past 256 dots: a big one stakes only what that pays for.
@@ -848,12 +852,12 @@ contract SkechGame is
     /// it stays the house's. Bets not yet due, or already decided, are left as they are. Anyone may.
     function expire(bytes32[] calldata betIds) external whenNotPaused nonReentrant {
         GameStorage storage $ = _s();
-        uint256 nowMs = block.timestamp * 1000;
+        uint256 nowMs = block.timestamp * SECOND_MS;
         for (uint256 i = 0; i < betIds.length; i++) {
             bytes32 betId = betIds[i];
             Bet storage b = $.bets[betId];
             if (b.player == address(0) || b.liveMask == 0) continue;
-            if (nowMs < uint256(b.openAt) + uint256(HORIZON) * 1000 + EXPIRE_AFTER_MS) continue;
+            if (nowMs < uint256(b.openAt) + uint256(HORIZON) * SECOND_MS + EXPIRE_AFTER_MS) continue;
             // A band whose bar is up is decided by it, hit or miss, never refunded.
             _settle(betId);
             uint32 live = b.liveMask;
@@ -872,10 +876,10 @@ contract SkechGame is
         GameStorage storage $ = _s();
         // A market that is not active takes no new pieces, but its seconds are still posted: what is open settles.
         if ($.markets[bar.market].nameHash == bytes32(0)) revert MarketInactive();
-        if (bar.second % 1000 != 0 || bar.low == 0 || bar.prevClose == 0) revert BadBar();
+        if (bar.second % SECOND_MS != 0 || bar.low == 0 || bar.prevClose == 0) revert BadBar();
         if (bar.low > bar.high || bar.close < bar.low || bar.close > bar.high) revert BadBar();
         // A second is posted only once it is over by this chain's clock: never while ink in it can still be placed.
-        if (bar.second + 1000 > block.timestamp * 1000) revert BadBar();
+        if (bar.second + SECOND_MS > block.timestamp * SECOND_MS) revert BadBar();
         bytes32 digest = _hashTypedDataV4(
             keccak256(abi.encode(BAR_TYPEHASH, bar.market, bar.second, bar.prevClose, bar.high, bar.low, bar.close))
         );
@@ -892,9 +896,9 @@ contract SkechGame is
         }
         // One second follows from the last: the previous bar's close is this one's opening price, and this one's close
         // the next one's, when a later second went up first.
-        uint256 previous = bar.second >= 1000 ? _bar(bar.market, bar.second - 1000) : 0;
+        uint256 previous = bar.second >= SECOND_MS ? _bar(bar.market, bar.second - SECOND_MS) : 0;
         if (previous != 0 && uint64(previous >> 192) != bar.prevClose) revert BarDiscontinuous();
-        uint256 next = _bar(bar.market, bar.second + 1000);
+        uint256 next = _bar(bar.market, bar.second + SECOND_MS);
         if (next != 0 && uint64(next) != bar.close) revert BarDiscontinuous();
         assembly {
             sstore(slot, packed)
@@ -919,7 +923,7 @@ contract SkechGame is
             uint32 bit = uint32(1 << i);
             if (live & bit == 0) continue;
             uint256 word = b.sections[i];
-            uint256 bar = _bar(market, openAt + uint64(uint8(word)) * 1000);
+            uint256 bar = _bar(market, openAt + uint64(uint8(word)) * SECOND_MS);
             if (bar == 0) continue;
             decided |= bit;
             // What the price covered in the second: from where the second before closed to its own high and low.
@@ -1217,7 +1221,7 @@ contract SkechGame is
     /* ------------------------------------------------------------------ */
 
     function _barSlot(uint8 market, uint64 second) private pure returns (bytes32) {
-        return bytes32(uint256(keccak256(abi.encode(BARS_SALT, market))) + second / 1000);
+        return bytes32(uint256(keccak256(abi.encode(BARS_SALT, market))) + second / SECOND_MS);
     }
 
     function _bar(uint8 market, uint64 second) private view returns (uint256 bar) {

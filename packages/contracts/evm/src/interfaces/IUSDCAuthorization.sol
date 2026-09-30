@@ -15,7 +15,4 @@ interface IUSDCAuthorization {
         bytes32 nonce,
         bytes memory signature
     ) external;
-
-    /// @notice Whether `authorizer` has used or cancelled `nonce`.
-    function authorizationState(address authorizer, bytes32 nonce) external view returns (bool);
 }
