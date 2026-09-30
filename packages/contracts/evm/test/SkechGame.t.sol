@@ -587,6 +587,104 @@ contract SkechGameTest is Base {
         game.place(pls, q, sig);
     }
 
+    /// Closing a market stops new pieces, not settlement: the bets already open are posted and paid as ever.
+    function test_aClosedMarketStillSettles() public {
+        ready();
+        deposit(other, 100e6);
+        registerSession(OTHER_KEY, OTHER_SESSION_KEY, 100e6);
+        SkechGame.Piece memory lost = piece(1, 0, oneSection(10 * PER_DOT));
+        lost.player = other;
+        lost.sections[0].lo = LO + 40 * UNIT;
+        lost.sections[0].hi = HI + 40 * UNIT;
+        placeOne(lost, OTHER_SESSION_KEY, chancesOf(500_000_000));
+        SkechGame.Piece memory p = piece(2, 0, oneSection(HALF_DOT));
+        bytes32 betId = placeOne(p, SESSION_KEY, chancesOf(500_000_000));
+        vm.prank(admin);
+        game.setMarket(BTC, "BTC-USD", false, 51);
+        vm.warp(vm.getBlockTimestamp() + 2);
+        (SkechGame.Bar memory b, bytes memory sig) = bar(p.openAt + 1000, LO, HI, LO, HI);
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = betId;
+        game.postBarAndSettle(b, sig, ids);
+        assertEq(game.betOf(betId).hitMask, 1);
+        assertEq(game.balanceOf(player), 100e6 - HALF_DOT + 72_500);
+        // A market that was never set up still takes no bars.
+        (b, sig) = bar(p.openAt + 2000, HI, HI, HI, HI);
+        b.market = 7;
+        sig = sign(ORACLE_KEY, game.barDigest(b));
+        vm.expectRevert(SkechGame.MarketInactive.selector);
+        game.postBar(b, sig);
+    }
+
+    /// A bet whose bars never come is not stuck: an hour after its last second, its undecided bands are refunded.
+    function test_expireRefundsWhatNoBarDecided() public {
+        ready();
+        deposit(other, 100e6);
+        registerSession(OTHER_KEY, OTHER_SESSION_KEY, 100e6);
+        SkechGame.Piece memory lost = piece(1, 0, oneSection(10 * PER_DOT));
+        lost.player = other;
+        lost.sections[0].lo = LO + 40 * UNIT;
+        lost.sections[0].hi = HI + 40 * UNIT;
+        bytes32 lostId = placeOne(lost, OTHER_SESSION_KEY, chancesOf(500_000_000));
+        SkechGame.Piece memory p = piece(2, 0, twoSections());
+        bytes32 betId = placeOne(p, SESSION_KEY, chancesOf(500_000_000, 500_000_000));
+        // Only the first second is ever posted, and it misses both bets.
+        postBar(p.openAt + 1000, LO - 10 * UNIT, LO - 10 * UNIT, LO - 12 * UNIT, LO - 11 * UNIT);
+        bytes32[] memory ids = new bytes32[](2);
+        ids[0] = betId;
+        ids[1] = lostId;
+        // Not yet due: nothing moves.
+        uint64 due = p.openAt + 30_000 + game.EXPIRE_AFTER_MS();
+        vm.warp(due / 1000 - 1);
+        game.expire(ids);
+        assertEq(game.betOf(betId).liveMask, 3);
+        uint64 poolBefore = game.pool();
+        uint64 fees = game.fees();
+        vm.warp(due / 1000);
+        vm.expectEmit(true, true, false, true);
+        emit SkechGame.Settled(betId, player, 0, 1, 0, 0);
+        vm.expectEmit(true, true, false, true);
+        emit SkechGame.Refunded(betId, player, 2, HALF_DOT, 0);
+        game.expire(ids);
+        // The first band was decided by its bar, a miss; the second never was: its stake is back, from the pool.
+        SkechGame.BetView memory b = game.betOf(betId);
+        assertEq(b.liveMask, 0);
+        assertEq(b.hitMask, 0);
+        assertEq(game.balanceOf(player), 100e6 - 2 * HALF_DOT + HALF_DOT);
+        assertEq(game.pool(), poolBefore - HALF_DOT);
+        assertEq(game.fees(), fees);
+        // The loser's one band was decided: nothing to give back.
+        assertEq(game.betOf(lostId).liveMask, 0);
+        assertEq(game.balanceOf(other), 100e6 - 10 * PER_DOT);
+        // Again, or a bar that turns up late, changes nothing.
+        game.expire(ids);
+        postBar(p.openAt + 2000, LO - 11 * UNIT, HI + 10 * UNIT, LO - 11 * UNIT, HI);
+        settleOne(betId);
+        assertEq(game.balanceOf(player), 100e6 - HALF_DOT);
+        address[] memory ps = new address[](2);
+        ps[0] = player;
+        ps[1] = other;
+        assertAccounted(ps);
+    }
+
+    /// A refund the pool cannot pay is owed, as a win would be.
+    function test_expireOwesWhatThePoolCannotPay() public {
+        ready();
+        SkechGame.Piece memory p = piece(2, 0, oneSection(HALF_DOT));
+        bytes32 betId = placeOne(p, SESSION_KEY, chancesOf(500_000_000));
+        assertEq(game.pool(), HALF_DOT * 96 / 100);
+        vm.warp((p.openAt + 30_000 + game.EXPIRE_AFTER_MS()) / 1000);
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = betId;
+        game.expire(ids);
+        assertEq(game.pool(), 0);
+        assertEq(game.balanceOf(player), 100e6 - HALF_DOT + HALF_DOT * 96 / 100);
+        assertEq(iou.basisOf(player), HALF_DOT * 4 / 100);
+        address[] memory ps = new address[](1);
+        ps[0] = player;
+        assertAccounted(ps);
+    }
+
     function test_inactiveMarket() public {
         ready();
         vm.prank(admin);

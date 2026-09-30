@@ -270,6 +270,9 @@ contract SkechGame is
 
     uint256 private constant BPS = 10_000;
 
+    /// @notice How long after a bet's last second a band no bar has decided may be refunded, ms: an hour.
+    uint64 public constant EXPIRE_AFTER_MS = 3_600_000;
+
     /* ------------------------------------------------------------------ */
     /* Events and errors                                                   */
     /* ------------------------------------------------------------------ */
@@ -299,6 +302,8 @@ contract SkechGame is
     event BarPosted(uint8 indexed market, uint64 indexed second, uint64 prevClose, uint64 high, uint64 low, uint64 close);
     /// @notice Bands decided: `paid` USDC into the balance, `owed` as IOU.
     event Settled(bytes32 indexed betId, address indexed player, uint32 hitMask, uint32 missMask, uint64 paid, uint64 owed);
+    /// @notice Bands no bar decided, given back: their stake, `paid` into the balance and `owed` as IOU.
+    event Refunded(bytes32 indexed betId, address indexed player, uint32 mask, uint64 paid, uint64 owed);
     event Owed(address indexed to, uint64 value, uint256 shares);
     event Redeemed(address indexed holder, address indexed by, uint256 shares, uint64 value, uint64 cut);
     event FeesCollected(uint64 amount);
@@ -789,9 +794,36 @@ contract SkechGame is
         }
     }
 
+    /// @notice Give back the stake of bands no bar ever decided, so a bet can never be stuck. Once a bet's last second
+    /// is `EXPIRE_AFTER_MS` gone, it is settled on whatever bars there are, and the stake of every band still live is
+    /// paid back from the pool, as a win is: in USDC as far as the pool goes, the rest owed as IOU. The fee taken on
+    /// it stays the house's. Bets not yet due, or already decided, are left as they are. Anyone may.
+    function expire(bytes32[] calldata betIds) external whenNotPaused nonReentrant {
+        GameStorage storage $ = _s();
+        uint256 nowMs = block.timestamp * 1000;
+        for (uint256 i = 0; i < betIds.length; i++) {
+            bytes32 betId = betIds[i];
+            Bet storage b = $.bets[betId];
+            if (b.player == address(0) || b.liveMask == 0) continue;
+            if (nowMs < uint256(b.openAt) + uint256(HORIZON) * 1000 + EXPIRE_AFTER_MS) continue;
+            // A band whose bar is up is decided by it, hit or miss, never refunded.
+            _settle(betId);
+            uint32 live = b.liveMask;
+            if (live == 0) continue;
+            uint256 refund;
+            for (uint256 k = 0; k < b.count; k++) {
+                if (live & (1 << k) != 0) refund += uint64(b.sections[k] >> 136);
+            }
+            b.liveMask = 0;
+            (uint64 paid, uint64 owed) = _pay(b.player, uint64(refund));
+            emit Refunded(betId, b.player, live, paid, owed);
+        }
+    }
+
     function _postBar(Bar calldata bar, bytes calldata sig) private {
         GameStorage storage $ = _s();
-        if (!$.markets[bar.market].active) revert MarketInactive();
+        // A market that is not active takes no new pieces, but its seconds are still posted: what is open settles.
+        if ($.markets[bar.market].nameHash == bytes32(0)) revert MarketInactive();
         if (bar.second % 1000 != 0 || bar.low == 0 || bar.prevClose == 0) revert BadBar();
         if (bar.low > bar.high || bar.close < bar.low || bar.close > bar.high) revert BadBar();
         // A second is posted once it is over, by this chain's clock, give or take the grace: never ahead of the ink in it.
