@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 import { fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
 import { HapticHost } from "./haptic-host";
+import { UpdateReady } from "./update-ready";
 import { TokenAvatar } from "@/components/app/market-header";
 import { DepositButton, InkControls } from "./ink-controls";
 import feedback from "./drawing-feedback.module.css";
@@ -1093,6 +1094,7 @@ export function InkScreen() {
       {returnedInk && !preview && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
       <div className={feedback.bottomShade} aria-hidden="true" />
       {homeBar ? <HomeScreenBar dismiss={home.dismiss} install={home.install} /> : null}
+      <UpdateReady busy={live > 0} />
       <HomeScreenSheet open={home.open} setOpen={home.setOpen} where={home.where} />
       <footer className={feedback.toolbar}>
         <Button aria-label="Settings" aria-haspopup="dialog" className={feedback.settingsButton} onClick={() => setSettingsOpen(true)} size="icon" variant="outline"><SlidersHorizontalIcon strokeWidth={1.8} /></Button>
