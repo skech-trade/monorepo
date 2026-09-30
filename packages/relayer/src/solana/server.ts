@@ -18,6 +18,8 @@ import type { SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { Placed, Refused, SolanaPieceMsg, SolanaSequencer } from "./sequencer";
 import type { Settled, SolanaSettler } from "./settler";
+import { report } from "../sentry";
+import { type Message, read, refusal, SOLANA } from "../wire";
 
 type Data = { id: number; player?: Address };
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
@@ -69,7 +71,7 @@ export class SolanaServer {
           this.clients.add(ws);
           ws.send(json(this.hello()));
         },
-        message: (ws, raw) => void this.onMessage(ws, raw),
+        message: (ws, raw) => void this.receive(ws, raw),
         close: (ws) => {
           this.clients.delete(ws);
           if (ws.data.player) this.byPlayer.get(ws.data.player)?.delete(ws);
@@ -159,15 +161,21 @@ export class SolanaServer {
     return { usdc: t.data.amount, approved };
   }
 
-  private async onMessage(ws: ServerWebSocket<Data>, raw: string | Buffer) {
-    let msg: { type?: string; [k: string]: unknown };
+  /** Every message, checked (wire.ts) before it is handled; whatever goes wrong in handling it is answered, never thrown. */
+  private async receive(ws: ServerWebSocket<Data>, raw: string | Buffer) {
+    const r = read(raw, SOLANA);
+    if ("why" in r) return ws.send(json(refusal(r.msg, r.why)));
+    if (!this.sequencer) return ws.send(json(refusal(r.msg, "Starting up")));
     try {
-      msg = JSON.parse(String(raw));
-    } catch {
-      return ws.send(json({ type: "error", why: "Not JSON" }));
+      await this.onMessage(ws, r.msg, this.sequencer);
+    } catch (e) {
+      this.log(`${r.msg.type}: ${reason(e)}`);
+      report("message", e);
+      ws.send(json(refusal(r.msg, "Something went wrong; try again")));
     }
-    const seq = this.sequencer;
-    if (!seq) return ws.send(json({ type: "error", why: "Starting up" }));
+  }
+
+  private async onMessage(ws: ServerWebSocket<Data>, msg: Message, seq: SolanaSequencer) {
     switch (msg.type) {
       case "hello":
         return ws.send(json(this.hello()));
@@ -194,7 +202,10 @@ export class SolanaServer {
         const player = ws.data.player;
         if (!player || !this.settler || this.sweeping.has(player)) return;
         this.sweeping.add(player);
-        void this.settler.sweepIn(player).finally(() => this.sweeping.delete(player));
+        void this.settler
+          .sweepIn(player)
+          .catch((e) => this.log(`sweep ${player}: ${reason(e)}`))
+          .finally(() => this.sweeping.delete(player));
         return;
       }
       case "piece": {

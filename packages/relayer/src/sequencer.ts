@@ -159,7 +159,10 @@ export class Sequencer {
     if (!bucket) {
       this.buckets.set(piece.openAt, (bucket = []));
       const delay = Math.max(0, openAt + this.cfg.openAfterMs - now);
-      this.timers.set(piece.openAt, setTimeout(() => void this.flush(piece.openAt), delay));
+      this.timers.set(
+        piece.openAt,
+        setTimeout(() => void this.flush(piece.openAt).catch((e) => this.log(`place at ${piece.openAt}: ${String((e as Error).message ?? e).split("\n")[0]}`)), delay),
+      );
     }
     bucket.push(entry);
     this.stats.accepted++;
@@ -183,6 +186,7 @@ export class Sequencer {
     if (unit <= 0n) return "Bad unit";
     const sections: Section[] = [];
     for (const s of w.sections) {
+      if (!s || typeof s !== "object") return "Bad section";
       const lo = big(s.lo);
       const hi = big(s.hi);
       const stake = big(s.stake);

@@ -154,7 +154,7 @@ export class SolanaSettler {
       }),
     );
     this.forget(second);
-    for (const s of [sent, ...rest]) if (!s.err) void this.tell(s.signature);
+    for (const s of [sent, ...rest]) if (!s.err) void this.tell(s.signature).catch((e) => this.log(`settle ${second}: ${String((e as Error).message ?? e).split("\n")[0]}`));
   }
 
   /** Tell each player what their bets did, from the settlement's events. */

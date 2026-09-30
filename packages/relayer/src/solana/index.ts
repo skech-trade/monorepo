@@ -8,7 +8,7 @@
  *   ws://localhost:3104/ws   the mobile app connects here (EXPO_PUBLIC_RELAYER_URL)
  *   GET /health, GET /status
  */
-import { report, trail } from "../sentry";
+import { report, survive, trail } from "../sentry";
 import { join } from "node:path";
 import { domainFor } from "@skech/contracts/solana/sdk";
 import { Engine } from "../engine";
@@ -23,6 +23,7 @@ const log = (s: string) => {
   console.error(`${new Date().toISOString().slice(11, 23)} [solana] ${s}`);
   trail(s);
 };
+survive(log);
 
 const started = Date.now();
 const pricer = new Pricer(await Bun.file(scfg.libPath).arrayBuffer(), log);
@@ -83,7 +84,7 @@ setInterval(() => {
       log(`WARNING: relayer holds ${Number(l) / 1e9} SOL; top it up`);
       report("low-sol", `Solana relayer holds ${Number(l) / 1e9} SOL; top it up`, "warning");
     }
-  });
+  }, (e) => log(`reading the relayer's SOL: ${String((e as Error).message ?? e).split("\n")[0]}`));
 }, 60_000);
 
 // An app that connected before the engine had prices was told no grid: tell it again once there is one.

@@ -9,7 +9,7 @@
  *   ws://localhost:3103/ws   apps connect here (NEXT_PUBLIC_RELAYER_URL)
  *   GET /health, GET /status
  */
-import { report, trail } from "./sentry";
+import { report, survive, trail } from "./sentry";
 import { formatEther } from "viem";
 import { join } from "node:path";
 import { Activity } from "./activity";
@@ -26,6 +26,7 @@ const log = (s: string) => {
   console.error(`${new Date().toISOString().slice(11, 23)} ${s}`);
   trail(s);
 };
+survive(log);
 
 const started = Date.now();
 const libBytes = await Bun.file(cfg.libPath).arrayBuffer();
@@ -100,7 +101,7 @@ setInterval(() => {
       log(`WARNING: relayer holds ${formatEther(b)} MON; top it up`);
       report("low-mon", `relayer holds ${formatEther(b)} MON; top it up`, "warning");
     }
-  });
+  }, (e) => log(`reading the relayer's MON: ${String((e as Error).message ?? e).split("\n")[0]}`));
 }, 60_000);
 
 // The engine's signer must be the game's oracle, or nothing a player sees can be checked on chain.

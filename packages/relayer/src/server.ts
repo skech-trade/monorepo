@@ -13,6 +13,8 @@ import type { Engine } from "./engine";
 import type { PieceMsg, Placed, Refused, Sequencer } from "./sequencer";
 import type { Settled, Settler } from "./settler";
 import type { Activity } from "./activity";
+import { report } from "./sentry";
+import { MONAD, type Message, read, refusal } from "./wire";
 
 type Data = { id: number; player?: Address };
 type Deps = { cfg: Config; engine: Engine; chain: ChainClient; log: (s: string) => void; status: () => Record<string, unknown> };
@@ -51,7 +53,7 @@ export class Server {
           this.clients.add(ws);
           this.send(ws, this.hello());
         },
-        message: (ws, raw) => void this.onMessage(ws, raw),
+        message: (ws, raw) => void this.receive(ws, raw),
         close: (ws) => {
           this.clients.delete(ws);
           if (ws.data.player) this.byPlayer.get(ws.data.player)?.delete(ws);
@@ -137,15 +139,21 @@ export class Server {
 
   /* ---- what apps send ---- */
 
-  private async onMessage(ws: ServerWebSocket<Data>, raw: string | Buffer) {
-    let msg: { type?: string; [k: string]: unknown };
+  /** Every message, checked (wire.ts) before it is handled; whatever goes wrong in handling it is answered, never thrown. */
+  private async receive(ws: ServerWebSocket<Data>, raw: string | Buffer) {
+    const r = read(raw, MONAD);
+    if ("why" in r) return this.send(ws, refusal(r.msg, r.why));
+    if (!this.sequencer) return this.send(ws, refusal(r.msg, "Starting up"));
     try {
-      msg = JSON.parse(String(raw));
-    } catch {
-      return this.send(ws, { type: "error", why: "Not JSON" });
+      await this.onMessage(ws, r.msg, this.sequencer);
+    } catch (e) {
+      this.d.log(`${r.msg.type}: ${reason(e)}`);
+      report("message", e);
+      this.send(ws, refusal(r.msg, "Something went wrong; try again"));
     }
-    const seq = this.sequencer;
-    if (!seq) return this.send(ws, { type: "error", why: "Starting up" });
+  }
+
+  private async onMessage(ws: ServerWebSocket<Data>, msg: Message, seq: Sequencer) {
     switch (msg.type) {
       case "watch": {
         if (!isAddress(msg.player)) return this.send(ws, { type: "error", why: "Bad player" });

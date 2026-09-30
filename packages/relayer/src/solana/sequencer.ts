@@ -145,7 +145,7 @@ export class SolanaSequencer {
     let bucket = this.buckets.get(openAt);
     if (!bucket) {
       this.buckets.set(openAt, (bucket = []));
-      setTimeout(() => void this.flush(openAt), Math.max(0, openAt + this.cfg.openAfterMs - now));
+      setTimeout(() => void this.flush(openAt).catch((e) => this.log(`place at ${openAt}: ${String((e as Error).message ?? e).split("\n")[0]}`)), Math.max(0, openAt + this.cfg.openAfterMs - now));
     }
     bucket.push({ piece, sig, key: acct.key, receivedAt, bet, bump, stake });
     this.stats.accepted++;
@@ -166,6 +166,7 @@ export class SolanaSequencer {
     if (!u(w.index, 0xffffffff) || !u(w.market, 255) || !u(w.difficulty, 100) || !u(w.perDot, 0xffffffff)) return "Bad numbers";
     if (!Array.isArray(w.sections) || w.sections.length === 0 || w.sections.length > MAX_SECTIONS) return "Bad sections";
     for (const s of w.sections) {
+      if (!s || typeof s !== "object") return "Bad section";
       if (!u(s.second, HORIZON) || s.second < 1 || !u(s.lo, 0xffffffff) || !u(s.width, 0xffff) || s.width < 1 || !u(s.stake, 0xffffffff) || s.stake < 1) return "Bad section";
     }
     const strokeHash = bytesOf(w.strokeHash, 32);
