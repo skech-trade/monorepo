@@ -10,9 +10,11 @@ import { features, NICE, stepFor } from "@skech/core/dots";
 import { CHANCE_ONE, momentumE6, rungE2, maxStakeE6, toE8, unitFor, withMomentum, type Section } from "@skech/core/chain";
 import { betAddress, ed25519Instruction, getPlaceInstruction, getSkechErrorMessage, HORIZON, MAX_SECTIONS, pieceBytes, playerAddress, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
+import { remember } from "../limits";
 import type { Pricer } from "../pricer";
 import { report } from "../sentry";
 import { verifyPrice } from "../verify";
+import { big } from "../wire";
 import { customCode, type SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { SolanaSettler } from "./settler";
@@ -46,7 +48,6 @@ const bytesOf = (s: unknown, n?: number): Uint8Array | null => {
   const b = new Uint8Array(hex.encode(s.replace(/^0x/, "").toLowerCase()));
   return n === undefined || b.length === n ? b : null;
 };
-const big = (s: unknown) => (typeof s === "string" && /^\d{1,20}$/.test(s) ? BigInt(s) : null);
 const u = (n: unknown, max: number) => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= max;
 
 export class SolanaSequencer {
@@ -92,7 +93,7 @@ export class SolanaSequencer {
     const p = await this.chain.player(player);
     if (!p) return null;
     const v = { at: Date.now(), balance: p.balance, allowance: p.session.allowance, key: new Uint8Array(getAddressEncoder().encode(p.session.key)), validUntil: p.session.validUntil };
-    this.players.set(player, v);
+    remember(this.players, player, v, 20_000);
     return v;
   }
 
@@ -138,6 +139,9 @@ export class SolanaSequencer {
     const held = this.pending.get(piece.player) ?? 0n;
     if (acct.allowance < stake + held) return bad("Session allowance used up", bet);
     if (acct.balance < stake + held) return bad("Not enough in your balance", bet);
+    // Looked at again here, with nothing awaited between it and taking the piece in: the same piece sent twice at
+    // once passed the first look together.
+    if (this.seen.has(bet)) return bad("Already sent", bet);
 
     this.seen.add(bet);
     if (this.seen.size > 50_000) this.seen.delete(this.seen.values().next().value!);
@@ -145,7 +149,7 @@ export class SolanaSequencer {
     let bucket = this.buckets.get(openAt);
     if (!bucket) {
       this.buckets.set(openAt, (bucket = []));
-      setTimeout(() => void this.flush(openAt), Math.max(0, openAt + this.cfg.openAfterMs - now));
+      setTimeout(() => void this.flush(openAt).catch((e) => this.log(`place at ${openAt}: ${String((e as Error).message ?? e).split("\n")[0]}`)), Math.max(0, openAt + this.cfg.openAfterMs - now));
     }
     bucket.push({ piece, sig, key: acct.key, receivedAt, bet, bump, stake });
     this.stats.accepted++;
@@ -166,6 +170,7 @@ export class SolanaSequencer {
     if (!u(w.index, 0xffffffff) || !u(w.market, 255) || !u(w.difficulty, 100) || !u(w.perDot, 0xffffffff)) return "Bad numbers";
     if (!Array.isArray(w.sections) || w.sections.length === 0 || w.sections.length > MAX_SECTIONS) return "Bad sections";
     for (const s of w.sections) {
+      if (!s || typeof s !== "object") return "Bad section";
       if (!u(s.second, HORIZON) || s.second < 1 || !u(s.lo, 0xffffffff) || !u(s.width, 0xffff) || s.width < 1 || !u(s.stake, 0xffffffff) || s.stake < 1) return "Bad section";
     }
     const strokeHash = bytesOf(w.strokeHash, 32);
@@ -230,6 +235,8 @@ export class SolanaSequencer {
           const bands = this.bandsOf(p);
           const chances = this.pricer.chances(fl, bands, openAt);
           if (chances.some((c) => c < 0 || c > CHANCE_ONE)) throw new Error("a chance out of range");
+          // Nothing the program would keep: it refuses the piece, and the fee would be paid for nothing.
+          if (!this.predict(p, bands, chances, price, momentum).sections.length) return this.refuse(e, "NotOffered");
           const bytes = pieceBytes(p);
           const place = getPlaceInstruction({
             // The piece first: its `player` and `market` are the wallet and the market id, which the accounts below replace.
@@ -256,8 +263,9 @@ export class SolanaSequencer {
             this.refuse(e, code !== null ? (getSkechErrorMessage(code as Parameters<typeof getSkechErrorMessage>[0]) ?? `Refused (${code})`) : "Not placed", sent.signature);
             return;
           }
-          // What the chain placed: from its event, or worked out as the program works it out if the event is slow.
-          const ev = (await this.chain.events(sent.signature)).find((x) => x.name === "Placed")?.data as { staked: bigint; fee: bigint; refunded: bigint; sections: Band[] } | undefined;
+          // What the chain placed: from its event, or worked out as the program works it out if the event is slow or
+          // cannot be read. It is placed either way, and must be watched to be settled.
+          const ev = (await this.chain.events(sent.signature).catch(() => [])).find((x) => x.name === "Placed")?.data as { staked: bigint; fee: bigint; refunded: bigint; sections: Band[] } | undefined;
           const placed = ev ?? this.predict(p, bands, chances, price, momentum);
           this.stats.placed++;
           const c = this.players.get(p.player);

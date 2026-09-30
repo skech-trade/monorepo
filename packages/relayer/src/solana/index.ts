@@ -8,7 +8,7 @@
  *   ws://localhost:3104/ws   the mobile app connects here (EXPO_PUBLIC_RELAYER_URL)
  *   GET /health, GET /status
  */
-import { report, trail } from "../sentry";
+import { report, survive, trail } from "../sentry";
 import { join } from "node:path";
 import { domainFor } from "@skech/contracts/solana/sdk";
 import { Engine } from "../engine";
@@ -23,6 +23,7 @@ const log = (s: string) => {
   console.error(`${new Date().toISOString().slice(11, 23)} [solana] ${s}`);
   trail(s);
 };
+survive(log);
 
 const started = Date.now();
 const pricer = new Pricer(await Bun.file(scfg.libPath).arrayBuffer(), log);
@@ -40,7 +41,7 @@ if (game.oracle !== chain.signer.address) {
 }
 scfg.lateMs = game.config.lateMs;
 
-const engine = new Engine(scfg.engineUrl, log);
+const engine = new Engine(scfg.engineUrl, log, scfg.engineSigner);
 engine.start();
 
 let sequencer: SolanaSequencer;
@@ -84,7 +85,7 @@ setInterval(() => {
       log(`WARNING: relayer holds ${Number(l) / 1e9} SOL; top it up`);
       report("low-sol", `Solana relayer holds ${Number(l) / 1e9} SOL; top it up`, "warning");
     }
-  });
+  }, (e) => log(`reading the relayer's SOL: ${String((e as Error).message ?? e).split("\n")[0]}`));
 }, 60_000);
 
 // An app that connected before the engine had prices was told no grid: tell it again once there is one.
@@ -94,6 +95,15 @@ setInterval(() => {
   if (has && !hadUnits) server.announce();
   hadUnits = has;
 }, 1_000);
+
+// A restart (systemd stops with SIGTERM) keeps what is still to settle and who is owed: saved on the way out.
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    log(`${signal}: saving the state and stopping`);
+    settler.save();
+    process.exit(0);
+  });
+}
 
 await settler.start();
 server.start();

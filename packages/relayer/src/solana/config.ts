@@ -29,11 +29,17 @@ function keyBytes(): Uint8Array {
 }
 
 const rpcUrl = solanaRpc(process.env, net);
+const engineSigner = env("RELAYER_ENGINE_SIGNER");
+if (engineSigner && !/^0x[0-9a-fA-F]{40}$/.test(engineSigner)) throw new Error(`RELAYER_ENGINE_SIGNER is not an address: ${engineSigner}`);
 const compute = JSON.parse(readFileSync(join(root, "packages/contracts/solana/snapshots/compute.json"), "utf8")) as Record<string, number>;
 
 export const scfg = {
   port: Number(env("RELAYER_SOLANA_PORT") ?? 3104),
+  /** Where to listen: this machine only, behind Caddy. 0.0.0.0 to be reached from elsewhere (a phone on the same network). */
+  host: env("RELAYER_HOST") ?? "127.0.0.1",
   engineUrl: env("NEXT_PUBLIC_ENGINE_URL") ?? "ws://localhost:3102/ws",
+  /** The engine's signing address, if known: an engine that signs as anyone else is not listened to. */
+  engineSigner: engineSigner as `0x${string}` | undefined,
   net,
   rpcUrl,
   wsUrl: env(`SOLANA_${net.cluster.toUpperCase().replace("-", "_")}_WS_URL`) ?? (rpcUrl === net.rpc ? net.ws : rpcUrl.replace(/^http/, "ws")),
@@ -51,6 +57,8 @@ export const scfg = {
   /** Sweep IOUs, deposits and fees this often. */
   sweepEveryMs: 15_000,
   collectAboveE6: 1_000_000n,
+  /** The least a deposit or withdrawal the relayer pays for may move, USDC e6 (a withdrawal of the whole balance always goes): the app's least deposit. */
+  minMoveE6: 1_000_000n,
   /** Compute units each instruction takes, measured in LiteSVM (`bun run solana:snapshot`). */
   compute,
   /** Priority fee, micro-lamports per compute unit: a fixed one, or what recent blocks paid to write the pool, capped. */

@@ -10,10 +10,11 @@
  * whatever the RPC says it allows, and paces itself so placing never waits on
  * it. Saved beside the settler's state.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { renameSync } from "node:fs";
 import { type Address, type Hex, parseEventLogs } from "viem";
 import { type ChainClient, GAME_ABI } from "./chain";
 import { report } from "./sentry";
+import { readState, writeAtomic } from "./state";
 
 export type Tally = { txs: number; pieces: number; deposits: number; withdrawals: number; recent: Hex[] };
 type Saved = { from: string; scannedTo: string; players: Record<string, Tally> };
@@ -116,26 +117,39 @@ export class Activity {
     }
   }
 
+  /**
+   * What was counted before. Unlike the settler's, nothing here is lost with the file: it is all on chain. So a file
+   * that cannot be read is moved aside, loudly, and the count starts again, rather than stopping the relayer.
+   */
   private load() {
-    if (!existsSync(this.path)) return;
     try {
-      const s = JSON.parse(readFileSync(this.path, "utf8")) as Saved;
+      const s = readState<Saved>(this.path);
+      if (!s) return;
       // Counted for another deployment: start again.
       if (BigInt(s.from) !== this.from) return;
       this.scannedTo = BigInt(s.scannedTo);
       for (const [k, t] of Object.entries(s.players)) this.players.set(k as Address, t);
       this.log(`activity: ${this.players.size} players, read to block ${this.scannedTo}`);
     } catch (e) {
-      this.log(`activity: could not read ${this.path}: ${String(e)}`);
+      const aside = `${this.path}.unreadable-${Date.now()}`;
+      this.players.clear();
+      this.scannedTo = this.from - 1n;
+      try {
+        renameSync(this.path, aside);
+      } catch {
+        /* gone already */
+      }
+      this.log(`WARNING: activity: could not read ${this.path} (${String((e as Error).message ?? e)}); moved it to ${aside} and counting again`);
+      report("state-read", e);
     }
   }
 
-  private save() {
+  save() {
     if (!this.dirty) return;
     this.dirty = false;
     const s: Saved = { from: this.from.toString(), scannedTo: this.scannedTo.toString(), players: Object.fromEntries(this.players) };
     try {
-      writeFileSync(this.path, JSON.stringify(s));
+      writeAtomic(this.path, JSON.stringify(s));
     } catch (e) {
       this.log(`activity: could not write ${this.path}: ${String(e)}`);
     }
