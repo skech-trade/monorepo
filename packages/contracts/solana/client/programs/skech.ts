@@ -55,6 +55,7 @@ import {
   getAcceptAdminInstructionAsync,
   getCollectFeesInstructionAsync,
   getDepositInstructionAsync,
+  getExpireInstructionAsync,
   getInitializeInstructionAsync,
   getInitMarketInstructionAsync,
   getPlaceInstructionAsync,
@@ -77,6 +78,7 @@ import {
   parseAcceptAdminInstruction,
   parseCollectFeesInstruction,
   parseDepositInstruction,
+  parseExpireInstruction,
   parseInitializeInstruction,
   parseInitMarketInstruction,
   parsePlaceInstruction,
@@ -99,11 +101,13 @@ import {
   type AcceptAdminAsyncInput,
   type CollectFeesAsyncInput,
   type DepositAsyncInput,
+  type ExpireAsyncInput,
   type InitializeAsyncInput,
   type InitMarketAsyncInput,
   type ParsedAcceptAdminInstruction,
   type ParsedCollectFeesInstruction,
   type ParsedDepositInstruction,
+  type ParsedExpireInstruction,
   type ParsedInitializeInstruction,
   type ParsedInitMarketInstruction,
   type ParsedPlaceInstruction,
@@ -379,6 +383,7 @@ export enum SkechInstruction {
   AcceptAdmin,
   CollectFees,
   Deposit,
+  Expire,
   InitMarket,
   Initialize,
   Place,
@@ -436,6 +441,17 @@ export function identifySkechInstruction(
     )
   ) {
     return SkechInstruction.Deposit;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([243, 83, 205, 58, 57, 201, 247, 146]),
+      ),
+      0,
+    )
+  ) {
+    return SkechInstruction.Expire;
   }
   if (
     containsBytes(
@@ -665,6 +681,9 @@ export type ParsedSkechInstruction<
       instructionType: SkechInstruction.Deposit;
     } & ParsedDepositInstruction<TProgram>)
   | ({
+      instructionType: SkechInstruction.Expire;
+    } & ParsedExpireInstruction<TProgram>)
+  | ({
       instructionType: SkechInstruction.InitMarket;
     } & ParsedInitMarketInstruction<TProgram>)
   | ({
@@ -746,6 +765,13 @@ export function parseSkechInstruction<TProgram extends string>(
       return {
         instructionType: SkechInstruction.Deposit,
         ...parseDepositInstruction(instruction),
+      };
+    }
+    case SkechInstruction.Expire: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: SkechInstruction.Expire,
+        ...parseExpireInstruction(instruction),
       };
     }
     case SkechInstruction.InitMarket: {
@@ -920,6 +946,9 @@ export type SkechPluginInstructions = {
   deposit: (
     input: MakeOptional<DepositAsyncInput, "payer">,
   ) => ReturnType<typeof getDepositInstructionAsync> & SelfPlanAndSendFunctions;
+  expire: (
+    input: ExpireAsyncInput,
+  ) => ReturnType<typeof getExpireInstructionAsync> & SelfPlanAndSendFunctions;
   initMarket: (
     input: InitMarketAsyncInput,
   ) => ReturnType<typeof getInitMarketInstructionAsync> &
@@ -1037,6 +1066,11 @@ export function skechProgram() {
                 ...input,
                 payer: input.payer ?? client.payer,
               }),
+            ),
+          expire: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getExpireInstructionAsync(input),
             ),
           initMarket: (input) =>
             addSelfPlanAndSendFunctions(

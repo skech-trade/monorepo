@@ -98,6 +98,9 @@ pub mod skech {
     pub fn settle<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>, market: u8) -> Result<()> {
         settle::settle(ctx, market)
     }
+    pub fn expire<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>, market: u8) -> Result<()> {
+        settle::expire(ctx, market)
+    }
 
     /* ---- what is owed, and fees ---- */
 

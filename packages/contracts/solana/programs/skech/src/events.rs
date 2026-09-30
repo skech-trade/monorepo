@@ -71,6 +71,10 @@ pub struct Settled {
     pub owed: u64,
     /// Every band decided: the bet is closed.
     pub closed: bool,
+    /// Bands whose second can no longer be posted, given back by `expire`, and what they gave back (in `paid` and
+    /// `owed` with the rest).
+    pub expired_mask: u32,
+    pub refunded: u64,
 }
 
 /// `to` is owed `value` as IOU shares; the house when `to` is the default key.

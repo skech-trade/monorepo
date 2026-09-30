@@ -6,7 +6,7 @@
 import { AccountRole, type Address, type Instruction } from "@solana/kit";
 import { fetchMaybeToken, findAssociatedTokenPda, TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import { CLOSE_AFTER_MS } from "@skech/core/bars";
-import { fetchBars, getCollectFeesInstruction, getPostBarAndSettleInstruction, getRedeemHouseInstruction, getRedeemInstruction, getSettleInstruction, getSweepInstruction, playerAddress, SKECH_ERROR__BAR_LATE } from "@skech/contracts/solana/sdk";
+import { fetchBars, getCollectFeesInstruction, getExpireInstruction, getPostBarAndSettleInstruction, getRedeemHouseInstruction, getRedeemInstruction, getSettleInstruction, getSweepInstruction, playerAddress, SKECH_ERROR__BAR_LATE } from "@skech/contracts/solana/sdk";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Engine } from "../engine";
 import { report } from "../sentry";
@@ -22,6 +22,8 @@ type State = { bets: { bet: Address; player: Address; unit: string; bands: { sec
 
 /** Every share a holder has: redeem takes what the pool can pay of it. */
 const ALL = (1n << 128n) - 1n;
+
+const withBets = (ix: Instruction, extra: { address: Address; role: AccountRole }[]): Instruction => ({ ...ix, accounts: [...(ix.accounts ?? []), ...extra] });
 
 export class SolanaSettler {
   private bets = new Map<Address, Live>();
@@ -141,11 +143,11 @@ export class SolanaSettler {
     for (let i = 0; i < Math.max(1, bets.length); i += this.cfg.betsPerSettle) chunks.push(bets.slice(i, i + this.cfg.betsPerSettle));
     // The bar with the first dozen bets; the rest settle on it right after, in parallel: they meet only on the pool.
     const first = getPostBarAndSettleInstruction({ oracle: this.chain.signer, game: d.game, marketAccount: d.market, bars: d.bars, pool: d.pool, rentReceiver: this.chain.signer.address, market: this.cfg.market, bar });
-    const withBets = (ix: Instruction, extra: { address: Address; role: AccountRole }[]): Instruction => ({ ...ix, accounts: [...(ix.accounts ?? []), ...extra] });
     const sent = await this.chain.send(`bar ${second} + ${chunks[0].length} bets`, [withBets(first, await this.pairs(chunks[0]))], this.computeFor(chunks[0].length, true));
     if (sent.err && customCode(sent.err) === SKECH_ERROR__BAR_LATE) {
-      // Too long after its second to post: it never will be, and its bets can only be given their stakes back.
-      this.log(`settle: bar ${second} is too late to post; dropping its watch`);
+      // Too long after its second to post: it never will be. Its bets' bands in it are given their stakes back.
+      this.log(`settle: bar ${second} is too late to post; expiring its ${bets.length} bets`);
+      for (const chunk of chunks) if (chunk.length) await this.expire(chunk);
       this.forget(second);
       return;
     }
@@ -161,6 +163,14 @@ export class SolanaSettler {
     );
     this.forget(second);
     for (const s of [sent, ...rest]) if (!s.err) void this.tell(s.signature);
+  }
+
+  /** Give back the stakes of bands whose second can no longer be posted (and settle any that can). */
+  private async expire(bets: Address[]) {
+    const d = this.cfg.deployment;
+    const ix = getExpireInstruction({ game: d.game, bars: d.bars, pool: d.pool, rentReceiver: this.chain.signer.address, market: this.cfg.market });
+    const s = await this.chain.send(`expire ${bets.length}`, [withBets(ix, await this.pairs(bets))], this.computeFor(bets.length, false));
+    if (!s.err) void this.tell(s.signature);
   }
 
   /** Tell each player what their bets did, from the settlement's events. */

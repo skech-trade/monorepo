@@ -216,6 +216,67 @@
       ]
     },
     {
+      "name": "expire",
+      "discriminator": [
+        243,
+        83,
+        205,
+        58,
+        57,
+        201,
+        247,
+        146
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bars"
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "rent_receiver",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "market",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "init_market",
       "discriminator": [
         33,
@@ -2919,6 +2980,18 @@
               "Every band decided: the bet is closed."
             ],
             "type": "bool"
+          },
+          {
+            "name": "expired_mask",
+            "docs": [
+              "Bands whose second can no longer be posted, given back by `expire`, and what they gave back (in `paid` and",
+              "`owed` with the rest)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "refunded",
+            "type": "u64"
           }
         ]
       }

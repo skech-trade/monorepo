@@ -331,3 +331,68 @@ fn the_admin_is_handed_over_in_two_steps_and_the_config_is_checked() {
     let set = g.ix(skech::accounts::Admin { admin: admin.pubkey(), game: game_pda() }, skech::instruction::SetPaused { paused: true });
     assert_eq!(custom_error(&g.send(&[set], &[&admin])), Some(code(SkechError::NotAdmin)));
 }
+
+#[test]
+fn a_band_never_posted_is_given_back_once_it_never_can_be() {
+    let mut g = Game::new();
+    let p = g.player(10 * E6, 5 * E6);
+    let relayer_before = g.svm.get_balance(&g.relayer.pubkey()).unwrap();
+    let piece = g.piece(&p, 1, 0, open_at(), &[AT, ABOVE]);
+    let quote = g.quote(&piece, HALF);
+    g.place(&p, &piece, &quote).unwrap();
+    let (bet, _) = bet_pda(&p.wallet.pubkey(), 1, 0);
+    let fee = g.pool().fees;
+    let staked = 100_000;
+
+    // Second 1 is posted and misses; second 2 never is. Expiring decides what has a bar, and waits on the rest.
+    g.set_time(S + 3);
+    g.post_and_settle(open_at() + 1000, 82_990 * E8, 82_995 * E8, 82_990 * E8, 82_995 * E8, &[]).unwrap();
+    g.settle_on(true, &[(bet, p.wallet.pubkey())]).unwrap();
+    let b: skech::state::Bet = g.account(&bet).unwrap();
+    assert_eq!((b.live_mask, b.hit_mask), (0b10, 0));
+
+    // Once second 2 is too late to post, settling still waits; expiring gives its stake back, less its fee.
+    let second_two = open_at() + 2000;
+    g.set_time((second_two + 1000) / 1000 + skech::state::BAR_LATE);
+    g.settle_on(true, &[(bet, p.wallet.pubkey())]).unwrap();
+    assert!(g.account::<skech::state::Bet>(&bet).is_some(), "not late yet: it could still be posted");
+    g.set_time(g.now + 1);
+    g.settle_on(false, &[(bet, p.wallet.pubkey())]).unwrap();
+    assert!(g.account::<skech::state::Bet>(&bet).is_some(), "settle never gives stakes back");
+    g.settle_on(true, &[(bet, p.wallet.pubkey())]).unwrap();
+    assert!(g.account::<skech::state::Bet>(&bet).is_none(), "closed");
+    let back = 50_000 - fee / 2;
+    assert_eq!(g.player_state(&p).balance, 10 * E6 - staked + back);
+    assert_eq!(g.pool().pool, staked - fee - back);
+    assert_eq!(g.pool().fees, fee);
+    let pool = g.pool();
+    assert_eq!(token_balance(&g.svm, &g.vault()), g.player_state(&p).balance + pool.pool + pool.fees);
+    assert!(relayer_before - g.svm.get_balance(&g.relayer.pubkey()).unwrap() < 50_000, "the rent came back");
+}
+
+#[test]
+fn an_oracle_that_stops_leaves_every_stake_to_come_back() {
+    let mut g = Game::new();
+    let p = g.player(10 * E6, 5 * E6);
+    let piece = g.piece(&p, 1, 0, open_at(), &[AT, ABOVE]);
+    let quote = g.quote(&piece, HALF);
+    g.place(&p, &piece, &quote).unwrap();
+    let (bet, _) = bet_pda(&p.wallet.pubkey(), 1, 0);
+    let fee = g.pool().fees;
+    // Nothing is posted, ever: once the last band's second is too late, anyone gives it all back but the fee.
+    g.set_time(S + 10 + skech::state::BAR_LATE);
+    let anyone = Keypair::new();
+    g.svm.airdrop(&anyone.pubkey(), 1_000_000_000).unwrap();
+    let mut ix = g.ix(
+        skech::accounts::Settle { game: game_pda(), bars: bars_pda(0), pool: pool_pda(), rent_receiver: g.relayer.pubkey() },
+        skech::instruction::Expire { market: 0 },
+    );
+    ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(bet, false));
+    ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(player_pda(&p.wallet.pubkey()), false));
+    let msg = solana_message::Message::new(&[ix], Some(&anyone.pubkey()));
+    let tx = solana_transaction::Transaction::new(&[&anyone], msg, g.svm.latest_blockhash());
+    g.svm.send_transaction(tx).expect("expired");
+    assert!(g.account::<skech::state::Bet>(&bet).is_none());
+    assert_eq!(g.player_state(&p).balance, 10 * E6 - fee);
+    assert_eq!((g.pool().pool, g.pool().fees), (0, fee));
+}

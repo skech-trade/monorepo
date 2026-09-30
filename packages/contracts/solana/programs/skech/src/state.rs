@@ -247,12 +247,14 @@ pub struct Bet {
     pub per_dot: u64,
     pub unit: u64,
     pub stake: u64,
+    /// Of `stake`, to the house as it was placed.
+    pub fee: u64,
     pub rent_payer: Pubkey,
     pub sections: Vec<BetSection>,
 }
 
 impl Bet {
-    pub const FIXED: usize = 8 + 32 + 8 + 4 + 1 + 1 + 4 + 4 + 8 + 8 + 8 + 8 + 32 + 4;
+    pub const FIXED: usize = 8 + 32 + 8 + 4 + 1 + 1 + 4 + 4 + 8 + 8 + 8 + 8 + 8 + 32 + 4;
     pub fn space(sections: usize) -> usize {
         Self::FIXED + sections * BetSection::INIT_SPACE
     }
