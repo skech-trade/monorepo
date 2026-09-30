@@ -141,7 +141,6 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
         per_dot,
         unit,
         stake: kept,
-        fee,
         rent_payer: ctx.accounts.payer.key(),
         sections,
     };

@@ -11,7 +11,7 @@ The game on Solana: one Anchor program, `skech`, the same game as [`../evm`](../
 | Session keys | P-256, the browser's WebCrypto key, via Monad's precompile | **Ed25519**, checked by the Ed25519 precompile over the piece *as it sits in the `place` instruction*, so its bytes are in the transaction once |
 | Quotes and bars | EIP-712, signed by the oracle and checked on chain | the oracle **signs the transaction**: the quote and the bar are instruction data it vouches for, with no second signature to check |
 | The price | every second's bar kept forever | a **ring of the last 240 seconds** per market (9.6 KB, rent once). A bar may be posted up to **200 s** after its second (`BAR_LATE`), so a posted second is never overwritten through its slot |
-| A stalled oracle | bars can be posted any time later | once a band's second is past `BAR_LATE` unposted, **`expire`** (anyone may) gives its stake back less the fee it paid, and closes the bet |
+| A stalled oracle | bars can be posted any time later | once a band's second is past `BAR_LATE` unposted, **`expire`** (anyone may) gives its whole stake back, as on Monad, and closes the bet |
 | Bets | stored forever | **an account per bet, closed when decided**; the rent goes back to the relayer, so the float is only what is live |
 | Replays | a stored bet id | the bet account, at the one address a piece has (its canonical bump), lives until every band is decided **and** its piece's placing window is over; a replay before then is refused, after it is late. `place` must be a top-level instruction, so another program cannot pass on a piece the key never signed |
 | IOUs | an ERC-20 with a growing index | the same shares and index, **on the holder's `Player` account**: redeemable by anyone, who is paid 10% of the growth into their own `Player` account as on Monad (none if they send none), not transferable (a token would need Token-2022 transfer hooks for a feature nothing uses) |
@@ -73,7 +73,7 @@ It deploys the program, initializes the game (the deployer is admin, and must be
 
 ## Upgrading a deployed program
 
-The accounts keep their layout but one: a `Bet` holds the fee it paid (8 bytes more), for `expire`. Bets live seconds, so before upgrading, stop placing (stop the relayer's placements, or pause) and let the live bets settle, about 35 seconds; then `solana program deploy` over the same program id, regenerate the client, and restart the relayer with the new `snapshots/compute.json`. A game set up under the old defaults keeps its terms (a 2% fee, $10 a dot, $1,000 a piece): `deploy:solana --skip-program --set-config` moves it to Monad's.
+The accounts keep their layout. Bets live seconds, so before upgrading, stop placing (stop the relayer's placements, or pause) and let the live bets settle, about 35 seconds; then `solana program deploy` over the same program id, regenerate the client, and restart the relayer with the new `snapshots/compute.json`. A game set up under the old defaults keeps its terms (a 2% fee, $10 a dot, $1,000 a piece): `deploy:solana --skip-program --set-config` moves it to Monad's.
 
 ## Before mainnet
 

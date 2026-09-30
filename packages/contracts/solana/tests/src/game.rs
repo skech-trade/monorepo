@@ -363,7 +363,7 @@ fn a_band_never_posted_is_given_back_once_it_never_can_be() {
     let b: skech::state::Bet = g.account(&bet).unwrap();
     assert_eq!((b.live_mask, b.hit_mask), (0b10, 0));
 
-    // Once second 2 is too late to post, settling still waits; expiring gives its stake back, less its fee.
+    // Once second 2 is too late to post, settling still waits; expiring gives all its stake back, as on Monad.
     let second_two = open_at() + 2000;
     g.set_time((second_two + 1000) / 1000 + skech::state::BAR_LATE);
     g.settle_on(true, &[(bet, p.wallet.pubkey())]).unwrap();
@@ -373,7 +373,7 @@ fn a_band_never_posted_is_given_back_once_it_never_can_be() {
     assert!(g.account::<skech::state::Bet>(&bet).is_some(), "settle never gives stakes back");
     g.settle_on(true, &[(bet, p.wallet.pubkey())]).unwrap();
     assert!(g.account::<skech::state::Bet>(&bet).is_none(), "closed");
-    let back = 50_000 - fee / 2;
+    let back = 50_000;
     assert_eq!(g.player_state(&p).balance, 10 * E6 - staked + back);
     assert_eq!(g.pool().pool, staked - fee - back);
     assert_eq!(g.pool().fees, fee);

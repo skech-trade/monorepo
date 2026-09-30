@@ -99,9 +99,9 @@ fn compute_units() {
 #[test]
 fn account_sizes_are_what_is_on_chain() {
     assert_eq!(skech::state::Bars::SPACE, 9_624);
-    // A bet's fixed part, 130 bytes before it kept its fee, and each section.
-    assert_eq!(skech::state::Bet::FIXED, 138);
-    assert_eq!(skech::state::Bet::space(32), 138 + 32 * 27);
+    // A bet's fixed part, and each section.
+    assert_eq!(skech::state::Bet::FIXED, 130);
+    assert_eq!(skech::state::Bet::space(32), 130 + 32 * 27);
 }
 
 /// A piece's bytes and a domain, for `sdk.test.ts` to check the TypeScript encodes them the same.

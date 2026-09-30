@@ -115,8 +115,8 @@ pub fn settle<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>, market: 
 }
 
 /// Settle bets as `settle` does, and give back the stake of every band whose second was never posted and is now too
-/// late to be (`BAR_LATE`), less the fee it paid: what the pool took for it. Anyone may, so a player's stake never
-/// waits on an oracle that has stopped.
+/// late to be (`BAR_LATE`), all of it, as Monad's `expire` does. Anyone may, so a player's stake never waits on an
+/// oracle that has stopped.
 pub fn expire<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>, market: u8) -> Result<()> {
     let a = ctx.accounts;
     require!(!a.game.paused, SkechError::Paused);
@@ -189,8 +189,8 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
     }
     let mut refunded = 0;
     if stake_back > 0 {
-        // The fee it paid stays with the house: what goes back is what the pool took for it.
-        refunded = stake_back - (bet.fee as u128 * stake_back as u128 / bet.stake as u128) as u64;
+        // All of it, as on Monad: a band its bar never came for never ran. The pool gives back the fee as well.
+        refunded = stake_back;
         let (p, o) = pay(pool, Some(&mut player), refunded, now);
         paid += p;
         owed += o;

@@ -264,8 +264,6 @@ pub struct Bet {
     pub per_dot: u64,
     pub unit: u64,
     pub stake: u64,
-    /// Of `stake`, to the house as it was placed.
-    pub fee: u64,
     pub rent_payer: Pubkey,
     /// Sized per bet, by `space`.
     #[max_len(0)]
