@@ -55,7 +55,7 @@ const server: SolanaServer = new SolanaServer(scfg, engine, chain, domain, log, 
   pieces: sequencer.stats,
   settling: { ...settler.stats, seconds: settler.watchers() },
 }));
-settler = new SolanaSettler(scfg, engine, chain, server.notify, log, join(import.meta.dir, "..", "..", `.relayer-state.solana-${scfg.net.cluster}.${scfg.deployment.game}.json`));
+settler = new SolanaSettler(scfg, engine, chain, server.notify, log, join(scfg.stateDir, `.relayer-state.solana-${scfg.net.cluster}.${scfg.deployment.game}.json`));
 sequencer = new SolanaSequencer(scfg, engine, pricer, chain, settler, server.notify, log, domain);
 const setTerms = (g: typeof game, d: number) => {
   sequencer.difficulty = d;

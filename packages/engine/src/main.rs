@@ -10,35 +10,56 @@ mod attest;
 mod feeds;
 mod quote;
 
-use std::{env, net::SocketAddr, sync::Arc};
+use std::{
+    env,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::Arc,
+    time::Duration,
+};
 
 use alloy_primitives::Address;
 use alloy_signer_local::PrivateKeySigner;
 use axum::{
     Router,
     extract::{
-        State,
+        ConnectInfo, State,
         ws::{Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
     },
-    response::Response,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     routing::get,
     serve::ListenerExt,
 };
 use serde_json::json;
-use tokio::sync::broadcast;
+use tokio::{
+    sync::{Semaphore, broadcast, watch},
+    time::timeout,
+};
 
 use crate::{attest::Board, feeds::History, quote::Quoter};
 
-/// Updates a client can fall behind by before it skips ahead to the newest.
+/// Updates a client can fall behind by before it is dropped. It reconnects, and the history fills in what it
+/// missed: a relayer's bars must not have holes in them.
 const BACKLOG: usize = 1024;
+/// A client that has not taken a frame in this long is dropped, and its slot freed.
+const SEND_TIMEOUT: Duration = Duration::from_secs(10);
+/// Nothing a client sends is read but a close, so nothing it sends needs to be big.
+const MAX_IN: usize = 4 * 1024;
+/// Slots kept for clients on this box (the relayers), so a crowd of players cannot lock them out.
+const LOCAL_SLOTS: usize = 32;
 
 #[derive(Clone)]
 struct App {
     /// The first message every client gets: who signs, and the EIP-712 domain and types to check against.
     hello: Utf8Bytes,
     history: History,
+    /// The history as of the last second, built once and shared by every player's connection.
+    recent: watch::Receiver<Utf8Bytes>,
     /// Each update, serialized once, shared by every client.
     feed: broadcast::Sender<Utf8Bytes>,
+    /// Connections open at once: from the internet (through Caddy), and from this box.
+    public: Arc<Semaphore>,
+    local: Arc<Semaphore>,
 }
 
 fn main() {
@@ -46,32 +67,46 @@ fn main() {
     let _ = dotenvy::from_filename(".env.local");
     // One TLS backend for both the WebSocket and the HTTP client: ring, the only one compiled in.
     let _ = rustls::crypto::ring::default_provider().install_default();
+    // A throwaway wallet or the zero address sign prices no game accepts, so they are for a laptop only:
+    // `bun run dev:engine` passes --dev. Anywhere else a missing key or game stops the engine here.
+    let dev = env::args().skip(1).any(|a| a == "--dev");
+    let chain_id = chain_id();
+    let fallback = |missing: &str, instead: &str| {
+        if !dev || chain_id == 143 {
+            panic!("{missing}. Only a --dev engine goes on {instead}, and never on mainnet");
+        }
+        eprintln!("{missing}: {instead}");
+    };
     let wallet = match var("ENGINE_PRIVATE_KEY") {
         Some(key) => key.parse::<PrivateKeySigner>().expect("ENGINE_PRIVATE_KEY is not a hex private key"),
         None => {
-            eprintln!("ENGINE_PRIVATE_KEY not set: signing with a throwaway wallet");
+            fallback("ENGINE_PRIVATE_KEY is not set", "signing with a throwaway wallet");
             PrivateKeySigner::random()
         }
     };
     // Signatures are bound to one chain and one contract. SKECH_NETWORK picks the chain, the deploy's file names the
     // game on it. ENGINE_CHAIN_ID and ENGINE_VERIFYING_CONTRACT (or SKECH_GAME, as the relayer and app read) still win.
-    let chain_id = chain_id();
     let contract = var("ENGINE_VERIFYING_CONTRACT")
         .or_else(|| var("SKECH_GAME"))
         .map(|a| a.parse::<Address>().expect("ENGINE_VERIFYING_CONTRACT / SKECH_GAME is not an address"))
         .or_else(|| deployed_game(chain_id))
         .unwrap_or_else(|| {
-            eprintln!("no game deployed on chain {chain_id}: signing for the zero address until bun run deploy:contracts puts one there");
+            fallback(&format!("no game deployed on chain {chain_id}"), "signing for the zero address until bun run deploy:contracts puts one there");
             Address::ZERO
         });
     let quoter = Arc::new(Quoter::new(wallet, chain_id, contract));
     eprintln!("signing as {} for chain {chain_id}, contract {contract}", quoter.address());
 
-    // How far the attesters' median may be from Coinbase before it is signed instead, in basis points.
-    let band_bps: f64 = var("ENGINE_BAND_BPS").map(|b| b.parse().expect("ENGINE_BAND_BPS is not a number")).unwrap_or(1.0);
+    // How close two venues must be to agree on a price, in basis points. BTC trades a few bp apart across venues
+    // on a normal day; much tighter and Coinbase is overruled, or nothing signed, whenever the market moves.
+    let band_bps: f64 = var("ENGINE_BAND_BPS").map(|b| b.parse().expect("ENGINE_BAND_BPS is not a number")).unwrap_or(15.0);
     let band = band_bps / 10_000.0;
     eprintln!("attesting with binance and kraken, band {}%", band * 100.0);
+    // This box only, by default: Caddy is the way in. ENGINE_HOST=0.0.0.0 to reach a laptop's engine from a phone.
+    let host: IpAddr = var("ENGINE_HOST").map(|h| h.parse().expect("ENGINE_HOST is not an IP address")).unwrap_or(Ipv4Addr::LOCALHOST.into());
     let port = var("ENGINE_PORT").and_then(|p| p.parse().ok()).unwrap_or(3102);
+    // Players connected at once. Each holds a socket and a history's worth of buffer.
+    let max_clients = var("ENGINE_MAX_CLIENTS").map(|n| n.parse().expect("ENGINE_MAX_CLIENTS is not a number")).unwrap_or(500);
 
     // Up once the config is read: a bad one panics on every restart, into the journal, not the Sentry plan.
     // Before the runtime, so each worker thread starts with the client bound.
@@ -80,12 +115,23 @@ fn main() {
         .enable_all()
         .build()
         .expect("tokio runtime")
-        .block_on(serve(quoter, band, port));
+        .block_on(serve(quoter, band, SocketAddr::new(host, port), max_clients));
 }
 
-async fn serve(quoter: Arc<Quoter>, band: f64, port: u16) {
+async fn serve(quoter: Arc<Quoter>, band: f64, addr: SocketAddr, max_clients: usize) {
     let (feed, _) = broadcast::channel(BACKLOG);
     let history = History::default();
+    let (recent_tx, recent) = watch::channel(history.frame());
+    tokio::spawn({
+        let history = history.clone();
+        async move {
+            let mut every = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                every.tick().await;
+                recent_tx.send_replace(history.frame());
+            }
+        }
+    });
     let app = App {
         hello: json!({
             "type": "hello", "signer": quoter.address().to_checksum(None), "typedData": quoter.typed_data(),
@@ -94,7 +140,10 @@ async fn serve(quoter: Arc<Quoter>, band: f64, port: u16) {
             .to_string()
             .into(),
         history: history.clone(),
+        recent,
         feed: feed.clone(),
+        public: Arc::new(Semaphore::new(max_clients)),
+        local: Arc::new(Semaphore::new(LOCAL_SLOTS)),
     };
     let board = Board::default();
     tokio::spawn(feeds::binance(board.clone()));
@@ -106,10 +155,11 @@ async fn serve(quoter: Arc<Quoter>, band: f64, port: u16) {
         .route("/ws", get(upgrade))
         .with_state(app);
 
-    let listener = match tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], port))).await {
+    let port = addr.port();
+    let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => listener,
         Err(e) => {
-            eprintln!("can't listen on port {port}: {e}. Is another engine running? `lsof -iTCP:{port} -sTCP:LISTEN` says who has it.");
+            eprintln!("can't listen on {addr}: {e}. Is another engine running? `lsof -iTCP:{port} -sTCP:LISTEN` says who has it.");
             std::process::exit(1);
         }
     }
@@ -117,8 +167,8 @@ async fn serve(quoter: Arc<Quoter>, band: f64, port: u16) {
     .tap_io(|tcp| {
         let _ = tcp.set_nodelay(true);
     });
-    eprintln!("listening on ws://localhost:{port}/ws");
-    axum::serve(listener, router).await.expect("server stopped");
+    eprintln!("listening on ws://{addr}/ws, up to {max_clients} players and {LOCAL_SLOTS} local clients");
+    axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()).await.expect("server stopped");
 }
 
 /// Sentry, for what takes the engine down: a panic is sent, stack and all, before `panic = "abort"` ends the
@@ -147,31 +197,47 @@ fn var(name: &str) -> Option<String> {
     env::var(name).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
 }
 
-async fn upgrade(ws: WebSocketUpgrade, State(app): State<App>) -> Response {
-    ws.on_upgrade(move |socket| client(socket, app))
+async fn upgrade(ws: WebSocketUpgrade, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, State(app): State<App>) -> Response {
+    // Caddy sets X-Forwarded-For on everything it passes on, so a loopback peer without one is on this box: a relayer.
+    let local = peer.ip().is_loopback() && !headers.contains_key("x-forwarded-for");
+    let slots = if local { &app.local } else { &app.public };
+    let Ok(slot) = slots.clone().try_acquire_owned() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "full, try again soon").into_response();
+    };
+    ws.max_message_size(MAX_IN).max_frame_size(MAX_IN).read_buffer_size(MAX_IN).on_upgrade(move |socket| async move {
+        client(socket, app, local).await;
+        drop(slot);
+    })
 }
 
 /// Push-only: the engine signs what it saw, never what a client asks it to.
-async fn client(mut socket: WebSocket, app: App) {
-    // Subscribed before the history is read, so no trade falls between the two; one in both is dropped by id.
+async fn client(mut socket: WebSocket, app: App, local: bool) {
+    // Subscribed before the history is read; a trade in both is dropped by id. A relayer settles on its bars, so it
+    // is sent the history as of now, and misses nothing. A player is sent the one built this second, shared: the
+    // trades of the moment before it connected may be in neither, and its chart carries the price flat through them.
     let mut feed = app.feed.subscribe();
-    for frame in [app.hello.clone(), app.history.frame()] {
-        if socket.send(Message::Text(frame)).await.is_err() {
+    let history = if local { app.history.frame() } else { app.recent.borrow().clone() };
+    for frame in [app.hello.clone(), history] {
+        if !send(&mut socket, frame).await {
             return;
         }
     }
     loop {
         tokio::select! {
             update = feed.recv() => match update {
-                Ok(text) => if socket.send(Message::Text(text)).await.is_err() { return },
-                // Too slow to keep up: drop what it missed, the next price supersedes it.
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => return,
+                Ok(text) => if !send(&mut socket, text).await { return },
+                // Too slow to keep up, or the feed is gone: dropped. It reconnects and is sent what it missed.
+                Err(_) => return,
             },
             // Read only to notice the client going away; pings are answered by axum.
             msg = socket.recv() => if matches!(msg, Some(Ok(Message::Close(_))) | Some(Err(_)) | None) { return },
         }
     }
+}
+
+/// One frame to a client, or false if it is gone or has not taken it in `SEND_TIMEOUT`.
+async fn send(socket: &mut WebSocket, text: Utf8Bytes) -> bool {
+    matches!(timeout(SEND_TIMEOUT, socket.send(Message::Text(text))).await, Ok(Ok(())))
 }
 
 /// The chain from SKECH_NETWORK (blank is testnet), or ENGINE_CHAIN_ID for anvil. The other network's id is refused:

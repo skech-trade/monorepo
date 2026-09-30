@@ -21,7 +21,7 @@ type Service = { name: string; color: number; cwd: string; cmd: string[]; port: 
 const ENGINE_PORT = Number(process.env.ENGINE_PORT) || 3102;
 const RELAYER_PORT = Number(process.env.RELAYER_PORT) || 3103;
 const SERVICES: Service[] = [
-  { name: "engine", color: 35, cwd: "packages/engine", cmd: ["cargo", "run", "--release"], port: ENGINE_PORT, url: `ws://localhost:${ENGINE_PORT}/ws` },
+  { name: "engine", color: 35, cwd: "packages/engine", cmd: ["cargo", "run", "--release", "--", "--dev"], port: ENGINE_PORT, url: `ws://localhost:${ENGINE_PORT}/ws` },
   { name: "relayer", color: 34, cwd: "packages/relayer", cmd: ["bun", "run", "dev"], port: RELAYER_PORT, url: `ws://localhost:${RELAYER_PORT}/ws` },
   { name: "app", color: 36, cwd: "ui/app", cmd: ["bun", "run", "dev"], port: 3101, url: "http://localhost:3101" },
   { name: "landing", color: 33, cwd: "ui/landing", cmd: ["bun", "run", "dev"], port: 3100, url: "http://localhost:3100" },

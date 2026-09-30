@@ -6,7 +6,9 @@
  *   bun run deploy:contracts --mainnet   required as well when SKECH_NETWORK=mainnet: it spends real MON
  *
  * The deployer is DEPLOYER_PRIVATE_KEY, or ENGINE_PRIVATE_KEY when that is unset: on testnet one key
- * is the admin, the oracle and the relayer. The oracle is ORACLE_ADDRESS, or the engine wallet.
+ * is the admin, the oracle and the relayer. On mainnet the deployer is the admin of everything, so it
+ * must be a key of its own, neither the engine's nor the relayer's, which live on a server. The oracle
+ * is ORACLE_ADDRESS, or the engine wallet. No key is ever put on a command line, where `ps` shows it.
  * USDC, DIFFICULTY and IOU_RATE pass through to script/Deploy.s.sol:Deploy. Afterwards the addresses
  * are in packages/contracts/deployments/<chainId>.json. The engine, the relayer and the app all find the
  * game there from SKECH_NETWORK, so nothing is written to .env.local and switching networks is one line.
@@ -14,6 +16,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { type Hex, isHex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { chainIdFor, network, networkOf, rpcFor } from "../packages/core/src/network";
 
 const root = join(import.meta.dir, "..");
@@ -44,6 +48,12 @@ if (net!.name === "mainnet" && !dryRun && !process.argv.includes("--mainnet")) {
 }
 const engineKey = trimmed("ENGINE_PRIVATE_KEY");
 const deployer = trimmed("DEPLOYER_PRIVATE_KEY") ?? engineKey ?? fail("ENGINE_PRIVATE_KEY (or DEPLOYER_PRIVATE_KEY) must be set in .env.local: it deploys and becomes the admin");
+/** A key's address, worked out here rather than by cast, so the key stays off the command line. */
+const addressOf = (name: string, key: string) => {
+  const hex = (key.startsWith("0x") ? key : `0x${key}`) as Hex;
+  if (!isHex(hex) || hex.length !== 66) fail(`${name} is not a 32-byte hex private key`);
+  return privateKeyToAccount(hex).address;
+};
 
 const cast = (...args: string[]) => {
   const run = spawnSync("cast", args, { cwd: contracts, encoding: "utf8" });
@@ -54,9 +64,21 @@ const cast = (...args: string[]) => {
 const oracle =
   trimmed("ORACLE_ADDRESS") ??
   (engineKey
-    ? cast("wallet", "address", "--private-key", engineKey)
+    ? addressOf("ENGINE_PRIVATE_KEY", engineKey)
     : fail("ORACLE_ADDRESS must be set when ENGINE_PRIVATE_KEY is blank: the engine would sign with a throwaway wallet and nothing it signs would verify"));
-const deployerAddress = cast("wallet", "address", "--private-key", deployer);
+const deployerAddress = addressOf(trimmed("DEPLOYER_PRIVATE_KEY") ? "DEPLOYER_PRIVATE_KEY" : "ENGINE_PRIVATE_KEY", deployer);
+if (net!.name === "mainnet") {
+  const relayerKey = trimmed("RELAYER_PRIVATE_KEY");
+  const servers = [
+    ["ENGINE_PRIVATE_KEY", engineKey],
+    ["RELAYER_PRIVATE_KEY", relayerKey],
+  ].filter((k): k is [string, string] => !!k[1]);
+  for (const [name, key] of servers) {
+    if (addressOf(name, key) === deployerAddress) {
+      fail(`the deployer is ${name}'s wallet: on mainnet it is the admin of every contract and must not be a key a server holds. Set DEPLOYER_PRIVATE_KEY to a key of its own.`);
+    }
+  }
+}
 
 const balance = Number(cast("balance", deployerAddress, "--rpc-url", rpc, "--ether"));
 if (!dryRun && balance < 14) {
@@ -77,8 +99,8 @@ const file = join(root, "packages/contracts/deployments", `${chainId}.json`);
 const before = existsSync(file) ? statSync(file).mtimeMs : 0;
 const forge = spawnSync(
   "forge",
-  ["script", "script/Deploy.s.sol:Deploy", "--rpc-url", rpc, "--private-key", deployer, ...(dryRun ? [] : ["--broadcast"])],
-  { cwd: contracts, stdio: "inherit", env: { ...process.env, ORACLE_ADDRESS: oracle } },
+  ["script", "script/Deploy.s.sol:Deploy", "--rpc-url", rpc, ...(dryRun ? [] : ["--broadcast"])],
+  { cwd: contracts, stdio: "inherit", env: { ...process.env, ORACLE_ADDRESS: oracle, SKECH_DEPLOY_KEY: deployer.startsWith("0x") ? deployer : `0x${deployer}` } },
 );
 if (forge.error) fail("forge is not installed: curl -L https://foundry.paradigm.xyz | bash && foundryup");
 if (forge.status !== 0) fail("forge script failed, see above");

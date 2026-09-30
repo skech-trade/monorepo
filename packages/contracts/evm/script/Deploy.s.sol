@@ -15,7 +15,8 @@ import {ISkechIOU} from "../src/interfaces/ISkechIOU.sol";
 ///
 ///   ORACLE_ADDRESS=<engine signer> forge script script/Deploy.s.sol:Deploy --rpc-url monad_testnet --broadcast --private-key <deployer>
 ///
-/// Or `bun run deploy:contracts` from the repo root, which fills all of this in from .env.local. Without
+/// Or `bun run deploy:contracts` from the repo root, which fills all of this in from .env.local and hands the
+/// deployer's key over as SKECH_DEPLOY_KEY, in the environment, where `ps` does not show it. Without
 /// --broadcast it is a dry run: gas and addresses are printed, nothing is sent and deployments/ is left alone.
 ///
 /// The deployer is the admin of everything. ORACLE_ADDRESS: the engine's wallet (its `hello.signer`); the same
@@ -29,8 +30,11 @@ contract Deploy is Script {
         uint256 rate = vm.envOr("IOU_RATE", uint256(3_500_000_000));
         uint8 difficulty = uint8(vm.envOr("DIFFICULTY", uint256(51)));
 
-        vm.startBroadcast();
-        address admin = msg.sender;
+        uint256 key = vm.envOr("SKECH_DEPLOY_KEY", uint256(0));
+        if (key != 0) vm.startBroadcast(key);
+        else vm.startBroadcast();
+        // Broadcasting with a key of its own, the script's msg.sender is still forge's default sender, not the key's.
+        address admin = key != 0 ? vm.addr(key) : msg.sender;
         SkechRevenue revenue = SkechRevenue(
             payable(address(
                     new ERC1967Proxy(address(new SkechRevenue()), abi.encodeCall(SkechRevenue.initialize, (admin)))

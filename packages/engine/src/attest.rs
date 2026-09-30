@@ -2,10 +2,13 @@
 //!
 //! Coinbase is the price: it is what the game's chances were measured on, and
 //! it is fast. Binance and Kraken attest to it. Each keeps its newest trade
-//! here; when a Coinbase trade lands, it is signed as is if the attesters'
-//! median is within the band of it. If not, the median is signed instead, so
-//! one venue printing a bad trade cannot put that trade on chain. With no
-//! attester heard from lately, nothing is signed at all.
+//! here. A price is signed only when two venues agree on it: when a Coinbase
+//! trade lands, it is signed as is if an attester is within the band of it.
+//! If none is, the attesters' median is signed instead, but only if they are
+//! within the band of each other: with two attesters the median is their
+//! average, and one venue's bad print must not move what is signed. When no
+//! two venues agree, or no attester has been heard from lately, nothing is
+//! signed at all.
 
 use std::{
     collections::BTreeMap,
@@ -13,8 +16,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// An attester's price older than this no longer counts.
-const FRESH: Duration = Duration::from_secs(5);
+/// An attester's price older than this no longer counts: it is checked against a Coinbase trade of now.
+const FRESH: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Default)]
 pub struct Board(Arc<Mutex<BTreeMap<&'static str, (f64, Instant)>>>);
@@ -34,10 +37,13 @@ impl Board {
 
 #[derive(Debug, PartialEq)]
 pub enum Verdict {
-    /// The attesters agree with Coinbase: sign Coinbase's price.
+    /// An attester agrees with Coinbase: sign Coinbase's price.
     Agrees,
-    /// They don't: sign their median instead, to the cent.
+    /// They don't, but agree with each other: sign their median instead, to the cent.
     Differs { median: f64 },
+    /// Coinbase is outside the band and the attesters don't agree with each other, or only one was heard
+    /// from: no two venues agree on a price, so sign nothing.
+    Disputed,
     /// No attester to check against: sign nothing.
     Alone,
 }
@@ -47,14 +53,18 @@ pub fn decide(coinbase: f64, attesters: &[f64], band: f64) -> Verdict {
     if attesters.is_empty() {
         return Verdict::Alone;
     }
+    if attesters.iter().any(|p| ((coinbase - p) / p).abs() <= band) {
+        return Verdict::Agrees;
+    }
     let mut sorted = attesters.to_vec();
     sorted.sort_by(f64::total_cmp);
     let mid = sorted.len() / 2;
     let median = if sorted.len() % 2 == 1 { sorted[mid] } else { (sorted[mid - 1] + sorted[mid]) / 2.0 };
-    if ((coinbase - median) / median).abs() <= band {
-        Verdict::Agrees
-    } else {
+    // Every attester within the band of every other: the lowest and the highest are.
+    if sorted.len() >= 2 && (sorted[sorted.len() - 1] - sorted[0]) / median <= band {
         Verdict::Differs { median: (median * 100.0).round() / 100.0 }
+    } else {
+        Verdict::Disputed
     }
 }
 
@@ -68,13 +78,29 @@ mod tests {
     fn within_the_band_coinbase_stands() {
         assert_eq!(decide(83_433.33, &[83_430.00], BAND), Verdict::Agrees);
         assert_eq!(decide(83_433.33, &[83_470.00, 83_401.10], BAND), Verdict::Agrees);
+        // One attester is enough: two venues agree, whatever the third printed.
+        assert_eq!(decide(83_433.33, &[83_430.00, 90_000.00], BAND), Verdict::Agrees);
     }
 
     #[test]
-    fn outside_it_the_median_is_signed() {
-        // 0.1% off: a bad print on Coinbase.
-        assert_eq!(decide(83_516.76, &[83_430.004], BAND), Verdict::Differs { median: 83_430.0 });
-        assert_eq!(decide(84_000.0, &[83_430.0, 83_440.0, 90_000.0], BAND), Verdict::Differs { median: 83_440.0 });
+    fn outside_it_the_attesters_price_is_signed_if_they_agree() {
+        // 0.1% off: a bad print on Coinbase, with Binance and Kraken 0.01% apart.
+        assert_eq!(decide(83_516.76, &[83_430.004, 83_438.0], BAND), Verdict::Differs { median: 83_434.0 });
+    }
+
+    #[test]
+    fn two_attesters_apart_sign_nothing() {
+        // Coinbase is off, and so is one of them: their average would be half the bad print.
+        assert_eq!(decide(84_300.0, &[83_430.0, 84_500.0], BAND), Verdict::Disputed);
+        // Their average is within the band of Coinbase, but neither of them is.
+        assert_eq!(decide(83_965.0, &[83_430.0, 84_500.0], BAND), Verdict::Disputed);
+        // Coinbase agrees with neither, and they are 0.06% apart.
+        assert_eq!(decide(83_600.0, &[83_430.0, 83_480.0], BAND), Verdict::Disputed);
+    }
+
+    #[test]
+    fn one_attester_cannot_overrule_coinbase() {
+        assert_eq!(decide(83_516.76, &[83_430.004], BAND), Verdict::Disputed);
     }
 
     #[test]

@@ -42,6 +42,8 @@ export const cfg = {
   /** The block the game was deployed in: each player's transactions are counted from there. Unknown, from now. */
   deployBlock: env("SKECH_DEPLOY_BLOCK") ? BigInt(env("SKECH_DEPLOY_BLOCK")!) : deployment?.block !== undefined ? BigInt(deployment.block) : null,
   libPath: env("SKECH_LIB") ?? join(root, "packages", "core", "src", "dots-lib.bin"),
+  /** Where the state and activity files go: packages/relayer, or the box's /var/lib/skech-relayer. */
+  stateDir: env("RELAYER_STATE_DIR") ?? join(root, "packages", "relayer"),
   market: 0,
   marketName: "BTC-USD",
   /** A piece opens on a second; it is priced this long after that second starts, once late trades are in. */
