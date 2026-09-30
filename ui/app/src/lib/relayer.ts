@@ -53,6 +53,7 @@ const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" 
 export class RelayerClient {
   private ws: WebSocket | null = null;
   private handlers = new Set<Handler>();
+  private connectionHandlers = new Set<(connected: boolean) => void>();
   private stopped = false;
   private backoff = 500;
   private retry: ReturnType<typeof setTimeout> | undefined;
@@ -76,7 +77,7 @@ export class RelayerClient {
     clearTimeout(this.steady);
     const sock = this.ws;
     this.ws = null;
-    this.connected = false;
+    this.setConnected(false);
     // Closing a socket still connecting logs a warning; it closes as soon as it opens instead.
     if (sock?.readyState === WebSocket.CONNECTING) sock.onopen = () => sock.close();
     else sock?.close();
@@ -85,6 +86,12 @@ export class RelayerClient {
   on(h: Handler) {
     this.handlers.add(h);
     return () => this.handlers.delete(h);
+  }
+
+  /** Hear the socket open and close. */
+  onConnection(h: (connected: boolean) => void) {
+    this.connectionHandlers.add(h);
+    return () => void this.connectionHandlers.delete(h);
   }
 
   send(msg: unknown): boolean {
@@ -124,9 +131,8 @@ export class RelayerClient {
     sock.onopen = () => {
       clearTimeout(this.steady);
       this.steady = setTimeout(() => (this.backoff = 500), STEADY_MS);
-      this.connected = true;
+      this.setConnected(true);
       if (this.player) this.send({ type: "watch", player: this.player });
-      this.emit({ type: "error", why: "" });
     };
     sock.onmessage = (e) => {
       let m: Incoming;
@@ -139,14 +145,19 @@ export class RelayerClient {
       this.emit(m);
     };
     sock.onclose = () => {
-      if (this.ws === sock) this.connected = false;
+      if (this.ws === sock) this.setConnected(false);
       if (this.stopped || this.ws !== sock) return;
       clearTimeout(this.steady);
       this.retry = setTimeout(() => this.connect(), jitter(this.backoff));
       this.backoff = Math.min(10_000, this.backoff * 2);
-      this.emit({ type: "error", why: "" });
     };
     sock.onerror = () => sock.close();
+  }
+
+  private setConnected(connected: boolean) {
+    if (connected === this.connected) return;
+    this.connected = connected;
+    for (const h of this.connectionHandlers) h(connected);
   }
 
   private emit(m: Incoming) {
@@ -164,13 +175,14 @@ export function useRelayer(player: Address | null, enabled: boolean) {
     if (!enabled) return;
     client.start();
     const off = client.on((m) => {
-      setConnected(client.connected);
       if (m.type === "hello") setHello(m);
       else if (m.type === "account") setAccount(m);
     });
+    const offConnection = client.onConnection(setConnected);
     // Gone from the page: the socket closes, and nothing reopens it.
     return () => {
       off();
+      offConnection();
       client.stop();
     };
   }, [client, enabled]);

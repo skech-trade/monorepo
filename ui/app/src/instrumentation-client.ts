@@ -1,10 +1,9 @@
 // Runs before the app is interactive: analytics and error capture start here, so a crash on load is still seen.
 import * as Sentry from "@sentry/nextjs";
-import { SIGN_IN_PANEL, startAnalytics, whenIdle } from "@/lib/analytics";
+import { SIGN_IN_PANEL, standalone, startAnalytics, whenIdle } from "@/lib/analytics";
 import { SENTRY_APP_KEY, SENTRY_DATA, SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_ON, SENTRY_TRACES } from "@/lib/sentry";
 
 try {
-  const nav = navigator as Navigator & { standalone?: boolean };
   Sentry.init({
     dsn: SENTRY_DSN,
     enabled: SENTRY_ON,
@@ -28,7 +27,7 @@ try {
     initialScope: {
       tags: {
         network: process.env.NEXT_PUBLIC_SKECH_NETWORK ?? "testnet",
-        standalone: Boolean(nav.standalone) || matchMedia("(display-mode: standalone)").matches,
+        standalone: standalone(),
       },
     },
   });

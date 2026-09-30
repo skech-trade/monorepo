@@ -84,6 +84,9 @@ let ph: PostHog | null = null;
 const waiting: ((posthog: PostHog) => void)[] = [];
 const withPostHog = (fn: (posthog: PostHog) => void) => (ph ? fn(ph) : waiting.push(fn));
 
+/** Whether the app was opened from the Home Screen: a tag on every event and every error. */
+export const standalone = () => Boolean((navigator as Navigator & { standalone?: boolean }).standalone) || matchMedia("(display-mode: standalone)").matches;
+
 /** Run `fn` once the page has loaded and the browser has a moment: for what the first paint should not wait on. */
 export function whenIdle(fn: () => void) {
   const idle = () => (typeof requestIdleCallback === "function" ? requestIdleCallback(fn, { timeout: 4000 }) : setTimeout(fn, 1));
@@ -118,9 +121,8 @@ function load(posthog: PostHog) {
     session_recording: { maskAllInputs: true, maskTextSelector: SIGN_IN_PANEL },
   });
   // On every event: whether it was opened from the Home Screen, and which network.
-  const nav = navigator as Navigator & { standalone?: boolean };
   posthog.register({
-    standalone: Boolean(nav.standalone) || matchMedia("(display-mode: standalone)").matches,
+    standalone: standalone(),
     network: process.env.NEXT_PUBLIC_SKECH_NETWORK ?? "testnet",
   });
   ph = posthog;

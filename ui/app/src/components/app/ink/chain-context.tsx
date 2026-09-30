@@ -6,7 +6,7 @@ import { type Address, bytesToHex, type Hex } from "viem";
 import { RECEIVE_WITH_AUTHORIZATION_TYPES, TYPES } from "@skech/core/chain";
 import { useAccount } from "@/components/app/auth";
 import { domain, gameNonce, onChain, GAME, usdcBalance, usdcDomain } from "@/lib/chain";
-import { type Account, type Hello, type Incoming, type RelayerClient, useRelayer } from "@/lib/relayer";
+import { type Account, type Hello, type Incoming, RelayerClient, useRelayer } from "@/lib/relayer";
 import { canHoldSession, forgetSessionKey, sessionKey, type SessionKey } from "@/lib/session";
 
 /**
@@ -295,7 +295,8 @@ export function ChainProvider({ children }: { children: ReactNode }) {
 const OFF: Chain = {
   real: false,
   player: null,
-  client: null as unknown as RelayerClient,
+  // Never started: it sends nothing, answers every request with null, and hears nothing.
+  client: new RelayerClient(),
   hello: null,
   account: null,
   connected: false,
