@@ -374,6 +374,17 @@ export const rowOf = (price: number, step: number) => Math.floor(price / step);
 export type Field = { lowCdf?: Float64Array; highCdf?: Float64Array; edgeCells?: number; openAt: number; step: number; row0: number; rows: number; seconds: number; chance: Float32Array; rtp: number; f: Features; /** How many paths the chances rest on, as an effective count. */ paths: number; /** Band chances made to fall away from the likeliest price, by second and band height: filled as asked for. */ falling?: Map<number, Float32Array> };
 
 export function field(lib: Library, f: Features, openAt: number, step: number, cell = 0, edgeCells = 0): Field {
+  const job = fieldJob(lib, f, openAt, step, cell, edgeCells);
+  job.run(Infinity);
+  return job.result();
+}
+
+/**
+ * `field`, a slice at a time: `run(n)` lays the next `n` paths over the field and says whether all of them are
+ * in. The same sums in the same order, so the result is exactly `field`'s. A phone, with no worker to hand the
+ * map to, runs a few milliseconds of it a frame and has it inside the second without stalling the pen.
+ */
+export function fieldJob(lib: Library, f: Features, openAt: number, step: number, cell = 0, edgeCells = 0): { run: (paths: number) => boolean; result: () => Field } {
   const seconds = lib.seconds - 1;
   // Far enough to hold any move the paths make, and bounded to 512 fine rows either way for large viewports.
   const reach = Math.min(512, Math.ceil((8 * f.sigma * f.price * Math.sqrt(seconds)) / step));
@@ -387,56 +398,67 @@ export function field(lib: Library, f: Features, openAt: number, step: number, c
   let all = 0;
   let sq = 0;
   const k = f.sigma / LIB_SCALE;
-  for (let i = 0; i < lib.n; i++) {
-    const wi = w[i];
-    if (wi < 1e-5) continue;
-    all += wi;
-    sq += wi * wi;
-    // This path's swings, scaled to how far the market swings inside a second now.
-    const swing = (Math.min(3, Math.max(0.33, f.wick / lib.wick[i])) * LIB_SCALE) / SWING_SCALE;
-    const base = i * lib.seconds;
-    let prev = lib.close[base];
-    for (let j = 0; j < seconds; j++) {
-      const c = lib.close[base + j + 1];
-      const hi = rowOf(f.price * Math.exp((Math.max(prev, c) + lib.up[base + j + 1] * swing) * k) + edgeCells * step, step) - row0;
-      const lowPrice = f.price * Math.exp((Math.min(prev, c) - lib.down[base + j + 1] * swing) * k) - edgeCells * step;
-      const lo = (edgeCells ? Math.ceil(lowPrice / step) - 1 : rowOf(lowPrice, step)) - row0;
-      const rawHigh = f.price * Math.exp((Math.max(prev, c) + lib.up[base + j + 1] * swing) * k);
-      const rawLow = f.price * Math.exp((Math.min(prev, c) - lib.down[base + j + 1] * swing) * k);
-      highHistogram[j * (rows + 2) + Math.min(rows + 1, Math.max(0, Math.floor(rawHigh / step) - row0 + 1))] += wi;
-      lowHistogram[j * (rows + 2) + Math.min(rows + 1, Math.max(0, Math.ceil(rawLow / step) - row0))] += wi;
-      prev = c;
-      const a = Math.max(0, lo);
-      const b = Math.min(rows - 1, hi);
-      for (let r = a; r <= b; r++) acc[j * rows + r] += wi;
+  let i = 0;
+  const run = (budget: number) => {
+    for (const last = Math.min(lib.n, i + budget); i < last; i++) {
+      const wi = w[i];
+      if (wi < 1e-5) continue;
+      all += wi;
+      sq += wi * wi;
+      // This path's swings, scaled to how far the market swings inside a second now.
+      const swing = (Math.min(3, Math.max(0.33, f.wick / lib.wick[i])) * LIB_SCALE) / SWING_SCALE;
+      const base = i * lib.seconds;
+      let prev = lib.close[base];
+      for (let j = 0; j < seconds; j++) {
+        const c = lib.close[base + j + 1];
+        // The second's high and low, once each: the band it covers and the histograms both read them.
+        const rawHigh = f.price * Math.exp((Math.max(prev, c) + lib.up[base + j + 1] * swing) * k);
+        const rawLow = f.price * Math.exp((Math.min(prev, c) - lib.down[base + j + 1] * swing) * k);
+        const hi = rowOf(rawHigh + edgeCells * step, step) - row0;
+        const lowPrice = rawLow - edgeCells * step;
+        const lo = (edgeCells ? Math.ceil(lowPrice / step) - 1 : rowOf(lowPrice, step)) - row0;
+        highHistogram[j * (rows + 2) + Math.min(rows + 1, Math.max(0, Math.floor(rawHigh / step) - row0 + 1))] += wi;
+        lowHistogram[j * (rows + 2) + Math.min(rows + 1, Math.max(0, Math.ceil(rawLow / step) - row0))] += wi;
+        prev = c;
+        const a = Math.max(0, lo);
+        const b = Math.min(rows - 1, hi);
+        for (let r = a; r <= b; r++) acc[j * rows + r] += wi;
+      }
     }
-  }
-  /*
-    A chance measured on `paths` paths is off by about sqrt(p(1-p)/paths),
-    and paying 1/p on an estimate that is sometimes low pays more than the
-    estimate is worth on average: on days the library had not seen, dots
-    paid back 1.08 per dollar before this. Adding (1-p)/paths to each chance
-    takes that back out, to first order. It raises rare dots most, which is
-    where the estimate is thinnest.
-  */
-  const paths = sq > 0 ? (all * all) / sq : 0;
-  const chance = new Float32Array(seconds * rows);
-  if (all > 0 && paths > 0) for (let x = 0; x < acc.length; x++) {
-    const p = acc[x] / all;
-    chance[x] = p > 0 ? calibrate(p + (1 - p) / paths, cell) : 0;
-  }
-  const lowCdf = new Float64Array(seconds * (rows + 1));
-  const highCdf = new Float64Array(seconds * (rows + 1));
-  if (all > 0) for (let j = 0; j < seconds; j++) {
-    let low = 0, high = 0;
-    for (let r = 0; r <= rows; r++) {
-      low += lowHistogram[j * (rows + 2) + r];
-      high += highHistogram[j * (rows + 2) + r];
-      lowCdf[j * (rows + 1) + r] = low / all;
-      highCdf[j * (rows + 1) + r] = high / all;
-    }
-  }
-  return { lowCdf, highCdf, edgeCells, openAt, step, row0, rows, seconds, chance, rtp: rtpFor(f), f, paths };
+    return i >= lib.n;
+  };
+  const result = (): Field => {
+    /*
+      A chance measured on `paths` paths is off by about sqrt(p(1-p)/paths),
+      and paying 1/p on an estimate that is sometimes low pays more than the
+      estimate is worth on average: on days the library had not seen, dots
+      paid back 1.08 per dollar before this. Adding (1-p)/paths to each chance
+      takes that back out, to first order. It raises rare dots most, which is
+      where the estimate is thinnest.
+    */
+    const paths = sq > 0 ? (all * all) / sq : 0;
+    const chance = new Float32Array(seconds * rows);
+    if (all > 0 && paths > 0)
+      for (let x = 0; x < acc.length; x++) {
+        const p = acc[x] / all;
+        chance[x] = p > 0 ? calibrate(p + (1 - p) / paths, cell) : 0;
+      }
+    const lowCdf = new Float64Array(seconds * (rows + 1));
+    const highCdf = new Float64Array(seconds * (rows + 1));
+    if (all > 0)
+      for (let j = 0; j < seconds; j++) {
+        let low = 0,
+          high = 0;
+        for (let r = 0; r <= rows; r++) {
+          low += lowHistogram[j * (rows + 2) + r];
+          high += highHistogram[j * (rows + 2) + r];
+          lowCdf[j * (rows + 1) + r] = low / all;
+          highCdf[j * (rows + 1) + r] = high / all;
+        }
+      }
+    return { lowCdf, highCdf, edgeCells, openAt, step, row0, rows, seconds, chance, rtp: rtpFor(f), f, paths };
+  };
+  return { run, result };
 }
 
 /** A dot's chance on a field; zero off it. */

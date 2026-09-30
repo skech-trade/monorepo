@@ -39,6 +39,7 @@ export class SolanaServer {
   sequencer: SolanaSequencer | null = null;
   settler: SolanaSettler | null = null;
   /** Transactions per player, counted from their account's signatures: fetched on demand, then kept up to date. */
+  private sweeping = new Set<Address>();
   private activity = new Map<Address, { at: number; txs: number; newest: string | null; recent: { signature: string; time: number | null }[] }>();
 
   constructor(
@@ -187,6 +188,14 @@ export class SolanaServer {
         const player = addr(msg.player) ?? ws.data.player;
         if (!player) return ws.send(json({ type: "activity", player: null, txs: 0, recent: [], counting: true, progress: 0 }));
         return ws.send(json({ type: "activity", player, ...(await this.countActivity(player)) }));
+      }
+      case "sweep": {
+        // The app saw USDC land in the wallet: move it in now rather than on the next round, once at a time.
+        const player = ws.data.player;
+        if (!player || !this.settler || this.sweeping.has(player)) return;
+        this.sweeping.add(player);
+        void this.settler.sweepIn(player).finally(() => this.sweeping.delete(player));
+        return;
       }
       case "piece": {
         const m = msg as unknown as SolanaPieceMsg;

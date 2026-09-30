@@ -198,22 +198,7 @@ export class SolanaSettler {
         pool = await this.chain.pool();
       }
       if (pool.houseShares > 0n && pool.pool > 0n) await this.chain.send("redeem house", [getRedeemHouseInstruction({ game: d.game, pool: d.pool })], 30_000);
-      for (const wallet of this.approved) {
-        const [ata] = await findAssociatedTokenPda({ mint: d.usdcMint, owner: wallet, tokenProgram: TOKEN_PROGRAM_ADDRESS });
-        const t = await fetchMaybeToken(this.chain.rpc, ata);
-        if (!t.exists || t.data.delegate.__option !== "Some" || t.data.delegate.value !== d.game) {
-          this.approved.delete(wallet);
-          continue;
-        }
-        const amount = t.data.amount < t.data.delegatedAmount ? t.data.amount : t.data.delegatedAmount;
-        if (amount === 0n) continue;
-        const ix = getSweepInstruction({ game: d.game, player: await playerAddress(wallet, d.program), from: ata, vault: d.vault, usdcMint: d.usdcMint, tokenProgram: TOKEN_PROGRAM_ADDRESS });
-        const s = await this.chain.send(`sweep ${amount} for ${wallet}`, [ix], 40_000);
-        if (!s.err) {
-          this.stats.swept += amount;
-          this.notify.account(wallet);
-        }
-      }
+      for (const wallet of this.approved) await this.sweepIn(wallet);
       pool = await this.chain.pool();
       if (pool.fees >= this.cfg.collectAboveE6) {
         const ix = getCollectFeesInstruction({ game: d.game, pool: d.pool, vault: d.vault, treasury: d.treasury, usdcMint: d.usdcMint, tokenProgram: TOKEN_PROGRAM_ADDRESS });
@@ -226,6 +211,26 @@ export class SolanaSettler {
     } finally {
       this.sweeping = false;
     }
+  }
+
+  /** Move what landed in `wallet` into its balance, on the approval it gave: from the sweep, or when its app asks. */
+  async sweepIn(wallet: Address): Promise<bigint> {
+    const d = this.cfg.deployment;
+    const [ata] = await findAssociatedTokenPda({ mint: d.usdcMint, owner: wallet, tokenProgram: TOKEN_PROGRAM_ADDRESS });
+    const t = await fetchMaybeToken(this.chain.rpc, ata);
+    if (!t.exists || t.data.delegate.__option !== "Some" || t.data.delegate.value !== d.game) {
+      this.approved.delete(wallet);
+      return 0n;
+    }
+    this.approved.add(wallet);
+    const amount = t.data.amount < t.data.delegatedAmount ? t.data.amount : t.data.delegatedAmount;
+    if (amount === 0n) return 0n;
+    const ix = getSweepInstruction({ game: d.game, player: await playerAddress(wallet, d.program), from: ata, vault: d.vault, usdcMint: d.usdcMint, tokenProgram: TOKEN_PROGRAM_ADDRESS });
+    const s = await this.chain.send(`sweep ${amount} for ${wallet}`, [ix], 40_000);
+    if (s.err) return 0n;
+    this.stats.swept += amount;
+    this.notify.account(wallet);
+    return amount;
   }
 
   /* ---- what survives a restart ---- */
