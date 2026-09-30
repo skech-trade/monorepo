@@ -130,7 +130,7 @@ export class Activity {
     }
   }
 
-  private save() {
+  save() {
     if (!this.dirty) return;
     this.dirty = false;
     const s: Saved = { from: this.from.toString(), scannedTo: this.scannedTo.toString(), players: Object.fromEntries(this.players) };

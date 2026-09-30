@@ -95,5 +95,14 @@ setInterval(() => {
   hadUnits = has;
 }, 1_000);
 
+// A restart (systemd stops with SIGTERM) keeps what is still to settle and who is owed: saved on the way out.
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    log(`${signal}: saving the state and stopping`);
+    settler.save();
+    process.exit(0);
+  });
+}
+
 await settler.start();
 server.start();

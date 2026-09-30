@@ -113,6 +113,16 @@ setTimeout(() => {
   if (engine.domain && engine.domain.verifyingContract.toLowerCase() !== cfg.game.toLowerCase()) log(`WARNING: the engine signs for ${engine.domain.verifyingContract}, not the game ${cfg.game}: set ENGINE_VERIFYING_CONTRACT`);
 }, 3000);
 
+// A restart (systemd stops with SIGTERM) keeps what is still to settle and who is owed: saved on the way out.
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(signal, () => {
+    log(`${signal}: saving the state and stopping`);
+    settler.save();
+    activity.save();
+    process.exit(0);
+  });
+}
+
 settler.start();
 activity.start();
 server.start();

@@ -250,7 +250,7 @@ export class SolanaSettler {
     }
   }
 
-  private save() {
+  save() {
     const s: State = { bets: [], holders: [...this.holders], approved: [...this.approved], posted: {} };
     for (const [bet, b] of this.bets) s.bets.push({ bet, player: b.player, unit: b.unit.toString(), bands: b.bands.map((x) => ({ second: x.second, lo: x.lo.toString(), hi: x.hi.toString(), stake: x.stake.toString(), rung: x.rung })) });
     for (const [second, close] of [...this.closes].slice(-600)) s.posted[second] = close.toString();

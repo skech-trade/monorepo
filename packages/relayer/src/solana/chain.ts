@@ -143,18 +143,37 @@ export class SolanaChain {
     this.inflight++;
     this.stats.sent++;
     const push = () => this.rpc.sendTransaction(wire, { encoding: "base64", skipPreflight: true, maxRetries: 0n }).send().catch(() => undefined);
+    // What the RPC says of it: null while it has not landed, or when the RPC could not be asked.
+    const status = (searchTransactionHistory = false) =>
+      this.rpc
+        .getSignatureStatuses([signature], { searchTransactionHistory })
+        .send()
+        .then(
+          ({ value }) => value[0],
+          () => null,
+        );
+    const started = Date.now();
     try {
       await push();
       for (let i = 0; ; i++) {
         await Bun.sleep(i < 10 ? 200 : 400);
-        const { value } = await this.rpc.getSignatureStatuses([signature]).send();
-        const s = value[0];
+        // An RPC that fails to answer says nothing of the transaction: it may land all the same, so it is looked for
+        // until its blockhash has run out, never given up on the first error.
+        const s = await status();
         if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
           if (s.err) this.stats.failed++;
           else this.stats.landed++;
           return { signature, slot: s.slot, err: s.err };
         }
-        if (this.height > lastValid) {
+        // Past its blockhash (or, with no word of the height, two minutes on) it can no longer land: one last look.
+        if (this.height > lastValid || Date.now() - started > 120_000) {
+          await Bun.sleep(1_000);
+          const last = await status(true);
+          if (last && (last.confirmationStatus === "confirmed" || last.confirmationStatus === "finalized")) {
+            if (last.err) this.stats.failed++;
+            else this.stats.landed++;
+            return { signature, slot: last.slot, err: last.err };
+          }
           this.stats.expired++;
           throw new Error(`${label}: expired unconfirmed (${signature})`);
         }

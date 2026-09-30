@@ -260,8 +260,9 @@ export class SolanaSequencer {
             this.refuse(e, code !== null ? (getSkechErrorMessage(code as Parameters<typeof getSkechErrorMessage>[0]) ?? `Refused (${code})`) : "Not placed", sent.signature);
             return;
           }
-          // What the chain placed: from its event, or worked out as the program works it out if the event is slow.
-          const ev = (await this.chain.events(sent.signature)).find((x) => x.name === "Placed")?.data as { staked: bigint; fee: bigint; refunded: bigint; sections: Band[] } | undefined;
+          // What the chain placed: from its event, or worked out as the program works it out if the event is slow or
+          // cannot be read. It is placed either way, and must be watched to be settled.
+          const ev = (await this.chain.events(sent.signature).catch(() => [])).find((x) => x.name === "Placed")?.data as { staked: bigint; fee: bigint; refunded: bigint; sections: Band[] } | undefined;
           const placed = ev ?? this.predict(p, bands, chances, price, momentum);
           this.stats.placed++;
           const c = this.players.get(p.player);

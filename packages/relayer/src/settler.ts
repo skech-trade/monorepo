@@ -252,7 +252,7 @@ export class Settler {
     }
   }
 
-  private save() {
+  save() {
     const s: State = { bets: [], watch: {}, holders: [...this.holders], posted: {} };
     for (const [betId, bet] of this.bets) {
       if (bet.bands) s.bets!.push({ betId, player: bet.player, unit: bet.unit.toString(), bands: bet.bands.map((b) => ({ second: b.second, lo: b.lo.toString(), hi: b.hi.toString(), stake: b.stake.toString(), rung: b.rung })) });
