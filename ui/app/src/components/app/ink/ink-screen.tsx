@@ -49,11 +49,12 @@ import { useAccount } from "@/components/app/auth";
  * pays.
  *
  * A line is the union of its pen-covered area, priced in full-dot units.
- * It is quoted while drawing and committed on release. Only touched ink pays.
- * The rules are `@skech/core/dots`, the same
- * code the server will run once there is money in it. This screen keeps the
- * practice money, prices the map, opens each drawing on its second, and
- * judges every second's trades as they arrive.
+ * It is quoted while drawing and bet as it is drawn, a piece at a time. Only
+ * touched ink pays. The rules are `@skech/core/dots`; playing for real, the
+ * chain prices and settles each piece by the same rules, and this screen
+ * follows what it says. This screen keeps the practice money, prices the
+ * map, opens each drawing on its second, and judges every second's trades as
+ * they arrive.
  */
 
 /** In development, anything that holds the page up for more than 50 ms says so. */

@@ -54,13 +54,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="flex min-h-full flex-col bg-background font-sans text-foreground text-sm">
         {/*
-          Bottom right, not top right.
-
-          The top right is where the screen keeps the thing you press: size,
-          leverage, the button that opens a position and the button that closes
-          one. A notification landing there covered "Close trade" for as
-          long as it stayed up — so the app told you it had opened a trade by
-          standing in front of the only control that ends it.
+          Bottom right, not top right: the top right is the bar's Deposit and
+          account buttons, and a notification there stands in front of them
+          for as long as it stays up.
         */}
         <AuthProvider>
           <ToastProvider position="bottom-right">

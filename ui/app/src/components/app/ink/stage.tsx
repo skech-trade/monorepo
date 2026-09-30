@@ -97,8 +97,6 @@ const mix = (a: Rgb, b: Rgb, k: number): Rgb => [a[0] + (b[0] - a[0]) * k, a[1] 
 /** How far up the ladder a multiple is, 0 at 1× to 1 at 128×. */
 const height = (m: number) => Math.min(1, Math.max(0, Math.log2(m) / 7));
 
-/** Dollars as a hit pays them: to the cent, and without the cents only when there are none. */
-
 /** Show the maximum return per section, rounded down to a tenth. */
 export const fmtMultiple = (m: number) => `${Math.floor(m * 10 + 1e-8) / 10}×`;
 const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
@@ -142,8 +140,9 @@ export function Stage({
 }: {
   game: React.RefObject<Game>;
   /**
-   * Commit the complete stroke on pointer release. Cancelled gestures
-   * never debit a balance. Returns an explanation if it cannot be placed; `{ stop }` ends the stroke there.
+   * Bet the stroke so far: called as the pen moves (`done` false) and once more when it lifts (`done` true). A
+   * gesture the browser cancels is not called again, so ink drawn since the last piece is not bet. Returns an
+   * explanation if it cannot be placed; `{ stop }` ends the stroke there.
    */
   onPlace: (stroke: Stroke, drawing: string, done: boolean) => Placed;
   onPreview: (p: Preview | null) => void;
@@ -330,8 +329,10 @@ export function Stage({
     /** Where the pen was at its last move, for the scratch's speed. */
     let penFrom = { x: 0, y: 0, at: 0 };
 
-    /** The terms of the game for a drawing placed now: what the pen's label says comes from the same place as what a hit pays. */
-    /** Re-price the stroke being drawn, at most twenty times a second. */
+    /**
+     * Re-price the stroke being drawn, at most twenty times a second, on the terms a drawing placed now gets:
+     * what the pen's label says comes from the same place as what a hit pays.
+     */
     const requote = (p: Pen, force = false) => {
       const t = performance.now();
       if (!force && t - p.quotedAt < 50) return;

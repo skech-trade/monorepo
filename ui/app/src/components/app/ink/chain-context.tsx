@@ -36,7 +36,6 @@ export type Chain = {
   registering: boolean;
   /** USDC in, on an EIP-3009 authorization: one signature, no allowance. */
   deposit: (usdc: number) => Promise<string | null>;
-  /** USDC out, to `to`, on a signature. */
   /** Send `usdc` from the balance to `to`: the transaction on success, or why not, in the relayer's words. */
   withdraw: (usdc: number, to: Address) => Promise<{ tx: string } | { why: string }>;
   /** USDC sitting in the wallet on its way in, as last read; null before the first read. */
