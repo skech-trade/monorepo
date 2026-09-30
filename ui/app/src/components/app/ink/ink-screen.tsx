@@ -8,7 +8,7 @@ import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
 import { betIdOf, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, strokeHash, toE6, toE8, toSections, TYPES, unitFor } from "@skech/core/chain";
 import { hashTypedData, keccak256, stringToHex, type Hex } from "viem";
 import { domain as gameDomain } from "@/lib/chain";
-import { type Incoming } from "@/lib/relayer";
+import { type Hello, type Incoming } from "@/lib/relayer";
 import { useChain } from "./chain-context";
 
 import { Button } from "@/components/ui/button";
@@ -132,6 +132,10 @@ function lessProfitFee(bet: InkBet, before: InkBet, profitFeeBps: number): InkBe
   });
   return touched ? { ...bet, cells } : bet;
 }
+
+/** What skech keeps, in the game's own numbers as the relayer sends them; without them, that it keeps some, and no number that could be wrong. */
+const feesLine = (config: Hello["config"] | undefined) =>
+  config ? `skech keeps ${config.feeBps / 100}% of every stake and ${config.profitFeeBps / 100}% of every win.` : "skech keeps a share of every stake and of every win.";
 
 /** A price with its cents quieter than its dollars. */
 const Price = ({ value }: { value: number }) => {
@@ -1146,7 +1150,7 @@ export function InkScreen() {
             <p>Ink is bet as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing. The drawing’s cost rounds up to the cent once, over all of it.</p>
             <p>Placing a drawing takes its stake from your balance straight away; what just moved your balance shows under it. The number beside it is what you have won: this round&rsquo;s payouts while ink is in play, this session&rsquo;s otherwise. Tap it for the scoreboard. Hits pay the moment the price touches them; the rest settles when its second closes.</p>
             <p>Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches {RULES.horizon} seconds ahead.</p>
-            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Nothing pays under {difficulty(level).ladderFloor}×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {forReal ? "skech keeps 4% of every stake and 10% of every win. Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills." : "Your balance is practice money saved in this browser."}</p>
+            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Nothing pays under {difficulty(level).ladderFloor}×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {forReal ? `${feesLine(chain.hello?.config)} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.` : "Your balance is practice money saved in this browser."}</p>
             {house && !forReal ? (
               <div className="flex flex-col gap-3 rounded-[14px] bg-muted p-4">
                 <div className="flex items-baseline justify-between">
