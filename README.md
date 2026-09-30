@@ -76,6 +76,7 @@ monorepo so the two apps use different ports.
 | `bun run typecheck` | `tsc --noEmit` across every workspace |
 | `bun run test` | bun tests, `cargo test` and `forge test` |
 | `bun run deploy:contracts` | the game on Monad testnet (`packages/contracts/evm/README.md`) |
+| `bun run deploy:solana` | the game on Solana devnet (`packages/contracts/solana/README.md`) |
 | `bun packages/relayer/scripts/e2e.ts` | the whole thing on anvil: contracts, engine, relayer, a scripted player |
 | `bun run clean` | remove `node_modules`, `.next`, `target`, and Foundry's `out` and `cache` |
 
