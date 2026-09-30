@@ -539,7 +539,7 @@ contract SkechGame is
     /// @notice Take USDC out of `player`'s balance on their signed say-so, so anyone can send the transaction for them.
     function withdrawBySig(address player, uint64 amount, address to, uint256 deadline, bytes calldata sig) external nonReentrant {
         if (block.timestamp > deadline) revert Expired();
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(WITHDRAW_TYPEHASH, player, amount, to, nonces(player), deadline)));
+        bytes32 digest = _withdrawDigest(player, amount, to, deadline);
         if (!SignatureChecker.isValidSignatureNowCalldata(player, digest, sig)) revert BadSignature();
         _useNonce(player);
         _withdraw(player, amount, to);
@@ -582,9 +582,7 @@ contract SkechGame is
             revert BadSession();
         }
         if (validUntil >= 1 << 40 || allowance >= 1 << 56) revert BadSession();
-        bytes32 digest = _hashTypedDataV4(
-            keccak256(abi.encode(SESSION_TYPEHASH, player, kind, key, x, y, validUntil, allowance, nonces(player), deadline))
-        );
+        bytes32 digest = _sessionDigest(player, kind, key, x, y, validUntil, allowance, deadline);
         if (!SignatureChecker.isValidSignatureNowCalldata(player, digest, sig)) revert BadSignature();
         _useNonce(player);
         _s().sessions[player] = Session({key: key, validUntil: uint40(validUntil), allowance: uint56(allowance), x: x, y: y});
@@ -600,7 +598,7 @@ contract SkechGame is
     /// @notice End `player`'s session on their signed say-so, so anyone can send the transaction for them.
     function revokeSessionBySig(address player, uint256 deadline, bytes calldata sig) external {
         if (block.timestamp > deadline) revert Expired();
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(REVOKE_TYPEHASH, player, nonces(player), deadline)));
+        bytes32 digest = _revokeDigest(player, deadline);
         if (!SignatureChecker.isValidSignatureNowCalldata(player, digest, sig)) revert BadSignature();
         _revokeSession(player);
     }
@@ -639,20 +637,7 @@ contract SkechGame is
             bands += placements[i].piece.sections.length;
         }
         if (quote.chances.length != bands) revert BadQuote();
-        bytes32 qh = keccak256(
-            abi.encode(
-                QUOTE_TYPEHASH,
-                quote.market,
-                quote.openAt,
-                quote.unit,
-                quote.price,
-                quote.momentum,
-                keccak256(abi.encodePacked(hashes)),
-                keccak256(abi.encodePacked(quote.receivedAt)),
-                keccak256(abi.encodePacked(quote.chances))
-            )
-        );
-        if (ECDSA.recover(_hashTypedDataV4(qh), quoteSig) != $.oracle) revert NotOracle();
+        if (ECDSA.recover(_quoteDigest(quote, keccak256(abi.encodePacked(hashes))), quoteSig) != $.oracle) revert NotOracle();
 
         uint256 cursor;
         uint256 pooled;
@@ -690,11 +675,12 @@ contract SkechGame is
         uint256 kept;
         uint256[] memory packed = new uint256[](p.sections.length);
         uint8 count;
+        uint256 bars = _barsOf(q.market);
         for (uint256 i = 0; i < p.sections.length; i++) {
             Section calldata s = p.sections[i];
             total += s.stake;
             // Not offered: its second is already over on chain, or its chance earns no rung. Its stake is not taken.
-            if (_bar(q.market, p.openAt + uint64(s.second) * SECOND_MS) != 0) continue;
+            if (_barAt(bars, p.openAt + uint64(s.second) * SECOND_MS) != 0) continue;
             uint16 rung = SkechLadder.rungFor(chances[i], p.difficulty, _withIt(s, q), q.momentum);
             if (rung == 0) continue;
             // One section never pays past 256 dots: a big one stakes only what that pays for.
@@ -880,26 +866,21 @@ contract SkechGame is
         if (bar.low > bar.high || bar.close < bar.low || bar.close > bar.high) revert BadBar();
         // A second is posted only once it is over by this chain's clock: never while ink in it can still be placed.
         if (bar.second + SECOND_MS > block.timestamp * SECOND_MS) revert BadBar();
-        bytes32 digest = _hashTypedDataV4(
-            keccak256(abi.encode(BAR_TYPEHASH, bar.market, bar.second, bar.prevClose, bar.high, bar.low, bar.close))
-        );
-        if (ECDSA.recover(digest, sig) != $.oracle) revert NotOracle();
+        if (ECDSA.recover(_barDigest(bar), sig) != $.oracle) revert NotOracle();
         uint256 packed = uint256(bar.prevClose) | (uint256(bar.high) << 64) | (uint256(bar.low) << 128) | (uint256(bar.close) << 192);
-        bytes32 slot = _barSlot(bar.market, bar.second);
-        uint256 existing;
-        assembly {
-            existing := sload(slot)
-        }
+        uint256 bars = _barsOf(bar.market);
+        uint256 existing = _barAt(bars, bar.second);
         if (existing != 0) {
             if (existing != packed) revert BarConflict();
             return;
         }
         // One second follows from the last: the previous bar's close is this one's opening price, and this one's close
         // the next one's, when a later second went up first.
-        uint256 previous = bar.second >= SECOND_MS ? _bar(bar.market, bar.second - SECOND_MS) : 0;
+        uint256 previous = bar.second >= SECOND_MS ? _barAt(bars, bar.second - SECOND_MS) : 0;
         if (previous != 0 && uint64(previous >> 192) != bar.prevClose) revert BarDiscontinuous();
-        uint256 next = _bar(bar.market, bar.second + SECOND_MS);
+        uint256 next = _barAt(bars, bar.second + SECOND_MS);
         if (next != 0 && uint64(next) != bar.close) revert BarDiscontinuous();
+        uint256 slot = bars + bar.second / SECOND_MS;
         assembly {
             sstore(slot, packed)
         }
@@ -914,7 +895,7 @@ contract SkechGame is
         uint8 count = b.count;
         uint64 openAt = b.openAt;
         uint64 unit = b.unit;
-        uint8 market = b.market;
+        uint256 bars = _barsOf(b.market);
         uint32 hits;
         uint32 decided;
         uint256 grossPay;
@@ -923,7 +904,7 @@ contract SkechGame is
             uint32 bit = uint32(1 << i);
             if (live & bit == 0) continue;
             uint256 word = b.sections[i];
-            uint256 bar = _bar(market, openAt + uint64(uint8(word)) * SECOND_MS);
+            uint256 bar = _barAt(bars, openAt + uint64(uint8(word)) * SECOND_MS);
             if (bar == 0) continue;
             decided |= bit;
             // What the price covered in the second: from where the second before closed to its own high and low.
@@ -1121,7 +1102,7 @@ contract SkechGame is
 
     /// @notice The bar for `second` (ms) on `market`, all zero if not posted.
     function barAt(uint8 market, uint64 second) external view returns (uint64 prevClose, uint64 high, uint64 low, uint64 close) {
-        uint256 bar = _bar(market, second);
+        uint256 bar = _barAt(_barsOf(market), second);
         return (uint64(bar), uint64(bar >> 64), uint64(bar >> 128), uint64(bar >> 192));
     }
 
@@ -1163,21 +1144,7 @@ contract SkechGame is
 
     /// @notice The digest the oracle signs for a quote over these pieces.
     function quoteDigest(Quote calldata quote, bytes32[] calldata pieces) external view returns (bytes32) {
-        return _hashTypedDataV4(
-            keccak256(
-                abi.encode(
-                    QUOTE_TYPEHASH,
-                    quote.market,
-                    quote.openAt,
-                    quote.unit,
-                    quote.price,
-                    quote.momentum,
-                    keccak256(abi.encodePacked(pieces)),
-                    keccak256(abi.encodePacked(quote.receivedAt)),
-                    keccak256(abi.encodePacked(quote.chances))
-                )
-            )
-        );
+        return _quoteDigest(quote, keccak256(abi.encodePacked(pieces)));
     }
 
     /// @notice The digest a player's wallet signs to register a session.
@@ -1191,41 +1158,89 @@ contract SkechGame is
         uint64 allowance,
         uint256 deadline
     ) external view returns (bytes32) {
-        return _hashTypedDataV4(
-            keccak256(abi.encode(SESSION_TYPEHASH, player, kind, key, x, y, validUntil, allowance, nonces(player), deadline))
-        );
+        return _sessionDigest(player, kind, key, x, y, validUntil, allowance, deadline);
     }
 
     /// @notice The digest a player's wallet signs to end their session through someone else's transaction.
     function revokeDigest(address player, uint256 deadline) external view returns (bytes32) {
-        return _hashTypedDataV4(keccak256(abi.encode(REVOKE_TYPEHASH, player, nonces(player), deadline)));
+        return _revokeDigest(player, deadline);
     }
 
     /// @notice The digest a player's wallet signs to withdraw through someone else's transaction.
     function withdrawDigest(address player, uint64 amount, address to, uint256 deadline) external view returns (bytes32) {
-        return _hashTypedDataV4(keccak256(abi.encode(WITHDRAW_TYPEHASH, player, amount, to, nonces(player), deadline)));
+        return _withdrawDigest(player, amount, to, deadline);
     }
 
     function barDigest(Bar calldata bar) external view returns (bytes32) {
-        return _hashTypedDataV4(
-            keccak256(abi.encode(BAR_TYPEHASH, bar.market, bar.second, bar.prevClose, bar.high, bar.low, bar.close))
-        );
+        return _barDigest(bar);
     }
 
     function priceDigest(string calldata market, uint256 price, uint64 time) external view returns (bytes32) {
         return _hashTypedDataV4(keccak256(abi.encode(PRICE_TYPEHASH, keccak256(bytes(market)), price, time)));
     }
 
+    /* ---- the digests, each worked out in one place: what is checked is what the views show ---- */
+
+    /// @dev `pieces`: keccak256 of the pieces' struct hashes, packed, in order.
+    function _quoteDigest(Quote calldata quote, bytes32 pieces) private view returns (bytes32) {
+        return _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    QUOTE_TYPEHASH,
+                    quote.market,
+                    quote.openAt,
+                    quote.unit,
+                    quote.price,
+                    quote.momentum,
+                    pieces,
+                    keccak256(abi.encodePacked(quote.receivedAt)),
+                    keccak256(abi.encodePacked(quote.chances))
+                )
+            )
+        );
+    }
+
+    function _barDigest(Bar calldata bar) private view returns (bytes32) {
+        return _hashTypedDataV4(
+            keccak256(abi.encode(BAR_TYPEHASH, bar.market, bar.second, bar.prevClose, bar.high, bar.low, bar.close))
+        );
+    }
+
+    /// @dev At the player's next nonce, as every digest a player's wallet signs here is.
+    function _sessionDigest(
+        address player,
+        uint8 kind,
+        address key,
+        bytes32 x,
+        bytes32 y,
+        uint64 validUntil,
+        uint64 allowance,
+        uint256 deadline
+    ) private view returns (bytes32) {
+        return _hashTypedDataV4(
+            keccak256(abi.encode(SESSION_TYPEHASH, player, kind, key, x, y, validUntil, allowance, nonces(player), deadline))
+        );
+    }
+
+    function _revokeDigest(address player, uint256 deadline) private view returns (bytes32) {
+        return _hashTypedDataV4(keccak256(abi.encode(REVOKE_TYPEHASH, player, nonces(player), deadline)));
+    }
+
+    function _withdrawDigest(address player, uint64 amount, address to, uint256 deadline) private view returns (bytes32) {
+        return _hashTypedDataV4(keccak256(abi.encode(WITHDRAW_TYPEHASH, player, amount, to, nonces(player), deadline)));
+    }
+
     /* ------------------------------------------------------------------ */
     /* Bars: one slot per second, consecutive, so a run of seconds shares a storage page                           */
     /* ------------------------------------------------------------------ */
 
-    function _barSlot(uint8 market, uint64 second) private pure returns (bytes32) {
-        return bytes32(uint256(keccak256(abi.encode(BARS_SALT, market))) + second / SECOND_MS);
+    /// @dev Where `market`'s bars start: its second `s` is at this slot plus s / SECOND_MS. One hash for all of them.
+    function _barsOf(uint8 market) private pure returns (uint256) {
+        return uint256(keccak256(abi.encode(BARS_SALT, market)));
     }
 
-    function _bar(uint8 market, uint64 second) private view returns (uint256 bar) {
-        bytes32 slot = _barSlot(market, second);
+    function _barAt(uint256 bars, uint64 second) private view returns (uint256 bar) {
+        uint256 slot = bars + second / SECOND_MS;
         assembly {
             bar := sload(slot)
         }
