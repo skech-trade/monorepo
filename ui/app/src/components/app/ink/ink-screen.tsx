@@ -1,14 +1,14 @@
 "use client";
 
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
 import { areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
 import { betIdOf, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, strokeHash, toE6, toE8, toSections, TYPES, unitFor } from "@skech/core/chain";
 import { hashTypedData, keccak256, stringToHex, type Hex } from "viem";
 import { domain as gameDomain } from "@/lib/chain";
-import { type Incoming } from "@/lib/relayer";
+import { type Hello, type Incoming } from "@/lib/relayer";
 import { useChain } from "./chain-context";
 
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { Popover, PopoverClose, PopoverPopup, PopoverTitle, PopoverTrigger } fro
 import { setDark, useDark } from "@/components/app/theme-toggle";
 
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
-import { useEngine } from "@/lib/engine";
+import { type Market, useEngine } from "@/lib/engine";
 import { cents, practice, record, setPractice, usePractice } from "@/lib/practice";
 import { feel, sound } from "@/lib/feel";
 import { money, signed } from "@/lib/money";
@@ -33,7 +33,7 @@ import { track } from "@/lib/analytics";
 import { fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
 import { HapticHost } from "./haptic-host";
 import { UpdateReady } from "./update-ready";
-import { TokenAvatar } from "@/components/app/market-header";
+import { TokenAvatar } from "@/components/app/token-avatar";
 import { DepositButton, InkControls } from "./ink-controls";
 import feedback from "./drawing-feedback.module.css";
 import { CrispNumber } from "./crisp-number";
@@ -41,7 +41,7 @@ import { introReady } from "./ink-intro";
 import { homeBarRoom, HomeScreenBar, HomeScreenSheet, useHomeScreen } from "./home-screen";
 import { forReal, Onboarding, useOnboarding } from "./onboarding";
 import { SignInButton } from "@/components/app/sign-in";
-import { useGate } from "./deposit-modal";
+import { useGate } from "./gate";
 import { useAccount } from "@/components/app/auth";
 
 /**
@@ -49,11 +49,12 @@ import { useAccount } from "@/components/app/auth";
  * pays.
  *
  * A line is the union of its pen-covered area, priced in full-dot units.
- * It is quoted while drawing and committed on release. Only touched ink pays.
- * The rules are `@skech/core/dots`, the same
- * code the server will run once there is money in it. This screen keeps the
- * practice money, prices the map, opens each drawing on its second, and
- * judges every second's trades as they arrive.
+ * It is quoted while drawing and bet as it is drawn, a piece at a time. Only
+ * touched ink pays. The rules are `@skech/core/dots`; playing for real, the
+ * chain prices and settles each piece by the same rules, and this screen
+ * follows what it says. This screen keeps the practice money, prices the
+ * map, opens each drawing on its second, and judges every second's trades as
+ * they arrive.
  */
 
 /** In development, anything that holds the page up for more than 50 ms says so. */
@@ -133,11 +134,64 @@ function lessProfitFee(bet: InkBet, before: InkBet, profitFeeBps: number): InkBe
   return touched ? { ...bet, cells } : bet;
 }
 
+/** What skech keeps, in the game's own numbers as the relayer sends them; without them, that it keeps some, and no number that could be wrong. */
+const feesLine = (config: Hello["config"] | undefined) =>
+  config ? `skech keeps ${config.feeBps / 100}% of every stake and ${config.profitFeeBps / 100}% of every win.` : "skech keeps a share of every stake and of every win.";
+
 /** A price with its cents quieter than its dollars. */
 const Price = ({ value }: { value: number }) => {
   const [whole, part] = money(value).split(".");
   return <><CrispNumber value={whole} /><span className={feedback.cents}>.{part}</span></>;
 };
+
+/*
+  Two things on this screen change faster than it should re-render: the price, with every trade, and the
+  terms of the stroke under the pen, with every move. Each is its own small component that listens for its
+  own value, so the screen around them renders only when something else changes.
+*/
+
+/** The price in the market row, from the feed as each trade batch lands. */
+function LivePrice({ feed }: { feed: Market }) {
+  const price = useSyncExternalStore(feed.subscribe, () => feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0, () => 0);
+  return price ? <Price value={price} /> : <Skeleton className="my-[3px] h-6 w-32 rounded-md" />;
+}
+
+/** A value that changes faster than the screen should re-render, for the one part that shows it. */
+type Signal<T> = { get: () => T; set: (next: T) => void; subscribe: (fn: () => void) => () => void };
+function signal<T>(initial: T): Signal<T> {
+  let value = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (next) => {
+      value = next;
+      for (const fn of listeners) fn();
+    },
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => void listeners.delete(fn);
+    },
+  };
+}
+
+/** While drawing: what the stroke has put in play, and the most it can win. */
+function PreviewPill({ preview: store }: { preview: Signal<Preview | null> }) {
+  const preview = useSyncExternalStore(store.subscribe, store.get, store.get);
+  if (!preview) return null;
+  return (
+    <div className={feedback.floatPill} role="status">
+      {preview.inPlay.length ? (
+        <>
+          <span>In play <strong>{money(preview.cost)}</strong></span>
+          <span>Could win <strong className={feedback.win}>{money(preview.high)}</strong></span>
+          <span className="max-sm:hidden">Up to <strong className={feedback.win}>{fmtMultiple(preview.multipleHigh)}</strong></span>
+        </>
+      ) : (
+        <span>Move to a spot with a multiplier on it</span>
+      )}
+    </div>
+  );
+}
 
 /** One setting on a switch, in a grouped list. */
 function ToggleRow({ title, detail, checked, onChange }: { title: string; detail: string; checked: boolean; onChange: (next: boolean) => void }) {
@@ -185,8 +239,9 @@ export function InkScreen() {
       .then((r) => r.arrayBuffer())
       .then((b) => {
         if (!live) return;
-        w.postMessage({ kind: "lib", bytes: b.slice(0) });
+        // Read here first (the library is copied out of the file), then the file itself is handed to the worker, not copied to it.
         setLib(readLibrary(new Uint8Array(b)));
+        w.postMessage({ kind: "lib", bytes: b }, [b]);
       })
       .catch(() => undefined);
     return () => {
@@ -209,7 +264,9 @@ export function InkScreen() {
     } catch { /* Embedded browsers may not expose fullscreen. The layout still fills its viewport. */ }
   };
 
-  const [preview, setPreview] = useState<Preview | null>(null);
+  /* The stroke's terms, for the pill; the screen itself only needs to know whether there is a stroke. */
+  const [preview] = useState(() => signal<Preview | null>(null));
+  const [previewing, setPreviewing] = useState(false);
   const [help, setHelp] = useState(false);
   const [returnedInk, setReturnedInk] = useState<{ id: string; amount: number } | null>(null);
   useEffect(() => {
@@ -550,8 +607,13 @@ export function InkScreen() {
       release?.();
     };
   }, []);
-  const { bars, ticks, skew, version } = feed;
-  useEffect(() => {
+  /*
+    Run for every trade batch, straight from the feed, not from a render: the screen does not re-render for a
+    trade. Everything it reads is in refs or the feed's store, so a callback from an earlier render judges the
+    same as a fresh one would; it is made again only when the paths, the tab's ownership or the feed change.
+  */
+  const judgeTrades = useCallback(() => {
+    const { bars, ticks, skew } = feed;
     const g = game.current;
     g.bars = bars;
     g.ticks = ticks;
@@ -685,7 +747,11 @@ export function InkScreen() {
     // Keep finished drawings only as long as their dots are still fading.
     g.bets = g.bets.filter((b) => !decided(b) || b.cells.some((d) => d.t + 3000 > nowMs));
     updateTotals();
-  }, [bars, ticks, skew, version, lib, owner, updateTotals]);
+  }, [feed, lib, owner, updateTotals]);
+  useEffect(() => {
+    judgeTrades();
+    return feed.subscribe(judgeTrades);
+  }, [feed, judgeTrades]);
 
   /*
     Ink is bet as it is drawn: every few moments while the pen is down, the
@@ -777,8 +843,10 @@ export function InkScreen() {
       g.bets.push(bet);
       updateTotals();
       if (process.env.NODE_ENV !== "production") (window as unknown as { __lastBet?: unknown }).__lastBet = bet;
-      if (ch.real) setPractice({ taught: true });
-      else setPractice(st => ({ balance: cents(st.balance - charge), taught: true, open: g.bets.filter(b => !decided(b)) }));
+      // On chain the hint is all practice keeps: written once, as each write re-rendered everything that reads it.
+      if (ch.real) {
+        if (!practice().taught) setPractice({ taught: true });
+      } else setPractice(st => ({ balance: cents(st.balance - charge), taught: true, open: g.bets.filter(b => !decided(b)) }));
       setLive(new Set(g.bets.filter(b => !decided(b)).map(b => b.group ?? b.id)).size);
       if (done) {
         const tip = stroke.pts.at(-1)!;
@@ -910,11 +978,12 @@ export function InkScreen() {
   /* A light touch as the ink reaches each new spot; the pen's own scratch comes from the stage. */
   const painted = useRef(0);
   const onPreview = useCallback((p: Preview | null) => {
-    setPreview(p);
+    preview.set(p);
+    setPreviewing(p !== null);
     const n = p?.inPlay.length ?? 0;
     if (!p?.keyboard && n > painted.current) feel("tick");
     painted.current = n;
-  }, []);
+  }, [preview]);
 
   const shownBalance = forReal ? chain.balance : state.balance;
   const onboarding = useOnboarding(live);
@@ -946,7 +1015,6 @@ export function InkScreen() {
   }, [live, real, chain.account, chain.balance, gate]);
   // No deposit sheet on arrival: the game is there to look at and try first. With nothing to play with, the
   // "Deposit USDC to play" line says so, and a tap on the game (or Deposit) opens the sheet.
-  const price = feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0;
   /*
     Until the game can be played the screen says one thing. Signed out: the way in, over the game blurred.
     Signed in: one "Connecting…" until the prices and the account are both here, not one in the header,
@@ -998,7 +1066,7 @@ export function InkScreen() {
           <Popover>
             <PopoverTrigger render={<Button variant="ghost" aria-label="Change asset: Bitcoin" className={feedback.assetButton} />}>
               <TokenAvatar symbol="BTC" className="size-9 sm:size-10" />
-              <span className={feedback.marketName}><span>Bitcoin <ChevronDownIcon className="size-3" strokeWidth={2.4} /></span><strong className="figures">{price ? <Price value={price} /> : <Skeleton className="my-[3px] h-6 w-32 rounded-md" />}</strong></span>
+              <span className={feedback.marketName}><span>Bitcoin <ChevronDownIcon className="size-3" strokeWidth={2.4} /></span><strong className="figures"><LivePrice feed={feed} /></strong></span>
             </PopoverTrigger>
             <PopoverPopup align="start" sideOffset={10} className="w-64">
               <PopoverTitle>Choose asset</PopoverTitle>
@@ -1055,19 +1123,8 @@ export function InkScreen() {
             </div>
           ) : null}
 
-          {/* While drawing: what the stroke has put in play, and the most it can win. */}
-          {preview ? (
-            <div className={feedback.floatPill} role="status">
-              {preview.inPlay.length ? (
-                <>
-                  <span>In play <strong>{money(preview.cost)}</strong></span>
-                  <span>Could win <strong className={feedback.win}>{money(preview.high)}</strong></span>
-                  <span className="max-sm:hidden">Up to <strong className={feedback.win}>{fmtMultiple(preview.multipleHigh)}</strong></span>
-                </>
-              ) : (
-                <span>Move to a spot with a multiplier on it</span>
-              )}
-            </div>
+          {previewing ? (
+            <PreviewPill preview={preview} />
           ) : signedOut || connecting ? null : onboarding.step && owner !== false ? (
             <Onboarding {...onboarding} />
           ) : !state.taught && fresh && owner !== false ? (
@@ -1075,7 +1132,7 @@ export function InkScreen() {
           ) : null}
 
           {/* The round just over: a win celebrated, a big one more so; a loss said once, quietly. */}
-          {over && !preview ? (
+          {over && !previewing ? (
             <div className={cn(feedback.roundCard, overWon ? feedback.roundWin : feedback.roundLoss, overBig && feedback.roundBig)} key={over.key} role="status">
               {overWon && (over.streak ?? 0) >= 2 ? <span className={feedback.streak}>{over.streak} wins in a row</span> : null}
               <div>
@@ -1088,10 +1145,10 @@ export function InkScreen() {
               </div>
             </div>
           ) : null}
-          {over && overBig && !preview ? <div aria-hidden="true" className={feedback.glow} key={`glow-${over.key}`} /> : null}
+          {over && overBig && !previewing ? <div aria-hidden="true" className={feedback.glow} key={`glow-${over.key}`} /> : null}
       </div>
 
-      {returnedInk && !preview && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
+      {returnedInk && !previewing && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
       <div className={feedback.bottomShade} aria-hidden="true" />
       {homeBar ? <HomeScreenBar dismiss={home.dismiss} install={home.install} /> : null}
       <UpdateReady busy={live > 0} />
@@ -1146,7 +1203,7 @@ export function InkScreen() {
             <p>Ink is bet as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing. The drawing’s cost rounds up to the cent once, over all of it.</p>
             <p>Placing a drawing takes its stake from your balance straight away; what just moved your balance shows under it. The number beside it is what you have won: this round&rsquo;s payouts while ink is in play, this session&rsquo;s otherwise. Tap it for the scoreboard. Hits pay the moment the price touches them; the rest settles when its second closes.</p>
             <p>Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches {RULES.horizon} seconds ahead.</p>
-            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for {difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {forReal ? "skech keeps 4% of every stake and 10% of every win. Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills." : "Your balance is practice money saved in this browser."}</p>
+            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for {difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {forReal ? `${feesLine(chain.hello?.config)} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.` : "Your balance is practice money saved in this browser."}</p>
             {house && !forReal ? (
               <div className="flex flex-col gap-3 rounded-[14px] bg-muted p-4">
                 <div className="flex items-baseline justify-between">

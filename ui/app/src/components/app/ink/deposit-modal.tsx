@@ -1,11 +1,10 @@
 "use client";
 
-import { SignInModal } from "@coinbase/cdp-react";
-import { track } from "@/lib/analytics";
+import { PRIVATE_LINK, track } from "@/lib/analytics";
 import { ArrowUpRightIcon, CheckIcon, SendIcon, XIcon } from "lucide-react";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { encode } from "uqr";
-import { hasAuth, useAccount } from "@/components/app/auth";
+import { useAccount } from "@/components/app/auth";
 import { useCopy } from "@/components/app/copy";
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
@@ -17,88 +16,14 @@ import { UsdcMark } from "@/components/app/marks";
 import { MIN_DEPOSIT, useChain } from "./chain-context";
 import { feel } from "@/lib/feel";
 import { FOUNDER, helpLink } from "./founders";
-import { WithdrawSheet } from "./withdraw-sheet";
 import { NETWORK } from "@/lib/chain";
 
 /**
- * The way to money while the game plays on: tap the game without a balance
- * and this opens, signed in or not. Signed out it is Coinbase's sign-in;
- * signed in, the deposit sheet from the design canvas ("Send USDC"): a QR of
- * the player's address, the address to copy, the network, how fast and how
+ * The deposit sheet from the design canvas ("Send USDC"): a QR of the
+ * player's address, the address to copy, the network, how fast and how
  * little. USDC that lands there moves into the balance by itself, and the
- * sheet closes when it has.
+ * sheet closes when it has. Opened through the gate (gate.tsx).
  */
-
-/** `"tap"`: opened because a tap on the game could not be played. Those are counted: see FOUNDERS_AFTER. */
-type Gate = { openDeposit: (why?: "tap" | "short") => void; openSignIn: (from?: string) => void; openWithdraw: () => void };
-const GateCtx = createContext<Gate>({ openDeposit: () => undefined, openSignIn: () => undefined, openWithdraw: () => undefined });
-export const useGate = () => useContext(GateCtx);
-
-/*
-  Someone who has tapped the game five times with nothing to play with and still not deposited is stuck, not
-  uninterested. From then on the sheet leads with a person: a founder, on Telegram, who will get them in. The
-  count lives in this browser across reloads, and resets once there is money to play with.
-*/
-const FOUNDERS_AFTER = 5;
-const TAPS_KEY = "skech:blocked-taps";
-const readTaps = () => {
-  try {
-    return Number(localStorage.getItem(TAPS_KEY)) || 0;
-  } catch {
-    return 0;
-  }
-};
-const writeTaps = (n: number) => {
-  try {
-    localStorage.setItem(TAPS_KEY, String(n));
-  } catch {
-    /* private mode: counted for this page only */
-  }
-};
-
-export function GateProvider({ children }: { children: ReactNode }) {
-  const [deposit, setDeposit] = useState(false);
-  const [signIn, setSignIn] = useState(false);
-  // Read once, at start: on the server there is no storage and it is 0; the sheet is closed there anyway.
-  const [taps, setTaps] = useState(readTaps);
-  const openDeposit = useCallback((why?: "tap" | "short") => {
-    track("deposit_opened", { why: why ?? "button" });
-    if (why === "tap") {
-      const n = readTaps() + 1;
-      writeTaps(n);
-      setTaps(n);
-    }
-    setDeposit(true);
-  }, []);
-  const openSignIn = useCallback((from = "button") => {
-    track("sign_in_opened", { from });
-    setSignIn(true);
-  }, []);
-  const [withdraw, setWithdraw] = useState(false);
-  const openWithdraw = useCallback(() => setWithdraw(true), []);
-  const gate = useMemo(() => ({ openDeposit, openSignIn, openWithdraw }), [openDeposit, openSignIn, openWithdraw]);
-  return (
-    <GateCtx.Provider value={gate}>
-      {children}
-      <DepositModal
-        onOpenChange={setDeposit}
-        onPlayable={() => {
-          writeTaps(0);
-          setTaps(0);
-        }}
-        open={deposit}
-        stuck={taps >= FOUNDERS_AFTER}
-      />
-      <WithdrawSheet onOpenChange={setWithdraw} open={withdraw} />
-      {hasAuth ? (
-        <SignInModal open={signIn} setIsOpen={setSignIn}>
-          <span hidden />
-        </SignInModal>
-      ) : null}
-    </GateCtx.Provider>
-  );
-}
-
 export function DepositModal({ open, onOpenChange, stuck = false, onPlayable }: { open: boolean; onOpenChange: (open: boolean) => void; stuck?: boolean; onPlayable?: () => void }) {
   const chain = useChain();
   // Money to play with: nobody is stuck any more.
@@ -369,7 +294,7 @@ function Founders({ nudge }: { nudge: boolean }) {
             </div>
           </div>
           <a
-            className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#2AABEE] font-semibold text-[16px] text-white outline-none transition-transform hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring active:scale-[.98]"
+            className={cn("flex h-12 items-center justify-center gap-2 rounded-full bg-[#2AABEE] font-semibold text-[16px] text-white outline-none transition-transform hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring active:scale-[.98]", PRIVATE_LINK)}
             href={href}
             onClick={() => track("founders_messaged", { stuck: nudge, with_email: Boolean(me.email) })}
             rel="noopener noreferrer"

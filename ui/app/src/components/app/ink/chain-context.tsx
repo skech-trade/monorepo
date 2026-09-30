@@ -6,7 +6,7 @@ import { type Address, bytesToHex, type Hex } from "viem";
 import { RECEIVE_WITH_AUTHORIZATION_TYPES, TYPES } from "@skech/core/chain";
 import { useAccount } from "@/components/app/auth";
 import { domain, gameNonce, onChain, GAME, usdcBalance, usdcDomain } from "@/lib/chain";
-import { type Account, type Hello, type Incoming, type RelayerClient, useRelayer } from "@/lib/relayer";
+import { type Account, type Hello, type Incoming, RelayerClient, useRelayer } from "@/lib/relayer";
 import { canHoldSession, forgetSessionKey, sessionKey, type SessionKey } from "@/lib/session";
 
 /**
@@ -36,7 +36,6 @@ export type Chain = {
   registering: boolean;
   /** USDC in, on an EIP-3009 authorization: one signature, no allowance. */
   deposit: (usdc: number) => Promise<string | null>;
-  /** USDC out, to `to`, on a signature. */
   /** Send `usdc` from the balance to `to`: the transaction on success, or why not, in the relayer's words. */
   withdraw: (usdc: number, to: Address) => Promise<{ tx: string } | { why: string }>;
   /** USDC sitting in the wallet on its way in, as last read; null before the first read. */
@@ -85,6 +84,21 @@ export function ChainProvider({ children }: { children: ReactNode }) {
       live = false;
     };
   }, []);
+  /*
+    Signing out throws the browser's key away, from storage and from this page: the session it was registered
+    for can sign nothing more here, and whoever signs in next registers a key of their own.
+  */
+  const wasSignedIn = useRef(false);
+  useEffect(() => {
+    if (me.signedIn) {
+      wasSignedIn.current = true;
+      return;
+    }
+    if (!wasSignedIn.current) return;
+    wasSignedIn.current = false;
+    setKey(null);
+    if (canHoldSession()) void forgetSessionKey().catch(() => undefined);
+  }, [me.signedIn]);
 
   // The relayer's word on the balance is the balance; between its words, what we know moves it.
   const said = account?.balance ?? null;
@@ -270,7 +284,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     };
   }, [live, player, deposit]);
 
-  // Signing out forgets nothing on chain; the key stays for the next sign-in. A key that is not the chain's is replaced on enable.
+  // A key that is not the chain's is replaced on enable.
   const value = useMemo<Chain>(
     () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, walletUsdc, wallet, adding, landed, balance, nudge, resync }),
     [live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, walletUsdc, wallet, adding, landed, balance, nudge, resync],
@@ -281,7 +295,8 @@ export function ChainProvider({ children }: { children: ReactNode }) {
 const OFF: Chain = {
   real: false,
   player: null,
-  client: null as unknown as RelayerClient,
+  // Never started: it sends nothing, answers every request with null, and hears nothing.
+  client: new RelayerClient(),
   hello: null,
   account: null,
   connected: false,
@@ -304,5 +319,4 @@ export function useChain(): Chain {
   return useContext(Ctx) ?? OFF;
 }
 
-export { forgetSessionKey };
 export type { Hex };

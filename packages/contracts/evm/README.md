@@ -6,7 +6,7 @@ Foundry. skech on Monad: three contracts behind ERC-1967 proxies (UUPS).
 | --- | --- |
 | `SkechGame` | The game. Deposits, sessions, pieces of ink, the price by the second, settlement, the ladder, fees, IOUs. |
 | `SkechIOU` | What the game owes when the pool cannot pay a hit at once: an ERC-20 whose value rises every block. |
-| `SkechRevenue` | Where the house's fees go: 4% of every stake, 10% of every profit. A treasurer takes them out. |
+| `SkechRevenue` | Where the house's fees go: a share of every stake (4% at deployment, 2% on testnet now), 10% of every profit. A treasurer takes them out. |
 | `SkechLadder` | ladder-v1 in integers: from a band's chance, the difficulty and the momentum, the rung it pays. |
 
 How it all fits together is in [docs/HOW-IT-WORKS.md](../../docs/HOW-IT-WORKS.md), section 11.

@@ -6,7 +6,7 @@ import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/component
 import { cn } from "@/lib/utils";
 import { useChain } from "./chain-context";
 import { money } from "@/lib/money";
-import { useGate } from "./deposit-modal";
+import { useGate } from "./gate";
 
 /**
  * The wallet menu: the balance, what is owed, and the two ways money moves:
