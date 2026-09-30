@@ -40,8 +40,9 @@ function CopyAddress({ address }: { address: string }) {
 }
 
 /**
- * The bar over the game: the wordmark, light or dark, Deposit, and the way in. Signed in, the way in becomes a small
- * menu: who you are, withdrawing, their transactions, and signing out. As on the web (app-bar.tsx), over the game,
+ * The bar over the game: the wordmark, light or dark, Deposit, and the account. Signed out it is only light or dark:
+ * the way in is the one "Sign in to play" in the middle of the game. Signed in, the account is a small menu: who you
+ * are, withdrawing, their transactions, and signing out. As on the web (app-bar.tsx), over the game,
  * under the phone's status bar.
  */
 export function AppBar() {
@@ -53,7 +54,6 @@ export function AppBar() {
   const insets = useSafeAreaInsets();
   const [menu, setMenu] = useState(false);
   const counted = chain.real && chain.hello?.activity === true;
-  const anonymous = me.ready && !me.signedIn;
   const name = me.email ?? (me.kind === "wallet" ? "Your wallet" : (me.handle ?? "Your wallet"));
   return (
     <View className="absolute inset-x-0 top-0 z-30 flex-row items-center gap-2 px-4 pb-2" style={{ paddingTop: insets.top + 8, height: insets.top + 64 }}>
@@ -62,12 +62,10 @@ export function AppBar() {
         <Button accessibilityLabel={dark ? "Switch to light" : "Switch to dark"} onPress={() => setDark(!dark)} size="icon" variant="secondary">
           {dark ? <SunIcon color={c.fg} size={20} /> : <MoonIcon color={c.fg} size={20} />}
         </Button>
-        <Button onPress={() => (me.signedIn ? gate.openDeposit() : me.ready ? gate.openSignIn("deposit") : undefined)} size="md" variant="secondary">
-          Deposit
-        </Button>
-        {anonymous ? (
-          <Button onPress={() => gate.openSignIn("app_bar")} size="md">
-            Sign in
+        {/* Signed out there is nothing to deposit into. */}
+        {me.signedIn ? (
+          <Button onPress={() => gate.openDeposit("app_bar")} size="md" variant="secondary">
+            Deposit
           </Button>
         ) : null}
         {!me.ready ? <View className="size-11 rounded-full bg-secondary" /> : null}
