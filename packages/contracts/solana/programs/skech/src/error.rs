@@ -70,4 +70,6 @@ pub enum SkechError {
     Overflow,
     #[msg("The bar is too late to post")]
     BarLate,
+    #[msg("USDC must be an SPL Token mint")]
+    NotSplToken,
 }

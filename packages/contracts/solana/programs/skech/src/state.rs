@@ -77,7 +77,7 @@ pub struct Game {
     /// Signs every placement (its quote) and every bar.
     pub oracle: Pubkey,
     pub usdc_mint: Pubkey,
-    /// The token program the mint is under: SPL Token for USDC, Token-2022 allowed.
+    /// The token program the mint is under: SPL Token (`initialize` takes no other).
     pub token_program: Pubkey,
     /// Every player's USDC, the pool and the fees: the game PDA's associated token account.
     pub vault: Pubkey,

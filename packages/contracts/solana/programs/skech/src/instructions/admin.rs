@@ -33,10 +33,14 @@ pub struct Initialize<'info> {
     pub game: Account<'info, Game>,
     #[account(init, payer = authority, space = 8 + Pool::INIT_SPACE, seeds = [POOL_SEED], bump)]
     pub pool: Account<'info, Pool>,
-    #[account(mint::token_program = token_program)]
+    /// SPL Token only: a Token-2022 mint's extensions (a transfer fee, a permanent delegate) could leave the vault
+    /// holding less than the balances, the pool and the fees it backs.
+    #[account(owner = anchor_spl::token::ID @ SkechError::NotSplToken, mint::token_program = token_program)]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
+    /// The game's associated token account. It may already exist: anyone can create another wallet's, and that
+    /// must not stop the game being set up.
     #[account(
-        init,
+        init_if_needed,
         payer = authority,
         associated_token::mint = usdc_mint,
         associated_token::authority = game,

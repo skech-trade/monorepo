@@ -398,10 +398,18 @@
           }
         },
         {
-          "name": "usdc_mint"
+          "name": "usdc_mint",
+          "docs": [
+            "SPL Token only: a Token-2022 mint's extensions (a transfer fee, a permanent delegate) could leave the vault",
+            "holding less than the balances, the pool and the fees it backs."
+          ]
         },
         {
           "name": "vault",
+          "docs": [
+            "The game's associated token account. It may already exist: anyone can create another wallet's, and that",
+            "must not stop the game being set up."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -1988,6 +1996,11 @@
       "code": 6031,
       "name": "BarLate",
       "msg": "The bar is too late to post"
+    },
+    {
+      "code": 6032,
+      "name": "NotSplToken",
+      "msg": "USDC must be an SPL Token mint"
     }
   ],
   "types": [
@@ -2336,7 +2349,7 @@
           {
             "name": "token_program",
             "docs": [
-              "The token program the mint is under: SPL Token for USDC, Token-2022 allowed."
+              "The token program the mint is under: SPL Token (`initialize` takes no other)."
             ],
             "type": "pubkey"
           },

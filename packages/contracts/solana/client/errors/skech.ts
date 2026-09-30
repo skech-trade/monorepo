@@ -78,6 +78,8 @@ export const SKECH_ERROR__NOT_UPGRADE_AUTHORITY = 0x178d; // 6029
 export const SKECH_ERROR__OVERFLOW = 0x178e; // 6030
 /** BarLate: The bar is too late to post */
 export const SKECH_ERROR__BAR_LATE = 0x178f; // 6031
+/** NotSplToken: USDC must be an SPL Token mint */
+export const SKECH_ERROR__NOT_SPL_TOKEN = 0x1790; // 6032
 
 export type SkechError =
   | typeof SKECH_ERROR__ALLOWANCE
@@ -101,6 +103,7 @@ export type SkechError =
   | typeof SKECH_ERROR__NOTHING_TO_REDEEM
   | typeof SKECH_ERROR__NOT_OFFERED
   | typeof SKECH_ERROR__NOT_ORACLE
+  | typeof SKECH_ERROR__NOT_SPL_TOKEN
   | typeof SKECH_ERROR__NOT_UPGRADE_AUTHORITY
   | typeof SKECH_ERROR__OVERFLOW
   | typeof SKECH_ERROR__PAUSED
@@ -137,6 +140,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [SKECH_ERROR__NOTHING_TO_REDEEM]: `Nothing to redeem`,
     [SKECH_ERROR__NOT_OFFERED]: `NotOffered`,
     [SKECH_ERROR__NOT_ORACLE]: `Not the oracle`,
+    [SKECH_ERROR__NOT_SPL_TOKEN]: `USDC must be an SPL Token mint`,
     [SKECH_ERROR__NOT_UPGRADE_AUTHORITY]: `Only the program's upgrade authority may initialize`,
     [SKECH_ERROR__OVERFLOW]: `Arithmetic overflow`,
     [SKECH_ERROR__PAUSED]: `The game is paused`,

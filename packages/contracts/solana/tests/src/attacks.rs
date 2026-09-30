@@ -72,6 +72,31 @@ fn a_bar_may_be_posted_up_to_bar_late_seconds_after_its_second() {
     assert_eq!(custom_error(&r), Some(code(SkechError::BarLate)));
 }
 
+#[test]
+fn a_vault_made_first_by_someone_else_does_not_stop_the_game_being_set_up() {
+    let mut g = Game::deployed();
+    // Anyone may create the game's associated token account before the admin initializes.
+    let (vault, mint) = (g.vault(), g.mint);
+    token_account(&mut g.svm, vault, mint, game_pda(), 0, None);
+    let admin = g.admin.insecure_clone();
+    g.send(&[g.initialize_ix(&admin.pubkey())], &[&admin]).expect("initialized");
+    assert_eq!(g.game().vault, vault);
+}
+
+#[test]
+fn usdc_under_token_2022_is_refused() {
+    let mut g = Game::deployed();
+    let token_2022 = anchor_lang::prelude::pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+    let mut mint = g.svm.get_account(&g.mint).unwrap();
+    mint.owner = token_2022;
+    g.svm.set_account(g.mint, mint).unwrap();
+    let admin = g.admin.insecure_clone();
+    let mut ix = g.initialize_ix(&admin.pubkey());
+    ix.accounts[4].pubkey = anchor_spl::associated_token::get_associated_token_address_with_program_id(&game_pda(), &g.mint, &token_2022);
+    ix.accounts[8].pubkey = token_2022;
+    assert_eq!(custom_error(&g.send(&[ix], &[&admin])), Some(code(SkechError::NotSplToken)));
+}
+
 /// The probe program (`tests/cpi-probe`), built on first use.
 fn probe() -> Vec<u8> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/deploy");
