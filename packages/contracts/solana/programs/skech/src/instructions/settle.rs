@@ -194,7 +194,7 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
     if stake_back > 0 {
         // All of it, as on Monad: a band its bar never came for never ran. The pool gives back the fee as well.
         refunded = stake_back;
-        let (p, o) = pay(pool, Some(&mut player), refunded, now);
+        let (p, o) = pay(pool, &mut player, refunded, now);
         paid += p;
         owed += o;
     }
