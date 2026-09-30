@@ -130,8 +130,13 @@ if (!process.argv.includes("--skip-program")) {
 
 /* ---- USDC: Circle's, or a local stand-in ---- */
 
+const [game, pool, market, bars] = await Promise.all([gameAddress(), poolAddress(), marketAddress(0), barsAddress(0)]);
+const existing = await fetchMaybeGame(rpc, game);
 let usdc = net.usdc;
-if (net.cluster === "localnet") {
+if (existing.exists) {
+  // A game already set up keeps the USDC it was set up with: on a local validator, the stand-in made last time.
+  usdc = existing.data.usdcMint;
+} else if (net.cluster === "localnet") {
   const mint = await generateKeyPairSigner();
   const space = 82n;
   const rent = await rpc.getMinimumBalanceForRentExemption(space).send();
@@ -149,10 +154,8 @@ if (net.cluster === "localnet") {
 
 /* ---- the game ---- */
 
-const [game, pool, market, bars] = await Promise.all([gameAddress(), poolAddress(), marketAddress(0), barsAddress(0)]);
 const [vault] = await findAssociatedTokenPda({ mint: usdc, owner: game, tokenProgram: TOKEN_PROGRAM_ADDRESS });
 const [treasury] = await findAssociatedTokenPda({ mint: usdc, owner: treasuryOwner, tokenProgram: TOKEN_PROGRAM_ADDRESS });
-const existing = await fetchMaybeGame(rpc, game);
 if (existing.exists) {
   console.log(`the game is already set up at ${game} (admin ${existing.data.admin}): leaving it as it is`);
 } else {
@@ -210,6 +213,8 @@ await send("lookup table", [
   }),
 ]);
 
+// What the game holds, where it is already set up: its admin may have changed the oracle or the treasury since.
+const onChain = existing.exists ? existing.data : null;
 const deployment: SolanaDeployment = {
   cluster: net.cluster,
   program: SKECH_PROGRAM_ADDRESS,
@@ -217,12 +222,12 @@ const deployment: SolanaDeployment = {
   pool,
   market,
   bars,
-  vault,
+  vault: onChain?.vault ?? vault,
   usdcMint: usdc,
-  tokenProgram: TOKEN_PROGRAM_ADDRESS,
-  treasury,
-  oracle,
-  admin: existing.exists ? existing.data.admin : deployer.address,
+  tokenProgram: onChain?.tokenProgram ?? TOKEN_PROGRAM_ADDRESS,
+  treasury: onChain?.treasury ?? treasury,
+  oracle: onChain?.oracle ?? oracle,
+  admin: onChain?.admin ?? deployer.address,
   lookupTable: table,
   slot: Number(slot),
 };
