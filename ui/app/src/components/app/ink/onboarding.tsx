@@ -7,7 +7,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { onChain } from "@/lib/chain";
 import { cn } from "@/lib/utils";
 import { POINT_PRICES } from "@skech/core/odds";
-import { PlusIcon } from "lucide-react";
 import { useChain } from "./chain-context";
 import { useGate } from "./deposit-modal";
 import feedback from "./drawing-feedback.module.css";
@@ -80,11 +79,10 @@ export function Onboarding({ step, setupError, retrySetup }: ReturnType<typeof u
       </div>
     );
   }
-  // Nothing to draw with: a button, which opens the deposit sheet (a tap on the game still does too).
+  // Nothing to draw with: the pill opens the deposit sheet (a tap on the game still does too).
   if (step === "deposit" && chain.adding === null) {
     return (
-      <button className={feedback.depositButton} onClick={() => gate.openDeposit()} type="button">
-        <PlusIcon aria-hidden="true" className="size-4" strokeWidth={2.6} />
+      <button className={feedback.depositPill} onClick={() => gate.openDeposit()} type="button">
         Deposit USDC to play
       </button>
     );
