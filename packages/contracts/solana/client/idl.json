@@ -2397,6 +2397,9 @@
           },
           {
             "name": "active",
+            "docs": [
+              "Open to new pieces. Closed, its bars are still posted and its bets still settled."
+            ],
             "type": "bool"
           },
           {

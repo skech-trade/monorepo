@@ -399,6 +399,26 @@ fn an_oracle_that_stops_leaves_every_stake_to_come_back() {
 }
 
 #[test]
+fn a_market_closed_to_new_pieces_still_settles_the_ones_in_it() {
+    let mut g = Game::new();
+    let p = g.player(10 * E6, 5 * E6);
+    let piece = g.piece(&p, 1, 0, open_at(), &[AT]);
+    g.place(&p, &piece, &g.quote(&piece, HALF)).unwrap();
+    let admin = g.admin.insecure_clone();
+    let close = g.ix(skech::accounts::SetMarket { admin: admin.pubkey(), game: game_pda(), market: market_pda(0) }, skech::instruction::SetMarket { active: false, difficulty: 51 });
+    g.send(&[close], &[&admin]).unwrap();
+    let next = g.piece(&p, 2, 0, open_at(), &[AT]);
+    assert_eq!(custom_error(&g.place(&p, &next, &g.quote(&next, HALF))), Some(code(SkechError::MarketInactive)));
+    g.set_time(S + 5);
+    let (bet, _) = bet_pda(&p.wallet.pubkey(), 1, 0);
+    g.post_and_settle(open_at() + 1000, 83_000 * E8, 83_000 * E8 + 50_000_000, 82_999 * E8 + 80_000_000, 83_000 * E8, &[(bet, p.wallet.pubkey())]).expect("settled");
+    assert!(g.account::<skech::state::Bet>(&bet).is_none());
+    // A hit: 7.25 cents, what the pool held of it paid and the rest owed.
+    let ps = g.player_state(&p);
+    assert_eq!(ps.balance + ps.iou_basis, 10 * E6 - 50_000 + 72_500);
+}
+
+#[test]
 fn a_bet_someone_else_paid_the_rent_of_is_settled_and_left_for_them_to_close() {
     let mut g = Game::new();
     let (a, b) = (g.player(10 * E6, 5 * E6), g.player(10 * E6, 5 * E6));

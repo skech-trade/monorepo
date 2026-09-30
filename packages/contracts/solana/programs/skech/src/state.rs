@@ -131,6 +131,7 @@ impl Pool {
 #[derive(InitSpace)]
 pub struct Market {
     pub id: u8,
+    /// Open to new pieces. Closed, its bars are still posted and its bets still settled.
     pub active: bool,
     /// 0 to 100: how hard the game is here. Pieces placed from now on pay by it.
     pub difficulty: u8,

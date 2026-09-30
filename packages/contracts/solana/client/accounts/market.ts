@@ -54,6 +54,7 @@ export function getMarketDiscriminatorBytes(): ReadonlyUint8Array {
 export type Market = {
   discriminator: ReadonlyUint8Array;
   id: number;
+  /** Open to new pieces. Closed, its bars are still posted and its bets still settled. */
   active: boolean;
   /** 0 to 100: how hard the game is here. Pieces placed from now on pay by it. */
   difficulty: number;
@@ -64,6 +65,7 @@ export type Market = {
 
 export type MarketArgs = {
   id: number;
+  /** Open to new pieces. Closed, its bars are still posted and its bets still settled. */
   active: boolean;
   /** 0 to 100: how hard the game is here. Pieces placed from now on pay by it. */
   difficulty: number;

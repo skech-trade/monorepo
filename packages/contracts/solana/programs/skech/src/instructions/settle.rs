@@ -87,9 +87,9 @@ fn post(game: &Game, bars: &mut Bars, market: u8, bar: &BarInput) -> Result<()> 
     Ok(())
 }
 
+/// Post a second's bar. A market closed to new pieces is still posted, so the bets already in it are decided.
 pub fn post_bar(ctx: Context<PostBar>, market: u8, bar: BarInput) -> Result<()> {
     require!(!ctx.accounts.game.paused, SkechError::Paused);
-    require!(ctx.accounts.market_account.active, SkechError::MarketInactive);
     let mut bars = ctx.accounts.bars.load_mut()?;
     post(&ctx.accounts.game, &mut bars, market, &bar)
 }
@@ -99,7 +99,6 @@ pub fn post_bar(ctx: Context<PostBar>, market: u8, bar: BarInput) -> Result<()> 
 pub fn post_bar_and_settle<'info>(ctx: Context<'_, '_, 'info, 'info, PostBarAndSettle<'info>>, market: u8, bar: BarInput) -> Result<()> {
     let a = ctx.accounts;
     require!(!a.game.paused, SkechError::Paused);
-    require!(a.market_account.active, SkechError::MarketInactive);
     {
         let mut bars = a.bars.load_mut()?;
         post(&a.game, &mut bars, market, &bar)?;
