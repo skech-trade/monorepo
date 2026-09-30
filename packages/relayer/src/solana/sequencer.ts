@@ -52,7 +52,7 @@ const u = (n: unknown, max: number) => Number.isInteger(n) && (n as number) >= 0
 export class SolanaSequencer {
   difficulty = 40;
   /** min/max per dot and the most a piece may stake, and the fee, from the game's config. */
-  terms = { minPerDot: 10_000n, maxPerDot: 10_000_000n, maxPieceStake: 1_000_000_000n, maxPriceAgeMs: 15_000, feeBps: 200, profitFeeBps: 1000 };
+  terms = { minPerDot: 10_000n, maxPerDot: 100_000_000n, maxPieceStake: 10_000_000_000n, maxPriceAgeMs: 15_000, feeBps: 400, profitFeeBps: 1000 };
   private buckets = new Map<number, Pending[]>();
   private seen = new Set<Address>();
   private players = new Map<Address, { at: number; balance: bigint; allowance: bigint; key: Uint8Array; validUntil: bigint }>();

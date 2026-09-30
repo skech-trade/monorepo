@@ -4,6 +4,7 @@
  *   bun run deploy:solana                  deploy to SKECH_SOLANA_CLUSTER (devnet when unset)
  *   bun run deploy:solana --mainnet        required as well on mainnet-beta: it spends real SOL
  *   bun run deploy:solana --skip-program   the program is already deployed: set the game up only
+ *   bun run deploy:solana --set-config     also set the game's terms to the defaults (Monad's), and SOLANA_CONFIG
  *
  * It deploys the program (`anchor build` first), initializes the game with the deployer as admin (the program's
  * upgrade authority must be the deployer), opens BTC-USD, creates the lookup table every placement uses, and
@@ -13,6 +14,7 @@
  *   SOLANA_RELAYER_KEYPAIR    the relayer's keypair file: its key is the oracle (or set SOLANA_ORACLE to an address)
  *   SOLANA_TREASURY           who owns the treasury's USDC account (default the deployer; a multisig on mainnet)
  *   DIFFICULTY                the market's difficulty (default 40)
+ *   SOLANA_CONFIG             with --set-config: JSON of terms to change from the defaults, e.g. {"feeBps":300}
  *
  * On mainnet: transfer the upgrade authority and the admin to a multisig (Squads) straight after, and build with
  * `anchor build --verifiable` so the deployed program can be verified against this source.
@@ -46,11 +48,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   barsAddress,
+  type Config,
+  DEFAULT_CONFIG,
   deploymentFile,
   fetchMaybeGame,
   gameAddress,
   getInitializeInstruction,
   getInitMarketInstruction,
+  getSetConfigInstruction,
   INSTRUCTIONS_SYSVAR,
   marketAddress,
   poolAddress,
@@ -171,6 +176,21 @@ if (existing.exists) {
     }),
   ]);
   await send(`BTC-USD at difficulty ${difficulty}`, [getInitMarketInstruction({ admin: deployer, game, market, bars, id: 0, name: "BTC-USD", difficulty })]);
+}
+
+/* ---- the terms: a game keeps what it was initialized with until the admin sets others ---- */
+
+if (process.argv.includes("--set-config")) {
+  const overrides = JSON.parse(env("SOLANA_CONFIG") ?? "{}") as Record<string, number | string>;
+  const unknown = Object.keys(overrides).filter((k) => !(k in DEFAULT_CONFIG));
+  if (unknown.length) fail(`SOLANA_CONFIG names terms the game does not have: ${unknown.join(", ")}`);
+  const config = { ...DEFAULT_CONFIG } as Record<string, number | bigint>;
+  for (const [k, v] of Object.entries(overrides)) config[k] = typeof DEFAULT_CONFIG[k as keyof Config] === "bigint" ? BigInt(v) : Number(v);
+  const current = await fetchMaybeGame(rpc, game);
+  const now = current.exists ? current.data.config : undefined;
+  const same = now && Object.keys(config).every((k) => String(now[k as keyof Config]) === String(config[k]));
+  if (same) console.log("the game's terms are already these: leaving them");
+  else await send("terms", [getSetConfigInstruction({ admin: deployer, game, config: config as Config })]);
 }
 
 /* ---- the lookup table every placement uses ---- */

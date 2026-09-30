@@ -4,7 +4,7 @@
  * generated client in `./client`.
  */
 import { type Address, address, getAddressEncoder, getProgramDerivedAddress, getU32Encoder, getU64Encoder, type Instruction, type ReadonlyUint8Array } from "@solana/kit";
-import { getPlaceInstructionDataEncoder, SKECH_PROGRAM_ADDRESS, type SectionArgArgs } from "./client";
+import { type Config, getPlaceInstructionDataEncoder, SKECH_PROGRAM_ADDRESS, type SectionArgArgs } from "./client";
 
 export * from "./client";
 
@@ -100,6 +100,21 @@ export const PIECE_FIXED = 32 + 32 + 8 + 4 + 1 + 1 + 8 + 4 + 8 + 8 + 8 + 32 + 4;
 export const SECTION_BYTES = 11;
 export const ED25519_PROGRAM = address("Ed25519SigVerify111111111111111111111111111");
 export const INSTRUCTIONS_SYSVAR = address("Sysvar1nstructions1111111111111111111111111");
+
+/** `Config::DEFAULT`, what `initialize` sets: Monad's terms (`SkechGame.initialize`), and a session of 30 days at most. */
+export const DEFAULT_CONFIG: Config = {
+  feeBps: 400,
+  profitFeeBps: 1000,
+  sweepBps: 1000,
+  lateMs: 200,
+  placeGraceMs: 3000,
+  maxPriceAgeMs: 15_000,
+  minPerDot: 10_000n,
+  maxPerDot: 100_000_000n,
+  maxPieceStake: 10_000_000_000n,
+  minRedeem: 10_000n,
+  maxSessionSecs: 30n * 86_400n,
+};
 
 /* ---- addresses ---- */
 

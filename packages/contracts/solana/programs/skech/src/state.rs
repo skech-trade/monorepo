@@ -52,17 +52,19 @@ pub struct Config {
 }
 
 impl Config {
+    /// What `initialize` sets: Monad's terms, `SkechGame.initialize`'s, field for field (a test holds them to it).
     pub const DEFAULT: Config = Config {
-        fee_bps: 200,
+        fee_bps: 400,
         profit_fee_bps: 1000,
         sweep_bps: 1000,
         late_ms: 200,
         place_grace_ms: 3000,
         max_price_age_ms: 15_000,
-        min_per_dot: 10_000,       // 1 cent
-        max_per_dot: 10_000_000,   // $10: a section's stake fits in a u32
-        max_piece_stake: 1_000_000_000, // $1,000
+        min_per_dot: 10_000,             // 1 cent
+        max_per_dot: 100_000_000,        // $100
+        max_piece_stake: 10_000_000_000, // $10,000
         min_redeem: 10_000,
+        // Solana's own: Monad's sessions are bounded by the signature that registers them.
         max_session_secs: 30 * 86_400,
     };
 }

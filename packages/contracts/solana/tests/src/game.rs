@@ -43,11 +43,11 @@ fn a_piece_is_placed_hit_missed_and_closed() {
     let r = g.place(&p, &piece, &quote).expect("placed");
     println!("place, 2 sections: {} CU", r.compute_units_consumed);
 
-    // 50% at difficulty 51 pays 1.5x: two bands of 5 cents, 2% of it to the house, the rest into the pool.
+    // 50% at difficulty 51 pays 1.5x: two bands of 5 cents, 4% of it to the house, the rest into the pool.
     assert_eq!(g.player_state(&p).balance, 10 * E6 - 100_000);
     assert_eq!(g.player_state(&p).session.allowance, 5 * E6 - 100_000);
-    assert_eq!(g.pool().pool, 98_000);
-    assert_eq!(g.pool().fees, 2_000);
+    assert_eq!(g.pool().pool, 96_000);
+    assert_eq!(g.pool().fees, 4_000);
     let (bet, _) = bet_pda(&p.wallet.pubkey(), 1, 0);
     let b: skech::state::Bet = g.account(&bet).unwrap();
     assert_eq!(b.sections.len(), 2);
@@ -61,8 +61,8 @@ fn a_piece_is_placed_hit_missed_and_closed() {
     assert_eq!(g.player_state(&p).balance, 10 * E6 - 100_000 + 72_500);
     let b: skech::state::Bet = g.account(&bet).unwrap();
     assert_eq!((b.live_mask, b.hit_mask), (0b10, 0b01));
-    assert_eq!(g.pool().pool, 98_000 - 75_000);
-    assert_eq!(g.pool().fees, 2_000 + 2_500);
+    assert_eq!(g.pool().pool, 96_000 - 75_000);
+    assert_eq!(g.pool().fees, 4_000 + 2_500);
 
     // Second 2 stays far below the other band: a miss, and the bet is done (its piece past its placing window), its
     // rent back with the relayer.
@@ -183,11 +183,11 @@ fn a_win_the_pool_cannot_pay_is_owed_and_paid_off_later() {
     assert_eq!(g.account::<skech::state::Bet>(&bet).unwrap().sections[0].rung, 9600);
     g.set_time(S + 3);
     g.post_and_settle(open_at() + 1000, 83_000 * E8, 83_000 * E8 + 50_000_000, 83_000 * E8, 83_000 * E8, &[(bet, winner.wallet.pubkey())]).unwrap();
-    // 4.80 gross, 0.475 to the house; the pool held 4.9 cents of it.
+    // 4.80 gross, 0.475 to the house; the pool held 4.8 cents of it.
     let due = 4_800_000 - 475_000;
     let w = g.player_state(&winner);
-    assert_eq!(w.balance, 10 * E6 - 50_000 + 49_000);
-    assert_eq!(w.iou_basis, due - 49_000);
+    assert_eq!(w.balance, 10 * E6 - 50_000 + 48_000);
+    assert_eq!(w.iou_basis, due - 48_000);
     assert!(w.iou_shares > 0);
     assert_eq!(g.pool().pool, 0);
     assert_eq!(g.pool().house_basis, 475_000);
@@ -209,8 +209,8 @@ fn a_win_the_pool_cannot_pay_is_owed_and_paid_off_later() {
     g.send(&[redeem], &[&winner.wallet]).unwrap();
     let w = g.player_state(&winner);
     assert_eq!((w.iou_shares, w.iou_basis), (0, 0));
-    let owed = due - 49_000;
-    let paid = w.balance - (10 * E6 - 50_000 + 49_000);
+    let owed = due - 48_000;
+    let paid = w.balance - (10 * E6 - 50_000 + 48_000);
     // 0.1% a day, and nothing cut: the holder redeemed their own.
     assert!(paid >= owed + owed / 1000 - 2 && paid <= owed + owed / 1000 + 2, "paid {paid} for {owed} owed a day");
 
@@ -271,7 +271,7 @@ fn fees_go_to_the_treasury() {
         skech::instruction::CollectFees {},
     );
     g.send(&[collect], &[]).unwrap();
-    assert_eq!(token_balance(&g.svm, &g.treasury), 2_000);
+    assert_eq!(token_balance(&g.svm, &g.treasury), 4_000);
     assert_eq!(g.pool().fees, 0);
 }
 
