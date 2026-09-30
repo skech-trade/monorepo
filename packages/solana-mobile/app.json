@@ -1,16 +1,32 @@
 {
   "expo": {
-    "scheme": "kit-expo-privy",
+    "name": "skech",
+    "slug": "skech",
+    "scheme": "skech",
+    "version": "0.1.0",
+    "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "orientation": "default",
-    "web": {
-      "output": "static"
+    "icon": "./assets/icon.png",
+    "ios": {
+      "bundleIdentifier": "trade.skech.app",
+      "supportsTablet": false,
+      "infoPlist": { "NSCameraUsageDescription": "To scan an address to withdraw to." }
     },
-    "name": "kit-expo-privy",
-    "slug": "kit-expo-privy",
     "android": {
-      "package": "com.anonymous.kit_expo_privy"
+      "package": "trade.skech.app",
+      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#ffffff" },
+      "permissions": ["android.permission.CAMERA", "android.permission.VIBRATE"]
     },
-    "plugins": ["expo-router", "expo-secure-store", "expo-web-browser"]
+    "web": { "output": "static" },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-asset",
+      "expo-font",
+      "expo-audio",
+      ["expo-camera", { "cameraPermission": "To scan an address to withdraw to.", "recordAudioAndroid": false }]
+    ],
+    "experiments": { "typedRoutes": false }
   }
 }

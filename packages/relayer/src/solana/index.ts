@@ -58,7 +58,7 @@ settler = new SolanaSettler(scfg, engine, chain, server.notify, log, join(import
 sequencer = new SolanaSequencer(scfg, engine, pricer, chain, settler, server.notify, log, domain);
 const setTerms = (g: typeof game, d: number) => {
   sequencer.difficulty = d;
-  sequencer.terms = { minPerDot: g.config.minPerDot, maxPerDot: g.config.maxPerDot, maxPieceStake: g.config.maxPieceStake, maxPriceAgeMs: g.config.maxPriceAgeMs, feeBps: g.config.feeBps };
+  sequencer.terms = { minPerDot: g.config.minPerDot, maxPerDot: g.config.maxPerDot, maxPieceStake: g.config.maxPieceStake, maxPriceAgeMs: g.config.maxPriceAgeMs, feeBps: g.config.feeBps, profitFeeBps: g.config.profitFeeBps };
   scfg.lateMs = g.config.lateMs;
 };
 setTerms(game, difficulty);
