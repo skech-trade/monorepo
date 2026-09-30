@@ -52,6 +52,7 @@ import {
   SETTLED_EVENT_DISCRIMINATOR,
   playerAddress,
 } from "@skech/contracts/solana/sdk";
+import { remember } from "../limits";
 import type { SolanaConfig } from "./config";
 
 type Blockhash = { blockhash: Parameters<typeof setTransactionMessageLifetimeUsingBlockhash>[0]["blockhash"]; lastValidBlockHeight: bigint };
@@ -197,8 +198,8 @@ export class SolanaChain {
   async build(kind: string, player: Address, instructions: Instruction[], computeUnits: number): Promise<{ id: string; tx: string }> {
     const tx = await partiallySignTransactionMessageWithSigners(this.message(instructions, computeUnits));
     const id = crypto.randomUUID();
-    this.built.set(id, { message: new Uint8Array(tx.messageBytes), at: Date.now(), kind, player });
     for (const [k, v] of this.built) if (Date.now() - v.at > 120_000) this.built.delete(k);
+    remember(this.built, id, { message: new Uint8Array(tx.messageBytes), at: Date.now(), kind, player }, 10_000);
     return { id, tx: getBase64EncodedWireTransaction(tx) };
   }
 

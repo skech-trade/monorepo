@@ -13,10 +13,11 @@ import type { Engine } from "./engine";
 import type { PieceMsg, Placed, Refused, Sequencer } from "./sequencer";
 import type { Settled, Settler } from "./settler";
 import type { Activity } from "./activity";
+import { clientIp, Door, MESSAGE_BYTES, Rates } from "./limits";
 import { report } from "./sentry";
 import { MONAD, type Message, read, refusal } from "./wire";
 
-type Data = { id: number; player?: Address };
+type Data = { id: number; ip: string; rates: Rates; player?: Address };
 type Deps = { cfg: Config; engine: Engine; chain: ChainClient; log: (s: string) => void; status: () => Record<string, unknown> };
 
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
@@ -28,6 +29,7 @@ export class Server {
   private clients = new Set<ServerWebSocket<Data>>();
   private byPlayer = new Map<Address, Set<ServerWebSocket<Data>>>();
   private nextId = 1;
+  private door = new Door();
   private server: BunServer<Data> | null = null;
   sequencer: Sequencer | null = null;
   settler: Settler | null = null;
@@ -43,7 +45,10 @@ export class Server {
         if (url.pathname === "/health") return new Response("ok");
         if (url.pathname === "/status") return new Response(json(this.d.status()), { headers: { "content-type": "application/json" } });
         if (url.pathname === "/ws") {
-          if (server.upgrade(req, { data: { id: this.nextId++ } })) return undefined;
+          const ip = clientIp(req, server.requestIP(req)?.address);
+          if (!this.door.enter(ip)) return new Response("too many connections", { status: 429 });
+          if (server.upgrade(req, { data: { id: this.nextId++, ip, rates: new Rates() } })) return undefined;
+          this.door.leave(ip);
           return new Response("expected a websocket", { status: 426 });
         }
         return new Response("skech relayer: /ws, /health, /status", { status: 404 });
@@ -56,10 +61,11 @@ export class Server {
         message: (ws, raw) => void this.receive(ws, raw),
         close: (ws) => {
           this.clients.delete(ws);
-          if (ws.data.player) this.byPlayer.get(ws.data.player)?.delete(ws);
+          this.door.leave(ws.data.ip);
+          this.unwatch(ws);
         },
         perMessageDeflate: false,
-        maxPayloadLength: 256 * 1024,
+        maxPayloadLength: MESSAGE_BYTES,
       },
     });
     this.d.log(`listening on ws://localhost:${this.d.cfg.port}/ws`);
@@ -116,6 +122,15 @@ export class Server {
     for (const ws of this.byPlayer.get(player.toLowerCase() as Address) ?? []) ws.send(text);
   }
 
+  /** Stop telling `ws` about the player it watched; a player nobody watches is forgotten. */
+  private unwatch(ws: ServerWebSocket<Data>) {
+    const player = ws.data.player;
+    if (!player) return;
+    const set = this.byPlayer.get(player);
+    set?.delete(ws);
+    if (set && !set.size) this.byPlayer.delete(player);
+  }
+
   private send(ws: ServerWebSocket<Data>, msg: unknown) {
     ws.send(json(msg));
   }
@@ -142,6 +157,12 @@ export class Server {
   /** Every message, checked (wire.ts) before it is handled; whatever goes wrong in handling it is answered, never thrown. */
   private async receive(ws: ServerWebSocket<Data>, raw: string | Buffer) {
     const r = read(raw, MONAD);
+    if (!ws.data.rates.take(typeof r.msg?.type === "string" ? r.msg.type : "")) {
+      // Too many: answered only where the app waits for an answer. Nobody waits on an `error`.
+      const no = refusal(r.msg, "Too many requests; slow down");
+      if (no.type !== "error") this.send(ws, no);
+      return;
+    }
     if ("why" in r) return this.send(ws, refusal(r.msg, r.why));
     if (!this.sequencer) return this.send(ws, refusal(r.msg, "Starting up"));
     try {
@@ -158,7 +179,7 @@ export class Server {
       case "watch": {
         if (!isAddress(msg.player)) return this.send(ws, { type: "error", why: "Bad player" });
         const player = msg.player.toLowerCase() as Address;
-        if (ws.data.player) this.byPlayer.get(ws.data.player)?.delete(ws);
+        this.unwatch(ws);
         ws.data.player = player;
         let set = this.byPlayer.get(player);
         if (!set) this.byPlayer.set(player, (set = new Set()));

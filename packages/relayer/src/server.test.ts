@@ -75,4 +75,25 @@ describe("the door", () => {
     expect((await next()).type).toBe("hello");
     ws.close();
   });
+
+  test("answers a flood of pieces with slow down, past the connection's burst", async () => {
+    const { ws, next } = await connect();
+    const text = JSON.stringify({ type: "piece", piece, sessionSig: "0x", priceSig: `0x${"00".repeat(65)}`, stroke: "0x" });
+    for (let i = 0; i < 45; i++) ws.send(text);
+    const whys: Record<string, number> = {};
+    for (let i = 0; i < 45; i++) {
+      const m = await next();
+      whys[m.why as string] = (whys[m.why as string] ?? 0) + 1;
+    }
+    expect(whys).toEqual({ "Something went wrong; try again": 40, "Too many requests; slow down": 5 });
+    ws.close();
+  });
+
+  test("closes a connection that sends more than a message may hold", async () => {
+    const { ws } = await connect();
+    const closed = new Promise<number>((r) => (ws.onclose = (e) => r(e.code)));
+    ws.send(JSON.stringify({ type: "hello", pad: "x".repeat(70_000) }));
+    // Closed before it is read: 1009 (too big), or 1006 if the socket goes before the close frame arrives.
+    expect([1006, 1009]).toContain(await closed);
+  });
 });

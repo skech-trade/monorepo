@@ -18,10 +18,11 @@ import type { SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { Placed, Refused, SolanaPieceMsg, SolanaSequencer } from "./sequencer";
 import type { Settled, SolanaSettler } from "./settler";
+import { clientIp, Door, MESSAGE_BYTES, Rates, remember } from "../limits";
 import { report } from "../sentry";
 import { type Message, read, refusal, SOLANA } from "../wire";
 
-type Data = { id: number; player?: Address };
+type Data = { id: number; ip: string; rates: Rates; player?: Address };
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
 const big = (s: unknown) => (typeof s === "string" && /^\d{1,20}$/.test(s) ? BigInt(s) : typeof s === "number" && Number.isInteger(s) && s >= 0 ? BigInt(s) : null);
 const addr = (s: unknown): Address | null => {
@@ -37,6 +38,7 @@ export class SolanaServer {
   private clients = new Set<ServerWebSocket<Data>>();
   private byPlayer = new Map<Address, Set<ServerWebSocket<Data>>>();
   private nextId = 1;
+  private door = new Door();
   private server: BunServer<Data> | null = null;
   sequencer: SolanaSequencer | null = null;
   settler: SolanaSettler | null = null;
@@ -61,7 +63,10 @@ export class SolanaServer {
         if (url.pathname === "/health") return new Response("ok");
         if (url.pathname === "/status") return new Response(json(this.status()), { headers: { "content-type": "application/json" } });
         if (url.pathname === "/ws") {
-          if (server.upgrade(req, { data: { id: this.nextId++ } })) return undefined;
+          const ip = clientIp(req, server.requestIP(req)?.address);
+          if (!this.door.enter(ip)) return new Response("too many connections", { status: 429 });
+          if (server.upgrade(req, { data: { id: this.nextId++, ip, rates: new Rates() } })) return undefined;
+          this.door.leave(ip);
           return new Response("expected a websocket", { status: 426 });
         }
         return new Response("skech relayer (Solana): /ws, /health, /status", { status: 404 });
@@ -74,10 +79,11 @@ export class SolanaServer {
         message: (ws, raw) => void this.receive(ws, raw),
         close: (ws) => {
           this.clients.delete(ws);
-          if (ws.data.player) this.byPlayer.get(ws.data.player)?.delete(ws);
+          this.door.leave(ws.data.ip);
+          this.unwatch(ws);
         },
         perMessageDeflate: false,
-        maxPayloadLength: 256 * 1024,
+        maxPayloadLength: MESSAGE_BYTES,
       },
     });
     this.log(`listening on ws://localhost:${this.cfg.port}/ws (${this.cfg.net.label})`);
@@ -127,6 +133,15 @@ export class SolanaServer {
     account: (player: Address) => void this.sendAccount(player),
   };
 
+  /** Stop telling `ws` about the player it watched; a player nobody watches is forgotten. */
+  private unwatch(ws: ServerWebSocket<Data>) {
+    const player = ws.data.player;
+    if (!player) return;
+    const set = this.byPlayer.get(player);
+    set?.delete(ws);
+    if (set && !set.size) this.byPlayer.delete(player);
+  }
+
   private toPlayer(player: Address, msg: unknown) {
     const text = json(msg);
     for (const ws of this.byPlayer.get(player) ?? []) ws.send(text);
@@ -164,6 +179,12 @@ export class SolanaServer {
   /** Every message, checked (wire.ts) before it is handled; whatever goes wrong in handling it is answered, never thrown. */
   private async receive(ws: ServerWebSocket<Data>, raw: string | Buffer) {
     const r = read(raw, SOLANA);
+    if (!ws.data.rates.take(typeof r.msg?.type === "string" ? r.msg.type : "")) {
+      // Too many: answered only where the app waits for an answer. Nobody waits on an `error`.
+      const no = refusal(r.msg, "Too many requests; slow down");
+      if (no.type !== "error") ws.send(json(no));
+      return;
+    }
     if ("why" in r) return ws.send(json(refusal(r.msg, r.why)));
     if (!this.sequencer) return ws.send(json(refusal(r.msg, "Starting up")));
     try {
@@ -182,7 +203,7 @@ export class SolanaServer {
       case "watch": {
         const player = addr(msg.player);
         if (!player) return ws.send(json({ type: "error", why: "Bad player" }));
-        if (ws.data.player) this.byPlayer.get(ws.data.player)?.delete(ws);
+        this.unwatch(ws);
         ws.data.player = player;
         let set = this.byPlayer.get(player);
         if (!set) this.byPlayer.set(player, (set = new Set()));
@@ -315,7 +336,7 @@ export class SolanaServer {
       if (fresh.length) c.newest = fresh[0].signature;
       c.recent = [...fresh, ...c.recent].slice(0, 20);
       c.at = Date.now();
-      this.activity.set(player, c);
+      remember(this.activity, player, c, 20_000);
     }
     return { txs: c.txs, recent: c.recent, explorer: this.cfg.net.explorer("address", pda), counting: false, progress: 1 };
   }

@@ -14,6 +14,7 @@ import { type Address, type Hex, hashStruct, keccak256, type TypedDataDomain } f
 import type { ChainClient, GameConfig, Session } from "./chain";
 import type { Config } from "./config";
 import type { Engine } from "./engine";
+import { remember } from "./limits";
 import type { Pricer } from "./pricer";
 import { report } from "./sentry";
 import type { Settler } from "./settler";
@@ -44,6 +45,8 @@ type Pending = { piece: Piece; hash: Hex; sessionSig: Hex; priceSig: Hex; stroke
 const REFUSALS = ["None", "Mismatch", "Replay", "Difficulty", "Late", "StalePrice", "PerDot", "Sections", "PriceSig", "Stroke", "Session", "SessionSig", "NotOffered", "Allowance", "Balance"];
 const isHex = (s: unknown, bytes?: number): s is Hex => typeof s === "string" && /^0x[0-9a-fA-F]*$/.test(s) && (bytes === undefined || s.length === 2 + bytes * 2);
 const big = (s: unknown) => (typeof s === "string" && /^\d{1,20}$/.test(s) ? BigInt(s) : null);
+/** Players whose session and balance are kept between reads: any address can be asked about. */
+const CACHED = 20_000;
 
 export class Sequencer {
   difficulty = 51;
@@ -211,7 +214,7 @@ export class Sequencer {
     if (c && Date.now() - c.at < 20_000) return c.session;
     try {
       const session = await this.chain.sessionOf(player);
-      this.sessions.set(k, { at: Date.now(), session });
+      remember(this.sessions, k, { at: Date.now(), session }, CACHED);
       return session;
     } catch {
       return null;
@@ -223,7 +226,7 @@ export class Sequencer {
     const c = this.balances.get(k);
     if (c && Date.now() - c.at < 3_000) return c.balance;
     const balance = await this.chain.balanceOf(player);
-    this.balances.set(k, { at: Date.now(), balance });
+    remember(this.balances, k, { at: Date.now(), balance }, CACHED);
     return balance;
   }
 

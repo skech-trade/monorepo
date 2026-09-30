@@ -10,6 +10,7 @@ import { features, NICE, stepFor } from "@skech/core/dots";
 import { CHANCE_ONE, momentumE6, rungE2, maxStakeE6, toE8, unitFor, withMomentum, type Section } from "@skech/core/chain";
 import { betAddress, ed25519Instruction, getPlaceInstruction, getSkechErrorMessage, HORIZON, MAX_SECTIONS, pieceBytes, playerAddress, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
+import { remember } from "../limits";
 import type { Pricer } from "../pricer";
 import { report } from "../sentry";
 import { verifyPrice } from "../verify";
@@ -92,7 +93,7 @@ export class SolanaSequencer {
     const p = await this.chain.player(player);
     if (!p) return null;
     const v = { at: Date.now(), balance: p.balance, allowance: p.session.allowance, key: new Uint8Array(getAddressEncoder().encode(p.session.key)), validUntil: p.session.validUntil };
-    this.players.set(player, v);
+    remember(this.players, player, v, 20_000);
     return v;
   }
 
