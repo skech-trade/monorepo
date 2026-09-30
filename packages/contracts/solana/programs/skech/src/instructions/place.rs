@@ -97,8 +97,9 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
     let mut sections: Vec<BetSection> = Vec::with_capacity(n);
     let mut kept: u64 = 0;
     for (s, &chance) in piece.sections.iter().zip(&quote.chances) {
-        let lo = s.lo as u64 * piece.unit;
-        let hi = (s.lo as u64 + s.width as u64) * piece.unit;
+        // A band beyond any price a u64 holds is not a band.
+        let lo = (s.lo as u64).checked_mul(piece.unit).ok_or(SkechError::Sections)?;
+        let hi = (s.lo as u64 + s.width as u64).checked_mul(piece.unit).ok_or(SkechError::Sections)?;
         if bars.at(piece.open_at + s.second as i64 * 1000).is_some() {
             continue;
         }

@@ -97,6 +97,17 @@ fn usdc_under_token_2022_is_refused() {
     assert_eq!(custom_error(&g.send(&[ix], &[&admin])), Some(code(SkechError::NotSplToken)));
 }
 
+#[test]
+fn a_band_past_any_price_is_refused_not_a_crash() {
+    let mut g = Game::new();
+    let p = g.player(10 * E6, 5 * E6);
+    let mut piece = g.piece(&p, 1, 0, open_at(), &[(1, 4_000_000_000, 5, 50_000)]);
+    piece.unit = 1_000_000_000_000;
+    let mut quote = g.quote(&piece, HALF);
+    quote.price = 2_000_000_000_000_000;
+    assert_eq!(custom_error(&g.place(&p, &piece, &quote)), Some(code(SkechError::Sections)));
+}
+
 /// The probe program (`tests/cpi-probe`), built on first use.
 fn probe() -> Vec<u8> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/deploy");
