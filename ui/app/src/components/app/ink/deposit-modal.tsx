@@ -1,7 +1,7 @@
 "use client";
 
 import { SignInModal } from "@coinbase/cdp-react";
-import { track } from "@/lib/analytics";
+import { PRIVATE_LINK, track } from "@/lib/analytics";
 import { ArrowUpRightIcon, CheckIcon, SendIcon, XIcon } from "lucide-react";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { encode } from "uqr";
@@ -369,7 +369,7 @@ function Founders({ nudge }: { nudge: boolean }) {
             </div>
           </div>
           <a
-            className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#2AABEE] font-semibold text-[16px] text-white outline-none transition-transform hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring active:scale-[.98]"
+            className={cn("flex h-12 items-center justify-center gap-2 rounded-full bg-[#2AABEE] font-semibold text-[16px] text-white outline-none transition-transform hover:brightness-105 focus-visible:ring-2 focus-visible:ring-ring active:scale-[.98]", PRIVATE_LINK)}
             href={href}
             onClick={() => track("founders_messaged", { stuck: nudge, with_email: Boolean(me.email) })}
             rel="noopener noreferrer"

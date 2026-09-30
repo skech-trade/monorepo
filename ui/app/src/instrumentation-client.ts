@@ -1,6 +1,6 @@
 // Runs before the app is interactive: analytics and error capture start here, so a crash on load is still seen.
 import * as Sentry from "@sentry/nextjs";
-import { startAnalytics } from "@/lib/analytics";
+import { SIGN_IN_PANEL, startAnalytics } from "@/lib/analytics";
 import { SENTRY_APP_KEY, SENTRY_DATA, SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_ON, SENTRY_TRACES } from "@/lib/sentry";
 
 try {
@@ -15,8 +15,8 @@ try {
     replaysOnErrorSampleRate: 1,
     dataCollection: SENTRY_DATA,
     integrations: [
-      // What is typed (the sign-in email, its code, an amount) is never in a replay.
-      Sentry.replayIntegration({ maskAllText: false, maskAllInputs: true, blockAllMedia: false }),
+      // What is typed (the sign-in email, its code, an amount) is never in a replay, nor who is playing (src/lib/analytics.ts).
+      Sentry.replayIntegration({ maskAllText: false, maskAllInputs: true, blockAllMedia: false, mask: [SIGN_IN_PANEL] }),
       // An error whose every frame is outside our bundle is an extension's or an injected script's, not ours.
       Sentry.thirdPartyErrorFilterIntegration({ filterKeys: [SENTRY_APP_KEY], behaviour: "drop-error-if-exclusively-contains-third-party-frames" }),
     ],

@@ -11,7 +11,9 @@ import { useChain } from "./ink/chain-context";
 import { useGate } from "./ink/deposit-modal";
 import { openHomeScreen, useInstallable } from "./ink/home-screen";
 import { TransactionsSheet } from "./ink/transactions-sheet";
+import { PRIVATE_TEXT } from "@/lib/analytics";
 import { money } from "@/lib/money";
+import { cn } from "@/lib/utils";
 import { CopyAddress } from "./copy";
 import { Wordmark } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
@@ -63,7 +65,7 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
               <div className="flex items-center gap-3 px-2.5 pt-2.5 pb-3">
                 <span aria-hidden="true" className="size-11 shrink-0 rounded-full ring-1 ring-foreground/10" style={{ background: me.address ? swatch(me.address) : undefined }} />
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <p className="truncate font-semibold text-[15px] leading-tight">{name}</p>
+                  <p className={cn("truncate font-semibold text-[15px] leading-tight", PRIVATE_TEXT)}>{name}</p>
                   {me.address ? <CopyAddress address={me.address} className="self-start text-[13px] text-muted-foreground" /> : null}
                 </div>
               </div>

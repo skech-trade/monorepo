@@ -54,6 +54,17 @@ export type Event =
   // Once a visit: how long it was on screen.
   | "visit_ended";
 
+/*
+  Who someone is (their email, or the phone number they signed in with) is never in a replay, Sentry's or
+  PostHog's. Typing is masked in both already; these mark what is shown. PRIVATE_TEXT goes on an element whose
+  text names them: Sentry masks the text, PostHog leaves the element out. PRIVATE_LINK goes on a link whose
+  address does, since masking covers text and not an href: both leave it out. Coinbase's sign-in panel says
+  where a code went, and has no mark but its stylesheet's class names, so it is masked by those.
+*/
+export const PRIVATE_TEXT = "sentry-mask ph-no-capture";
+export const PRIVATE_LINK = "sentry-block ph-no-capture";
+export const SIGN_IN_PANEL = '[class*="Modal-module__modal"]';
+
 const KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY ?? "";
 const REGION = process.env.NEXT_PUBLIC_POSTHOG_REGION === "eu" ? "eu" : "us";
 const ON = KEY !== "" && (process.env.NODE_ENV === "production" || process.env.NEXT_PUBLIC_POSTHOG_DEV === "1");
@@ -83,8 +94,8 @@ export function startAnalytics() {
     capture_performance: { web_vitals: true, network_timing: false },
     // Crashes go to Sentry, with their stack against our source; counting them twice would only spend both plans.
     capture_exceptions: false,
-    // Replays follow the project's own settings (sampling, minimum length). What is typed is never in them.
-    session_recording: { maskAllInputs: true },
+    // Replays follow the project's own settings (sampling, minimum length). What is typed is never in them, nor who is playing.
+    session_recording: { maskAllInputs: true, maskTextSelector: SIGN_IN_PANEL },
   });
   // On every event: whether it was opened from the Home Screen, and which network.
   const nav = navigator as Navigator & { standalone?: boolean };
