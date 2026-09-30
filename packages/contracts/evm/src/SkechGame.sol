@@ -14,6 +14,7 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {ISkechIOU} from "./interfaces/ISkechIOU.sol";
 import {IUSDCAuthorization} from "./interfaces/IUSDCAuthorization.sol";
 import {SkechLadder} from "./SkechLadder.sol";
@@ -271,6 +272,22 @@ contract SkechGame is
 
     uint256 private constant BPS = 10_000;
 
+    /* The bounds on the config: what the admin may set, at most (or at least). */
+    uint16 public constant MAX_FEE_BPS = 2000;
+    uint16 public constant MAX_PROFIT_FEE_BPS = 5000;
+    uint16 public constant MAX_SWEEP_BPS = 5000;
+    uint32 public constant MAX_LATE_MS = 1000;
+    uint32 public constant MIN_PLACE_GRACE_MS = 1000;
+    uint32 public constant MAX_PLACE_GRACE_MS = 10_000;
+    /// @notice A minute: a price older than that is not what the player saw.
+    uint32 public constant MAX_PRICE_AGE_MS = 60_000;
+    /// @notice $10,000 a dot: 256 dots of it fit a stake with room to spare.
+    uint64 public constant MAX_PER_DOT = 10_000e6;
+    /// @notice $1,000,000 a piece.
+    uint64 public constant MAX_PIECE_STAKE = 1_000_000e6;
+    /// @notice $100: the least a partial IOU redemption may be worth can never be set so high it stops them.
+    uint64 public constant MAX_MIN_REDEEM = 100e6;
+
     /// @notice How long after a bet's last second a band no bar has decided may be refunded, ms: an hour.
     uint64 public constant EXPIRE_AFTER_MS = 3_600_000;
 
@@ -431,9 +448,11 @@ contract SkechGame is
     }
 
     function _setConfig(Config memory c) private {
-        if (c.feeBps > 2000 || c.profitFeeBps > 5000 || c.sweepBps > 5000) revert BadConfig();
-        if (c.minPerDot == 0 || c.minPerDot > c.maxPerDot || c.maxPieceStake == 0) revert BadConfig();
-        if (c.placeGraceMs < 1000 || c.placeGraceMs > 10_000 || c.lateMs > 1000) revert BadConfig();
+        if (c.feeBps > MAX_FEE_BPS || c.profitFeeBps > MAX_PROFIT_FEE_BPS || c.sweepBps > MAX_SWEEP_BPS) revert BadConfig();
+        if (c.minPerDot == 0 || c.minPerDot > c.maxPerDot || c.maxPerDot > MAX_PER_DOT) revert BadConfig();
+        if (c.maxPieceStake == 0 || c.maxPieceStake > MAX_PIECE_STAKE || c.minRedeem > MAX_MIN_REDEEM) revert BadConfig();
+        if (c.placeGraceMs < MIN_PLACE_GRACE_MS || c.placeGraceMs > MAX_PLACE_GRACE_MS || c.lateMs > MAX_LATE_MS) revert BadConfig();
+        if (c.maxPriceAgeMs == 0 || c.maxPriceAgeMs > MAX_PRICE_AGE_MS) revert BadConfig();
         _s().config = c;
         emit ConfigSet(c);
     }
@@ -633,8 +652,8 @@ contract SkechGame is
             pooled += staked - fee;
             taken += fee;
         }
-        $.pool += uint64(pooled);
-        $.fees += uint64(taken);
+        $.pool += SafeCast.toUint64(pooled);
+        $.fees += SafeCast.toUint64(taken);
     }
 
     /// @dev One piece. Returns what it staked (after fees, into the pool) and the fee; both zero if refused.

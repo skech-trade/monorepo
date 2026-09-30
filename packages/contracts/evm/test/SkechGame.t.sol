@@ -1045,6 +1045,10 @@ contract SkechGameTest is Base {
         assertEq(iou.index(), before);
         vm.roll(vm.getBlockNumber() + 1);
         assertEq(iou.index(), before + 7_000_000_000);
+        // No faster than 10% a day.
+        vm.prank(admin);
+        vm.expectRevert(SkechIOU.BadRate.selector);
+        iou.setRate(350_000_000_001);
     }
 
     /* ------------------------------------------------------------------ */
@@ -1138,6 +1142,32 @@ contract SkechGameTest is Base {
         game.setConfig(c);
         c = game.config();
         c.placeGraceMs = 500;
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadConfig.selector);
+        game.setConfig(c);
+        // Nothing left unbounded: a stale price, a huge dot or piece, a minimum redemption that stops them all.
+        c = game.config();
+        c.maxPriceAgeMs = 60_001;
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadConfig.selector);
+        game.setConfig(c);
+        c = game.config();
+        c.maxPriceAgeMs = 0;
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadConfig.selector);
+        game.setConfig(c);
+        c = game.config();
+        c.maxPerDot = 10_000e6 + 1;
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadConfig.selector);
+        game.setConfig(c);
+        c = game.config();
+        c.maxPieceStake = 1_000_000e6 + 1;
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadConfig.selector);
+        game.setConfig(c);
+        c = game.config();
+        c.minRedeem = 100e6 + 1;
         vm.prank(admin);
         vm.expectRevert(SkechGame.BadConfig.selector);
         game.setConfig(c);

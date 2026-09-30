@@ -6,6 +6,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeab
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {ISkechIOU} from "./interfaces/ISkechIOU.sol";
 
 /// @title SkechIOU
@@ -29,6 +30,8 @@ contract SkechIOU is Initializable, ERC20Upgradeable, AccessControlUpgradeable, 
     uint256 private constant ONE = 1e18;
     /// @dev USDC has 6 decimals and shares 18.
     uint256 private constant SCALE = 1e12;
+    /// @notice The fastest the debt may grow, x1e18 a block: 3.5e11 is 10% a day at 300 ms blocks.
+    uint256 public constant MAX_RATE = 350_000_000_000;
 
     /// @dev Live behind a UUPS proxy: never reorder, retype or insert a field here. New state goes at the end, or in
     /// a new ERC-7201 namespace. `evm/layout.ts --check` holds the layout to `snapshots/StorageLayout.json`.
@@ -50,6 +53,7 @@ contract SkechIOU is Initializable, ERC20Upgradeable, AccessControlUpgradeable, 
     event Taken(address indexed from, uint256 shares, uint64 value, uint64 basis);
 
     error ZeroValue();
+    error BadRate();
 
     function _s() private pure returns (IOUStorage storage $) {
         assembly {
@@ -64,6 +68,7 @@ contract SkechIOU is Initializable, ERC20Upgradeable, AccessControlUpgradeable, 
 
     /// @param rate How much a share's value rises each block, x1e18: 3.5e9 is 0.1% a day at 300 ms blocks.
     function initialize(address admin, address minter, uint256 rate) external initializer {
+        if (rate > MAX_RATE) revert BadRate();
         __ERC20_init("skech IOU", "IOU");
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
@@ -94,7 +99,7 @@ contract SkechIOU is Initializable, ERC20Upgradeable, AccessControlUpgradeable, 
 
     /// @inheritdoc ISkechIOU
     function valueOf(uint256 shares) public view returns (uint64) {
-        return uint64((shares * index()) / (ONE * SCALE));
+        return SafeCast.toUint64((shares * index()) / (ONE * SCALE));
     }
 
     /// @notice How many shares `value` USDC is worth now, rounded up: an IOU is never worth less than what was owed.
@@ -119,6 +124,7 @@ contract SkechIOU is Initializable, ERC20Upgradeable, AccessControlUpgradeable, 
 
     /// @notice Set how fast the debt grows, from this block on. What has accrued so far is kept.
     function setRate(uint256 newRate) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newRate > MAX_RATE) revert BadRate();
         IOUStorage storage $ = _s();
         uint256 now_ = index();
         $.indexAt = now_;
