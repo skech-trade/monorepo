@@ -38,6 +38,7 @@ export type Event =
   | "round_finished"
   | "piece_refused"
   | "piece_resent"
+  | "update_shown"
   | "balance_ran_out"
   | "judge_disagreed"
   | "price_changed"

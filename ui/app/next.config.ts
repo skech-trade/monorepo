@@ -67,6 +67,12 @@ function chainEnv(settings: Record<string, string | undefined>): Record<string, 
 }
 
 const env = rootEnv();
+/*
+  Which build this is: each deployment's own id on Vercel (a redeploy of the same commit, for a new setting,
+  is a new build too), the commit's otherwise, "local" on a laptop. The app compares its own with the one
+  /api/version answers, and updates itself (src/lib/update.ts).
+*/
+if (!process.env.NEXT_PUBLIC_BUILD_ID) env.NEXT_PUBLIC_BUILD_ID = process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_GIT_COMMIT_SHA || "local";
 
 /*
   PostHog through our own domain: /ingest is proxied to PostHog's, so an ad
