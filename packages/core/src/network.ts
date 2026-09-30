@@ -5,7 +5,7 @@
  * engine, the relayer, the deploy script and the app all read this table, so
  * nothing is left pointing at the other chain after a switch. The game's own
  * addresses are not here: each network's live in
- * `packages/contracts/deployments/<chainId>.json`, written by the deploy.
+ * `packages/evm-contracts/deployments/<chainId>.json`, written by the deploy.
  */
 import type { Address } from "viem";
 

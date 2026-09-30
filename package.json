@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "ui/*",
-    "packages/*"
+    "packages/*",
+    "!packages/solana-mobile"
   ],
   "packageManager": "bun@1.4.0",
   "scripts": {
@@ -16,7 +17,7 @@
     "start": "bun run --filter '*' start",
     "lint": "bun run --filter '*' lint",
     "typecheck": "bun run --filter '*' typecheck",
-    "clean": "rm -rf node_modules ui/*/node_modules ui/*/.next packages/engine/target packages/contracts/out packages/contracts/cache",
+    "clean": "rm -rf node_modules ui/*/node_modules ui/*/.next packages/engine/target packages/evm-contracts/out packages/evm-contracts/cache",
     "test": "bun run --filter '*' test",
     "dev:relayer": "bun run --filter @skech/relayer dev",
     "deploy:contracts": "bun scripts/deploy-contracts.ts"

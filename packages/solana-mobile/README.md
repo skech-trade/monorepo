@@ -1,6 +1,6 @@
-# solana-starter-kit-mobile
+# solana-mobile
 
-Solana Foundation's [kit-expo-privy](https://solana.com/developers/templates/kit-expo-privy) template ([source](https://github.com/solana-foundation/templates/tree/main/mobile/kit-expo-privy), commit `9e4bbfc`, MIT), copied as is. It sits outside the bun workspaces on purpose: it's an npm project with its own `package-lock.json`, so its React Native dependencies never mix with the web apps'. Run everything from this folder with `npm`.
+Solana Foundation's [kit-expo-privy](https://solana.com/developers/templates/kit-expo-privy) template ([source](https://github.com/solana-foundation/templates/tree/main/mobile/kit-expo-privy), commit `9e4bbfc`, MIT), copied as is. It's listed as excluded in the root `workspaces` (`!packages/solana-mobile`) on purpose: it's an npm project with its own `package-lock.json`, so its React Native dependencies never mix with the web apps'. Run everything from this folder with `npm`.
 
 This is an [Expo](https://expo.dev) project pre-configured with [Uniwind](https://uniwind.dev/) for styling and Solana libraries.
 

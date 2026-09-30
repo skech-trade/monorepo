@@ -7,7 +7,7 @@ It is practice money for now: $1,000 in the browser, no sign-in needed.
 | --- | --- |
 | The screen | `ui/app/src/components/app/ink/` |
 | The live price | `packages/engine` (Rust), read by `ui/app/src/lib/engine.ts` |
-| The game on chain | `packages/contracts/src/SkechGame.sol`, `SkechIOU.sol`, `SkechRevenue.sol`, `SkechLadder.sol` |
+| The game on chain | `packages/evm-contracts/src/SkechGame.sol`, `SkechIOU.sol`, `SkechRevenue.sol`, `SkechLadder.sol` |
 | Pricing and sending pieces to the chain | `packages/relayer` (Bun) |
 | What the app signs, and the ladder in integers | `packages/core/src/chain.ts` |
 | The browser's drawing key, the relayer, real money on screen | `ui/app/src/lib/session.ts`, `lib/relayer.ts`, `components/app/ink/chain-context.tsx` |
@@ -28,7 +28,7 @@ Nothing is priced twice.
 - The engine keeps the last ten minutes of trades, backfilled from Coinbase's REST API when it starts,
   and sends them to the app on connect to seed the chart.
 - Each live trade comes signed by the engine's wallet as EIP-712 typed data, bound to one chain and one
-  contract, so a contract can take the price a trade was placed at (`packages/contracts`).
+  contract, so a contract can take the price a trade was placed at (`packages/evm-contracts`).
 - The engine passes on Coinbase's heartbeat every second. Five seconds with no message at all and the socket is reopened.
 - Each trade is folded into the bar of its second: high, low, close.
 - A second with no trade is closed at the last price once it is 600 ms old.
@@ -354,7 +354,7 @@ the pool can pay and collects fees. It sends with Monad's `eth_sendRawTransactio
 nonce, follows the base fee in the background, and sets every gas limit from the call's shape instead
 of estimating it: Monad charges the gas limit, not what is used, and reports the limit as used, so the
 limit has to be right before sending and every unit over it is money. The coefficients (a piece, a band,
-a byte of stroke, a bar, a bet, a hit, an IOU) are measured by `packages/contracts/test/GasModel.t.sol`
+a byte of stroke, a bar, a bet, a hit, an IOU) are measured by `packages/evm-contracts/test/GasModel.t.sol`
 in the worst state each can meet, at Monad's prices, and kept in `snapshots/GasModel.json`; the relayer
 adds the transaction's own cost, 5%, and room for Monad's storage pages. For a settle it first works out,
 with the contract's arithmetic, which bets hit and which the pool cannot pay, since it posts the bar
@@ -375,7 +375,7 @@ With the pool empty, the 7.25¢ is owed as IOU and paid off as others lose.
 bun run deploy:contracts                 # ENGINE_PRIVATE_KEY from .env.local deploys; writes deployments/10143.json and the env values
 bun run dev                              # engine, relayer, app
 bun packages/relayer/scripts/e2e.ts      # the whole thing on anvil, with a scripted player
-forge test                               # in packages/contracts: 45 tests, the accounting invariant among them
+forge test                               # in packages/evm-contracts: 45 tests, the accounting invariant among them
 ```
 
 ## Before mainnet

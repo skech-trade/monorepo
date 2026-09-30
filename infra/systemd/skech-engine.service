@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 User=skech
-# Run from the repo root so the engine finds packages/contracts/deployments/<chain>.json.
+# Run from the repo root so the engine finds packages/evm-contracts/deployments/<chain>.json.
 WorkingDirectory=/opt/skech
 EnvironmentFile=/etc/skech/env
 # Sentry reports only where this is set; a laptop has none (packages/engine/README.md).

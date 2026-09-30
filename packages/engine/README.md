@@ -3,7 +3,7 @@
 Rust WebSocket server, and skech's price oracle. It streams every BTC-USD
 trade on Coinbase to the app, each checked against Binance and Kraken and
 signed by the engine's wallet as EIP-712 typed data, which
-`packages/contracts` checks on chain. The app shows the price that was signed.
+`packages/evm-contracts` checks on chain. The app shows the price that was signed.
 
 ```
 Coinbase ─wss + REST─┐  the price, and 10 min of history
@@ -41,7 +41,7 @@ It reads the repo root `.env.local`. Variables already in the environment win.
 | `ENGINE_PRIVATE_KEY` | throwaway wallet | Hex key the engine signs with |
 | `SKECH_NETWORK` | `testnet` | Picks the chain for the EIP-712 domain: 10143, or 143 for `mainnet` |
 | `ENGINE_CHAIN_ID` | from `SKECH_NETWORK` | Override for anvil; may not name the other network |
-| `ENGINE_VERIFYING_CONTRACT` | the game in `packages/contracts/deployments/<chain>.json`, else `0x000…0` | EIP-712 domain: the deployed `SkechGame` proxy |
+| `ENGINE_VERIFYING_CONTRACT` | the game in `packages/evm-contracts/deployments/<chain>.json`, else `0x000…0` | EIP-712 domain: the deployed `SkechGame` proxy |
 | `ENGINE_BAND_BPS` | `1` (0.01%) | How far the attesters' median may be from Coinbase before it is signed instead |
 | `ENGINE_PORT` | `3102` | |
 | `ENGINE_SENTRY_DSN` | off | Sentry: a panic, with its stack, is sent before `panic = "abort"` ends the process. Only where `SENTRY_ENVIRONMENT` is set (the box's unit sets `production`) |
@@ -88,7 +88,7 @@ await verifyTypedData({ ...hello.typedData, address: hello.signer, message: m.me
 ```
 
 On chain, a piece of ink carries `message.price`, `message.time` and `signature` as the price the
-player saw, and `SkechGame` checks it against this signer (see `packages/contracts`). The relayer
+player saw, and `SkechGame` checks it against this signer (see `packages/evm-contracts`). The relayer
 (`packages/relayer`) signs quotes and bars with the same key.
 
 ## Notes

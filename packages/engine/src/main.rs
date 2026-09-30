@@ -190,11 +190,11 @@ fn chain_id() -> u64 {
     }
 }
 
-/// The game in packages/contracts/deployments/<chain>.json, looked for from here up to the repo root.
+/// The game in packages/evm-contracts/deployments/<chain>.json, looked for from here up to the repo root.
 fn deployed_game(chain_id: u64) -> Option<Address> {
     let mut dir = std::env::current_dir().ok()?;
     loop {
-        let file = dir.join("packages/contracts/deployments").join(format!("{chain_id}.json"));
+        let file = dir.join("packages/evm-contracts/deployments").join(format!("{chain_id}.json"));
         if let Ok(text) = std::fs::read_to_string(&file) {
             let json: serde_json::Value = serde_json::from_str(&text).ok()?;
             return json.get("game")?.as_str()?.parse().ok();

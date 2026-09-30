@@ -56,10 +56,10 @@ try {
   const deploy = spawnSync(
     "forge",
     ["script", "script/DeployLocal.s.sol", "--rpc-url", "http://127.0.0.1:8545", "--broadcast", "--private-key", ANVIL_KEY],
-    { cwd: join(root, "packages", "contracts"), env: { ...process.env, ORACLE_ADDRESS: oracle, PLAYER: player }, encoding: "utf8" },
+    { cwd: join(root, "packages", "evm-contracts"), env: { ...process.env, ORACLE_ADDRESS: oracle, PLAYER: player }, encoding: "utf8" },
   );
   if (deploy.status !== 0) throw new Error(`deploy failed:\n${deploy.stdout}\n${deploy.stderr}`);
-  const deployment = JSON.parse(await Bun.file(join(root, "packages", "contracts", "deployments", "31337.json")).text()) as { game: string; usdc: string };
+  const deployment = JSON.parse(await Bun.file(join(root, "packages", "evm-contracts", "deployments", "31337.json")).text()) as { game: string; usdc: string };
   say(`game ${deployment.game}, usdc ${deployment.usdc}`);
   const env = {
     ENGINE_PRIVATE_KEY: ANVIL_KEY,

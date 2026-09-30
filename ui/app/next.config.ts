@@ -52,7 +52,7 @@ function chainEnv(settings: Record<string, string | undefined>): Record<string, 
   // ENGINE_CHAIN_ID overrides it for anvil, SKECH_GAME overrides the deployment file's game.
   const chainId = chainIdFor(settings);
   const net = networkOf(chainId) ?? network(settings.SKECH_NETWORK);
-  const file = join(process.cwd(), "..", "..", "packages", "contracts", "deployments", `${chainId}.json`);
+  const file = join(process.cwd(), "..", "..", "packages", "evm-contracts", "deployments", `${chainId}.json`);
   const deployed = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as { game?: string; usdc?: string }) : {};
   const out: Record<string, string> = {
     NEXT_PUBLIC_SKECH_NETWORK: net.name,

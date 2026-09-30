@@ -9,15 +9,6 @@
         "typescript": "^5",
       },
     },
-    "packages/contracts": {
-      "name": "@skech/contracts",
-      "version": "0.0.0",
-      "devDependencies": {
-        "@openzeppelin/contracts": "5.6.1",
-        "@openzeppelin/contracts-upgradeable": "5.6.1",
-        "forge-std": "github:foundry-rs/forge-std#v1.16.2",
-      },
-    },
     "packages/core": {
       "name": "@skech/core",
       "version": "0.0.0",
@@ -29,20 +20,33 @@
       "name": "@skech/engine",
       "version": "0.0.0",
     },
+    "packages/evm-contracts": {
+      "name": "@skech/evm-contracts",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@openzeppelin/contracts": "5.6.1",
+        "@openzeppelin/contracts-upgradeable": "5.6.1",
+        "forge-std": "github:foundry-rs/forge-std#v1.16.2",
+      },
+    },
     "packages/relayer": {
       "name": "@skech/relayer",
       "version": "0.0.0",
       "dependencies": {
         "@noble/curves": "^1.9.7",
         "@sentry/bun": "^11.1.0",
-        "@skech/contracts": "workspace:*",
         "@skech/core": "workspace:*",
+        "@skech/evm-contracts": "workspace:*",
         "viem": "^2.56.8",
       },
       "devDependencies": {
         "@types/bun": "^1.4.2",
         "typescript": "^5",
       },
+    },
+    "packages/solana-contracts": {
+      "name": "@skech/solana-contracts",
+      "version": "0.0.0",
     },
     "ui/app": {
       "name": "@skech/app",
@@ -53,8 +57,8 @@
         "@coinbase/cdp-hooks": "^0.0.126",
         "@coinbase/cdp-react": "^0.0.126",
         "@sentry/nextjs": "^11.1.0",
-        "@skech/contracts": "workspace:*",
         "@skech/core": "workspace:*",
+        "@skech/evm-contracts": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "jsqr": "1.4.0",
@@ -519,15 +523,17 @@
 
     "@skech/app": ["@skech/app@workspace:ui/app"],
 
-    "@skech/contracts": ["@skech/contracts@workspace:packages/contracts"],
-
     "@skech/core": ["@skech/core@workspace:packages/core"],
 
     "@skech/engine": ["@skech/engine@workspace:packages/engine"],
 
+    "@skech/evm-contracts": ["@skech/evm-contracts@workspace:packages/evm-contracts"],
+
     "@skech/landing": ["@skech/landing@workspace:ui/landing"],
 
     "@skech/relayer": ["@skech/relayer@workspace:packages/relayer"],
+
+    "@skech/solana-contracts": ["@skech/solana-contracts@workspace:packages/solana-contracts"],
 
     "@solana/accounts": ["@solana/accounts@5.5.1", "", { "dependencies": { "@solana/addresses": "5.5.1", "@solana/codecs-core": "5.5.1", "@solana/codecs-strings": "5.5.1", "@solana/errors": "5.5.1", "@solana/rpc-spec": "5.5.1", "@solana/rpc-types": "5.5.1" }, "peerDependencies": { "typescript": "^5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-TfOY9xixg5rizABuLVuZ9XI2x2tmWUC/OoN556xwfDlhBHBjKfszicYYOyD6nbFmwTGYarCmyGIdteXxTXIdhQ=="],
 

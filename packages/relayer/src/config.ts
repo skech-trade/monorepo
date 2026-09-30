@@ -15,7 +15,7 @@ const env = (name: string) => {
 
 // SKECH_NETWORK picks the chain; ENGINE_CHAIN_ID only for a local anvil run.
 const chainId = chainIdFor(process.env);
-const deploymentPath = join(root, "packages", "contracts", "deployments", `${chainId}.json`);
+const deploymentPath = join(root, "packages", "evm-contracts", "deployments", `${chainId}.json`);
 const deployment = existsSync(deploymentPath) ? (JSON.parse(readFileSync(deploymentPath, "utf8")) as { game: Address; iou: Address; revenue: Address; usdc: Address; oracle: Address; block?: number }) : null;
 
 const key = env("RELAYER_PRIVATE_KEY") ?? env("ENGINE_PRIVATE_KEY");

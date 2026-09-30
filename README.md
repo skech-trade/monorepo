@@ -6,7 +6,7 @@ Bun-workspaces monorepo.
 
 ```
 .
-├── package.json          # workspace root (workspaces: ui/*, packages/*)
+├── package.json          # workspace root (workspaces: ui/*, packages/*, except packages/solana-mobile)
 ├── bunfig.toml           # hoisted install linker
 ├── tsconfig.base.json    # shared TS compiler options
 ├── ui/
@@ -16,7 +16,9 @@ Bun-workspaces monorepo.
     ├── core/             # @skech/core      — the game's pricing and settlement (TypeScript)
     ├── engine/           # @skech/engine    — price server: Coinbase in, signed prices out (Rust)
     ├── relayer/          # @skech/relayer   — prices pieces, signs quotes and bars, sends every transaction (Bun)
-    └── contracts/        # @skech/contracts — the game on Monad: SkechGame, SkechIOU, SkechRevenue (Foundry)
+    ├── evm-contracts/    # @skech/evm-contracts — the game on Monad: SkechGame, SkechIOU, SkechRevenue (Foundry)
+    ├── solana-contracts/ # @skech/solana-contracts — the game on Solana, an Anchor starter for now
+    └── solana-mobile/    # Solana mobile starter (Expo, Mobile Wallet Adapter); its own npm project
 infra/                    # the EC2 box: setup, deploy, Caddy, systemd
 ```
 
@@ -71,7 +73,7 @@ monorepo so the two apps use different ports.
 | `bun run lint` | ESLint across every workspace |
 | `bun run typecheck` | `tsc --noEmit` across every workspace |
 | `bun run test` | bun tests, `cargo test` and `forge test` |
-| `bun run deploy:contracts` | the game on Monad testnet (`packages/contracts/README.md`) |
+| `bun run deploy:contracts` | the game on Monad testnet (`packages/evm-contracts/README.md`) |
 | `bun packages/relayer/scripts/e2e.ts` | the whole thing on anvil: contracts, engine, relayer, a scripted player |
 | `bun run clean` | remove `node_modules`, `.next`, `target`, and Foundry's `out` and `cache` |
 

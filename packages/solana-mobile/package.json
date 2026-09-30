@@ -1,5 +1,5 @@
 {
-  "name": "solana-starter-kit-mobile",
+  "name": "solana-mobile",
   "scripts": {
     "android": "expo run:android",
     "android:build": "expo prebuild -p android",

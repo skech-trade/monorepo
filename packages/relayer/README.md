@@ -32,7 +32,7 @@ app ──ws /ws──> relayer ──eth_sendRawTransactionSync──> SkechGam
   receipts report the limit as used, so the limit has to be right beforehand and every unit over it is
   money. EVM gas is deterministic, so the limit follows from the call's shape: pieces, bands and bytes of
   stroke; bars, bets, live bands, hits and IOUs (from `src/predict.ts`). The coefficients are measured by
-  `packages/contracts/test/GasModel.t.sol` in the worst state each can meet, at Monad's prices, and read
+  `packages/evm-contracts/test/GasModel.t.sol` in the worst state each can meet, at Monad's prices, and read
   from `snapshots/GasModel.json`; the limit is the model, the transaction's 21,000 and its calldata, 5%
   over, plus room for a bet's words straddling two of Monad's 128-slot storage pages. Only the calls
   that reach Circle's USDC (deposit, withdraw, collecting fees) are still estimated. Every fifth send
@@ -49,7 +49,7 @@ bun packages/relayer/scripts/e2e.ts   # anvil + contracts + engine + relayer + a
 | `RELAYER_PRIVATE_KEY` | `ENGINE_PRIVATE_KEY` | Signs quotes and bars, pays gas. Must be the game's oracle. |
 | `SKECH_NETWORK` | `testnet` | Picks the chain: 10143, or 143 for `mainnet`. |
 | `ENGINE_CHAIN_ID` | from `SKECH_NETWORK` | Override for anvil; may not name the other network. |
-| `SKECH_GAME` | `packages/contracts/deployments/<chainId>.json` | The game proxy. |
+| `SKECH_GAME` | `packages/evm-contracts/deployments/<chainId>.json` | The game proxy. |
 | `MONAD_TESTNET_RPC_URL`, `MONAD_MAINNET_RPC_URL` | Monad's public RPC | The private RPC for each network. `MONAD_RPC_URL` overrides both. |
 | `NEXT_PUBLIC_ENGINE_URL` | `ws://localhost:3102/ws` | Where the engine is. |
 | `RELAYER_PORT` | `3103` | |

@@ -49,7 +49,7 @@ try {
   process.exit(1);
 }
 // With no game on the chain the relayer has nothing to talk to: it sits out and the app plays for practice.
-const deployment = `packages/contracts/deployments/${chainId}.json`;
+const deployment = `packages/evm-contracts/deployments/${chainId}.json`;
 const noGame = !process.env.SKECH_GAME?.trim() && !existsSync(join(root, deployment));
 let skipped = "";
 if (noGame && services.some((s) => s.name === "relayer")) {

@@ -13,7 +13,7 @@
   "dependencies": {
     "@noble/curves": "^1.9.7",
     "@sentry/bun": "^11.1.0",
-    "@skech/contracts": "workspace:*",
+    "@skech/evm-contracts": "workspace:*",
     "@skech/core": "workspace:*",
     "viem": "^2.56.8"
   },
