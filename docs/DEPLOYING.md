@@ -6,7 +6,7 @@ Three things ship separately:
 |---|---|---|
 | The app (`ui/app`) and the landing (`ui/landing`) | Vercel | on merge to `main`, by itself |
 | The engine and the relayer (`packages/engine`, `packages/relayer`, with `packages/core`) | the EC2 box ([infra/README.md](../infra/README.md)) | `infra/deploy.sh`, by hand |
-| The contracts (`packages/evm-contracts`) | Monad | `bun run deploy:contracts`, by hand, rarely |
+| The contracts (`packages/contracts/evm`) | Monad | `bun run deploy:contracts`, by hand, rarely |
 
 Merging does not reach the box. A change to the engine, the relayer, `packages/core` or a
 deployment file is live only after `infra/deploy.sh`.
@@ -64,7 +64,7 @@ bun run deploy:contracts --dry-run     # gas and addresses; nothing sent, nothin
 bun run deploy:contracts               # needs ~14 MON on the deployer: Monad keeps 10 in reserve
 ```
 
-It writes `packages/evm-contracts/deployments/<chainId>.json`: the game, the IOU, the revenue, the USDC,
+It writes `packages/contracts/deployments/<chainId>.json`: the game, the IOU, the revenue, the USDC,
 and the block it went out in (where the relayer counts transactions from). On mainnet it also needs
 `--mainnet`.
 
@@ -84,7 +84,7 @@ and the block it went out in (where the relayer counts transactions from). On ma
 override the file, for a one-off; the file is what everything should agree on.
 
 To change one contract's code without new addresses, upgrade its proxy instead: see
-[packages/evm-contracts/README.md](../packages/evm-contracts/README.md). Balances and bets stay where they are.
+[packages/contracts/evm/README.md](../packages/contracts/evm/README.md). Balances and bets stay where they are.
 
 ## 4. A new box
 

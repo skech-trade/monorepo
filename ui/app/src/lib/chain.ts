@@ -1,6 +1,6 @@
 "use client";
 
-import gameAbiJson from "@skech/evm-contracts/abi/SkechGame.json";
+import gameAbiJson from "@skech/contracts/evm/abi/SkechGame.json";
 import { type Abi, type Address, createPublicClient, http } from "viem";
 import { monad, monadTestnet } from "viem/chains";
 import { network, networkOf } from "@skech/core/network";

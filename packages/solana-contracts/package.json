@@ -1,9 +1,0 @@
-{
-  "name": "@skech/solana-contracts",
-  "version": "0.0.0",
-  "private": true,
-  "scripts": {
-    "anchor:build": "anchor build",
-    "anchor:test": "scripts/test.sh"
-  }
-}

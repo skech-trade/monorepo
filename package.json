@@ -17,7 +17,7 @@
     "start": "bun run --filter '*' start",
     "lint": "bun run --filter '*' lint",
     "typecheck": "bun run --filter '*' typecheck",
-    "clean": "rm -rf node_modules ui/*/node_modules ui/*/.next packages/engine/target packages/evm-contracts/out packages/evm-contracts/cache",
+    "clean": "rm -rf node_modules ui/*/node_modules ui/*/.next packages/engine/target packages/contracts/evm/out packages/contracts/evm/cache packages/contracts/solana/target",
     "test": "bun run --filter '*' test",
     "dev:relayer": "bun run --filter @skech/relayer dev",
     "deploy:contracts": "bun scripts/deploy-contracts.ts"

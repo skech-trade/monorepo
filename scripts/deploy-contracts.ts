@@ -8,7 +8,7 @@
  * The deployer is DEPLOYER_PRIVATE_KEY, or ENGINE_PRIVATE_KEY when that is unset: on testnet one key
  * is the admin, the oracle and the relayer. The oracle is ORACLE_ADDRESS, or the engine wallet.
  * USDC, DIFFICULTY and IOU_RATE pass through to script/Deploy.s.sol:Deploy. Afterwards the addresses
- * are in packages/evm-contracts/deployments/<chainId>.json. The engine, the relayer and the app all find the
+ * are in packages/contracts/deployments/<chainId>.json. The engine, the relayer and the app all find the
  * game there from SKECH_NETWORK, so nothing is written to .env.local and switching networks is one line.
  */
 import { spawnSync } from "node:child_process";
@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { chainIdFor, network, networkOf, rpcFor } from "../packages/core/src/network";
 
 const root = join(import.meta.dir, "..");
-const contracts = join(root, "packages/evm-contracts");
+const contracts = join(root, "packages/contracts/evm");
 const dryRun = process.argv.includes("--dry-run");
 
 const FAUCET = "https://faucet.monad.xyz";
@@ -73,7 +73,7 @@ console.log(
   `${dryRun ? "simulating" : "deploying"} on ${net!.label} (chain ${chainId}) as ${deployerAddress} (${balance} MON), oracle ${oracle}${extras.length ? `, ${extras.join(", ")}` : ""}`,
 );
 // The deployment file's time before, so a redeploy that broadcast nothing is not mistaken for one that did.
-const file = join(contracts, "deployments", `${chainId}.json`);
+const file = join(root, "packages/contracts/deployments", `${chainId}.json`);
 const before = existsSync(file) ? statSync(file).mtimeMs : 0;
 const forge = spawnSync(
   "forge",

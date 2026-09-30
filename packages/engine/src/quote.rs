@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(e8("1e3"), None);
     }
 
-    /// The same vector `packages/evm-contracts/test/SkechPrice.t.sol` recovers on chain:
+    /// The same vector `packages/contracts/evm/test/SkechPrice.t.sol` recovers on chain:
     /// anvil's first key, chain 31337, the contract at `VERIFIER`.
     pub const VERIFIER: &str = "0x5ec400000000000000000000000000000000c0de";
     pub const KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";

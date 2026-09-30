@@ -1,4 +1,4 @@
-# @skech/evm-contracts
+# @skech/contracts
 
 Foundry. skech on Monad: three contracts behind ERC-1967 proxies (UUPS).
 

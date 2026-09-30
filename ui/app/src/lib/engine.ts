@@ -12,7 +12,7 @@ import type { Bar } from "@skech/core/dots";
  * the same market, folded the same way. On connect the engine sends the last
  * ten minutes of trades, then every trade as it lands. Each is checked against
  * Binance and Kraken and signed by the engine's wallet as EIP-712 typed data a
- * contract can check (`packages/evm-contracts`). The price shown is always the
+ * contract can check (`packages/contracts/evm`). The price shown is always the
  * price signed: what a trade placed now would post on chain. What is signed,
  * and on whose agreement, is in the engine's log.
  *
