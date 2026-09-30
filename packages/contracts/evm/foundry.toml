@@ -24,7 +24,9 @@ runs = 512
 [invariant]
 runs = 64
 depth = 32
-fail_on_revert = false
+# The handler only makes calls that should go through, and checks the reverts it expects itself: any other revert
+# is a failure.
+fail_on_revert = true
 
 [rpc_endpoints]
 monad_testnet = "https://testnet-rpc.monad.xyz"
