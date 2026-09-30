@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
 import { areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
@@ -20,7 +20,7 @@ import { Popover, PopoverClose, PopoverPopup, PopoverTitle, PopoverTrigger } fro
 import { setDark, useDark } from "@/components/app/theme-toggle";
 
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
-import { useEngine } from "@/lib/engine";
+import { type Market, useEngine } from "@/lib/engine";
 import { cents, practice, record, setPractice, usePractice } from "@/lib/practice";
 import { feel, sound } from "@/lib/feel";
 import { money, signed } from "@/lib/money";
@@ -143,6 +143,55 @@ const Price = ({ value }: { value: number }) => {
   return <><CrispNumber value={whole} /><span className={feedback.cents}>.{part}</span></>;
 };
 
+/*
+  Two things on this screen change faster than it should re-render: the price, with every trade, and the
+  terms of the stroke under the pen, with every move. Each is its own small component that listens for its
+  own value, so the screen around them renders only when something else changes.
+*/
+
+/** The price in the market row, from the feed as each trade batch lands. */
+function LivePrice({ feed }: { feed: Market }) {
+  const price = useSyncExternalStore(feed.subscribe, () => feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0, () => 0);
+  return price ? <Price value={price} /> : <Skeleton className="my-[3px] h-6 w-32 rounded-md" />;
+}
+
+/** A value that changes faster than the screen should re-render, for the one part that shows it. */
+type Signal<T> = { get: () => T; set: (next: T) => void; subscribe: (fn: () => void) => () => void };
+function signal<T>(initial: T): Signal<T> {
+  let value = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (next) => {
+      value = next;
+      for (const fn of listeners) fn();
+    },
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => void listeners.delete(fn);
+    },
+  };
+}
+
+/** While drawing: what the stroke has put in play, and the most it can win. */
+function PreviewPill({ preview: store }: { preview: Signal<Preview | null> }) {
+  const preview = useSyncExternalStore(store.subscribe, store.get, store.get);
+  if (!preview) return null;
+  return (
+    <div className={feedback.floatPill} role="status">
+      {preview.inPlay.length ? (
+        <>
+          <span>In play <strong>{money(preview.cost)}</strong></span>
+          <span>Could win <strong className={feedback.win}>{money(preview.high)}</strong></span>
+          <span className="max-sm:hidden">Up to <strong className={feedback.win}>{fmtMultiple(preview.multipleHigh)}</strong></span>
+        </>
+      ) : (
+        <span>Move to a spot with a multiplier on it</span>
+      )}
+    </div>
+  );
+}
+
 /** One setting on a switch, in a grouped list. */
 function ToggleRow({ title, detail, checked, onChange }: { title: string; detail: string; checked: boolean; onChange: (next: boolean) => void }) {
   return (
@@ -213,7 +262,9 @@ export function InkScreen() {
     } catch { /* Embedded browsers may not expose fullscreen. The layout still fills its viewport. */ }
   };
 
-  const [preview, setPreview] = useState<Preview | null>(null);
+  /* The stroke's terms, for the pill; the screen itself only needs to know whether there is a stroke. */
+  const [preview] = useState(() => signal<Preview | null>(null));
+  const [previewing, setPreviewing] = useState(false);
   const [help, setHelp] = useState(false);
   const [returnedInk, setReturnedInk] = useState<{ id: string; amount: number } | null>(null);
   useEffect(() => {
@@ -554,8 +605,13 @@ export function InkScreen() {
       release?.();
     };
   }, []);
-  const { bars, ticks, skew, version } = feed;
-  useEffect(() => {
+  /*
+    Run for every trade batch, straight from the feed, not from a render: the screen does not re-render for a
+    trade. Everything it reads is in refs or the feed's store, so a callback from an earlier render judges the
+    same as a fresh one would; it is made again only when the paths, the tab's ownership or the feed change.
+  */
+  const judgeTrades = useCallback(() => {
+    const { bars, ticks, skew } = feed;
     const g = game.current;
     g.bars = bars;
     g.ticks = ticks;
@@ -689,7 +745,11 @@ export function InkScreen() {
     // Keep finished drawings only as long as their dots are still fading.
     g.bets = g.bets.filter((b) => !decided(b) || b.cells.some((d) => d.t + 3000 > nowMs));
     updateTotals();
-  }, [bars, ticks, skew, version, lib, owner, updateTotals]);
+  }, [feed, lib, owner, updateTotals]);
+  useEffect(() => {
+    judgeTrades();
+    return feed.subscribe(judgeTrades);
+  }, [feed, judgeTrades]);
 
   /*
     Ink is bet as it is drawn: every few moments while the pen is down, the
@@ -914,11 +974,12 @@ export function InkScreen() {
   /* A light touch as the ink reaches each new spot; the pen's own scratch comes from the stage. */
   const painted = useRef(0);
   const onPreview = useCallback((p: Preview | null) => {
-    setPreview(p);
+    preview.set(p);
+    setPreviewing(p !== null);
     const n = p?.inPlay.length ?? 0;
     if (!p?.keyboard && n > painted.current) feel("tick");
     painted.current = n;
-  }, []);
+  }, [preview]);
 
   const shownBalance = forReal ? chain.balance : state.balance;
   const onboarding = useOnboarding(live);
@@ -950,7 +1011,6 @@ export function InkScreen() {
   }, [live, real, chain.account, chain.balance, gate]);
   // No deposit sheet on arrival: the game is there to look at and try first. With nothing to play with, the
   // "Deposit USDC to play" line says so, and a tap on the game (or Deposit) opens the sheet.
-  const price = feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0;
   /*
     Until the game can be played the screen says one thing. Signed out: the way in, over the game blurred.
     Signed in: one "Connecting…" until the prices and the account are both here, not one in the header,
@@ -1002,7 +1062,7 @@ export function InkScreen() {
           <Popover>
             <PopoverTrigger render={<Button variant="ghost" aria-label="Change asset: Bitcoin" className={feedback.assetButton} />}>
               <TokenAvatar symbol="BTC" className="size-9 sm:size-10" />
-              <span className={feedback.marketName}><span>Bitcoin <ChevronDownIcon className="size-3" strokeWidth={2.4} /></span><strong className="figures">{price ? <Price value={price} /> : <Skeleton className="my-[3px] h-6 w-32 rounded-md" />}</strong></span>
+              <span className={feedback.marketName}><span>Bitcoin <ChevronDownIcon className="size-3" strokeWidth={2.4} /></span><strong className="figures"><LivePrice feed={feed} /></strong></span>
             </PopoverTrigger>
             <PopoverPopup align="start" sideOffset={10} className="w-64">
               <PopoverTitle>Choose asset</PopoverTitle>
@@ -1059,19 +1119,8 @@ export function InkScreen() {
             </div>
           ) : null}
 
-          {/* While drawing: what the stroke has put in play, and the most it can win. */}
-          {preview ? (
-            <div className={feedback.floatPill} role="status">
-              {preview.inPlay.length ? (
-                <>
-                  <span>In play <strong>{money(preview.cost)}</strong></span>
-                  <span>Could win <strong className={feedback.win}>{money(preview.high)}</strong></span>
-                  <span className="max-sm:hidden">Up to <strong className={feedback.win}>{fmtMultiple(preview.multipleHigh)}</strong></span>
-                </>
-              ) : (
-                <span>Move to a spot with a multiplier on it</span>
-              )}
-            </div>
+          {previewing ? (
+            <PreviewPill preview={preview} />
           ) : signedOut || connecting ? null : onboarding.step && owner !== false ? (
             <Onboarding {...onboarding} />
           ) : !state.taught && fresh && owner !== false ? (
@@ -1079,7 +1128,7 @@ export function InkScreen() {
           ) : null}
 
           {/* The round just over: a win celebrated, a big one more so; a loss said once, quietly. */}
-          {over && !preview ? (
+          {over && !previewing ? (
             <div className={cn(feedback.roundCard, overWon ? feedback.roundWin : feedback.roundLoss, overBig && feedback.roundBig)} key={over.key} role="status">
               {overWon && (over.streak ?? 0) >= 2 ? <span className={feedback.streak}>{over.streak} wins in a row</span> : null}
               <div>
@@ -1092,10 +1141,10 @@ export function InkScreen() {
               </div>
             </div>
           ) : null}
-          {over && overBig && !preview ? <div aria-hidden="true" className={feedback.glow} key={`glow-${over.key}`} /> : null}
+          {over && overBig && !previewing ? <div aria-hidden="true" className={feedback.glow} key={`glow-${over.key}`} /> : null}
       </div>
 
-      {returnedInk && !preview && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
+      {returnedInk && !previewing && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
       <div className={feedback.bottomShade} aria-hidden="true" />
       {homeBar ? <HomeScreenBar dismiss={home.dismiss} install={home.install} /> : null}
       <UpdateReady busy={live > 0} />

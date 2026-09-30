@@ -58,6 +58,11 @@ export type Market = {
   connected: boolean;
   /** Bumped on every trade batch, so a page can react without copying arrays. */
   version: number;
+  /**
+   * Hear every trade batch, after it is folded in: for what must follow each trade (the price shown, the
+   * judging) without re-rendering the page around it. Returns the way to stop.
+   */
+  subscribe: (fn: () => void) => () => void;
   /** The engine's wallet and the domain it signs under, once connected. */
   signer: `0x${string}` | null;
   typedData: TypedData | null;
@@ -71,10 +76,24 @@ type Message =
   | { type: "beat" };
 
 export function useEngine(): Market {
-  const [version, setVersion] = useState(0);
-  const [connected, setConnected] = useState(false);
-  // One mutable store for the life of the page: trades arrive faster than React should re-render, and arrays this long are not copied per trade.
-  const [m] = useState<Market>(() => ({ bars: [], ticks: [], skew: 0, connected: false, version: 0, signer: null, typedData: null, quote: null }));
+  // Only for re-rendering when the connection comes or goes: the value itself is `m.connected`.
+  const [, setConnected] = useState(false);
+  /*
+    One mutable store for the life of the page: trades arrive faster than React should re-render, and arrays
+    this long are not copied per trade. The page gets the store itself, so what it reads is always the latest,
+    and a trade re-renders only what subscribes to it.
+  */
+  const [{ m, listeners }] = useState(() => {
+    const listeners = new Set<() => void>();
+    const m: Market = {
+      bars: [], ticks: [], skew: 0, connected: false, version: 0, signer: null, typedData: null, quote: null,
+      subscribe: (fn) => {
+        listeners.add(fn);
+        return () => void listeners.delete(fn);
+      },
+    };
+    return { m, listeners };
+  });
 
   useEffect(() => {
     let stopped = false;
@@ -87,8 +106,8 @@ export function useEngine(): Market {
     /** The newest trade folded in, so the history a reconnect is sent is not counted twice. */
     let lastId = 0;
     /*
-      Tell the page on the next frame, at most twenty times a second (every
-      50 ms), so the price shown moves with each trade as it lands. A browser
+      Tell the subscribers on the next frame, at most twenty times a second
+      (every 50 ms), so the price shown moves with each trade as it lands. A browser
       stops giving frames to a hidden or covered window, so if no frame comes
       within a quarter second a timer tells it instead; the chart itself reads
       the trades straight from this store, so it moves every frame regardless.
@@ -103,7 +122,7 @@ export function useEngine(): Market {
         late = undefined;
         told = performance.now();
         m.version++;
-        setVersion(m.version);
+        for (const fn of listeners) fn();
       };
       const wait = Math.max(0, 50 - (performance.now() - told));
       if (wait > 0) late = setTimeout(tell, wait);
@@ -227,7 +246,7 @@ export function useEngine(): Market {
         opening.onclose = null;
       } else ws?.close();
     };
-  }, [m]);
+  }, [m, listeners]);
 
-  return { bars: m.bars, ticks: m.ticks, skew: m.skew, connected, version, signer: m.signer, typedData: m.typedData, quote: m.quote };
+  return m;
 }
