@@ -75,9 +75,24 @@ contract SkechGameTest is Base {
             )
         );
         usdc.permit(player, address(game), 5e6, deadline, v, r, s);
+        // Then only the owner may use the allowance it left.
         vm.prank(keeper);
+        vm.expectRevert(SkechGame.BadSignature.selector);
+        game.depositWithPermit(player, 5e6, deadline, v, r, s);
+        vm.prank(player);
         game.depositWithPermit(player, 5e6, deadline, v, r, s);
         assertEq(game.balanceOf(player), 30e6);
+    }
+
+    /// An allowance the owner left standing cannot be pulled into the game by someone else on a permit that fails.
+    function test_aFailedPermitMovesNobodyElsesAllowance() public {
+        vm.prank(player);
+        usdc.approve(address(game), 50e6);
+        vm.prank(keeper);
+        vm.expectRevert(SkechGame.BadSignature.selector);
+        game.depositWithPermit(player, 50e6, vm.getBlockTimestamp() + 60, 27, bytes32(uint256(1)), bytes32(uint256(2)));
+        assertEq(game.balanceOf(player), 0);
+        assertEq(usdc.allowance(player, address(game)), 50e6);
     }
 
     /* ---- EIP-3009: one signature, no allowance ---- */
@@ -258,14 +273,42 @@ contract SkechGameTest is Base {
 
     function test_revokeSession() public {
         ready();
+        // A session signed and never sent: revoking uses up the nonce it was signed at, so it cannot bring the key back.
+        uint64 until = uint64(vm.getBlockTimestamp() + 1 days);
+        uint256 deadline = vm.getBlockTimestamp() + 60;
+        bytes memory pending = sign(PLAYER_KEY, game.sessionDigest(player, 0, session, 0, 0, until, 100e6, deadline));
         vm.prank(player);
         game.revokeSession();
         assertEq(game.sessionOf(player).validUntil, 0);
+        vm.expectRevert(SkechGame.BadSignature.selector);
+        game.registerSession(player, 0, session, 0, 0, until, 100e6, deadline, pending);
         SkechGame.Piece memory p = piece(1, 0, oneSection(HALF_DOT));
         vm.expectEmit(true, true, false, true);
         emit SkechGame.Refused(game.betIdOf(player, 1, 0), player, 1, 0, SkechGame.Refusal.Session);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         assertEq(game.balanceOf(player), 100e6);
+    }
+
+    function test_revokeSessionBySigIsRelayableOnce() public {
+        ready();
+        uint256 deadline = vm.getBlockTimestamp() + 60;
+        bytes memory sig = sign(PLAYER_KEY, game.revokeDigest(player, deadline));
+        // Someone else's signature, or an expired one, does nothing.
+        bytes memory forged = sign(OTHER_KEY, game.revokeDigest(player, deadline));
+        vm.expectRevert(SkechGame.BadSignature.selector);
+        game.revokeSessionBySig(player, deadline, forged);
+        vm.warp(deadline + 1);
+        vm.expectRevert(SkechGame.Expired.selector);
+        game.revokeSessionBySig(player, deadline, sig);
+        vm.warp(deadline);
+        vm.expectEmit(true, false, false, false);
+        emit SkechGame.SessionRevoked(player);
+        vm.prank(keeper);
+        game.revokeSessionBySig(player, deadline, sig);
+        assertEq(game.sessionOf(player).validUntil, 0);
+        // Spent: it cannot be sent again.
+        vm.expectRevert(SkechGame.BadSignature.selector);
+        game.revokeSessionBySig(player, deadline, sig);
     }
 
     /* ------------------------------------------------------------------ */

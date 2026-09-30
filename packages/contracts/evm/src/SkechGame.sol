@@ -261,6 +261,7 @@ contract SkechGame is
     bytes32 public constant SESSION_TYPEHASH = keccak256(
         "Session(address player,uint8 kind,address key,bytes32 x,bytes32 y,uint64 validUntil,uint64 allowance,uint256 nonce,uint256 deadline)"
     );
+    bytes32 public constant REVOKE_TYPEHASH = keccak256("RevokeSession(address player,uint256 nonce,uint256 deadline)");
     bytes32 public constant WITHDRAW_TYPEHASH =
         keccak256("Withdraw(address player,uint64 amount,address to,uint256 nonce,uint256 deadline)");
 
@@ -452,9 +453,14 @@ contract SkechGame is
     }
 
     /// @notice Put `owner`'s USDC into their balance on the strength of their permit, so anyone can send the transaction for them.
-    /// @dev The permit is tried, not required: if someone spent it first the allowance is already there.
+    /// @dev The permit is tried, not required: if someone spent it first the allowance is already there. But then only
+    /// the owner may go on: without a permit that worked, anyone could move an allowance the owner left standing into
+    /// the game, on no say-so of theirs.
     function depositWithPermit(address owner, uint64 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
-        try IERC20Permit(address(_s().usdc)).permit(owner, address(this), amount, deadline, v, r, s) {} catch {}
+        try IERC20Permit(address(_s().usdc)).permit(owner, address(this), amount, deadline, v, r, s) {}
+        catch {
+            if (msg.sender != owner) revert BadSignature();
+        }
         _deposit(owner, owner, amount);
     }
 
@@ -553,10 +559,24 @@ contract SkechGame is
         emit SessionSet(player, kind, key, x, y, validUntil, allowance);
     }
 
-    /// @notice End your session now.
+    /// @notice End your session now. It uses up your nonce, so a session you signed and nobody has sent yet cannot
+    /// bring the key back afterwards.
     function revokeSession() external {
-        delete _s().sessions[msg.sender];
-        emit SessionRevoked(msg.sender);
+        _revokeSession(msg.sender);
+    }
+
+    /// @notice End `player`'s session on their signed say-so, so anyone can send the transaction for them.
+    function revokeSessionBySig(address player, uint256 deadline, bytes calldata sig) external {
+        if (block.timestamp > deadline) revert Expired();
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(REVOKE_TYPEHASH, player, nonces(player), deadline)));
+        if (!SignatureChecker.isValidSignatureNowCalldata(player, digest, sig)) revert BadSignature();
+        _revokeSession(player);
+    }
+
+    function _revokeSession(address player) private {
+        _useNonce(player);
+        delete _s().sessions[player];
+        emit SessionRevoked(player);
     }
 
     /* ------------------------------------------------------------------ */
@@ -1118,6 +1138,11 @@ contract SkechGame is
         return _hashTypedDataV4(
             keccak256(abi.encode(SESSION_TYPEHASH, player, kind, key, x, y, validUntil, allowance, nonces(player), deadline))
         );
+    }
+
+    /// @notice The digest a player's wallet signs to end their session through someone else's transaction.
+    function revokeDigest(address player, uint256 deadline) external view returns (bytes32) {
+        return _hashTypedDataV4(keccak256(abi.encode(REVOKE_TYPEHASH, player, nonces(player), deadline)));
     }
 
     /// @notice The digest a player's wallet signs to withdraw through someone else's transaction.

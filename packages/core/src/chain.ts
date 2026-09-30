@@ -171,6 +171,11 @@ export const TYPES = {
     { name: "nonce", type: "uint256" },
     { name: "deadline", type: "uint256" },
   ],
+  RevokeSession: [
+    { name: "player", type: "address" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
   Withdraw: [
     { name: "player", type: "address" },
     { name: "amount", type: "uint64" },
