@@ -13,7 +13,7 @@
  *   SOLANA_DEPLOYER_KEYPAIR   the deployer's keypair file (default ~/.config/solana/id.json): upgrade authority and admin
  *   SOLANA_RELAYER_KEYPAIR    the relayer's keypair file: its key is the oracle (or set SOLANA_ORACLE to an address)
  *   SOLANA_TREASURY           who owns the treasury's USDC account (default the deployer; a multisig on mainnet)
- *   DIFFICULTY                the market's difficulty (default 40)
+ *   DIFFICULTY                the market's difficulty, 50 to 100 (default 51, as on Monad)
  *   SOLANA_CONFIG             with --set-config: JSON of terms to change from the defaults, e.g. {"feeBps":300}
  *
  * On mainnet: transfer the upgrade authority and the admin to a multisig (Squads) straight after, and build with
@@ -93,7 +93,7 @@ if (!existsSync(expand(deployerPath))) fail(`no deployer keypair at ${deployerPa
 const deployer = await keypair(deployerPath);
 const oracle: Address = env("SOLANA_ORACLE") ? address(env("SOLANA_ORACLE")!) : env("SOLANA_RELAYER_KEYPAIR") ? (await keypair(env("SOLANA_RELAYER_KEYPAIR")!)).address : net.cluster === "localnet" ? deployer.address : fail("set SOLANA_RELAYER_KEYPAIR (or SOLANA_ORACLE): the relayer's key signs every placement and bar");
 const treasuryOwner = env("SOLANA_TREASURY") ? address(env("SOLANA_TREASURY")!) : deployer.address;
-const difficulty = Number(env("DIFFICULTY") ?? 40);
+const difficulty = Number(env("DIFFICULTY") ?? 51);
 
 const { value: lamports } = await rpc.getBalance(deployer.address).send();
 console.log(`${net.label} via ${rpcUrl.replace(/(api[-_]?key=)[^&]+/i, "$1…")}: deployer ${deployer.address} holds ${Number(lamports) / 1e9} SOL; oracle ${oracle}; program ${SKECH_PROGRAM_ADDRESS}`);
