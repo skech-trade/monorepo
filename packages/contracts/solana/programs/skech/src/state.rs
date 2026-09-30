@@ -17,6 +17,11 @@ pub const HORIZON: u8 = 30;
 pub const MAX_SECTIONS: usize = 32;
 /// Seconds of price the ring keeps: the horizon, the grace and plenty of room for a relayer that falls behind.
 pub const BAR_RING: usize = 240;
+/// How long after a second is over its bar may still be posted, seconds: inside the ring by the horizon and the most
+/// grace the config allows, so a late bar never lands in a slot a newer second holds. Once it is past, a band in
+/// that second can never be decided, and `expire` gives its stake back.
+pub const BAR_LATE: i64 = 200;
+const _: () = assert!(BAR_LATE as usize + HORIZON as usize + 10 <= BAR_RING);
 /// An IOU share's index at the start, x1e18: one share was worth one millionth of a USDC.
 pub const INDEX_ONE: u128 = 1_000_000_000_000_000_000;
 pub const BPS: u64 = 10_000;
@@ -148,7 +153,7 @@ pub struct Bar {
 }
 
 /// The last `BAR_RING` seconds of a market's price, one slot per second. A slot is reused when its second comes
-/// round again; settling only ever looks thirty seconds back, and a bet lives only until its last second is here.
+/// round again, and never by an older one: a second, once posted, is that bar for as long as anything can read it.
 #[account(zero_copy)]
 pub struct Bars {
     pub market: u8,
@@ -169,12 +174,21 @@ impl Bars {
         let b = &self.ring[Self::slot(second)];
         (b.second == second && second != 0).then_some(b)
     }
-    pub fn put(&mut self, bar: Bar) {
-        let s = Self::slot(bar.second);
-        self.ring[s] = bar;
+    /// Whether `second`'s bar can no longer be posted, at `now_ms`.
+    pub fn too_late(second: i64, now_ms: i64) -> bool {
+        second + 1000 + BAR_LATE * 1000 < now_ms
+    }
+    /// Put `bar` in its slot, unless the slot holds a newer second.
+    pub fn put(&mut self, bar: Bar) -> bool {
+        let slot = &mut self.ring[Self::slot(bar.second)];
+        if slot.second > bar.second {
+            return false;
+        }
+        *slot = bar;
         if bar.second > self.last {
             self.last = bar.second;
         }
+        true
     }
 }
 

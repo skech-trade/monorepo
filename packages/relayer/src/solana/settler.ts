@@ -6,11 +6,11 @@
 import { AccountRole, type Address, type Instruction } from "@solana/kit";
 import { fetchMaybeToken, findAssociatedTokenPda, TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import { CLOSE_AFTER_MS } from "@skech/core/bars";
-import { fetchBars, getCollectFeesInstruction, getPostBarAndSettleInstruction, getRedeemHouseInstruction, getRedeemInstruction, getSettleInstruction, getSweepInstruction, playerAddress } from "@skech/contracts/solana/sdk";
+import { fetchBars, getCollectFeesInstruction, getPostBarAndSettleInstruction, getRedeemHouseInstruction, getRedeemInstruction, getSettleInstruction, getSweepInstruction, playerAddress, SKECH_ERROR__BAR_LATE } from "@skech/contracts/solana/sdk";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Engine } from "../engine";
 import { report } from "../sentry";
-import type { SolanaChain } from "./chain";
+import { customCode, type SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { Band } from "./sequencer";
 
@@ -143,6 +143,12 @@ export class SolanaSettler {
     const first = getPostBarAndSettleInstruction({ oracle: this.chain.signer, game: d.game, marketAccount: d.market, bars: d.bars, pool: d.pool, rentReceiver: this.chain.signer.address, market: this.cfg.market, bar });
     const withBets = (ix: Instruction, extra: { address: Address; role: AccountRole }[]): Instruction => ({ ...ix, accounts: [...(ix.accounts ?? []), ...extra] });
     const sent = await this.chain.send(`bar ${second} + ${chunks[0].length} bets`, [withBets(first, await this.pairs(chunks[0]))], this.computeFor(chunks[0].length, true));
+    if (sent.err && customCode(sent.err) === SKECH_ERROR__BAR_LATE) {
+      // Too long after its second to post: it never will be, and its bets can only be given their stakes back.
+      this.log(`settle: bar ${second} is too late to post; dropping its watch`);
+      this.forget(second);
+      return;
+    }
     if (sent.err) throw new Error(`bar ${second}: ${JSON.stringify(sent.err, (_, v) => (typeof v === "bigint" ? v.toString() : v))}`);
     this.closes.set(second, bar.close);
     if (this.closes.size > 4000) for (const k of [...this.closes.keys()].sort((a, c) => a - c).slice(0, 1000)) this.closes.delete(k);

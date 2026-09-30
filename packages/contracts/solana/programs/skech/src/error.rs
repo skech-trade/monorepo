@@ -68,4 +68,6 @@ pub enum SkechError {
     NotUpgradeAuthority,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("The bar is too late to post")]
+    BarLate,
 }

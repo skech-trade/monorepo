@@ -45,6 +45,33 @@ fn a_piece_is_placed_once_not_again_at_another_bump() {
     assert_eq!(g.player_state(&p).balance, balance, "charged once");
 }
 
+#[test]
+fn a_posted_bar_is_never_replaced_through_its_slot() {
+    let mut g = Game::new();
+    g.set_time(S + 3);
+    let x = (S + 2) * 1000;
+    g.post_and_settle(x, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &[]).unwrap();
+    // The second 240 before shares its slot: posting it would wipe this one, so it is too late to post.
+    let r = g.post_and_settle(x - 240_000, E8, E8, E8, E8, &[]);
+    assert_eq!(custom_error(&r), Some(code(SkechError::BarLate)));
+    // So this second is still what was posted, and a different bar for it is refused.
+    let r = g.post_and_settle(x, 83_000 * E8, 90_000 * E8, 82_999 * E8, 83_000 * E8, &[]);
+    assert_eq!(custom_error(&r), Some(code(SkechError::BarConflict)));
+}
+
+#[test]
+fn a_bar_may_be_posted_up_to_bar_late_seconds_after_its_second() {
+    let mut g = Game::new();
+    let late = skech::state::BAR_LATE;
+    let x = (S + 2) * 1000;
+    // Its second is over at S + 3: BAR_LATE seconds after, it still goes in; a second more, and it is too late.
+    g.set_time(S + 3 + late);
+    g.post_and_settle(x, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &[]).expect("just in time");
+    g.set_time(S + 4 + late + 1);
+    let r = g.post_and_settle(x + 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &[]);
+    assert_eq!(custom_error(&r), Some(code(SkechError::BarLate)));
+}
+
 /// The probe program (`tests/cpi-probe`), built on first use.
 fn probe() -> Vec<u8> {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/deploy");

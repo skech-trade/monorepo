@@ -75,11 +75,13 @@ fn post(game: &Game, bars: &mut Bars, market: u8, bar: &BarInput) -> Result<()> 
         require!(*existing == new, SkechError::BarConflict);
         return Ok(());
     }
+    // Not so late that a bet in it may have been given its stake back, or that its slot may hold a newer second.
+    require!(!Bars::too_late(bar.second, now_ms), SkechError::BarLate);
     // One second follows from the last: the previous bar's close is this one's opening price.
     if let Some(prev) = bars.at(bar.second - 1000) {
         require!(prev.close == bar.prev_close, SkechError::BarDiscontinuous);
     }
-    bars.put(new);
+    require!(bars.put(new), SkechError::BarLate);
     emit!(BarPosted { market, second: bar.second, prev_close: bar.prev_close, high: bar.high, low: bar.low, close: bar.close });
     Ok(())
 }

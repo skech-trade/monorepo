@@ -1922,6 +1922,11 @@
       "code": 6030,
       "name": "Overflow",
       "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6031,
+      "name": "BarLate",
+      "msg": "The bar is too late to post"
     }
   ],
   "types": [
@@ -2027,7 +2032,7 @@
       "name": "Bars",
       "docs": [
         "The last `BAR_RING` seconds of a market's price, one slot per second. A slot is reused when its second comes",
-        "round again; settling only ever looks thirty seconds back, and a bet lives only until its last second is here."
+        "round again, and never by an older one: a second, once posted, is that bar for as long as anything can read it."
       ],
       "serialization": "bytemuck",
       "repr": {

@@ -76,6 +76,8 @@ export const SKECH_ERROR__BAD_SETTLE_ACCOUNTS = 0x178c; // 6028
 export const SKECH_ERROR__NOT_UPGRADE_AUTHORITY = 0x178d; // 6029
 /** Overflow: Arithmetic overflow */
 export const SKECH_ERROR__OVERFLOW = 0x178e; // 6030
+/** BarLate: The bar is too late to post */
+export const SKECH_ERROR__BAR_LATE = 0x178f; // 6031
 
 export type SkechError =
   | typeof SKECH_ERROR__ALLOWANCE
@@ -89,6 +91,7 @@ export type SkechError =
   | typeof SKECH_ERROR__BALANCE
   | typeof SKECH_ERROR__BAR_CONFLICT
   | typeof SKECH_ERROR__BAR_DISCONTINUOUS
+  | typeof SKECH_ERROR__BAR_LATE
   | typeof SKECH_ERROR__DIFFICULTY
   | typeof SKECH_ERROR__INSUFFICIENT
   | typeof SKECH_ERROR__LATE
@@ -124,6 +127,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [SKECH_ERROR__BALANCE]: `Balance`,
     [SKECH_ERROR__BAR_CONFLICT]: `A different bar is already posted for that second`,
     [SKECH_ERROR__BAR_DISCONTINUOUS]: `The bar does not follow on from the second before`,
+    [SKECH_ERROR__BAR_LATE]: `The bar is too late to post`,
     [SKECH_ERROR__DIFFICULTY]: `Difficulty`,
     [SKECH_ERROR__INSUFFICIENT]: `Not enough`,
     [SKECH_ERROR__LATE]: `Late`,
