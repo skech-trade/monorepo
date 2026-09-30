@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Bar } from "@skech/core/dots";
+import { ENGINE_URL as STREAM } from "./endpoints";
 
 /**
  * Bitcoin as the game is priced and judged on: Coinbase BTC-USD, trade by
@@ -21,7 +22,6 @@ import type { Bar } from "@skech/core/dots";
  * a stale price.
  */
 
-const STREAM = process.env.NEXT_PUBLIC_ENGINE_URL || "ws://localhost:3102/ws";
 const KEEP_BARS = 660;
 const KEEP_TICKS = 4000;
 /** No message at all for this long (heartbeats included) and the socket is reopened. */

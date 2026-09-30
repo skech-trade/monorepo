@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/app/auth";
 import { ToastProvider } from "@/components/ui/toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { THEME_BOOT } from "@/lib/theme-boot";
 import "./globals.css";
 
 /* The phone's own face first (SF on Apple devices); Geist everywhere else. */
@@ -43,9 +44,6 @@ export const viewport: Viewport = {
   ],
   colorScheme: "light dark",
 };
-
-/* Runs before paint, so the stored theme and palette are the first ones painted. */
-const THEME_BOOT = `(function(){try{var r=document.documentElement;var t=localStorage.getItem("theme");r.classList.toggle("dark",t?t==="dark":matchMedia("(prefers-color-scheme: dark)").matches);var s=JSON.parse(localStorage.getItem("skech:settings")||"{}");r.dataset.palette=s.palette||"classic"}catch(e){}})()`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

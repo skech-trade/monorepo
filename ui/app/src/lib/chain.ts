@@ -4,6 +4,7 @@ import gameAbiJson from "@skech/contracts/evm/abi/SkechGame.json";
 import { type Abi, type Address, createPublicClient, http } from "viem";
 import { monad, monadTestnet } from "viem/chains";
 import { network, networkOf } from "@skech/core/network";
+import { RPC_URL as RPC } from "./endpoints";
 
 /**
  * Where the game is on chain, for the app. SKECH_NETWORK in the repo's
@@ -16,11 +17,9 @@ export const GAME_ABI = gameAbiJson as Abi;
 export const CHAIN_ID = Number(process.env.NEXT_PUBLIC_SKECH_CHAIN_ID ?? 0);
 export const GAME = (process.env.NEXT_PUBLIC_SKECH_GAME || undefined) as Address | undefined;
 export const USDC = (process.env.NEXT_PUBLIC_SKECH_USDC || undefined) as Address | undefined;
-export const RELAYER_URL = process.env.NEXT_PUBLIC_RELAYER_URL || "ws://localhost:3103/ws";
 /** Testnet or mainnet, and what differs: the label players see, the explorer, the faucet. */
 export const NETWORK = networkOf(CHAIN_ID) ?? network(process.env.NEXT_PUBLIC_SKECH_NETWORK);
 export const testnet = NETWORK.name === "testnet";
-const RPC = process.env.NEXT_PUBLIC_MONAD_RPC_URL || (networkOf(CHAIN_ID)?.rpc ?? "http://127.0.0.1:8545");
 
 /** Whether this build plays for real: a game on a chain, and USDC to put in it. */
 export const onChain = Boolean(GAME && USDC && CHAIN_ID > 0);

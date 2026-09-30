@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Address, Hex } from "viem";
-import { RELAYER_URL } from "./chain";
+import { RELAYER_URL } from "./endpoints";
 
 /**
  * The relayer: where the app sends what it draws, signed by the session key,
