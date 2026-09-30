@@ -158,12 +158,14 @@ contract SkechIOU is Initializable, ERC20Upgradeable, AccessControlUpgradeable, 
         emit Taken(from, shares, value, basis);
     }
 
-    /// @dev A transfer carries its share of the sender's basis with it. Minting and burning set the basis themselves.
+    /// @dev A transfer carries its share of the sender's basis with it, rounded up: sending shares in dust never
+    /// leaves their basis behind. Minting and burning set the basis themselves.
     function _update(address from, address to, uint256 amount) internal override {
         if (from != address(0) && to != address(0) && amount != 0) {
             IOUStorage storage $ = _s();
             uint256 held = balanceOf(from);
-            uint64 moved = amount == held ? $.basis[from] : uint64((uint256($.basis[from]) * amount) / held);
+            // Under `held`, the share rounded up is still at most the whole basis; a transfer past it reverts below.
+            uint64 moved = amount >= held ? $.basis[from] : uint64(Math.ceilDiv(uint256($.basis[from]) * amount, held));
             $.basis[from] -= moved;
             $.basis[to] += moved;
         }

@@ -100,7 +100,8 @@ pub struct Pool {
     pub iou_time_at: i64,
     /// Every share outstanding, the house's included.
     pub iou_shares: u128,
-    /// What the house is owed in fees the pool could not pay at once.
+    /// What the house was owed in fees the pool could not pay at once. No longer added to: the house's cut is taken
+    /// only from what the pool has left. Kept, for what an earlier version issued, and for the account's layout.
     pub house_shares: u128,
     pub house_basis: u64,
     pub bump: u8,

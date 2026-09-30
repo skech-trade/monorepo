@@ -182,14 +182,15 @@ fn a_win_the_pool_cannot_pay_is_owed_and_paid_off_later() {
     assert_eq!(g.account::<skech::state::Bet>(&bet).unwrap().sections[0].rung, 9600);
     g.set_time(S + 3);
     g.post_and_settle(open_at() + 1000, 83_000 * E8, 83_000 * E8 + 50_000_000, 83_000 * E8, 83_000 * E8, &[(bet, winner.wallet.pubkey())]).unwrap();
-    // 4.80 gross, 0.475 to the house; the pool held 4.9 cents of it.
+    // 4.80 gross, 0.475 the house's cut; the pool held 4.9 cents of it, all the player's.
     let due = 4_800_000 - 475_000;
     let w = g.player_state(&winner);
     assert_eq!(w.balance, 10 * E6 - 50_000 + 49_000);
     assert_eq!(w.iou_basis, due - 49_000);
     assert!(w.iou_shares > 0);
     assert_eq!(g.pool().pool, 0);
-    assert_eq!(g.pool().house_basis, 475_000);
+    // The house's cut comes after the player, from what the pool has left: nothing, and it is not owed.
+    assert_eq!((g.pool().house_shares, g.pool().house_basis), (0, 0));
 
     // Someone else loses $20; a day later the winner redeems, and is paid what was owed and its growth.
     let loser = g.player(30 * E6, 25 * E6);
@@ -213,10 +214,9 @@ fn a_win_the_pool_cannot_pay_is_owed_and_paid_off_later() {
     // 0.1% a day, and nothing cut: the holder redeemed their own.
     assert!(paid >= owed + owed / 1000 - 2 && paid <= owed + owed / 1000 + 2, "paid {paid} for {owed} owed a day");
 
-    // Then the house, behind the players.
+    // The house was never owed: nothing of its to redeem.
     let house = g.ix(skech::accounts::RedeemHouse { game: game_pda(), pool: pool_pda() }, skech::instruction::RedeemHouse {});
-    g.send(&[house], &[]).unwrap();
-    assert_eq!(g.pool().house_shares, 0);
+    assert_eq!(custom_error(&g.send(&[house], &[])), Some(code(SkechError::NothingToRedeem)));
     assert_eq!(g.pool().iou_shares, 0);
 }
 

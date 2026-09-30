@@ -161,10 +161,12 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
         let profit = gross_pay - stake_hit;
         // Rounded up, as on Monad: a small profit never slips under the fee.
         let profit_fee = (profit * game.config.profit_fee_bps as u64).div_ceil(BPS);
-        (paid, owed) = pay(pool, Some(&mut player), gross_pay - profit_fee, now);
-        if profit_fee > 0 {
-            pay(pool, None, profit_fee, now);
-        }
+        (paid, owed) = pay(pool, &mut player, gross_pay - profit_fee, now);
+        // The player is paid first. The house's cut comes after, out of what the pool has left, and is never owed: a
+        // shortfall is never made worse by a debt growing to the house.
+        let cut = profit_fee.min(pool.pool);
+        pool.pool -= cut;
+        pool.fees += cut;
     }
     player.try_serialize(&mut &mut player_info.try_borrow_mut_data()?[..])?;
     let closed = bet.live_mask == 0;
@@ -183,34 +185,18 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
     Ok(())
 }
 
-/// Pay `due` from the pool: in USDC into the player's balance (the house's fees, with no player) as far as it goes,
-/// the rest as IOU shares.
-pub fn pay(pool: &mut Pool, player: Option<&mut Player>, due: u64, now: i64) -> (u64, u64) {
+/// Pay `due` from the pool: in USDC into the player's balance as far as it goes, the rest as IOU shares.
+pub fn pay(pool: &mut Pool, player: &mut Player, due: u64, now: i64) -> (u64, u64) {
     let paid = due.min(pool.pool);
     pool.pool -= paid;
+    player.balance += paid;
     let owed = due - paid;
-    let shares = if owed > 0 { pool.shares_for(owed, now) } else { 0 };
-    pool.iou_shares += shares;
-    let to = match player {
-        Some(p) => {
-            p.balance += paid;
-            if owed > 0 {
-                p.iou_shares += shares;
-                p.iou_basis += owed;
-            }
-            p.authority
-        }
-        None => {
-            pool.fees += paid;
-            if owed > 0 {
-                pool.house_shares += shares;
-                pool.house_basis += owed;
-            }
-            Pubkey::default()
-        }
-    };
     if owed > 0 {
-        emit!(Owed { to, value: owed, shares });
+        let shares = pool.shares_for(owed, now);
+        pool.iou_shares += shares;
+        player.iou_shares += shares;
+        player.iou_basis += owed;
+        emit!(Owed { to: player.authority, value: owed, shares });
     }
     (paid, owed)
 }

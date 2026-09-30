@@ -33,7 +33,7 @@
       ]
     },
     "struct SkechGame.GameStorage": {
-      "bytes": 416,
+      "bytes": 448,
       "members": [
         ["usdc", 0, 0, "contract IERC20"],
         ["iou", 1, 0, "contract ISkechIOU"],
@@ -47,7 +47,8 @@
         ["balances", 9, 0, "mapping(address => uint64)"],
         ["sessions", 10, 0, "mapping(address => struct SkechGame.Session)"],
         ["bets", 11, 0, "mapping(bytes32 => struct SkechGame.Bet)"],
-        ["refused", 12, 0, "mapping(bytes32 => bool)"]
+        ["refused", 12, 0, "mapping(bytes32 => bool)"],
+        ["owed", 13, 0, "uint64"]
       ]
     },
     "struct SkechGame.Market": {

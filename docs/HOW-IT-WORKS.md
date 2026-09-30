@@ -309,7 +309,9 @@ ERC-1967 proxies (UUPS), on Monad testnet (chain 10143), Foundry 1.8 with `netwo
   blocks; `setRate` changes it from then on). Shares transfer like any token and carry their basis,
   what was owed when they were issued. Anyone may hand a holder's shares back to the game once the
   pool can pay (`redeem`), and is paid 10% of the growth for it; a holder redeeming their own pays
-  nothing. The house's unpaid fees are owed the same way, behind the player.
+  nothing. The house is never owed: its 10% of a profit is taken after the player is paid, from
+  what the pool has left, and goes without the rest. The game counts what it owes (`owed()`, the
+  IOUs' basis).
 
 ### What goes on chain, and who signs it
 

@@ -685,7 +685,7 @@ contract SkechGameTest is Base {
         uint64 fees = game.fees();
         vm.warp(due / 1000);
         vm.expectEmit(true, true, false, true);
-        emit SkechGame.Settled(betId, player, 0, 1, 0, 0);
+        emit SkechGame.Settled(betId, player, 0, 1, 0, 0, 0);
         vm.expectEmit(true, true, false, true);
         emit SkechGame.Refunded(betId, player, 2, HALF_DOT, 0);
         game.expire(ids);
@@ -907,10 +907,50 @@ contract SkechGameTest is Base {
         assertEq(game.balanceOf(player), 100e6 - HALF_DOT + 48_000);
         assertEq(iou.basisOf(player), 365_000 - 48_000);
         assertEq(iou.assetsOf(player), 365_000 - 48_000);
-        // The house's fee is owed too, behind the player.
+        // The house's cut comes after the player, from what the pool has left: nothing, and it is not owed.
         assertEq(game.fees(), 2_000);
-        assertEq(iou.assetsOf(address(revenue)), 35_000);
-        assertEq(iou.totalAssets(), 365_000 - 48_000 + 35_000);
+        assertEq(iou.balanceOf(address(revenue)), 0);
+        assertEq(iou.totalAssets(), 365_000 - 48_000);
+        assertEq(game.owed(), 317_000);
+    }
+
+    /// When the pool pays the player in full but not the house's whole cut, the house takes what is left, no more.
+    function test_theHousesCutIsWhatThePoolHasLeft() public {
+        ready();
+        deposit(other, 100e6);
+        registerSession(OTHER_KEY, OTHER_SESSION_KEY, 100e6);
+        SkechGame.Piece memory lost = piece(1, 0, oneSection(3 * HALF_DOT));
+        lost.player = other;
+        lost.sections[0].lo = LO + 40 * UNIT;
+        lost.sections[0].hi = HI + 40 * UNIT;
+        placeOne(lost, OTHER_SESSION_KEY, chancesOf(500_000_000));
+        SkechGame.Piece memory p = piece(2, 0, oneSection(HALF_DOT));
+        bytes32 betId = placeOne(p, SESSION_KEY, chancesOf(250_000_000)); // 3x
+        // The pool: 96% of 200,000. The hit: 150,000 gross, 100,000 profit, 10,000 the house's; 140,000 to the player.
+        assertEq(game.pool(), 192_000);
+        uint64 fees = game.fees();
+        postBar(p.openAt + 1000, LO, HI, LO, HI);
+        vm.expectEmit(true, true, false, true);
+        emit SkechGame.Settled(betId, player, 1, 0, 140_000, 0, 10_000);
+        settleOne(betId);
+        assertEq(game.fees(), fees + 10_000);
+        assertEq(game.pool(), 192_000 - 150_000);
+        // Now a hit the pool pays the player, all but the house's cut.
+        SkechGame.Piece memory q = piece(3, 0, oneSection(20_000));
+        vm.warp(vm.getBlockTimestamp() + 1);
+        q.openAt = openAtNow();
+        q.priceTime = q.openAt - 500;
+        bytes32 qId = placeOne(q, SESSION_KEY, chancesOf(250_000_000));
+        // Pool 42,000 + 19,200 = 61,200. Hit: 60,000 gross, 40,000 profit, 4,000 cut, 56,000 due: 5,200 left for the cut.
+        assertEq(game.pool(), 61_200);
+        fees = game.fees();
+        postBar(q.openAt + 1000, LO, HI, LO, HI);
+        vm.expectEmit(true, true, false, true);
+        emit SkechGame.Settled(qId, player, 1, 0, 56_000, 0, 4_000);
+        settleOne(qId);
+        assertEq(game.pool(), 1_200);
+        assertEq(game.fees(), fees + 4_000);
+        assertEq(game.owed(), 0);
     }
 
     function test_iouIsRedeemedByAnyoneOnceThePoolHasMoney() public {
@@ -950,12 +990,11 @@ contract SkechGameTest is Base {
         assertEq(iou.balanceOf(player), 0);
         assertEq(iou.basisOf(player), 0);
         assertEq(game.pool(), 960_000 - value);
-        // The house's IOU, redeemed by the keeper too, goes to the fees.
-        uint64 feesBefore = game.fees();
-        uint64 houseValue = iou.assetsOf(address(revenue));
+        assertEq(game.owed(), 0);
+        // The house was never owed: there is nothing of its to redeem.
         vm.prank(keeper);
+        vm.expectRevert(SkechGame.NothingToRedeem.selector);
         game.redeem(address(revenue), type(uint256).max);
-        assertEq(game.fees(), feesBefore + houseValue - (houseValue - 35_000) / 10);
         address[] memory ps = new address[](3);
         ps[0] = player;
         ps[1] = other;
@@ -1029,6 +1068,12 @@ contract SkechGameTest is Base {
         iou.transfer(other, shares - shares / 4);
         assertEq(iou.basisOf(player), 0);
         assertEq(iou.basisOf(other), 317_000);
+        // Dust carries its basis with it, rounded up: sent a share-wei at a time, the basis never stays behind.
+        vm.prank(other);
+        iou.transfer(player, 1);
+        assertEq(iou.basisOf(player), 1);
+        assertEq(iou.basisOf(other), 317_000 - 1);
+        assertEq(game.owed(), 317_000);
         // Only the game mints and burns.
         vm.expectRevert();
         iou.mint(other, 1);
@@ -1197,6 +1242,36 @@ contract SkechGameTest is Base {
         vm.prank(admin);
         iou.upgradeToAndCall(address(freshIou), "");
         assertEq(iou.index(), indexBefore);
+    }
+
+    /// A game still at version 1 is upgraded with what it already owes, once, by the upgrader, in the same call.
+    function test_theUpgradeFromVersionOneSetsWhatIsOwed() public {
+        // Initializable's slot (ERC-7201 "openzeppelin.storage.Initializable"): put the proxy back at version 1.
+        bytes32 slot = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+        vm.store(address(game), slot, bytes32(uint256(1)));
+        SkechGame fresh = new SkechGame();
+        vm.prank(keeper);
+        vm.expectRevert();
+        game.upgradeToAndCall(address(fresh), abi.encodeCall(SkechGame.initializeV2, (317_000)));
+        vm.prank(admin);
+        game.upgradeToAndCall(address(fresh), abi.encodeCall(SkechGame.initializeV2, (317_000)));
+        assertEq(game.owed(), 317_000);
+        // Once only; and a fresh deployment starts at version 2, owing nothing.
+        vm.prank(admin);
+        vm.expectRevert();
+        game.initializeV2(1);
+        SkechGame other_ = SkechGame(
+            address(
+                new ERC1967Proxy(
+                    address(new SkechGame()),
+                    abi.encodeCall(SkechGame.initialize, (admin, oracle, IERC20(address(usdc)), ISkechIOU(address(iou)), address(revenue)))
+                )
+            )
+        );
+        vm.prank(admin);
+        vm.expectRevert();
+        other_.initializeV2(1);
+        assertEq(other_.owed(), 0);
     }
 
     /// The vector `packages/engine/src/quote.rs` signs: the engine's price signatures verify under this contract's domain.

@@ -61,7 +61,10 @@ export type Pool = {
   iouTimeAt: bigint;
   /** Every share outstanding, the house's included. */
   iouShares: bigint;
-  /** What the house is owed in fees the pool could not pay at once. */
+  /**
+   * What the house was owed in fees the pool could not pay at once. No longer added to: the house's cut is taken
+   * only from what the pool has left. Kept, for what an earlier version issued, and for the account's layout.
+   */
   houseShares: bigint;
   houseBasis: bigint;
   bump: number;
@@ -78,7 +81,10 @@ export type PoolArgs = {
   iouTimeAt: number | bigint;
   /** Every share outstanding, the house's included. */
   iouShares: number | bigint;
-  /** What the house is owed in fees the pool could not pay at once. */
+  /**
+   * What the house was owed in fees the pool could not pay at once. No longer added to: the house's cut is taken
+   * only from what the pool has left. Kept, for what an earlier version issued, and for the account's layout.
+   */
   houseShares: number | bigint;
   houseBasis: number | bigint;
   bump: number;

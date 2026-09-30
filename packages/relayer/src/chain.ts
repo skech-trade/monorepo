@@ -61,7 +61,8 @@ export class Ledger {
         if (this.pool !== null) this.pool += (a.staked as bigint) - (a.fee as bigint);
         if ((a.fee as bigint) > 0n) this.feesNonZero = true;
       } else if (ev.name === "Settled") {
-        if (this.pool !== null) this.pool -= a.paid as bigint;
+        // The player's payout, then the house's cut of its profit, both out of the pool.
+        if (this.pool !== null) this.pool -= (a.paid as bigint) + (a.fee as bigint);
         if (this.pool !== null && this.pool < 0n) this.pool = 0n;
       } else if (ev.name === "Owed") {
         this.pool = 0n;
@@ -72,13 +73,6 @@ export class Ledger {
         this.feesNonZero = false;
       }
     }
-  }
-
-  /** Take `amount` off what the pool is thought to hold: the house's cut of a payout, which no event carries. */
-  charge(amount: bigint) {
-    if (this.pool === null || amount === 0n) return;
-    this.epoch++;
-    this.pool = this.pool > amount ? this.pool - amount : 0n;
   }
 
   /** How many of the pool and the fees a placement may find at zero. Unknown counts as zero. */

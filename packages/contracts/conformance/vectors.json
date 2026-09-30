@@ -1138,7 +1138,7 @@
             "owed": {
               "a": 104400
             },
-            "houseOwed": 18000
+            "houseOwed": 0
           }
         }
       ]
@@ -1265,13 +1265,13 @@
             "owed": {
               "a": 180800
             },
-            "houseOwed": 20000
+            "houseOwed": 0
           }
         }
       ]
     },
     {
-      "name": "a win the pool cannot pay is owed, and so is the house's cut",
+      "name": "a win the pool cannot pay is owed; the house's cut is not",
       "players": {
         "a": {
           "deposit": 10000000,
@@ -1365,7 +1365,7 @@
             "owed": {
               "a": 4276000
             },
-            "houseOwed": 475000
+            "houseOwed": 0
           }
         }
       ]
@@ -1801,7 +1801,7 @@
             "owed": {
               "a": 119999
             },
-            "houseOwed": 99999
+            "houseOwed": 0
           }
         }
       ]

@@ -2692,7 +2692,8 @@
           {
             "name": "house_shares",
             "docs": [
-              "What the house is owed in fees the pool could not pay at once."
+              "What the house was owed in fees the pool could not pay at once. No longer added to: the house's cut is taken",
+              "only from what the pool has left. Kept, for what an earlier version issued, and for the account's layout."
             ],
             "type": "u128"
           },

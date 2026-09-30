@@ -86,6 +86,10 @@ contract Deploy is Script {
 ///
 ///   PROXY=<address> WHICH=game|iou|revenue forge script script/Deploy.s.sol:Upgrade --rpc-url monad_testnet --broadcast --private-key <upgrader>
 ///
+/// The game's upgrade from version 1 also sets what it already owes in IOU, which version 1 kept no count of:
+/// OWED, the sum of `SkechIOU.basisOf` over every holder (every address in the IOU's Transfer events), in USDC e6.
+/// It goes in the same transaction as the upgrade (`initializeV2`), and only once.
+///
 /// The new implementation must keep every stored field where the live one has it: run `bun run test:check` from
 /// packages/contracts first, which fails if the storage layout moved from `snapshots/StorageLayout.json`
 /// (`evm/layout.ts`). A script cannot read the compiler's layout itself without FFI, so the check lives there.
@@ -99,7 +103,9 @@ contract Upgrade is Script {
         else if (keccak256(bytes(which)) == keccak256("iou")) impl = address(new SkechIOU());
         else if (keccak256(bytes(which)) == keccak256("revenue")) impl = address(new SkechRevenue());
         else revert("WHICH must be game, iou or revenue");
-        UUPSUpgradeable(proxy).upgradeToAndCall(impl, "");
+        bytes memory init =
+            keccak256(bytes(which)) == keccak256("game") ? abi.encodeCall(SkechGame.initializeV2, (uint64(vm.envUint("OWED")))) : bytes("");
+        UUPSUpgradeable(proxy).upgradeToAndCall(impl, init);
         vm.stopBroadcast();
         console.log(which, "proxy", proxy, "now runs");
         console.log(impl);

@@ -233,6 +233,8 @@ contract SkechGame is
         /// @dev Pieces the oracle quoted that were refused. Spent like a placed bet's name, so the same signed piece
         /// can never go in later, once its price is known.
         mapping(bytes32 => bool) refused;
+        /// @dev What the game owes in IOU, as it was owed: the basis of every share outstanding.
+        uint64 owed;
     }
 
     /* ------------------------------------------------------------------ */
@@ -318,8 +320,8 @@ contract SkechGame is
     event Stroke(bytes32 indexed betId, bytes points);
     event Refused(bytes32 indexed betId, address indexed player, uint64 drawing, uint32 index, Refusal why);
     event BarPosted(uint8 indexed market, uint64 indexed second, uint64 prevClose, uint64 high, uint64 low, uint64 close);
-    /// @notice Bands decided: `paid` USDC into the balance, `owed` as IOU.
-    event Settled(bytes32 indexed betId, address indexed player, uint32 hitMask, uint32 missMask, uint64 paid, uint64 owed);
+    /// @notice Bands decided: `paid` USDC into the balance, `owed` as IOU, and `fee`, the house's cut of the profit, taken.
+    event Settled(bytes32 indexed betId, address indexed player, uint32 hitMask, uint32 missMask, uint64 paid, uint64 owed, uint64 fee);
     /// @notice Bands no bar decided, given back: their stake, `paid` into the balance and `owed` as IOU.
     event Refunded(bytes32 indexed betId, address indexed player, uint32 mask, uint64 paid, uint64 owed);
     event Owed(address indexed to, uint64 value, uint256 shares);
@@ -364,7 +366,8 @@ contract SkechGame is
 
     /// @param admin Sets everything, upgrades, pauses. The oracle, relayer and treasurer are all it, for now.
     /// @param oracle_ The engine's wallet: signs prices, bars and quotes.
-    function initialize(address admin, address oracle_, IERC20 usdc_, ISkechIOU iou_, address revenue_) external initializer {
+    /// @dev Version 2: a fresh deployment starts where an upgraded one ends up, owing nothing yet.
+    function initialize(address admin, address oracle_, IERC20 usdc_, ISkechIOU iou_, address revenue_) external reinitializer(2) {
         if (
             admin == address(0) || oracle_ == address(0) || address(usdc_) == address(0) || address(iou_) == address(0)
                 || revenue_ == address(0)
@@ -397,6 +400,12 @@ contract SkechGame is
             })
         );
         _setMarket(0, "BTC-USD", true, 51);
+    }
+
+    /// @notice The upgrade from version 1, in the same transaction (`upgradeToAndCall`): the IOU already owed, which
+    /// version 1 kept no count of. `owedNow` is the sum of `SkechIOU.basisOf` over every holder.
+    function initializeV2(uint64 owedNow) external reinitializer(2) onlyRole(UPGRADER_ROLE) {
+        _s().owed = owedNow;
     }
 
     function _authorizeUpgrade(address) internal override onlyRole(UPGRADER_ROLE) {}
@@ -934,16 +943,24 @@ contract SkechGame is
         b.hitMask |= hits;
         uint64 paid;
         uint64 owed;
+        uint64 fee;
         if (grossPay > 0) {
             uint256 profit = grossPay - stakeHit;
             uint256 profitFee = _feeOf(profit, $.config.profitFeeBps);
             (paid, owed) = _pay(b.player, uint64(grossPay - profitFee));
-            if (profitFee > 0) _pay($.revenue, uint64(profitFee));
+            // The player is paid first. The house's cut comes after, out of what the pool has left, and never as an IOU:
+            // what the pool cannot pay it goes without, so a shortfall is never made worse by a debt growing to the house.
+            uint64 available = $.pool;
+            fee = profitFee <= available ? uint64(profitFee) : available;
+            if (fee > 0) {
+                $.pool = available - fee;
+                $.fees += fee;
+            }
         }
-        emit Settled(betId, b.player, hits, decided & ~hits, paid, owed);
+        emit Settled(betId, b.player, hits, decided & ~hits, paid, owed, fee);
     }
 
-    /// @dev Pay `due` to `to` from the pool: in USDC as far as it goes, the rest as IOU. Fees for the house go into `fees`.
+    /// @dev Pay `due` to `to` from the pool: in USDC as far as it goes, the rest as IOU, counted in `owed`.
     function _pay(address to, uint64 due) private returns (uint64 paid, uint64 owed) {
         GameStorage storage $ = _s();
         uint64 available = $.pool;
@@ -954,6 +971,7 @@ contract SkechGame is
         }
         owed = due - paid;
         if (owed > 0) {
+            $.owed += owed;
             uint256 shares = $.iou.mint(to, owed);
             emit Owed(to, owed, shares);
         }
@@ -994,6 +1012,7 @@ contract SkechGame is
         if (shares < held && value < $.config.minRedeem) revert NothingToRedeem();
         (uint64 v, uint64 basis) = token.burn(holder, shares);
         if (v > available) revert Insufficient();
+        $.owed -= basis;
         $.pool = available - v;
         uint64 growth = v > basis ? v - basis : 0;
         uint64 cut = msg.sender == holder ? 0 : uint64((uint256(growth) * $.config.sweepBps) / BPS);
@@ -1022,6 +1041,11 @@ contract SkechGame is
 
     function sessionOf(address player) external view returns (Session memory) {
         return _s().sessions[player];
+    }
+
+    /// @notice What the game owes in IOU, as it was owed when issued: the IOUs' basis, before their growth.
+    function owed() external view returns (uint64) {
+        return _s().owed;
     }
 
     function pool() external view returns (uint64) {

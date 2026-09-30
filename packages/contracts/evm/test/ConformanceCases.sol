@@ -200,7 +200,7 @@ contract ConformanceCases is ConformanceRunner {
         expectSettled("p", 5, 10, 117600, 104400);
         settleAdd("p");
         settle();
-        checkState(9997600, 0, 4880000, 0, 0, 2400, 104400, 0, 18000);
+        checkState(9997600, 0, 4880000, 0, 0, 2400, 104400, 0, 0);
     }
 
     /// the previous close counts: a jump across the ink crosses it
@@ -221,10 +221,10 @@ contract ConformanceCases is ConformanceRunner {
         expectSettled("p", 1, 0, 39200, 180800);
         settleAdd("p");
         settle();
-        checkState(9999200, 0, 4960000, 0, 0, 800, 180800, 0, 20000);
+        checkState(9999200, 0, 4960000, 0, 0, 800, 180800, 0, 0);
     }
 
-    /// a win the pool cannot pay is owed, and so is the house's cut
+    /// a win the pool cannot pay is owed; the house's cut is not
     function test_case_10() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
@@ -239,7 +239,7 @@ contract ConformanceCases is ConformanceRunner {
         expectSettled("p", 1, 0, 49000, 4276000);
         settleAdd("p");
         settle();
-        checkState(9999000, 0, 4950000, 0, 0, 1000, 4276000, 0, 475000);
+        checkState(9999000, 0, 4950000, 0, 0, 1000, 4276000, 0, 0);
     }
 
     /// another player's losses are what pays a winner
@@ -313,7 +313,7 @@ contract ConformanceCases is ConformanceRunner {
         expectSettled("p", 1, 0, 79999, 119999);
         settleAdd("p");
         settle();
-        checkState(9980000, 0, 4900001, 0, 0, 20000, 119999, 0, 99999);
+        checkState(9980000, 0, 4900001, 0, 0, 20000, 119999, 0, 0);
     }
 
     /// refusals, and nothing moves for them

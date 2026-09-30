@@ -51,19 +51,20 @@ export function run(c: Case): StepOut[] {
     owed: Object.fromEntries(players.map((p) => [p, Number(owed[p])])),
     houseOwed: Number(houseOwed),
   });
-  /** In USDC as far as the pool goes, the rest owed. The house's cut the same way, into its fees. */
-  const pay = (who: string | null, due: bigint) => {
+  /** In USDC as far as the pool goes, the rest owed. */
+  const pay = (who: string, due: bigint) => {
     const paid = due < pool ? due : pool;
     pool -= paid;
     const left = due - paid;
-    if (who === null) {
-      fees += paid;
-      houseOwed += left;
-    } else {
-      balance[who] += paid;
-      owed[who] += left;
-    }
+    balance[who] += paid;
+    owed[who] += left;
     return { paid, owed: left };
+  };
+  /** The house's cut, after the player, from what the pool has left: never owed. */
+  const cut = (fee: bigint) => {
+    const taken = fee < pool ? fee : pool;
+    pool -= taken;
+    fees += taken;
   };
 
   const out: StepOut[] = [];
@@ -169,7 +170,7 @@ export function run(c: Case): StepOut[] {
         if (gross > 0n) {
           const profitFee = feeOf(gross - stakeHit, c.profitFeeBps);
           ({ paid, owed: left } = pay(bet.player, gross - profitFee));
-          if (profitFee > 0n) pay(null, profitFee);
+          cut(profitFee);
         }
         settled.push({ id, hitMask: hits, missMask: decided & ~hits, paid: Number(paid), owed: Number(left) });
       }

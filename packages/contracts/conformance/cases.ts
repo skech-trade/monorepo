@@ -180,7 +180,7 @@ export const CASES: Case[] = [
     ],
   },
   {
-    name: "a win the pool cannot pay is owed, and so is the house's cut",
+    name: "a win the pool cannot pay is owed; the house's cut is not",
     players: { a: { deposit: 10_000_000, allowance: 5_000_000 } },
     difficulty: 51,
     feeBps: 200,

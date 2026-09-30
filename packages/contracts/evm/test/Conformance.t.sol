@@ -186,7 +186,7 @@ abstract contract ConformanceRunner is Base {
         uint256 seen;
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].topics[0] != SkechGame.Settled.selector) continue;
-            (uint32 hit, uint32 miss, uint64 paid, uint64 owed) = abi.decode(logs[i].data, (uint32, uint32, uint64, uint64));
+            (uint32 hit, uint32 miss, uint64 paid, uint64 owed,) = abi.decode(logs[i].data, (uint32, uint32, uint64, uint64, uint64));
             Expected memory e = expectedSettles[seen++];
             assertEq(logs[i].topics[1], e.bet, "settled bet");
             assertEq(hit, e.hit, "hit mask");
@@ -211,6 +211,7 @@ abstract contract ConformanceRunner is Base {
         assertEq(iou.basisOf(player), owedA, "owed a");
         assertEq(iou.basisOf(other), owedB, "owed b");
         assertEq(iou.basisOf(address(revenue)), houseOwed, "owed the house");
+        assertEq(game.owed(), owedA + owedB + houseOwed, "owed in all");
         address[] memory ps = new address[](2);
         ps[0] = player;
         ps[1] = other;

@@ -165,12 +165,9 @@ export class Settler {
     }
     if (this.posted.size > 4000) for (const k of [...this.posted.keys()].sort((a, b) => a - b).slice(0, 1000)) this.posted.delete(k);
     const touched = new Set<Address>();
-    // The house's cut left the pool too, and no event carries it: take it off what the pool is thought to hold.
-    let cuts = 0n;
     for (const ev of this.chain.events(receipt)) {
       if (ev.name === "Settled") {
-        const a = ev.args as { betId: Hex; player: Address; hitMask: number; missMask: number; paid: bigint; owed: bigint };
-        if (a.owed === 0n) cuts += will.due.get(a.betId)?.fee ?? 0n;
+        const a = ev.args as { betId: Hex; player: Address; hitMask: number; missMask: number; paid: bigint; owed: bigint; fee: bigint };
         this.stats.settled++;
         // The stake left the balance when the piece went in: only a payout changes it now. Without one, the chain's
         // figure is still sent now and then, so what the app counts for itself never drifts for long.
@@ -183,7 +180,6 @@ export class Settler {
         this.notify.owed(a.to, a.value);
       }
     }
-    ledger.charge(cuts);
     for (const p of touched) {
       this.told.set(p.toLowerCase() as Address, Date.now());
       this.notify.account(p);
