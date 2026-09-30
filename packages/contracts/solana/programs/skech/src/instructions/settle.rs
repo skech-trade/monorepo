@@ -64,7 +64,6 @@ pub struct Settle<'info> {
 }
 
 fn post(game: &Game, bars: &mut Bars, market: u8, bar: &BarInput) -> Result<()> {
-    require!(bars.market == market, SkechError::BadBar);
     require!(bar.second > 0 && bar.second % 1000 == 0 && bar.low > 0 && bar.prev_close > 0, SkechError::BadBar);
     require!(bar.low <= bar.high && bar.close >= bar.low && bar.close <= bar.high, SkechError::BadBar);
     // A second is posted once it is over, by this chain's clock, give or take the grace: never ahead of the ink in it.
@@ -112,7 +111,6 @@ pub fn settle<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>, market: 
     let a = ctx.accounts;
     require!(!a.game.paused, SkechError::Paused);
     let bars = a.bars.load()?;
-    require!(bars.market == market, SkechError::BadBar);
     settle_all(ctx.program_id, &a.game, &bars, &mut a.pool, &a.rent_receiver, ctx.remaining_accounts, market, false)
 }
 
@@ -123,7 +121,6 @@ pub fn expire<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>, market: 
     let a = ctx.accounts;
     require!(!a.game.paused, SkechError::Paused);
     let bars = a.bars.load()?;
-    require!(bars.market == market, SkechError::BadBar);
     settle_all(ctx.program_id, &a.game, &bars, &mut a.pool, &a.rent_receiver, ctx.remaining_accounts, market, true)
 }
 

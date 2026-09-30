@@ -323,8 +323,19 @@ fn the_admin_is_handed_over_in_two_steps_and_the_config_is_checked() {
     let set = g.ix(skech::accounts::Admin { admin: admin.pubkey(), game: game_pda() }, skech::instruction::SetConfig { config: bad });
     assert_eq!(custom_error(&g.send(&[set], &[&admin])), Some(code(SkechError::BadConfig)));
     let propose = g.ix(skech::accounts::Admin { admin: admin.pubkey(), game: game_pda() }, skech::instruction::ProposeAdmin { admin: next.pubkey() });
-    g.send(&[propose], &[&admin]).unwrap();
+    let r = g.send(&[propose], &[&admin]).unwrap();
+    assert!(r.logs.iter().any(|l| l.starts_with("Program data: ")), "said so in an event");
     assert_eq!(g.game().admin, admin.pubkey());
+    // Only the one proposed may take over.
+    let stranger = Keypair::new();
+    let accept = g.ix(skech::accounts::AcceptAdmin { new_admin: stranger.pubkey(), game: game_pda() }, skech::instruction::AcceptAdmin {});
+    assert_eq!(custom_error(&g.send(&[accept], &[&stranger])), Some(code(SkechError::NotPendingAdmin)));
+    // What is owed grows by 1% a day at most.
+    let rate = |g: &Game, r: u64| g.ix(skech::accounts::SetIouRate { admin: admin.pubkey(), game: game_pda(), pool: pool_pda() }, skech::instruction::SetIouRate { rate: r });
+    let too_fast = rate(&g, skech::state::MAX_IOU_RATE + 1);
+    assert_eq!(custom_error(&g.send(&[too_fast], &[&admin])), Some(code(SkechError::BadConfig)));
+    let fastest = rate(&g, skech::state::MAX_IOU_RATE);
+    g.send(&[fastest], &[&admin]).unwrap();
     let accept = g.ix(skech::accounts::AcceptAdmin { new_admin: next.pubkey(), game: game_pda() }, skech::instruction::AcceptAdmin {});
     g.send(&[accept], &[&next]).unwrap();
     assert_eq!(g.game().admin, next.pubkey());

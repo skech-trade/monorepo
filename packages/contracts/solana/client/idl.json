@@ -1713,6 +1713,32 @@
   ],
   "events": [
     {
+      "name": "AdminProposed",
+      "discriminator": [
+        129,
+        249,
+        226,
+        227,
+        199,
+        82,
+        110,
+        243
+      ]
+    },
+    {
+      "name": "AdminSet",
+      "discriminator": [
+        157,
+        245,
+        205,
+        226,
+        118,
+        125,
+        183,
+        97
+      ]
+    },
+    {
       "name": "BarPosted",
       "discriminator": [
         205,
@@ -1765,6 +1791,19 @@
       ]
     },
     {
+      "name": "IouRateSet",
+      "discriminator": [
+        252,
+        90,
+        54,
+        68,
+        6,
+        233,
+        252,
+        130
+      ]
+    },
+    {
       "name": "MarketSet",
       "discriminator": [
         64,
@@ -1778,6 +1817,19 @@
       ]
     },
     {
+      "name": "OracleSet",
+      "discriminator": [
+        115,
+        135,
+        7,
+        243,
+        213,
+        60,
+        174,
+        119
+      ]
+    },
+    {
       "name": "Owed",
       "discriminator": [
         156,
@@ -1788,6 +1840,19 @@
         101,
         94,
         71
+      ]
+    },
+    {
+      "name": "PausedSet",
+      "discriminator": [
+        171,
+        125,
+        127,
+        156,
+        233,
+        81,
+        68,
+        66
       ]
     },
     {
@@ -1853,6 +1918,19 @@
         124,
         145,
         238
+      ]
+    },
+    {
+      "name": "TreasurySet",
+      "discriminator": [
+        69,
+        231,
+        163,
+        135,
+        254,
+        194,
+        109,
+        166
       ]
     },
     {
@@ -2039,9 +2117,44 @@
       "code": 6033,
       "name": "OwnRedeem",
       "msg": "A holder redeeming their own takes no cut: send no caller_player"
+    },
+    {
+      "code": 6034,
+      "name": "NotPendingAdmin",
+      "msg": "Not the proposed admin"
     }
   ],
   "types": [
+    {
+      "name": "AdminProposed",
+      "docs": [
+        "`admin` may take over by `accept_admin`; the default key withdraws the proposal."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdminSet",
+      "docs": [
+        "`admin` has taken over."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
     {
       "name": "Bar",
       "docs": [
@@ -2438,6 +2551,21 @@
       }
     },
     {
+      "name": "IouRateSet",
+      "docs": [
+        "What is owed grows by `rate` a second from now on, x1e18."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "rate",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Market",
       "type": {
         "kind": "struct",
@@ -2499,6 +2627,18 @@
       }
     },
     {
+      "name": "OracleSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "Owed",
       "docs": [
         "`to` is owed `value` as IOU shares; the house when `to` is the default key."
@@ -2517,6 +2657,18 @@
           {
             "name": "shares",
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PausedSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "paused",
+            "type": "bool"
           }
         ]
       }
@@ -3046,6 +3198,18 @@
           {
             "name": "refunded",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasurySet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
           }
         ]
       }

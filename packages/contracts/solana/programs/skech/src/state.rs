@@ -21,10 +21,23 @@ pub const BAR_RING: usize = 240;
 /// grace the config allows, so a late bar never lands in a slot a newer second holds. Once it is past, a band in
 /// that second can never be decided, and `expire` gives its stake back.
 pub const BAR_LATE: i64 = 200;
-const _: () = assert!(BAR_LATE as usize + HORIZON as usize + 10 <= BAR_RING);
+const _: () = assert!(BAR_LATE as usize + HORIZON as usize + (MAX_PLACE_GRACE_MS / 1000) as usize <= BAR_RING);
+/// A grid unit is at most this small a part of the price: it pads every band, so it cannot be let grow.
+pub const PRICE_UNITS: u128 = 2000;
+/// How fast an IOU may be set to grow, at most, x1e18 a second: 1% a day.
+pub const MAX_IOU_RATE: u64 = 115_740_740_740;
 /// An IOU share's index at the start, x1e18: one share was worth one millionth of a USDC.
 pub const INDEX_ONE: u128 = 1_000_000_000_000_000_000;
 pub const BPS: u64 = 10_000;
+
+/// The most a fee may be set to, bps: of a stake, of a hit's profit, of an IOU's growth to its redeemer.
+pub const MAX_FEE_BPS: u16 = 2000;
+pub const MAX_PROFIT_FEE_BPS: u16 = 5000;
+pub const MAX_SWEEP_BPS: u16 = 5000;
+/// What the placing grace may be set to, ms, and how late the oracle may have had a piece at most.
+pub const MIN_PLACE_GRACE_MS: u32 = 1000;
+pub const MAX_PLACE_GRACE_MS: u32 = 10_000;
+pub const MAX_LATE_MS: u32 = 1000;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, PartialEq, Eq, Debug)]
 pub struct Config {
@@ -167,7 +180,7 @@ pub struct Bars {
 }
 
 impl Bars {
-    pub const SPACE: usize = 8 + 1 + 7 + 8 + BAR_RING * 40;
+    pub const SPACE: usize = 8 + std::mem::size_of::<Bars>();
 
     fn slot(second: i64) -> usize {
         (second.div_euclid(1000)).rem_euclid(BAR_RING as i64) as usize
@@ -236,6 +249,7 @@ pub struct BetSection {
 /// One bet: a piece of a drawing as placed. It lives until every band in it is decided, then is closed and its rent
 /// goes back to whoever paid it.
 #[account]
+#[derive(InitSpace)]
 pub struct Bet {
     /// The player's wallet.
     pub player: Pubkey,
@@ -253,11 +267,14 @@ pub struct Bet {
     /// Of `stake`, to the house as it was placed.
     pub fee: u64,
     pub rent_payer: Pubkey,
+    /// Sized per bet, by `space`.
+    #[max_len(0)]
     pub sections: Vec<BetSection>,
 }
 
 impl Bet {
-    pub const FIXED: usize = 8 + 32 + 8 + 4 + 1 + 1 + 4 + 4 + 8 + 8 + 8 + 8 + 8 + 32 + 4;
+    /// Everything but the sections.
+    pub const FIXED: usize = 8 + Bet::INIT_SPACE;
     pub fn space(sections: usize) -> usize {
         Self::FIXED + sections * BetSection::INIT_SPACE
     }

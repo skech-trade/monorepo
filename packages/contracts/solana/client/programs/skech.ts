@@ -229,17 +229,23 @@ export function identifySkechAccount(
 }
 
 export enum SkechEvent {
+  AdminProposed,
+  AdminSet,
   BarPosted,
   ConfigSet,
   Deposited,
   FeesCollected,
+  IouRateSet,
   MarketSet,
+  OracleSet,
   Owed,
+  PausedSet,
   Placed,
   Redeemed,
   SessionRevoked,
   SessionSet,
   Settled,
+  TreasurySet,
   Withdrawn,
 }
 
@@ -247,6 +253,28 @@ export function identifySkechEvent(
   event: { data: ReadonlyUint8Array } | ReadonlyUint8Array,
 ): SkechEvent {
   const data = "data" in event ? event.data : event;
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([129, 249, 226, 227, 199, 82, 110, 243]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.AdminProposed;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([157, 245, 205, 226, 118, 125, 183, 97]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.AdminSet;
+  }
   if (
     containsBytes(
       data,
@@ -295,6 +323,17 @@ export function identifySkechEvent(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([252, 90, 54, 68, 6, 233, 252, 130]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.IouRateSet;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([64, 19, 78, 233, 226, 142, 234, 83]),
       ),
       0,
@@ -306,12 +345,34 @@ export function identifySkechEvent(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([115, 135, 7, 243, 213, 60, 174, 119]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.OracleSet;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([156, 166, 181, 196, 145, 101, 94, 71]),
       ),
       0,
     )
   ) {
     return SkechEvent.Owed;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([171, 125, 127, 156, 233, 81, 68, 66]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.PausedSet;
   }
   if (
     containsBytes(
@@ -367,6 +428,17 @@ export function identifySkechEvent(
     )
   ) {
     return SkechEvent.Settled;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([69, 231, 163, 135, 254, 194, 109, 166]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.TreasurySet;
   }
   if (
     containsBytes(

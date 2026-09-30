@@ -74,4 +74,6 @@ pub enum SkechError {
     NotSplToken,
     #[msg("A holder redeeming their own takes no cut: send no caller_player")]
     OwnRedeem,
+    #[msg("Not the proposed admin")]
+    NotPendingAdmin,
 }

@@ -59,7 +59,7 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
     // The quote, and the window: not long after the second the piece opens on, and not before it either.
     require!(piece.open_at > 0 && piece.open_at % 1000 == 0 && piece.unit > 0 && quote.price > 0, SkechError::BadQuote);
     // A grid unit is a sliver of the price: it also pads every band, so it cannot be let grow.
-    require!(piece.unit as u128 * 2000 <= quote.price as u128, SkechError::BadQuote);
+    require!(piece.unit as u128 * PRICE_UNITS <= quote.price as u128, SkechError::BadQuote);
     let now_ms = Clock::get()?.unix_timestamp.checked_mul(1000).ok_or(SkechError::Overflow)?;
     let grace = c.place_grace_ms as i64;
     require!(now_ms <= piece.open_at + grace && piece.open_at <= now_ms + grace, SkechError::Window);
@@ -143,7 +143,7 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
         stake: kept,
         fee,
         rent_payer: ctx.accounts.payer.key(),
-        sections: sections.clone(),
+        sections,
     };
     create_pda(&ctx.accounts.payer, &ctx.accounts.bet, &ctx.accounts.system_program, Bet::space(count), ctx.program_id, seeds)?;
     let info = ctx.accounts.bet.to_account_info();
@@ -165,7 +165,7 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
         price_seen: piece.price_seen,
         price_time: piece.price_time,
         stroke_hash: piece.stroke_hash,
-        sections,
+        sections: bet.sections,
     });
     Ok(())
 }
