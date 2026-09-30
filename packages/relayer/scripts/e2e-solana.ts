@@ -37,7 +37,7 @@ import { pieceBytes, type SolanaDeployment } from "@skech/contracts/solana/sdk";
 
 const root = join(import.meta.dir, "..", "..", "..");
 const deployment = JSON.parse(readFileSync(join(root, "packages/contracts/deployments/solana-localnet.json"), "utf8")) as SolanaDeployment;
-const rpc = createSolanaRpc("http://127.0.0.1:8899");
+const rpc = createSolanaRpc(process.env.SOLANA_LOCALNET_RPC_URL ?? "http://127.0.0.1:8899");
 const engineUrl = process.env.E2E_ENGINE_URL ?? "wss://api.skech.trade/engine/ws";
 const port = 3199;
 const ok = (cond: unknown, what: string) => {
