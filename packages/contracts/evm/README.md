@@ -59,4 +59,8 @@ forge verify-contract <address> SkechGame --chain 10143 --verifier sourcify --ve
 ```
 
 Upgrade one proxy: `PROXY=<address> WHICH=game|iou|revenue forge script script/Deploy.s.sol:Upgrade ...`.
+The game and the IOU are live behind their proxies, so their storage stays where it is: never reorder, retype or
+insert a stored field; add at the end of the namespace's struct. `bun run test:check` fails if the layout moved from
+`snapshots/StorageLayout.json`; `bun run layout` records a change that only adds at the end, and refuses one that
+would break the proxies.
 `script/DeployLocal.s.sol` deploys the same with a mock USDC on anvil, for `packages/relayer/scripts/e2e.ts`.

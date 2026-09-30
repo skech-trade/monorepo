@@ -85,6 +85,10 @@ contract Deploy is Script {
 /// Upgrade one proxy to a fresh implementation of the same contract.
 ///
 ///   PROXY=<address> WHICH=game|iou|revenue forge script script/Deploy.s.sol:Upgrade --rpc-url monad_testnet --broadcast --private-key <upgrader>
+///
+/// The new implementation must keep every stored field where the live one has it: run `bun run test:check` from
+/// packages/contracts first, which fails if the storage layout moved from `snapshots/StorageLayout.json`
+/// (`evm/layout.ts`). A script cannot read the compiler's layout itself without FFI, so the check lives there.
 contract Upgrade is Script {
     function run() external {
         address proxy = vm.envAddress("PROXY");

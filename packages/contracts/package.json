@@ -5,7 +5,8 @@
   "scripts": {
     "build": "cd evm && forge build && for c in SkechGame SkechIOU SkechRevenue; do forge inspect $c abi --json > abi/$c.json; done",
     "test": "cd evm && forge test",
-    "test:check": "cd evm && FORGE_SNAPSHOT_CHECK=true forge test",
+    "test:check": "cd evm && FORGE_SNAPSHOT_CHECK=true forge test && bun layout.ts --check",
+    "layout": "bun evm/layout.ts",
     "abi": "cd evm && forge build --silent && for c in SkechGame SkechIOU SkechRevenue; do forge inspect $c abi --json > abi/$c.json; done",
     "solana:build": "cd solana && anchor build",
     "solana:test": "cd solana && anchor build && cargo test -p tests",

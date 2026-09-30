@@ -208,6 +208,11 @@ contract SkechGame is
         Balance
     }
 
+    /// @dev This contract is live behind a UUPS proxy, and an upgrade keeps this storage as it is. So: never reorder,
+    /// retype or insert a field here, nor in any struct stored under it (Market, Session, Bet, Config). New state goes
+    /// at the end of this struct, or of a struct that is only a mapping's value, or in a new ERC-7201 namespace;
+    /// Config sits inline and may not grow. A field no longer used keeps its place. `evm/layout.ts --check` holds
+    /// the layout to `snapshots/StorageLayout.json`.
     /// @custom:storage-location erc7201:skech.game
     struct GameStorage {
         IERC20 usdc;

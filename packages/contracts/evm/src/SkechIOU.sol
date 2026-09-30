@@ -30,6 +30,8 @@ contract SkechIOU is Initializable, ERC20Upgradeable, AccessControlUpgradeable, 
     /// @dev USDC has 6 decimals and shares 18.
     uint256 private constant SCALE = 1e12;
 
+    /// @dev Live behind a UUPS proxy: never reorder, retype or insert a field here. New state goes at the end, or in
+    /// a new ERC-7201 namespace. `evm/layout.ts --check` holds the layout to `snapshots/StorageLayout.json`.
     /// @custom:storage-location erc7201:skech.iou
     struct IOUStorage {
         /// @dev The index at `blockAt`, x1e18.
