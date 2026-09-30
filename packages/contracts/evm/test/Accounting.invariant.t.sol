@@ -87,7 +87,6 @@ contract Handler is Base {
         uint64 close = up ? lastClose + swing : (lastClose > swing ? lastClose - swing : lastClose);
         uint64 high = close > lastClose ? close : lastClose;
         uint64 low = close < lastClose ? close : lastClose;
-        if (second > openAtNow() + 4000) vm.warp(second / 1000);
         postBar(second, lastClose, high, low, close);
         lastSecond = second;
         lastClose = close;

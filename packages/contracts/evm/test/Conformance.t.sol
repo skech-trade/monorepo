@@ -166,9 +166,7 @@ abstract contract ConformanceRunner is Base {
 
     function barAt(uint64 second, uint64 prevClose, uint64 high, uint64 low, uint64 close) internal {
         uint64 at = openAt + second * 1000;
-        // A second is posted once it is over, give or take the grace: move the clock on if it is not yet.
-        uint256 needed = (uint256(at) + 1000 - 3000 + 999) / 1000;
-        if (vm.getBlockTimestamp() < needed) vm.warp(needed);
+        // A second is posted once it is over: `postBar` moves the clock on if it is not yet.
         postBar(at, prevClose, high, low, close);
     }
 

@@ -776,6 +776,28 @@ contract SkechGameTest is Base {
         game.postBar(b, sig);
     }
 
+    /// A second goes up only once it is over by the chain's clock, and fits the seconds either side of it, whichever
+    /// went up first.
+    function test_barsWaitForTheirSecondAndFitBothNeighbours() public {
+        uint64 t = openAtNow() + 5000;
+        // The second after next: its bar is signed, but it is not over on chain yet.
+        SkechGame.Bar memory b = SkechGame.Bar({market: BTC, second: t, prevClose: PRICE, high: PRICE, low: PRICE, close: PRICE});
+        bytes memory sig = sign(ORACLE_KEY, game.barDigest(b));
+        vm.warp(t / 1000);
+        vm.expectRevert(SkechGame.BadBar.selector);
+        game.postBar(b, sig);
+        vm.warp(t / 1000 + 1);
+        game.postBar(b, sig);
+        // Posted out of order: the second before must close where this one opened.
+        (b, sig) = bar(t - 1000, PRICE - 50, PRICE, PRICE - 50, PRICE - 10);
+        vm.expectRevert(SkechGame.BarDiscontinuous.selector);
+        game.postBar(b, sig);
+        postBar(t - 1000, PRICE - 50, PRICE, PRICE - 50, PRICE);
+        (uint64 pc,,, uint64 c) = game.barAt(BTC, t - 1000);
+        assertEq(pc, PRICE - 50);
+        assertEq(c, PRICE);
+    }
+
     /* ------------------------------------------------------------------ */
     /* Settling                                                            */
     /* ------------------------------------------------------------------ */

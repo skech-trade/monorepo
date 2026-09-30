@@ -846,8 +846,8 @@ contract SkechGame is
         if ($.markets[bar.market].nameHash == bytes32(0)) revert MarketInactive();
         if (bar.second % 1000 != 0 || bar.low == 0 || bar.prevClose == 0) revert BadBar();
         if (bar.low > bar.high || bar.close < bar.low || bar.close > bar.high) revert BadBar();
-        // A second is posted once it is over, by this chain's clock, give or take the grace: never ahead of the ink in it.
-        if (bar.second + 1000 > block.timestamp * 1000 + $.config.placeGraceMs) revert BadBar();
+        // A second is posted only once it is over by this chain's clock: never while ink in it can still be placed.
+        if (bar.second + 1000 > block.timestamp * 1000) revert BadBar();
         bytes32 digest = _hashTypedDataV4(
             keccak256(abi.encode(BAR_TYPEHASH, bar.market, bar.second, bar.prevClose, bar.high, bar.low, bar.close))
         );
@@ -862,9 +862,12 @@ contract SkechGame is
             if (existing != packed) revert BarConflict();
             return;
         }
-        // One second follows from the last: the previous bar's close is this one's opening price.
+        // One second follows from the last: the previous bar's close is this one's opening price, and this one's close
+        // the next one's, when a later second went up first.
         uint256 previous = bar.second >= 1000 ? _bar(bar.market, bar.second - 1000) : 0;
         if (previous != 0 && uint64(previous >> 192) != bar.prevClose) revert BarDiscontinuous();
+        uint256 next = _bar(bar.market, bar.second + 1000);
+        if (next != 0 && uint64(next) != bar.close) revert BarDiscontinuous();
         assembly {
             sstore(slot, packed)
         }
