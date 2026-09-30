@@ -1,6 +1,7 @@
 //! Every way found to cheat the game, each refused: the attack as it was first shown to work, and what stops it.
 
 use anchor_lang::prelude::Pubkey;
+use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
 use anchor_lang::AnchorSerialize;
 use solana_signer::Signer;
 
@@ -42,4 +43,46 @@ fn a_piece_is_placed_once_not_again_at_another_bump() {
         assert_eq!(custom_error(&g.send(&[ed, place], &[])), Some(code(SkechError::Mismatch)));
     }
     assert_eq!(g.player_state(&p).balance, balance, "charged once");
+}
+
+/// The probe program (`tests/cpi-probe`), built on first use.
+fn probe() -> Vec<u8> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/deploy");
+    let so = format!("{dir}/cpi_probe.so");
+    if !std::path::Path::new(&so).exists() {
+        let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/cpi-probe/Cargo.toml");
+        let ok = std::process::Command::new("cargo").args(["build-sbf", "--manifest-path", manifest, "--sbf-out-dir", dir]).status().map(|s| s.success()).unwrap_or(false);
+        assert!(ok, "could not build tests/cpi-probe: cargo build-sbf --manifest-path {manifest} --sbf-out-dir {dir}");
+    }
+    std::fs::read(so).unwrap()
+}
+
+#[test]
+fn a_signature_for_one_piece_places_no_other_from_inside_another_program() {
+    let mut g = Game::new();
+    let probe_id = Pubkey::new_unique();
+    g.svm.add_program(probe_id, &probe()).unwrap();
+    let p = g.player(10 * E6, 5 * E6);
+    // What the player signed: a nickel on one band.
+    let signed = g.piece(&p, 1, 0, open_at(), &[AT]);
+    let signed_bytes = signed.try_to_vec().unwrap();
+    // What is placed instead, the same length: a dollar a dot on another drawing.
+    let mut forged = g.piece(&p, 2, 0, open_at(), &[(1, 415_000, 5, 1_000_000)]);
+    forged.per_dot = 1_000_000;
+    let quote = g.quote(&forged, HALF);
+    assert_eq!(forged.try_to_vec().unwrap().len(), signed_bytes.len());
+    // The probe's data carries the signed piece from byte 8, where the Ed25519 instruction verifies it; the placement
+    // it passes on carries the forged one.
+    let place = g.place_ix(&forged, &quote);
+    let mut data = (signed_bytes.len() as u16).to_le_bytes().to_vec();
+    data.resize(8, 0);
+    data.extend_from_slice(&signed_bytes);
+    data.extend_from_slice(&place.data);
+    let mut accounts = vec![AccountMeta::new_readonly(skech::ID, false)];
+    accounts.extend(place.accounts);
+    let outer = Instruction { program_id: probe_id, accounts, data };
+    let ed = Game::ed25519_ix(&p.session, &signed_bytes, 1, 8, signed_bytes.len() as u16);
+    let r = g.send(&[ed, outer], &[]);
+    assert_eq!(custom_error(&r), Some(code(SkechError::SessionSig)), "{:?}", r.as_ref().map(|m| &m.logs));
+    assert_eq!(g.player_state(&p).balance, 10 * E6);
 }
