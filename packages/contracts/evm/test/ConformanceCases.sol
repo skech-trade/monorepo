@@ -138,8 +138,8 @@ contract ConformanceCases is ConformanceRunner {
         place("p", 0, 10000, 51, 0, -400, 100);
         clearExpected();
         expectBand(1, 8300000000000, 8300100000000, 26666, 9600);
-        checkPlaced("p", 0, 26666, 533);
-        checkState(9973334, 0, 4973334, 0, 26133, 533, 0, 0, 0);
+        checkPlaced("p", 0, 26666, 534);
+        checkState(9973334, 0, 4973334, 0, 26132, 534, 0, 0, 0);
     }
 
     /// a band with no chance is not offered; the rest goes in
@@ -270,8 +270,36 @@ contract ConformanceCases is ConformanceRunner {
         checkState(14275000, 10000000, 4950000, 5000000, 14849000, 876000, 0, 0, 0);
     }
 
-    /// fees at their bounds
+    /// fees round up, so dust stakes and small profits still pay them
     function test_case_12() public {
+        begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 30000000, 25000000);
+        // "loser"
+        clearPiece();
+        addSection(1, 420000, 5, 1000000, 500000000);
+        place("loser", 1, 1000000, 51, 0, -400, 100);
+        clearExpected();
+        expectBand(1, 8400000000000, 8400100000000, 1000000, 150);
+        checkPlaced("loser", 1, 1000000, 20000);
+        checkState(10000000, 29000000, 5000000, 24000000, 980000, 20000, 0, 0, 0);
+        // "dust"
+        clearPiece();
+        addSection(1, 415000, 5, 49, 500000000);
+        place("dust", 0, 100000, 51, 0, -400, 100);
+        clearExpected();
+        expectBand(1, 8300000000000, 8300100000000, 49, 150);
+        checkPlaced("dust", 0, 49, 1);
+        checkState(9999951, 29000000, 4999951, 24000000, 980048, 20001, 0, 0, 0);
+        barAt(1, 8300000000000, 8300030000000, 8300000000000, 8300000000000);
+        expectSettled("loser", 0, 1, 0, 0);
+        expectSettled("dust", 1, 0, 70, 0);
+        settleAdd("loser");
+        settleAdd("dust");
+        settle();
+        checkState(10000021, 29000000, 4999951, 24000000, 979975, 20004, 0, 0, 0);
+    }
+
+    /// fees at their bounds
+    function test_case_13() public {
         begin(51, 2000, 5000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -279,17 +307,17 @@ contract ConformanceCases is ConformanceRunner {
         place("p", 0, 100000, 51, 0, -400, 100);
         clearExpected();
         expectBand(1, 8300000000000, 8300100000000, 99999, 300);
-        checkPlaced("p", 0, 99999, 19999);
-        checkState(9900001, 0, 4900001, 0, 80000, 19999, 0, 0, 0);
+        checkPlaced("p", 0, 99999, 20000);
+        checkState(9900001, 0, 4900001, 0, 79999, 20000, 0, 0, 0);
         barAt(1, 8300000000000, 8300030000000, 8300000000000, 8300000000000);
-        expectSettled("p", 1, 0, 80000, 119998);
+        expectSettled("p", 1, 0, 79999, 119999);
         settleAdd("p");
         settle();
-        checkState(9980001, 0, 4900001, 0, 0, 19999, 119998, 0, 99999);
+        checkState(9980000, 0, 4900001, 0, 0, 20000, 119999, 0, 99999);
     }
 
     /// refusals, and nothing moves for them
-    function test_case_13() public {
+    function test_case_14() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "difficulty"
         clearPiece();
@@ -344,7 +372,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// a difficulty under 50 is refused, and pieces keep to the one set
-    function test_case_14() public {
+    function test_case_15() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         setDifficulty(49, false);
         checkState(10000000, 0, 5000000, 0, 0, 0, 0, 0, 0);
@@ -377,7 +405,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// more than the balance is refused
-    function test_case_15() public {
+    function test_case_16() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 40000, 5000000, 0, 0);
         // "p"
         clearPiece();

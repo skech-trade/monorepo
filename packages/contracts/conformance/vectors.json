@@ -780,7 +780,7 @@
               }
             ],
             "staked": 26666,
-            "fee": 533,
+            "fee": 534,
             "refunded": 3973334
           },
           "state": {
@@ -790,8 +790,8 @@
             "allowance": {
               "a": 4973334
             },
-            "pool": 26133,
-            "fees": 533,
+            "pool": 26132,
+            "fees": 534,
             "owed": {
               "a": 0
             },
@@ -1543,6 +1543,174 @@
         "a": {
           "deposit": 10000000,
           "allowance": 5000000
+        },
+        "b": {
+          "deposit": 30000000,
+          "allowance": 25000000
+        }
+      },
+      "difficulty": 51,
+      "feeBps": 200,
+      "profitFeeBps": 1000,
+      "price": 8300000000000,
+      "unit": 20000000,
+      "name": "fees round up, so dust stakes and small profits still pay them",
+      "steps": [
+        {
+          "place": {
+            "id": "loser",
+            "player": "b",
+            "perDot": 1000000,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 420000,
+                "width": 5,
+                "stake": 1000000,
+                "chance": 500000000
+              }
+            ]
+          }
+        },
+        {
+          "place": {
+            "id": "dust",
+            "sections": [
+              {
+                "second": 1,
+                "lo": 415000,
+                "width": 5,
+                "stake": 49,
+                "chance": 500000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 1,
+            "prevClose": 8300000000000,
+            "high": 8300030000000,
+            "low": 8300000000000,
+            "close": 8300000000000,
+            "settle": [
+              "loser",
+              "dust"
+            ]
+          }
+        }
+      ],
+      "expect": [
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8400000000000,
+                "hi": 8400100000000,
+                "stake": 1000000,
+                "rung": 150
+              }
+            ],
+            "staked": 1000000,
+            "fee": 20000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 24000000
+            },
+            "pool": 980000,
+            "fees": 20000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 49,
+                "rung": 150
+              }
+            ],
+            "staked": 49,
+            "fee": 1,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 9999951,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 4999951,
+              "b": 24000000
+            },
+            "pool": 980048,
+            "fees": 20001,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "loser",
+              "hitMask": 0,
+              "missMask": 1,
+              "paid": 0,
+              "owed": 0
+            },
+            {
+              "id": "dust",
+              "hitMask": 1,
+              "missMask": 0,
+              "paid": 70,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 10000021,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 4999951,
+              "b": 24000000
+            },
+            "pool": 979975,
+            "fees": 20004,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        }
+      ]
+    },
+    {
+      "players": {
+        "a": {
+          "deposit": 10000000,
+          "allowance": 5000000
         }
       },
       "difficulty": 51,
@@ -1593,7 +1761,7 @@
               }
             ],
             "staked": 99999,
-            "fee": 19999,
+            "fee": 20000,
             "refunded": 0
           },
           "state": {
@@ -1603,8 +1771,8 @@
             "allowance": {
               "a": 4900001
             },
-            "pool": 80000,
-            "fees": 19999,
+            "pool": 79999,
+            "fees": 20000,
             "owed": {
               "a": 0
             },
@@ -1617,21 +1785,21 @@
               "id": "p",
               "hitMask": 1,
               "missMask": 0,
-              "paid": 80000,
-              "owed": 119998
+              "paid": 79999,
+              "owed": 119999
             }
           ],
           "state": {
             "balance": {
-              "a": 9980001
+              "a": 9980000
             },
             "allowance": {
               "a": 4900001
             },
             "pool": 0,
-            "fees": 19999,
+            "fees": 20000,
             "owed": {
-              "a": 119998
+              "a": 119999
             },
             "houseOwed": 99999
           }

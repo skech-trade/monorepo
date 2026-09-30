@@ -291,7 +291,8 @@ export class SolanaSequencer {
       sections.push({ second: b.second, lo: b.lo, hi: b.hi, stake: b.stake < most ? b.stake : most, rung });
     }
     const staked = sections.reduce((n, s) => n + s.stake, 0n);
-    return { staked, fee: (staked * BigInt(this.terms.feeBps)) / 10_000n, refunded: total - staked, sections };
+    // The fee is rounded up, as the program takes it.
+    return { staked, fee: (staked * BigInt(this.terms.feeBps) + 9_999n) / 10_000n, refunded: total - staked, sections };
   }
 
   private refuse(e: Pending, why: string, tx?: string) {

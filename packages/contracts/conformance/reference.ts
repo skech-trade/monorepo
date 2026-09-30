@@ -15,6 +15,8 @@ export const MAX_PER_DOT = 10_000_000;
 export const MAX_PIECE_STAKE = 1_000_000_000;
 export const DEFAULT_PER_DOT = 100_000;
 const BPS = 10_000n;
+/** The house's share, rounded up: a stake or profit split small never slips under the fee. */
+const feeOf = (amount: bigint, bps: number) => (amount * BigInt(bps) + BPS - 1n) / BPS;
 
 export type Band = { second: number; lo: number; hi: number; stake: number; rung: number };
 export type PlaceOut = { ok: true; sections: Band[]; staked: number; fee: number; refunded: number } | { ok: false; refused: string };
@@ -129,7 +131,7 @@ export function run(c: Case): StepOut[] {
         out.push(refuse("Balance"));
         continue;
       }
-      const fee = (kept * BigInt(c.feeBps)) / BPS;
+      const fee = feeOf(kept, c.feeBps);
       balance[who] -= kept;
       allowance[who] -= kept;
       pool += kept - fee;
@@ -165,7 +167,7 @@ export function run(c: Case): StepOut[] {
         let paid = 0n;
         let left = 0n;
         if (gross > 0n) {
-          const profitFee = ((gross - stakeHit) * BigInt(c.profitFeeBps)) / BPS;
+          const profitFee = feeOf(gross - stakeHit, c.profitFeeBps);
           ({ paid, owed: left } = pay(bet.player, gross - profitFee));
           if (profitFee > 0n) pay(null, profitFee);
         }

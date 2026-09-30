@@ -69,7 +69,8 @@ export function predictSettle(bets: LiveBet[], bars: Map<number, PostedBar>, poo
     }
     if (gross === 0n) continue;
     hitCount++;
-    const fee = ((gross - stakeHit) * profitFeeBps) / BPS;
+    // Rounded up, as the contract takes it.
+    const fee = ((gross - stakeHit) * profitFeeBps + BPS - 1n) / BPS;
     due.set(bet.betId, { gross, fee });
     // The player first, then the house's cut, both out of the pool; what it cannot cover is owed.
     if (left === null || left < gross) {

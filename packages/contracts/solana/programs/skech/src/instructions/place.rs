@@ -116,7 +116,8 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs, bet_bum
     require!(a.player.balance >= kept, SkechError::Balance);
 
     // Everything checks out: only now is anything written.
-    let fee = kept * c.fee_bps as u64 / BPS;
+    // Rounded up, as on Monad: a stake split small never slips under the fee.
+    let fee = (kept * c.fee_bps as u64).div_ceil(BPS);
     let (unit, per_dot, open_at, difficulty) = (piece.unit, piece.per_dot as u64, piece.open_at, piece.difficulty);
     let player = &mut ctx.accounts.player;
     player.balance -= kept;

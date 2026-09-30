@@ -690,7 +690,7 @@ contract SkechGame is
         }
         // Everything checks out: only now is anything written.
         staked = uint64(kept);
-        fee = uint64((kept * $.config.feeBps) / BPS);
+        fee = uint64(_feeOf(kept, $.config.feeBps));
         $.balances[p.player] = held - staked;
         session.allowance -= uint56(kept);
         Bet storage b = $.bets[betId];
@@ -917,7 +917,7 @@ contract SkechGame is
         uint64 owed;
         if (grossPay > 0) {
             uint256 profit = grossPay - stakeHit;
-            uint256 profitFee = (profit * $.config.profitFeeBps) / BPS;
+            uint256 profitFee = _feeOf(profit, $.config.profitFeeBps);
             (paid, owed) = _pay(b.player, uint64(grossPay - profitFee));
             if (profitFee > 0) _pay($.revenue, uint64(profitFee));
         }
@@ -938,6 +938,12 @@ contract SkechGame is
             uint256 shares = $.iou.mint(to, owed);
             emit Owed(to, owed, shares);
         }
+    }
+
+    /// @dev The house's share of `amount`, rounded up: a stake or a profit split small never slips under the fee.
+    /// Never more than `amount`, since no fee is over half of it.
+    function _feeOf(uint256 amount, uint16 bps) private pure returns (uint256) {
+        return (amount * bps + BPS - 1) / BPS;
     }
 
     function _credit(address to, uint64 amount) private {

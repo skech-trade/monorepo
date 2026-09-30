@@ -208,6 +208,17 @@ export const CASES: Case[] = [
   },
   {
     ...std,
+    name: "fees round up, so dust stakes and small profits still pay them",
+    players: { a: { deposit: 10_000_000, allowance: 5_000_000 }, b: { deposit: 30_000_000, allowance: 25_000_000 } },
+    steps: [
+      { place: { id: "loser", player: "b", perDot: 1_000_000, sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 500_000_000 }] } },
+      // A stake of 49 at 2%: 0.98 of a fee, taken as 1. Hit at 1.5x, 73 back: a profit of 24 at 10%, 2.4, taken as 3.
+      { place: { id: "dust", sections: [{ second: 1, lo: AT, width: 5, stake: 49, chance: 500_000_000 }] } },
+      { bar: { second: 1, prevClose: PRICE, high: PRICE + e8(0.3), low: PRICE, close: PRICE, settle: ["loser", "dust"] } },
+    ],
+  },
+  {
+    ...std,
     name: "fees at their bounds",
     feeBps: 2000,
     profitFeeBps: 5000,

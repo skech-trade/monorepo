@@ -159,7 +159,8 @@ fn settle_one<'info>(program_id: &Pubkey, game: &Game, bars: &Bars, pool: &mut P
     let (mut paid, mut owed) = (0, 0);
     if gross_pay > 0 {
         let profit = gross_pay - stake_hit;
-        let profit_fee = profit * game.config.profit_fee_bps as u64 / BPS;
+        // Rounded up, as on Monad: a small profit never slips under the fee.
+        let profit_fee = (profit * game.config.profit_fee_bps as u64).div_ceil(BPS);
         (paid, owed) = pay(pool, Some(&mut player), gross_pay - profit_fee, now);
         if profit_fee > 0 {
             pay(pool, None, profit_fee, now);
