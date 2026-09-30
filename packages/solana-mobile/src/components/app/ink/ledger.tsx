@@ -1,5 +1,6 @@
-import { useSyncExternalStore } from "react";
+import { type ReactNode, useEffect, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
+import Animated, { Easing, interpolate, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
 import { cents, money } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +17,8 @@ export type Change = { id: number; amount: number; kind: "stake" | "win" | "back
 const SHOW = 3;
 const LIFE_MS = 4200;
 const MERGE_MS = 900;
+/** When a row starts to fade: 900ms before the end of its life, as on the web. */
+const OUT_AFTER_MS = 3300;
 
 let rows: Change[] = [];
 let next = 1;
@@ -58,15 +61,46 @@ export function Ledger() {
   return (
     <View pointerEvents="none" style={{ position: "absolute", right: 0, top: "100%", width: 120, height: 54 }}>
       {changes.slice(0, SHOW).map((c, i) => (
-        <Text
-          className={cn("absolute right-0 font-semibold text-[14px]", c.kind === "win" ? "text-success-foreground" : "text-muted-foreground")}
-          key={c.id}
-          style={{ top: 2 + i * 17, opacity: [1, 0.55, 0.28][i], transform: [{ scale: 1 - i * 0.08 }], fontVariant: ["tabular-nums"] }}
-        >
-          {c.amount > 0 ? "+" : "−"}
-          {money(c.amount)}
-        </Text>
+        <Place key={c.id} place={i}>
+          {/* The inner one carries the entrance and the fade, the outer one its place in the stack. */}
+          <Life key={`${c.id}:${c.amount}`}>
+            <Text className={cn("font-semibold text-[14px]", c.kind === "win" ? "text-success-foreground" : "text-muted-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
+              {c.amount > 0 ? "+" : "−"}
+              {money(c.amount)}
+            </Text>
+          </Life>
+        </Place>
       ))}
     </View>
   );
+}
+
+/** A row's place in the stack: stepping down, lighter and smaller, as newer ones come in over it. */
+function Place({ place, children }: { place: number; children: ReactNode }) {
+  const still = useReducedMotion();
+  const at = useSharedValue(place);
+  useEffect(() => {
+    at.value = still ? place : withTiming(place, { duration: 320, easing: Easing.bezier(0.2, 0.8, 0.2, 1) });
+  }, [place, still, at]);
+  const style = useAnimatedStyle(() => ({
+    opacity: interpolate(at.value, [0, 1, 2], [1, 0.55, 0.28]),
+    transform: [{ translateY: at.value * 17 }, { scale: 1 - at.value * 0.08 }],
+  }));
+  return <Animated.View style={[{ position: "absolute", right: 0, top: 2, transformOrigin: "right top" }, style]}>{children}</Animated.View>;
+}
+
+/** A row's life: it drops in with a little spring, and after 3.3s fades down and away. */
+function Life({ children }: { children: ReactNode }) {
+  const still = useReducedMotion();
+  const born = useSharedValue(still ? 1 : 0);
+  const gone = useSharedValue(0);
+  useEffect(() => {
+    if (!still) born.value = withTiming(1, { duration: 360, easing: Easing.bezier(0.2, 1.4, 0.4, 1) });
+    gone.value = withDelay(OUT_AFTER_MS, withTiming(1, { duration: still ? 0 : 900, easing: Easing.bezier(0.42, 0, 1, 1) }));
+  }, [still, born, gone]);
+  const style = useAnimatedStyle(() => ({
+    opacity: Math.min(1, born.value) * (1 - gone.value),
+    transform: [{ translateY: -8 * (1 - born.value) + 4 * gone.value }, { scale: 0.85 + 0.15 * born.value }],
+  }));
+  return <Animated.View style={[{ transformOrigin: "right top" }, style]}>{children}</Animated.View>;
 }

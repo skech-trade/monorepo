@@ -6,6 +6,7 @@ import { useAccount } from "@/components/app/auth";
 import { useGate } from "@/components/app/gate";
 import { Button, raised, Spinner } from "@/components/ui";
 import { useChain } from "./chain-context";
+import { Arrive, Breathe, MOTION } from "./motion";
 
 /**
  * The way in for someone new: sign in, deposit USDC, draw. One quiet line over the chart, one step at a time,
@@ -46,22 +47,26 @@ export function useOnboarding(live: number): { step: Step; setupError: string | 
   return { step, setupError, retrySetup };
 }
 
-/** A pill over the chart, at the web's `hintPill` place. */
+/** A pill over the chart, at the web's `hintPill` place. It arrives, then breathes. */
 export function Pill({ children, onPress, top }: { children: React.ReactNode; onPress?: () => void; top: number }) {
   const body = (
-    <View className="flex-row items-center gap-2 rounded-full border-[0.5px] border-border bg-raised px-4 py-2.5" style={raised}>
-      {children}
-    </View>
+    <Breathe>
+      <View className="flex-row items-center gap-2 rounded-full border-[0.5px] border-border bg-raised px-4 py-2.5" style={raised}>
+        {children}
+      </View>
+    </Breathe>
   );
   return (
     <View className="absolute inset-x-0 z-20 items-center" pointerEvents="box-none" style={{ top }}>
-      {onPress ? (
-        <Pressable onPress={onPress} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
-          {body}
-        </Pressable>
-      ) : (
-        <View pointerEvents="none">{body}</View>
-      )}
+      <Arrive motion={MOTION.hintIn} pointerEvents="box-none">
+        {onPress ? (
+          <Pressable onPress={onPress} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
+            {body}
+          </Pressable>
+        ) : (
+          <View pointerEvents="none">{body}</View>
+        )}
+      </Arrive>
     </View>
   );
 }

@@ -23,12 +23,15 @@ import { money } from "@/lib/money";
 /** The founder players are sent to, for onboarding and for feedback. One place, so the handle is never out of step. */
 export const FOUNDER = { name: "Abhi", handle: "Oxabhii", url: "https://t.me/Oxabhii" } as const;
 export const FOUNDER_PHOTO = require("../../../../assets/abhi.jpg") as number;
-const MASCOT = require("../../../../assets/pen-mascot.png") as number;
+const SCENE = require("../../../../assets/skech-scene.png") as number;
 
-/** The founder's chat with a message already typed: that they need help to play, and who they are. */
-export function helpLink(email: string | null, address: string | null): string {
-  const who = email ? ` My email is ${email}.` : address ? ` My skech address is ${address}.` : "";
-  return `${FOUNDER.url}?text=${encodeURIComponent(`Hi ${FOUNDER.name}, I need help with playing skech.${who}`)}`;
+/**
+ * The founder's chat with a message already typed: that they need help to play, and who they are. `who` is their
+ * email, or else their phone number or address; left out when there is none.
+ */
+export function helpLink(who: { email: string | null; phone?: string | null; address?: string | null }): string {
+  const me = who.email ? ` My email is ${who.email}.` : who.phone ? ` I signed in with ${who.phone}.` : who.address ? ` My skech address is ${who.address}.` : "";
+  return `${FOUNDER.url}?text=${encodeURIComponent(`Hi ${FOUNDER.name}, I need help with playing skech.${me}`)}`;
 }
 
 const tabular = { fontVariant: ["tabular-nums" as const] };
@@ -315,7 +318,8 @@ function Founders() {
   const { width } = useWindowDimensions();
   const pill = useRef<View>(null);
   const [at, setAt] = useState<{ top: number; right: number } | null>(null);
-  const href = helpLink(me.email, me.address);
+  // A phone number is the handle when there is no email; it is only sent if they send the message.
+  const href = helpLink({ email: me.email, phone: me.email ? null : me.handle?.startsWith("+") ? me.handle : null, address: me.address });
   const show = () => {
     haptic("tap");
     pill.current?.measureInWindow((x, y, w, h) => setAt({ top: y + h + 8, right: Math.max(16, width - (x + w)) }));
@@ -379,9 +383,9 @@ function useAppear(delay: number) {
 }
 
 const SPARKLES = [
-  { left: "14%", top: "18%", delay: 700, size: 12 },
-  { left: "66%", top: "2%", delay: 950, size: 16 },
-  { left: "82%", top: "44%", delay: 1150, size: 11 },
+  { left: "8%", top: "22%", delay: 700, size: 10 },
+  { left: "62%", top: "4%", delay: 950, size: 14 },
+  { left: "88%", top: "30%", delay: 1150, size: 9 },
 ] as const;
 
 /** The deposit landed: how much, what the balance is now, and the way back to the game. */
@@ -390,7 +394,17 @@ function Landed({ amount, balance, onStart }: { amount: number; balance: number;
   useEffect(() => {
     feel("cash");
   }, []);
-  const pen = useAppear(0);
+  // The scene is as wide as the sheet, a little past its padding, as on the web.
+  const { width } = useWindowDimensions();
+  const sceneW = width - 16;
+  const sceneH = (sceneW * 374) / 900;
+  // It is drawn in left to right, as the pen would draw it: a window over it opening from the left.
+  const draw = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const a = Animated.timing(draw, { toValue: 1, duration: 1100, easing: Easing.bezier(0.35, 0.6, 0.2, 1), useNativeDriver: true });
+    a.start();
+    return () => a.stop();
+  }, [draw]);
   const pill = useAppear(600);
   const words = useAppear(750);
   const button = useAppear(880);
@@ -398,7 +412,7 @@ function Landed({ amount, balance, onStart }: { amount: number; balance: number;
   const s1 = useAppear(SPARKLES[1].delay);
   const s2 = useAppear(SPARKLES[2].delay);
   const sparkles = [s0, s1, s2];
-  // Then the pen floats.
+  // Then it floats.
   const float = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const a = Animated.sequence([
@@ -417,23 +431,33 @@ function Landed({ amount, balance, onStart }: { amount: number; balance: number;
 
   return (
     <View className="items-center gap-4 pt-2">
-      <View className="w-full items-center" style={{ height: 170 }}>
+      {/* The landing page's closing scene: the pen drawing a line up to a winning candle. Sparkles pop around it. */}
+      <View className="pt-2" style={{ width: sceneW, height: sceneH + 8 }}>
         <Animated.View
           style={{
-            opacity: pen.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: "clamp" }),
-            transform: [
-              { translateY: float.interpolate({ inputRange: [0, 1], outputRange: [0, -6] }) },
-              { rotate: pen.interpolate({ inputRange: [0, 1], outputRange: ["-18deg", "0deg"] }) },
-              { scale: pen.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) },
-            ],
+            width: sceneW,
+            height: sceneH,
+            overflow: "hidden",
+            opacity: draw.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.4, 1, 1] }),
+            transform: [{ translateY: float.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }) }, { translateX: draw.interpolate({ inputRange: [0, 1], outputRange: [-sceneW, 0] }) }],
           }}
         >
-          <Image contentFit="contain" source={MASCOT} style={{ width: 133, height: 170 }} />
+          <Animated.View style={{ transform: [{ translateX: draw.interpolate({ inputRange: [0, 1], outputRange: [sceneW, 0] }) }] }}>
+            <Image contentFit="contain" source={SCENE} style={{ width: sceneW, height: sceneH }} />
+          </Animated.View>
         </Animated.View>
         {SPARKLES.map((sp, i) => (
           <Animated.Text
             key={sp.left}
-            style={{ position: "absolute", left: sp.left, top: sp.top, fontSize: sp.size, color: "#f5c451", opacity: sparkles[i], transform: [{ scale: sparkles[i] }] }}
+            style={{
+              position: "absolute",
+              left: sp.left,
+              top: sp.top,
+              fontSize: sp.size,
+              color: "#f5c451",
+              opacity: sparkles[i].interpolate({ inputRange: [0, 1], outputRange: [0, 0.85], extrapolate: "clamp" }),
+              transform: [{ scale: sparkles[i] }, { rotate: sparkles[i].interpolate({ inputRange: [0, 1], outputRange: ["-40deg", "0deg"] }) }],
+            }}
           >
             ✦
           </Animated.Text>
