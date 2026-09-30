@@ -438,27 +438,37 @@ test("new drawings open on ladder-v1, and preview, opening and settlement agree"
     for (const c of bet.cells) {
       // Re-pricing what opened reproduces it: the stake and the multiple are settled.
       expect(ladderSection(c.chance!, rtpAt(f, (c.lo + c.hi) / 2), c.area)).toEqual({ area: c.area, multiple: c.multiple });
-      expect([RULES.ladderFloor, ...LADDER]).toContain(c.multiple);
-      expect(c.multiple * c.chance!).toBeLessThanOrEqual(Math.max(LADDER_BEST, MIN_INK_MULTIPLE * c.chance!) + 1e-9);
+      // A rung, or under the floor its fair multiple to the hundredth, at least 1x; never more than a dollar back.
+      if (c.multiple < RULES.ladderFloor) expect(c.multiple).toBeGreaterThanOrEqual(1);
+      else expect([RULES.ladderFloor, ...LADDER]).toContain(c.multiple);
+      expect(c.multiple * c.chance!).toBeLessThanOrEqual(Math.max(LADDER_BEST, c.chance!) + 1e-9);
     }
   }
 });
 
-test("ladder-v1 pays a rung, the highest the chance allows, and never beats its best unless floored", async () => {
+test("ladder-v1 pays a rung, the highest the chance allows, and never beats its best", async () => {
   const { ladderSection, LADDER } = await import("./ink-area");
   const LADDER_BEST = RULES.ladderBest;
-  for (const p of [0.99, 0.95, 0.9, 0.6, 0.45, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01, 0.001]) {
+  for (const p of [0.999, 0.99, 0.95, 0.9, 0.6, 0.45, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01, 0.001]) {
     const q = ladderSection(p, RULES.rtp, 1)!;
     const fair = LADDER_BEST / p;
-    expect([RULES.ladderFloor, ...LADDER]).toContain(q.multiple);
     expect(q.area).toBe(1);
     expect(ladderSection(p, RULES.rtp, 5)!.area * q.multiple).toBeLessThanOrEqual(256 + 1e-9);
     const higher = LADDER.filter(r => r > q.multiple);
     // The next rung up would be more than the chance supports.
     if (higher.length) expect(higher[0]).toBeGreaterThan(fair - 1e-9);
-    if (fair >= RULES.ladderFloor) expect(q.multiple * p).toBeLessThanOrEqual(LADDER_BEST + 1e-12);
-    else expect(q.multiple).toBe(RULES.ladderFloor);
+    if (fair >= RULES.ladderFloor) {
+      expect([RULES.ladderFloor, ...LADDER]).toContain(q.multiple);
+      expect(q.multiple * p).toBeLessThanOrEqual(LADDER_BEST + 1e-12);
+    } else {
+      // Too likely for the floor: its fair multiple to the hundredth, never under 1x, so never more than a dollar back.
+      expect(q.multiple).toBe(Math.max(1, Math.floor(fair * 100 + 1e-9) / 100));
+      expect(q.multiple * p).toBeLessThanOrEqual(Math.max(LADDER_BEST, p) + 1e-12);
+    }
   }
+  // 99% likely at 55: fair 0.99x, so it pays 1x and returns 99 cents, not the 1.1x it once paid.
+  expect(ladderSection(0.99, RULES.rtp, 1)!.multiple).toBe(1);
+  expect(ladderSection(0.9, RULES.rtp, 1)!.multiple).toBe(1.08);
 });
 
 test("ink bet as it is drawn adds up to the whole stroke, nothing charged twice", async () => {

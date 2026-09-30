@@ -30,9 +30,9 @@ contract ConformanceCases is ConformanceRunner {
         checkState(9972500, 0, 4900000, 0, 23000, 4500, 0, 0, 0);
     }
 
-    /// the ladder across difficulties and chances
+    /// the ladder across chances, at the least difficulty
     function test_case_1() public {
-        begin(0, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
+        begin(50, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
         addSection(1, 415000, 5, 10000, 1000000000);
@@ -41,20 +41,56 @@ contract ConformanceCases is ConformanceRunner {
         addSection(4, 415000, 5, 10000, 50000000);
         addSection(5, 415000, 5, 10000, 7812500);
         addSection(6, 415000, 5, 10000, 1000000);
-        place("p", 0, 1000000, 0, 0, -400, 100);
+        place("p", 0, 1000000, 50, 0, -400, 100);
         clearExpected();
-        expectBand(1, 8300000000000, 8300100000000, 10000, 110);
+        expectBand(1, 8300000000000, 8300100000000, 10000, 100);
         expectBand(2, 8300000000000, 8300100000000, 10000, 110);
         expectBand(3, 8300000000000, 8300100000000, 10000, 300);
-        expectBand(4, 8300000000000, 8300100000000, 10000, 2400);
+        expectBand(4, 8300000000000, 8300100000000, 10000, 1600);
         expectBand(5, 8300000000000, 8300100000000, 10000, 12800);
         expectBand(6, 8300000000000, 8300100000000, 10000, 12800);
         checkPlaced("p", 0, 60000, 1200);
         checkState(9940000, 0, 4940000, 0, 58800, 1200, 0, 0, 0);
     }
 
-    /// difficulty 100: the floor eases to 1x
+    /// near-certain ink pays its fair multiple, to the hundredth, never under 1x
     function test_case_2() public {
+        begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 30000000, 25000000);
+        // "loser"
+        clearPiece();
+        addSection(1, 420000, 5, 5000000, 500000000);
+        place("loser", 1, 1000000, 51, 0, -400, 100);
+        clearExpected();
+        expectBand(1, 8400000000000, 8400100000000, 5000000, 150);
+        checkPlaced("loser", 1, 5000000, 100000);
+        checkState(10000000, 25000000, 5000000, 20000000, 4900000, 100000, 0, 0, 0);
+        // "p"
+        clearPiece();
+        addSection(1, 415000, 5, 1000000, 1000000000);
+        addSection(1, 415005, 5, 1000000, 990000000);
+        addSection(1, 414995, 5, 1000000, 950000000);
+        addSection(1, 415010, 5, 1000000, 906000000);
+        addSection(1, 414990, 5, 1000000, 900000000);
+        place("p", 0, 1000000, 51, 0, -400, 100);
+        clearExpected();
+        expectBand(1, 8300000000000, 8300100000000, 1000000, 100);
+        expectBand(1, 8300100000000, 8300200000000, 1000000, 100);
+        expectBand(1, 8299900000000, 8300000000000, 1000000, 104);
+        expectBand(1, 8300200000000, 8300300000000, 1000000, 109);
+        expectBand(1, 8299800000000, 8299900000000, 1000000, 110);
+        checkPlaced("p", 0, 5000000, 100000);
+        checkState(5000000, 25000000, 0, 20000000, 9800000, 200000, 0, 0, 0);
+        barAt(1, 8300000000000, 8300180000000, 8299880000000, 8300000000000);
+        expectSettled("loser", 0, 1, 0, 0);
+        expectSettled("p", 31, 0, 5207000, 0);
+        settleAdd("loser");
+        settleAdd("p");
+        settle();
+        checkState(10207000, 25000000, 0, 20000000, 4570000, 223000, 0, 0, 0);
+    }
+
+    /// difficulty 100: the floor eases to 1x
+    function test_case_3() public {
         begin(100, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -69,7 +105,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// momentum takes its margin off the side the price moved toward only
-    function test_case_3() public {
+    function test_case_4() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -94,7 +130,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// a big band stakes only what 256 dots pay for; the rest is refunded
-    function test_case_4() public {
+    function test_case_5() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -107,7 +143,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// a band with no chance is not offered; the rest goes in
-    function test_case_5() public {
+    function test_case_6() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -127,7 +163,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// a band whose second is already posted is not offered
-    function test_case_6() public {
+    function test_case_7() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         barAt(1, 8300000000000, 8300000000000, 8300000000000, 8300000000000);
         settle();
@@ -144,7 +180,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// bands are judged one unit wider each way, inclusive
-    function test_case_7() public {
+    function test_case_8() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -168,7 +204,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// the previous close counts: a jump across the ink crosses it
-    function test_case_8() public {
+    function test_case_9() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -189,7 +225,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// a win the pool cannot pay is owed, and so is the house's cut
-    function test_case_9() public {
+    function test_case_10() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -207,7 +243,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// another player's losses are what pays a winner
-    function test_case_10() public {
+    function test_case_11() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 30000000, 25000000);
         // "loser"
         clearPiece();
@@ -235,7 +271,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// fees at their bounds
-    function test_case_11() public {
+    function test_case_12() public {
         begin(51, 2000, 5000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -253,7 +289,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// refusals, and nothing moves for them
-    function test_case_12() public {
+    function test_case_13() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "difficulty"
         clearPiece();
@@ -307,8 +343,41 @@ contract ConformanceCases is ConformanceRunner {
         checkState(9950000, 0, 4950000, 0, 49000, 1000, 0, 0, 0);
     }
 
+    /// a difficulty under 50 is refused, and pieces keep to the one set
+    function test_case_14() public {
+        begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
+        setDifficulty(49, false);
+        checkState(10000000, 0, 5000000, 0, 0, 0, 0, 0, 0);
+        setDifficulty(0, false);
+        checkState(10000000, 0, 5000000, 0, 0, 0, 0, 0, 0);
+        setDifficulty(101, false);
+        checkState(10000000, 0, 5000000, 0, 0, 0, 0, 0, 0);
+        // "at49"
+        clearPiece();
+        addSection(1, 415000, 5, 50000, 1000000000);
+        place("at49", 0, 100000, 49, 0, -400, 100);
+        checkRefused("Difficulty");
+        checkState(10000000, 0, 5000000, 0, 0, 0, 0, 0, 0);
+        setDifficulty(50, true);
+        checkState(10000000, 0, 5000000, 0, 0, 0, 0, 0, 0);
+        // "at50"
+        clearPiece();
+        addSection(1, 415000, 5, 50000, 1000000000);
+        place("at50", 0, 100000, 50, 0, -400, 100);
+        clearExpected();
+        expectBand(1, 8300000000000, 8300100000000, 50000, 100);
+        checkPlaced("at50", 0, 50000, 1000);
+        checkState(9950000, 0, 4950000, 0, 49000, 1000, 0, 0, 0);
+        // "at51"
+        clearPiece();
+        addSection(1, 415000, 5, 50000, 500000000);
+        place("at51", 0, 100000, 51, 0, -400, 100);
+        checkRefused("Difficulty");
+        checkState(9950000, 0, 4950000, 0, 49000, 1000, 0, 0, 0);
+    }
+
     /// more than the balance is refused
-    function test_case_13() public {
+    function test_case_15() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 40000, 5000000, 0, 0);
         // "p"
         clearPiece();

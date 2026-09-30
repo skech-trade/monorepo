@@ -3,7 +3,7 @@
  * integers the app prices with): what each step of a case must do. `SkechGame.sol` and `programs/skech` are held
  * to what this says, number for number.
  */
-import { crosses, grossE6, maxStakeE6, rungE2, withMomentum } from "@skech/core/chain";
+import { crosses, grossE6, maxStakeE6, MIN_DIFFICULTY, rungE2, withMomentum } from "@skech/core/chain";
 import type { Case, Step } from "./cases";
 
 export const HORIZON = 30;
@@ -20,7 +20,7 @@ export type Band = { second: number; lo: number; hi: number; stake: number; rung
 export type PlaceOut = { ok: true; sections: Band[]; staked: number; fee: number; refunded: number } | { ok: false; refused: string };
 export type Settled = { id: string; hitMask: number; missMask: number; paid: number; owed: number };
 export type State = { balance: Record<string, number>; allowance: Record<string, number>; pool: number; fees: number; owed: Record<string, number>; houseOwed: number };
-export type StepOut = { place?: PlaceOut; settled?: Settled[]; state: State };
+export type StepOut = { place?: PlaceOut; settled?: Settled[]; difficulty?: { ok: true } | { ok: false; refused: string }; state: State };
 
 type Bet = { player: string; unit: number; sections: Band[]; live: number; hit: number };
 
@@ -38,6 +38,7 @@ export function run(c: Case): StepOut[] {
   let pool = 0n;
   let fees = 0n;
   let houseOwed = 0n;
+  let marketDifficulty = c.difficulty;
   const posted = new Map<number, { prevClose: bigint; high: bigint; low: bigint; close: bigint }>();
   const bets = new Map<string, Bet>();
   const state = (): State => ({
@@ -65,7 +66,12 @@ export function run(c: Case): StepOut[] {
 
   const out: StepOut[] = [];
   for (const step of c.steps as Step[]) {
-    if ("place" in step) {
+    if ("difficulty" in step) {
+      // The least is 50: under it, ink exactly on a rung returns more than a dollar.
+      const ok = step.difficulty >= MIN_DIFFICULTY && step.difficulty <= 100;
+      if (ok) marketDifficulty = step.difficulty;
+      out.push({ difficulty: ok ? { ok } : { ok, refused: "BadDifficulty" }, state: state() });
+    } else if ("place" in step) {
       const s = step.place;
       const who = s.player ?? "a";
       const refuse = (why: string): StepOut => ({ place: { ok: false, refused: why }, state: state() });
@@ -78,7 +84,7 @@ export function run(c: Case): StepOut[] {
         out.push(refuse("Replay"));
         continue;
       }
-      if (difficulty !== c.difficulty) {
+      if (difficulty !== marketDifficulty) {
         out.push(refuse("Difficulty"));
         continue;
       }

@@ -2,7 +2,7 @@
 
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
+import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
 import { areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
 import { betIdOf, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, strokeHash, toE6, toE8, toSections, TYPES, unitFor } from "@skech/core/chain";
@@ -1142,11 +1142,11 @@ export function InkScreen() {
           </SheetHeader>
           <SheetPanel className="flex flex-col gap-4 px-6 pb-8 text-sm leading-relaxed">
             <p>Draw ahead of the live price. One full dot at your selected pen size costs the amount under Per dot. A longer stroke costs more; retracing ink in the same drawing adds no cost. The total cost rounds up to the next cent, once per drawing.</p>
-            <p>Every part of your ink pays a rung of the ladder on the map, 1.1× up to 128× what it cost, if the price crosses it in its second. Rungs come from the chance the price reaches that spot then: near the price and soon is likely and pays little; far away pays a lot. A wider pen puts more ink, and more money, on the same spots; it never changes what a spot pays. Only solid blue ink is in play. A hit pays immediately.</p>
+            <p>Every part of your ink pays a rung of the ladder on the map, 1× up to 128× what it cost, if the price crosses it in its second. Rungs come from the chance the price reaches that spot then: near the price and soon is likely and pays little; far away pays a lot. A wider pen puts more ink, and more money, on the same spots; it never changes what a spot pays. Only solid blue ink is in play. A hit pays immediately.</p>
             <p>Ink is bet as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing. The drawing’s cost rounds up to the cent once, over all of it.</p>
             <p>Placing a drawing takes its stake from your balance straight away; what just moved your balance shows under it. The number beside it is what you have won: this round&rsquo;s payouts while ink is in play, this session&rsquo;s otherwise. Tap it for the scoreboard. Hits pay the moment the price touches them; the rest settles when its second closes.</p>
             <p>Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches {RULES.horizon} seconds ahead.</p>
-            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Nothing pays under {difficulty(level).ladderFloor}×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {forReal ? "skech keeps 4% of every stake and 10% of every win. Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills." : "Your balance is practice money saved in this browser."}</p>
+            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for {difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {forReal ? "skech keeps 4% of every stake and 10% of every win. Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills." : "Your balance is practice money saved in this browser."}</p>
             {house && !forReal ? (
               <div className="flex flex-col gap-3 rounded-[14px] bg-muted p-4">
                 <div className="flex items-baseline justify-between">
@@ -1156,9 +1156,9 @@ export function InkScreen() {
                     {state.houseDifficulty === null ? <span className="font-normal text-muted-foreground text-xs"> default</span> : null}
                   </p>
                 </div>
-                <Slider aria-label="Difficulty" max={100} min={0} onValueChange={(v) => setPractice({ houseDifficulty: Array.isArray(v) ? v[0] : v })} step={5} value={level} />
+                <Slider aria-label="Difficulty" max={100} min={MIN_DIFFICULTY} onValueChange={(v) => setPractice({ houseDifficulty: Array.isArray(v) ? v[0] : v })} step={5} value={level} />
                 <p className="figures text-muted-foreground text-xs">
-                  Best ink {Math.round(difficulty(level).ladderBest * 100)}¢ a dollar · pays {difficulty(level).ladderFloor}× to 128× · momentum margin {difficulty(level).momentumMargin}
+                  Best ink {Math.round(difficulty(level).ladderBest * 100)}¢ a dollar · pays 1× to 128× · momentum margin {difficulty(level).momentumMargin}
                 </p>
                 <p className="text-muted-foreground text-xs">For the house, while it is practice money. Drawings already open keep what they opened on.</p>
                 {state.houseDifficulty !== null ? (

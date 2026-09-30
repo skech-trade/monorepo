@@ -235,6 +235,8 @@ contract SkechGame is
 
     /// @notice Seconds ahead a band may be.
     uint8 public constant HORIZON = 30;
+    /// @notice The least difficulty a market may be set to, as `SkechLadder` prices it.
+    uint8 public constant MIN_DIFFICULTY = SkechLadder.MIN_DIFFICULTY;
     /// @notice Sections in one piece, at most.
     uint8 public constant MAX_SECTIONS = 32;
 
@@ -383,9 +385,10 @@ contract SkechGame is
         _setMarket(id, name, active, difficulty);
     }
 
-    /// @notice How hard the game is on `market`, 0 to 100: pieces placed from now on pay by it. Pieces already open keep theirs.
+    /// @notice How hard the game is on `market`, 50 to 100: pieces placed from now on pay by it. Pieces already open keep
+    /// theirs. Below 50, ink exactly on a rung would return more than a dollar.
     function setDifficulty(uint8 market, uint8 difficulty) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (difficulty > 100) revert BadDifficulty();
+        if (difficulty < SkechLadder.MIN_DIFFICULTY || difficulty > 100) revert BadDifficulty();
         GameStorage storage $ = _s();
         if ($.markets[market].nameHash == bytes32(0)) revert MarketInactive();
         $.markets[market].difficulty = difficulty;
@@ -405,7 +408,7 @@ contract SkechGame is
     }
 
     function _setMarket(uint8 id, string memory name, bool active, uint8 difficulty) private {
-        if (difficulty > 100) revert BadDifficulty();
+        if (difficulty < SkechLadder.MIN_DIFFICULTY || difficulty > 100) revert BadDifficulty();
         if (bytes(name).length == 0) revert BadConfig();
         GameStorage storage $ = _s();
         if ($.markets[id].nameHash == bytes32(0)) $.marketCount++;

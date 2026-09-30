@@ -9,7 +9,7 @@
 
 import { encodePacked, keccak256, type Address, type Hex, type TypedDataDomain } from "viem";
 import { INK_CELL } from "./ink-area";
-import { difficulty as difficultyOf } from "./dots";
+import { difficulty as difficultyOf, MIN_DIFFICULTY } from "./dots";
 import type { Cell } from "./ink";
 
 /* ------------------------------------------------------------------ */
@@ -42,9 +42,10 @@ export const E6 = 1_000_000n;
 /* The ladder, in integers, as the chain computes it                   */
 /* ------------------------------------------------------------------ */
 
-/** What ink exactly on a rung returns per dollar at difficulty `d`, x1000. */
-export const bestE3 = (d: number) => 1200 - 4 * d;
-/** The least any hit pays at difficulty `d`, x100: 110 up to 70, easing to 100 at 100. */
+export { MIN_DIFFICULTY };
+/** What ink exactly on a rung returns per dollar at difficulty `d`, x1000: 1200 - 4d, a difficulty under the least priced as the least. */
+export const bestE3 = (d: number) => 1200 - 4 * Math.max(d, MIN_DIFFICULTY);
+/** The least a rung pays at difficulty `d`, x100: 110 up to 70, easing to 100 at 100. Likelier ink pays its fair multiple. */
 export const floorE2 = (d: number) => (d <= 70 ? 110 : 110 - Math.floor(((d - 70) * 10 + 15) / 30));
 
 /**
@@ -57,6 +58,8 @@ export function rungE2(chanceE9: number, d: number, withIt: boolean, momentumE6:
   const marginE9 = withIt ? BigInt(MARGIN_E3) * BigInt(Math.min(2_000_000, Math.abs(Math.trunc(momentumE6)))) : 0n;
   // Fair x1000, rounded down, exactly as the chain: past 2^53, so in bigints.
   const fairE3 = Number(((BigInt(bestE3(d)) * 1_000_000n - marginE9) * BigInt(CHANCE_ONE)) / (BigInt(chanceE9) * 1_000_000n));
+  // Too likely for the floor: its fair multiple, rounded down to the hundredth, and never under 1x.
+  if (fairE3 < floorE2(d) * 10) return Math.max(100, Math.floor(fairE3 / 10));
   let best = floorE2(d);
   for (const r of LADDER_E2) {
     if (r * 10 > fairE3) break;

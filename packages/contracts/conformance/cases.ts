@@ -25,7 +25,9 @@ export type PlaceStep = {
   };
 };
 export type BarStep = { bar: { second: number; prevClose: number; high: number; low: number; close: number; settle: string[] } };
-export type Step = PlaceStep | BarStep;
+/** The admin sets the market's difficulty: pieces from then on must be signed at it. */
+export type DifficultyStep = { difficulty: number };
+export type Step = PlaceStep | BarStep | DifficultyStep;
 export type Case = {
   name: string;
   /** What each player has in the game, and what their session may stake. */
@@ -61,13 +63,13 @@ export const CASES: Case[] = [
   },
   {
     ...std,
-    name: "the ladder across difficulties and chances",
-    difficulty: 0,
+    name: "the ladder across chances, at the least difficulty",
+    difficulty: 50,
     steps: [
       {
         place: {
           id: "p",
-          difficulty: 0,
+          difficulty: 50,
           perDot: 1_000_000,
           sections: [
             { second: 1, lo: AT, width: 5, stake: 10_000, chance: 1_000_000_000 },
@@ -79,6 +81,30 @@ export const CASES: Case[] = [
           ],
         },
       },
+    ],
+  },
+  {
+    ...std,
+    name: "near-certain ink pays its fair multiple, to the hundredth, never under 1x",
+    players: { a: { deposit: 10_000_000, allowance: 5_000_000 }, b: { deposit: 30_000_000, allowance: 25_000_000 } },
+    steps: [
+      // Someone else's miss first, so the pool can pay every hit in full.
+      { place: { id: "loser", player: "b", perDot: 1_000_000, sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 5_000_000, chance: 500_000_000 }] } },
+      {
+        place: {
+          id: "p",
+          perDot: 1_000_000,
+          sections: [
+            { second: 1, lo: AT, width: 5, stake: 1_000_000, chance: 1_000_000_000 },
+            { second: 1, lo: AT + 5, width: 5, stake: 1_000_000, chance: 990_000_000 },
+            { second: 1, lo: AT - 5, width: 5, stake: 1_000_000, chance: 950_000_000 },
+            { second: 1, lo: AT + 10, width: 5, stake: 1_000_000, chance: 906_000_000 },
+            { second: 1, lo: AT - 10, width: 5, stake: 1_000_000, chance: 900_000_000 },
+          ],
+        },
+      },
+      // The price runs from nine units up to six down: every band is reached, so all five are hit.
+      { bar: { ...flat(1, PRICE, at(9), at(-6)), settle: ["loser", "p"] } },
     ],
   },
   {
@@ -202,6 +228,19 @@ export const CASES: Case[] = [
       { place: { id: "allowance", perDot: 1_000_000, sections: [{ second: 1, lo: AT, width: 5, stake: 5_000_001, chance: 500_000_000 }] } },
       { place: { id: "ok", sections: [{ second: 1, lo: AT, width: 5, stake: 50_000, chance: 500_000_000 }] } },
       { place: { id: "ok", sections: [{ second: 1, lo: AT, width: 5, stake: 50_000, chance: 500_000_000 }] } },
+    ],
+  },
+  {
+    ...std,
+    name: "a difficulty under 50 is refused, and pieces keep to the one set",
+    steps: [
+      { difficulty: 49 },
+      { difficulty: 0 },
+      { difficulty: 101 },
+      { place: { id: "at49", difficulty: 49, sections: [{ second: 1, lo: AT, width: 5, stake: 50_000, chance: 1_000_000_000 }] } },
+      { difficulty: 50 },
+      { place: { id: "at50", difficulty: 50, sections: [{ second: 1, lo: AT, width: 5, stake: 50_000, chance: 1_000_000_000 }] } },
+      { place: { id: "at51", difficulty: 51, sections: [{ second: 1, lo: AT, width: 5, stake: 50_000, chance: 500_000_000 }] } },
     ],
   },
   {

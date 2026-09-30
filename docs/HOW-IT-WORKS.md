@@ -109,15 +109,18 @@ Every piece of ink pays a rung of one ladder, per dollar of ink:
 ```
 LADDER = 1.1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128 (×)
 fair   = (ladderBest − momentum margin) / p
-rung   = the highest rung ≤ fair, or the floor if fair is under it, or 128× past it
+rung   = the highest rung ≤ fair, or 128× past it; under the floor, fair itself,
+         rounded down to the hundredth, and never under 1×
 hit pays d × stake × rung                  (one section pays at most 256 dots)
 ```
 
-- **Difficulty** is one number, 0 to 100 (`DIFFICULTY` in `dots.ts`, 55 by default;
+- **Difficulty** is one number, 50 to 100 (`DIFFICULTY` in `dots.ts`, 55 by default;
   a slider in the help sheet in development, or with `?house`). It sets `ladderBest`,
-  what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 98¢ at 55. It also sets
-  the floor, what near-certain ink pays: 1.1× up to 70, easing to 1× at 100. Harder
-  lowers every rung a spot earns; nothing ever pays under 1×.
+  what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 98¢ at 55. Under 50 that
+  is more than a dollar, so both chains refuse a lower setting (`MIN_DIFFICULTY`), and
+  price one set lower before there was a least as 50. It also sets the floor, the least
+  a rung pays: 1.1× up to 70, easing to 1× at 100. Harder lowers every rung a spot earns;
+  nothing ever pays under 1×.
 - A section's chance `p` sets its rung. Ink placed exactly on a rung returns
   `ladderBest` per dollar. Everywhere between rungs rounds down, by at most a third, and 15% on average.
   Rungs double, with one between each pair, so the loss stays small.
@@ -128,8 +131,10 @@ hit pays d × stake × rung                  (one section pays at most 256 dots)
   likeliest price (`fallingChances` in `dots.ts`), which only ever lowers a payout.
 - On the side the price has just moved toward, fair is lowered by 0.11 × momentum,
   at most two units.
-- Ink too likely for the floor still pays the floor, so no stroke is cut. Where it is over 91%
-  likely, that ink returns more than a dollar; see the replay's `on-price` row.
+- Ink too likely for the floor pays its fair multiple, rounded down to the hundredth, and
+  never under 1×: 99% likely at 55 pays 1× (99¢ back), 90% pays 1.08×. So no stroke is
+  cut, and at every chance and difficulty a band returns at most a dollar per dollar before
+  fees (chance × rung ≤ 1, tested exhaustively in `chain.test.ts` and fuzzed on chain).
 - Ink worth more than 128× pays 128×, so the farthest ink returns less than the rest.
 
 The map shows three columns of numbers, each doubling rung (2×, 4× … 128×) once per
@@ -145,7 +150,7 @@ never the rung a given chance earns.
 
 ### Time
 
-On the price line the rung rises with time: 1.1× a few seconds out, 4× at 30
+On the price line the rung rises with time: about 1× a few seconds out, 4× at 30
 seconds, because the price has longer to wander off. At the edge it falls with
 time: a far level is out of reach in 5 seconds but not in 30.
 
@@ -215,6 +220,9 @@ and `on-price`, ink only on the live price in the first seconds.
 STEP=600 OUT=report.json bun packages/core/scripts/check-ink-area.ts \
   packages/core/src/dots-lib.bin <csv folder> 2026-09-17 2026-09-18 …
 ```
+
+These figures predate the rule that near-certain ink pays its fair multiple, not the floor:
+`on-price`, and a little of every other row, will come in lower when the replay is run again.
 
 Coinbase BTC-USD, September 17–24, library from September 1–16, at difficulty 70
 (ladder best 92¢): 172,777 drawings opened, 8,047,900 invariant checks passed. At the

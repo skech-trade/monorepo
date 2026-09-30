@@ -2340,7 +2340,7 @@
           {
             "name": "difficulty",
             "docs": [
-              "0 to 100: how hard the game is here. Pieces placed from now on pay by it."
+              "50 to 100: how hard the game is here. Pieces placed from now on pay by it."
             ],
             "type": "u8"
           },

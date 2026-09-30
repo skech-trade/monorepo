@@ -40,6 +40,7 @@ struct PlayerIn {
 enum Step {
     Place { place: PlaceIn },
     Bar { bar: BarIn },
+    Difficulty { difficulty: u8 },
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,7 +76,12 @@ struct BarIn {
 struct StepOut {
     place: Option<PlaceOut>,
     settled: Option<Vec<SettledOut>>,
+    difficulty: Option<DifficultyOut>,
     state: State,
+}
+#[derive(Deserialize)]
+struct DifficultyOut {
+    ok: bool,
 }
 #[derive(Deserialize)]
 struct PlaceOut {
@@ -173,6 +179,20 @@ fn run(c: &Case) {
     for (i, (step, want)) in c.steps.iter().zip(&c.expect).enumerate() {
         let at = format!("{} · step {}", c.name, i + 1);
         match step {
+            Step::Difficulty { difficulty } => {
+                let ok = want.difficulty.as_ref().expect("a difficulty step's expectation").ok;
+                let market = |g: &Game| g.account::<skech::state::Market>(&market_pda(0)).unwrap().difficulty;
+                let before = market(&g);
+                let set = g.ix(skech::accounts::SetMarket { admin: admin.pubkey(), game: game_pda(), market: market_pda(0) }, skech::instruction::SetMarket { active: true, difficulty: *difficulty });
+                let r = g.send(&[set], &[&admin]);
+                if ok {
+                    r.unwrap_or_else(|f| panic!("{at}: difficulty {difficulty} refused ({:?})", f.err));
+                    assert_eq!(market(&g), *difficulty, "{at}: difficulty");
+                } else {
+                    assert_eq!(custom_error(&r), Some(code(SkechError::BadDifficulty)), "{at}: difficulty {difficulty} refused");
+                    assert_eq!(market(&g), before, "{at}: difficulty unchanged");
+                }
+            }
             Step::Place { place: s } => {
                 let who = &players[s.player.as_deref().unwrap_or("a")];
                 let received = open_at + s.received.unwrap_or(-400);

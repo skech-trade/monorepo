@@ -20,7 +20,7 @@ import {ISkechIOU} from "../src/interfaces/ISkechIOU.sol";
 ///
 /// The deployer is the admin of everything. ORACLE_ADDRESS: the engine's wallet (its `hello.signer`); the same
 /// key as the deployer is fine on testnet. USDC: Circle's on Monad testnet unless set. IOU_RATE: how much an IOU
-/// grows per block, x1e18 (3.5e9 is about 0.1% a day at 300 ms blocks). DIFFICULTY: 0 to 100, 51 unless set.
+/// grows per block, x1e18 (3.5e9 is about 0.1% a day at 300 ms blocks). DIFFICULTY: 50 to 100, 51 unless set.
 /// Writes `deployments/<chainId>.json`, which the relayer and the app read.
 contract Deploy is Script {
     function run() external {

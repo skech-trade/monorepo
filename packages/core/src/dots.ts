@@ -24,16 +24,20 @@
  * server can run the same code once there is money in it.
  */
 
+/** The least difficulty the game may be set to, here and on chain: below it, ink exactly on a rung returns more than a dollar. */
+export const MIN_DIFFICULTY = 50;
+
 /**
- * How hard the game is, from 0 to 100: one number that sets every lever the
- * house has, together.
+ * How hard the game is, from 50 to 100: one number that sets every lever the
+ * house has, together. Below 50 ink exactly on a rung would return more than a
+ * dollar, so a lower number is taken as 50, here and on chain.
  *
  *   rtp             0.94 - 0.32 * d/100          what a point returns on average
  *   maxMultiple     40 * 0.14^(d/100), at least 2x   the most one hit pays
  *   minMultiple     1.01, rising to 1.10 above 50    less than this is not offered
  *   momentumMargin  0.11 at every level          taken off the side it just moved to
  *   ladderBest      1.20 - 0.40 * d/100          what ink exactly on a ladder rung returns (new drawings)
- *   ladderFloor     1.1x, easing to 1x from 70 to 100   the least any ink pays when hit
+ *   ladderFloor     1.1x, easing to 1x from 70 to 100   the least a rung pays; likelier ink pays its fair multiple, never under 1x
  *
  * The top payout is the trade: a low cap makes wins small and frequent but
  * offers only points near the price, a high one lets a line go anywhere and
@@ -43,7 +47,7 @@
  * (`check-ink.ts`, DIFFICULTY=, prints every level).
  */
 export function difficulty(d: number) {
-  const k = Math.min(100, Math.max(0, d)) / 100;
+  const k = Math.min(100, Math.max(MIN_DIFFICULTY, d)) / 100;
   return {
     difficulty: Math.round(k * 100),
     rtp: Math.round((0.94 - 0.32 * k) * 1000) / 1000,
@@ -52,12 +56,12 @@ export function difficulty(d: number) {
     // Held where it stopped a bot drawing with the last three seconds' move: raised with the rest, it took a fine pen's far points down to half a dollar back.
     momentumMargin: 0.11,
     // The ladder new drawings pay on. Higher difficulty lowers every rung a
-    // spot earns; the floor, what near-certain ink pays, never goes under 1x.
+    // spot earns; ink too likely for the floor pays its fair multiple, never under 1x.
     ladderBest: Math.round((1.2 - 0.4 * k) * 1000) / 1000,
     ladderFloor: Math.max(1, Math.round((1.1 - 0.1 * Math.max(0, k - 0.7) / 0.3) * 100) / 100),
   };
 }
-/** The game's difficulty, 0 to 100: the one setting for how much the house
+/** The game's difficulty, 50 to 100: the one setting for how much the house
  * keeps. At 55, ink exactly on a rung returns 98¢ a dollar, about 78¢ on
  * average once spots round down to their rung (Sept 17–24 replay: 0.779). */
 export const DIFFICULTY = 55;

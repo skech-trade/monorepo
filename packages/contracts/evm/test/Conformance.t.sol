@@ -63,6 +63,15 @@ abstract contract ConformanceRunner is Base {
         }
     }
 
+    /// The admin sets the market's difficulty; `ok` false: it is refused, and nothing changes.
+    function setDifficulty(uint8 difficulty, bool ok) internal {
+        uint8 before = game.difficultyOf(BTC);
+        vm.prank(admin);
+        if (!ok) vm.expectRevert(SkechGame.BadDifficulty.selector);
+        game.setDifficulty(BTC, difficulty);
+        assertEq(game.difficultyOf(BTC), ok ? difficulty : before, "difficulty");
+    }
+
     function clearPiece() internal {
         delete sections;
         delete chances;

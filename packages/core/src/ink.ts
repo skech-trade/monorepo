@@ -1,7 +1,7 @@
 /**
  * Freehand drawing contracts. New drawings use ladder-v1: the union of the
  * swept nib is priced in full-dot units, split into rounded sections, and
- * each section pays a rung of the ladder (1.1x to 32x) set by its chance.
+ * each section pays a rung of the ladder (1x to 128x) set by its chance.
  * Legacy per-row contracts retain their original pricing and settlement.
  * See docs/HOW-IT-WORKS.md for the equations and the replay.
  */

@@ -906,9 +906,21 @@ contract SkechGameTest is Base {
         assertEq(game.rungFor(BTC, 500_000_000, false, 0), 150);
         assertEq(game.rungFor(BTC, 750_000_000, false, 0), 100);
         assertEq(game.rungFor(BTC, 600_000_000, false, 0), 110);
+        // 90% earns 0.889: under the floor, so its fair multiple, never under 1x.
+        assertEq(game.rungFor(BTC, 900_000_000, false, 0), 100);
         vm.prank(admin);
         vm.expectRevert(SkechGame.BadDifficulty.selector);
         game.setDifficulty(BTC, 101);
+        // Under 50, ink exactly on a rung would return more than a dollar: refused, on its own and with the market.
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadDifficulty.selector);
+        game.setDifficulty(BTC, 49);
+        vm.prank(admin);
+        vm.expectRevert(SkechGame.BadDifficulty.selector);
+        game.setMarket(BTC, "BTC-USD", true, 0);
+        vm.prank(admin);
+        game.setDifficulty(BTC, 50);
+        assertEq(game.rungFor(BTC, 1_000_000_000, false, 0), 100);
         vm.prank(keeper);
         vm.expectRevert();
         game.setDifficulty(BTC, 10);

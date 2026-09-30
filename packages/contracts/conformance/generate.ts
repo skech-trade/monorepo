@@ -36,7 +36,9 @@ vectors.cases.forEach((c, ci) => {
   lines.push(`        begin(${c.difficulty}, ${c.feeBps}, ${c.profitFeeBps}, ${u(c.price)}, ${u(c.unit)}, ${c.players.a.deposit}, ${c.players.a.allowance}, ${b ? b.deposit : 0}, ${b ? b.allowance : 0});`);
   c.steps.forEach((step, si) => {
     const e = c.expect[si];
-    if ("place" in step) {
+    if ("difficulty" in step) {
+      lines.push(`        setDifficulty(${step.difficulty}, ${e.difficulty!.ok});`);
+    } else if ("place" in step) {
       const s = step.place;
       lines.push(`        // ${JSON.stringify(s.id)}`);
       lines.push(`        clearPiece();`);

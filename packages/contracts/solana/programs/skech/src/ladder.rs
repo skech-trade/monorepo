@@ -4,12 +4,16 @@
 //! shows, what Monad pays and what Solana pays cannot drift. `tests/src/ladder.rs` checks this against
 //! vectors printed by the TypeScript.
 //!
-//!   best   = 1.20 - 0.40 * d/100          what ink exactly on a rung returns, per dollar (e3 here)
-//!   floor  = 1.10, easing to 1.00 from d = 70 to 100   the least any ink pays (e2 here)
+//!   d      = the difficulty, 50 to 100: one set lower is priced as 50
+//!   best   = 1.20 - 0.40 * d/100          what ink exactly on a rung returns, per dollar (e3 here), at most 1.00
+//!   floor  = 1.10, easing to 1.00 from d = 70 to 100   the least a rung pays (e2 here)
 //!   margin = 0.11 * min(2, |momentum|)    taken off the side the price just moved toward
 //!   fair   = (best - margin) / chance
-//!   rung   = the highest rung <= fair, or the floor if fair is under it
+//!   rung   = the highest rung <= fair, the floor if fair is between it and the first rung, and under the floor
+//!            fair itself, rounded down to the hundredth and never under 1.00
 //!   a section never pays more than 256 dots: a big one stakes only what that pays for
+//!
+//! So chance x rung is never more than 1: no band returns more than it stakes, on average, before fees.
 
 /// The rungs, x100: 1.1x, 1.5x, 2x, 3x, 4x, 6x, 8x, 12x, 16x, 24x, 32x, 48x, 64x, 96x, 128x.
 pub const RUNGS: [u16; 15] = [110, 150, 200, 300, 400, 600, 800, 1200, 1600, 2400, 3200, 4800, 6400, 9600, 12800];
@@ -18,13 +22,19 @@ pub const MAX_DOTS: u64 = 256;
 /// The momentum margin, x1000, per unit of momentum, over at most two units.
 pub const MARGIN_E3: u64 = 110;
 pub const CHANCE_ONE: u32 = 1_000_000_000;
+/// The least difficulty a market may be set to: below it, ink exactly on a rung returns more than a dollar.
+pub const MIN_DIFFICULTY: u8 = 50;
+/// The least any hit pays, x100: its stake back.
+pub const ONE_E2: u16 = 100;
 
-/// What ink exactly on a rung returns per dollar at difficulty `d`, x1000: 1200 - 4d.
+/// What ink exactly on a rung returns per dollar at difficulty `d`, x1000: 1200 - 4d. A difficulty under the least (a
+/// market set before there was one) is priced as the least, so this is never more than 1000.
 pub fn best_e3(d: u8) -> u64 {
-    1200 - 4 * d as u64
+    1200 - 4 * d.max(MIN_DIFFICULTY) as u64
 }
 
-/// The least any hit pays at difficulty `d`, x100: 110 up to 70, easing to 100 at 100 (rounded, as the app rounds).
+/// The least a rung pays at difficulty `d`, x100: 110 up to 70, easing to 100 at 100 (rounded, as the app rounds).
+/// Ink likelier than that pays its fair multiple.
 pub fn floor_e2(d: u8) -> u16 {
     if d <= 70 {
         return 110;
@@ -43,6 +53,10 @@ pub fn rung_for(chance_e9: u32, d: u8, with_it: bool, momentum_e6: i64) -> u16 {
     // best_e3 is at least 800 and the margin at most 0.22, so this is positive: fair x1000, rounded down.
     let fair_e3 = ((best_e3(d) as u128 * 1_000_000 - margin_e9) * CHANCE_ONE as u128) / (chance_e9 as u128 * 1_000_000);
     let mut best = floor_e2(d);
+    // Too likely for the floor: its fair multiple, rounded down to the hundredth, and never under its stake back.
+    if fair_e3 < best as u128 * 10 {
+        return ((fair_e3 / 10) as u16).max(ONE_E2);
+    }
     for r in RUNGS {
         if r as u128 * 10 > fair_e3 {
             break;
@@ -101,8 +115,12 @@ mod tests {
         assert_eq!(rung_for(0, 51, false, 0), 0);
         assert_eq!(rung_for(CHANCE_ONE + 1, 51, false, 0), 0);
         assert_eq!(rung_for(500_000_000, 101, false, 0), 0);
-        // A sure thing pays the floor.
-        assert_eq!(rung_for(CHANCE_ONE, 0, false, 0), 110);
+        // A sure thing pays its stake back, not the floor; nor does a difficulty under the least pay more.
+        assert_eq!(rung_for(CHANCE_ONE, 51, false, 0), 100);
+        assert_eq!(rung_for(CHANCE_ONE, 0, false, 0), 100);
+        assert_eq!(rung_for(950_000_000, 51, false, 0), 104);
+        assert_eq!(best_e3(0), 1000);
+        assert_eq!(best_e3(49), 1000);
         assert_eq!(floor_e2(100), 100);
         // 50% at d=51: fair 1.992x, rung 1.5x (HOW-IT-WORKS, fees and the pool).
         assert_eq!(rung_for(500_000_000, 51, false, 0), 150);

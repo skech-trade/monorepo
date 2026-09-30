@@ -8,6 +8,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 use crate::error::SkechError;
 use crate::events::{ConfigSet, MarketSet};
+use crate::ladder;
 use crate::program::Skech;
 use crate::state::*;
 
@@ -169,7 +170,7 @@ pub struct InitMarket<'info> {
 }
 
 pub fn init_market(ctx: Context<InitMarket>, id: u8, name: String, difficulty: u8) -> Result<()> {
-    require!(difficulty <= 100, SkechError::BadDifficulty);
+    require!((ladder::MIN_DIFFICULTY..=100).contains(&difficulty), SkechError::BadDifficulty);
     require!(!name.is_empty() && name.len() <= 16, SkechError::BadConfig);
     let market = &mut ctx.accounts.market;
     market.id = id;
@@ -191,9 +192,10 @@ pub struct SetMarket<'info> {
     pub market: Account<'info, Market>,
 }
 
-/// Open or close a market, and set how hard it is, 0 to 100. Pieces already open keep the difficulty they were placed at.
+/// Open or close a market, and set how hard it is, 50 to 100: below 50, ink exactly on a rung would return more than a
+/// dollar. Pieces already open keep the difficulty they were placed at.
 pub fn set_market(ctx: Context<SetMarket>, active: bool, difficulty: u8) -> Result<()> {
-    require!(difficulty <= 100, SkechError::BadDifficulty);
+    require!((ladder::MIN_DIFFICULTY..=100).contains(&difficulty), SkechError::BadDifficulty);
     let market = &mut ctx.accounts.market;
     market.active = active;
     market.difficulty = difficulty;

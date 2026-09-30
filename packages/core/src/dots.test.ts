@@ -178,9 +178,8 @@ test("the library survives a round trip, and the shipped one is the version the 
 
 test("difficulty sets every lever together, harder all the way up", async () => {
   const { difficulty } = await import("./dots");
-  const levels = [0, 30, 60, 80, 100].map(difficulty);
-  expect(levels[0]).toMatchObject({ rtp: 0.94, maxMultiple: 40, minMultiple: 1.01 });
-  expect(difficulty(50)).toMatchObject({ rtp: 0.78, maxMultiple: 15, minMultiple: 1.01 });
+  const levels = [50, 60, 70, 80, 100].map(difficulty);
+  expect(levels[0]).toMatchObject({ difficulty: 50, rtp: 0.78, maxMultiple: 15, minMultiple: 1.01, ladderBest: 1 });
   expect(levels[4]).toMatchObject({ rtp: 0.62, maxMultiple: 6, minMultiple: 1.1 });
   for (let i = 1; i < levels.length; i++) {
     expect(levels[i].rtp).toBeLessThan(levels[i - 1].rtp);
@@ -188,7 +187,9 @@ test("difficulty sets every lever together, harder all the way up", async () => 
     expect(levels[i].minMultiple).toBeGreaterThanOrEqual(levels[i - 1].minMultiple);
     expect(levels[i].momentumMargin).toBe(0.11);
   }
-  // Out of range is the nearest end.
-  expect(difficulty(-5)).toEqual(difficulty(0));
+  // Out of range is the nearest end: under 50, ink on a rung would return more than a dollar, so it is 50.
+  expect(difficulty(0)).toEqual(difficulty(50));
+  expect(difficulty(-5)).toEqual(difficulty(50));
+  expect(difficulty(49)).toEqual(difficulty(50));
   expect(difficulty(250)).toEqual(difficulty(100));
 });

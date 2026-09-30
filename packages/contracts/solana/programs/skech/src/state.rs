@@ -127,7 +127,7 @@ impl Pool {
 pub struct Market {
     pub id: u8,
     pub active: bool,
-    /// 0 to 100: how hard the game is here. Pieces placed from now on pay by it.
+    /// 50 to 100: how hard the game is here. Pieces placed from now on pay by it.
     pub difficulty: u8,
     /// What the engine calls it: "BTC-USD".
     #[max_len(16)]

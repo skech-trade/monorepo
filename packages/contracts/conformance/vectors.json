@@ -167,17 +167,17 @@
           "allowance": 5000000
         }
       },
-      "difficulty": 0,
+      "difficulty": 50,
       "feeBps": 200,
       "profitFeeBps": 1000,
       "price": 8300000000000,
       "unit": 20000000,
-      "name": "the ladder across difficulties and chances",
+      "name": "the ladder across chances, at the least difficulty",
       "steps": [
         {
           "place": {
             "id": "p",
-            "difficulty": 0,
+            "difficulty": 50,
             "perDot": 1000000,
             "sections": [
               {
@@ -236,7 +236,7 @@
                 "lo": 8300000000000,
                 "hi": 8300100000000,
                 "stake": 10000,
-                "rung": 110
+                "rung": 100
               },
               {
                 "second": 2,
@@ -257,7 +257,7 @@
                 "lo": 8300000000000,
                 "hi": 8300100000000,
                 "stake": 10000,
-                "rung": 2400
+                "rung": 1600
               },
               {
                 "second": 5,
@@ -289,6 +289,231 @@
             "fees": 1200,
             "owed": {
               "a": 0
+            },
+            "houseOwed": 0
+          }
+        }
+      ]
+    },
+    {
+      "players": {
+        "a": {
+          "deposit": 10000000,
+          "allowance": 5000000
+        },
+        "b": {
+          "deposit": 30000000,
+          "allowance": 25000000
+        }
+      },
+      "difficulty": 51,
+      "feeBps": 200,
+      "profitFeeBps": 1000,
+      "price": 8300000000000,
+      "unit": 20000000,
+      "name": "near-certain ink pays its fair multiple, to the hundredth, never under 1x",
+      "steps": [
+        {
+          "place": {
+            "id": "loser",
+            "player": "b",
+            "perDot": 1000000,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 420000,
+                "width": 5,
+                "stake": 5000000,
+                "chance": 500000000
+              }
+            ]
+          }
+        },
+        {
+          "place": {
+            "id": "p",
+            "perDot": 1000000,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 415000,
+                "width": 5,
+                "stake": 1000000,
+                "chance": 1000000000
+              },
+              {
+                "second": 1,
+                "lo": 415005,
+                "width": 5,
+                "stake": 1000000,
+                "chance": 990000000
+              },
+              {
+                "second": 1,
+                "lo": 414995,
+                "width": 5,
+                "stake": 1000000,
+                "chance": 950000000
+              },
+              {
+                "second": 1,
+                "lo": 415010,
+                "width": 5,
+                "stake": 1000000,
+                "chance": 906000000
+              },
+              {
+                "second": 1,
+                "lo": 414990,
+                "width": 5,
+                "stake": 1000000,
+                "chance": 900000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 1,
+            "prevClose": 8300000000000,
+            "high": 8300180000000,
+            "low": 8299880000000,
+            "close": 8300000000000,
+            "settle": [
+              "loser",
+              "p"
+            ]
+          }
+        }
+      ],
+      "expect": [
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8400000000000,
+                "hi": 8400100000000,
+                "stake": 5000000,
+                "rung": 150
+              }
+            ],
+            "staked": 5000000,
+            "fee": 100000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 25000000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 20000000
+            },
+            "pool": 4900000,
+            "fees": 100000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 1000000,
+                "rung": 100
+              },
+              {
+                "second": 1,
+                "lo": 8300100000000,
+                "hi": 8300200000000,
+                "stake": 1000000,
+                "rung": 100
+              },
+              {
+                "second": 1,
+                "lo": 8299900000000,
+                "hi": 8300000000000,
+                "stake": 1000000,
+                "rung": 104
+              },
+              {
+                "second": 1,
+                "lo": 8300200000000,
+                "hi": 8300300000000,
+                "stake": 1000000,
+                "rung": 109
+              },
+              {
+                "second": 1,
+                "lo": 8299800000000,
+                "hi": 8299900000000,
+                "stake": 1000000,
+                "rung": 110
+              }
+            ],
+            "staked": 5000000,
+            "fee": 100000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 5000000,
+              "b": 25000000
+            },
+            "allowance": {
+              "a": 0,
+              "b": 20000000
+            },
+            "pool": 9800000,
+            "fees": 200000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "loser",
+              "hitMask": 0,
+              "missMask": 1,
+              "paid": 0,
+              "owed": 0
+            },
+            {
+              "id": "p",
+              "hitMask": 31,
+              "missMask": 0,
+              "paid": 5207000,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 10207000,
+              "b": 25000000
+            },
+            "allowance": {
+              "a": 0,
+              "b": 20000000
+            },
+            "pool": 4570000,
+            "fees": 223000,
+            "owed": {
+              "a": 0,
+              "b": 0
             },
             "houseOwed": 0
           }
@@ -1701,6 +1926,231 @@
           "place": {
             "ok": false,
             "refused": "Replay"
+          },
+          "state": {
+            "balance": {
+              "a": 9950000
+            },
+            "allowance": {
+              "a": 4950000
+            },
+            "pool": 49000,
+            "fees": 1000,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        }
+      ]
+    },
+    {
+      "players": {
+        "a": {
+          "deposit": 10000000,
+          "allowance": 5000000
+        }
+      },
+      "difficulty": 51,
+      "feeBps": 200,
+      "profitFeeBps": 1000,
+      "price": 8300000000000,
+      "unit": 20000000,
+      "name": "a difficulty under 50 is refused, and pieces keep to the one set",
+      "steps": [
+        {
+          "difficulty": 49
+        },
+        {
+          "difficulty": 0
+        },
+        {
+          "difficulty": 101
+        },
+        {
+          "place": {
+            "id": "at49",
+            "difficulty": 49,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 415000,
+                "width": 5,
+                "stake": 50000,
+                "chance": 1000000000
+              }
+            ]
+          }
+        },
+        {
+          "difficulty": 50
+        },
+        {
+          "place": {
+            "id": "at50",
+            "difficulty": 50,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 415000,
+                "width": 5,
+                "stake": 50000,
+                "chance": 1000000000
+              }
+            ]
+          }
+        },
+        {
+          "place": {
+            "id": "at51",
+            "difficulty": 51,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 415000,
+                "width": 5,
+                "stake": 50000,
+                "chance": 500000000
+              }
+            ]
+          }
+        }
+      ],
+      "expect": [
+        {
+          "difficulty": {
+            "ok": false,
+            "refused": "BadDifficulty"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "difficulty": {
+            "ok": false,
+            "refused": "BadDifficulty"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "difficulty": {
+            "ok": false,
+            "refused": "BadDifficulty"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": false,
+            "refused": "Difficulty"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "difficulty": {
+            "ok": true
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 50000,
+                "rung": 100
+              }
+            ],
+            "staked": 50000,
+            "fee": 1000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 9950000
+            },
+            "allowance": {
+              "a": 4950000
+            },
+            "pool": 49000,
+            "fees": 1000,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": false,
+            "refused": "Difficulty"
           },
           "state": {
             "balance": {

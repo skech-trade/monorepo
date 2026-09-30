@@ -6,6 +6,7 @@ import { judge, type InkBet } from "./ink";
 import {
   bestE3,
   betIdOf,
+  CHANCE_ONE,
   chainSection,
   crosses,
   decodeStroke,
@@ -15,7 +16,10 @@ import {
   floorE2,
   gridStep,
   grossE6,
+  LADDER_E2,
+  ladderOf,
   maxStakeE6,
+  MIN_DIFFICULTY,
   onGrid,
   rungE2,
   strokeHash,
@@ -90,13 +94,22 @@ describe("EIP-3009, as USDC checks it", () => {
 
 describe("the ladder, in integers", () => {
   test("difficulty sets the best and the floor as dots.ts does", () => {
+    expect(MIN_DIFFICULTY).toBe(50);
+    expect(bestE3(50)).toBe(1000);
     expect(bestE3(51)).toBe(996);
     expect(bestE3(100)).toBe(800);
+    // Under the least, priced as the least: ink on a rung never returns more than a dollar.
+    expect([0, 20, 49].map(bestE3)).toEqual([1000, 1000, 1000]);
     expect([0, 70, 71, 72, 75, 80, 85, 90, 95, 100].map(floorE2)).toEqual([110, 110, 110, 109, 108, 107, 105, 103, 102, 100]);
+    for (let d = 0; d <= 100; d++) expect(bestE3(d) / 1000).toBe(ladderOf(d).best);
   });
   test("rungs at 51", () => {
-    expect(rungE2(1_000_000_000, 51, false, 0)).toBe(110);
-    expect(rungE2(950_000_000, 51, false, 0)).toBe(110);
+    // Too likely for 1.1x: the fair multiple to the hundredth, never under 1x.
+    expect(rungE2(1_000_000_000, 51, false, 0)).toBe(100);
+    expect(rungE2(990_000_000, 51, false, 0)).toBe(100);
+    expect(rungE2(950_000_000, 51, false, 0)).toBe(104);
+    expect(rungE2(906_000_000, 51, false, 0)).toBe(109);
+    expect(rungE2(905_454_545, 51, false, 0)).toBe(110);
     expect(rungE2(500_000_000, 51, false, 0)).toBe(150);
     expect(rungE2(498_000_000, 51, false, 0)).toBe(200);
     expect(rungE2(100_000_000, 51, false, 0)).toBe(800);
@@ -130,9 +143,9 @@ describe("the ladder, in integers", () => {
         const app = ladderSection(pE9 / 1e9, RULES.rtp - margin, 1)!;
         const chain = chainSection(pE9, d, withIt, Math.round(momentum * 1e6), 1)!;
         if (Math.abs(chain.multiple - app.multiple) > 1e-9) {
-          // Only where the fair price is within the chain's rounding (a thousandth) of a rung.
+          // Only where the fair price is within the chain's rounding (a thousandth) of a rung, or of a hundredth under the floor.
           const fair = (RULES.ladderBest - margin) / (pE9 / 1e9);
-          const near = LADDER.some((r) => Math.abs(fair - r) < 3e-3);
+          const near = LADDER.some((r) => Math.abs(fair - r) < 3e-3) || (fair < RULES.ladderFloor + 3e-3 && Math.abs(fair * 100 - Math.round(fair * 100)) < 0.3);
           if (!near) throw new Error(`d ${d} p ${p} withIt ${withIt} m ${momentum}: app ${app.multiple} chain ${chain.multiple}`);
           off++;
         }
@@ -140,6 +153,34 @@ describe("the ladder, in integers", () => {
     }
     setDifficulty(55);
     expect(off).toBeLessThan(50);
+  });
+  /* The reviewer's invariant: at any chance and any difficulty the chain allows, a band returns at most a dollar per dollar before fees. */
+  test("no band returns more than it stakes, on average", () => {
+    const chances = new Set<number>([1, 2, 999, 1_000_000_000]);
+    for (let i = 0; i <= 3000; i++) chances.add(Math.max(1, Math.round(1e9 * Math.exp((-i / 3000) * 21))));
+    for (let c = 850_000_000; c <= 1_000_000_000; c += 1_000_000) chances.add(c);
+    // And either side of every rung, and of every hundredth under the floor, at every difficulty.
+    for (let d = MIN_DIFFICULTY; d <= 100; d++) {
+      for (const r of [...LADDER_E2, ...Array.from({ length: 11 }, (_, k) => 100 + k)]) {
+        const at = Math.floor((bestE3(d) * 1_000_000) / (r * 10));
+        for (const c of [at - 1, at, at + 1]) if (c > 0 && c <= CHANCE_ONE) chances.add(c);
+      }
+    }
+    const momenta = [0, 1, -1, 500_000, 1_000_000, -1_999_999, 2_000_000, 7_000_000];
+    let rows = 0;
+    for (let d = MIN_DIFFICULTY; d <= 100; d++) {
+      for (const c of chances) {
+        for (const withIt of [false, true]) {
+          for (const m of withIt ? momenta : [0]) {
+            const r = rungE2(c, d, withIt, m);
+            // chance x rung <= 1: in integers, chanceE9 x rungE2 <= 1e9 x 100.
+            if (r < 100 || c * r > 100 * CHANCE_ONE) throw new Error(`d ${d} chance ${c} withIt ${withIt} m ${m}: rung ${r} returns ${(c * r) / 1e11}`);
+            rows++;
+          }
+        }
+      }
+    }
+    expect(rows).toBeGreaterThan(1_000_000);
   });
 });
 

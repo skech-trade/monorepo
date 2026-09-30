@@ -55,7 +55,7 @@ export type Market = {
   discriminator: ReadonlyUint8Array;
   id: number;
   active: boolean;
-  /** 0 to 100: how hard the game is here. Pieces placed from now on pay by it. */
+  /** 50 to 100: how hard the game is here. Pieces placed from now on pay by it. */
   difficulty: number;
   /** What the engine calls it: "BTC-USD". */
   name: string;
@@ -65,7 +65,7 @@ export type Market = {
 export type MarketArgs = {
   id: number;
   active: boolean;
-  /** 0 to 100: how hard the game is here. Pieces placed from now on pay by it. */
+  /** 50 to 100: how hard the game is here. Pieces placed from now on pay by it. */
   difficulty: number;
   /** What the engine calls it: "BTC-USD". */
   name: string;
