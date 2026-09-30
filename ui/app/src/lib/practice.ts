@@ -93,14 +93,45 @@ export function practice(): Practice {
   return current;
 }
 
-export function setPractice(patch: Partial<Practice> | ((s: Practice) => Partial<Practice>)) {
-  const s = practice();
-  current = { ...s, ...(typeof patch === "function" ? patch(s) : patch) };
+/*
+  Written to storage at most once a second, not on every change: the drawings in play change with every
+  second the price judges them, and each write is all of this, every open drawing included. What is waiting
+  is written at once when the page is hidden or closed, so a reload finds it; only a page killed outright
+  can lose the last second.
+*/
+const WRITE_EVERY_MS = 1000;
+let wroteAt = 0;
+let writeTimer: ReturnType<typeof setTimeout> | undefined;
+let flushOnHide = false;
+
+function write() {
+  clearTimeout(writeTimer);
+  writeTimer = undefined;
+  wroteAt = Date.now();
   try {
     localStorage.setItem(KEY, JSON.stringify(current));
   } catch {
     // Private mode: it still holds for this page.
   }
+}
+
+function writeSoon() {
+  if (!flushOnHide) {
+    flushOnHide = true;
+    const flush = () => writeTimer !== undefined && write();
+    addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flush());
+  }
+  if (writeTimer !== undefined) return;
+  const wait = WRITE_EVERY_MS - (Date.now() - wroteAt);
+  if (wait <= 0) write();
+  else writeTimer = setTimeout(write, wait);
+}
+
+export function setPractice(patch: Partial<Practice> | ((s: Practice) => Partial<Practice>)) {
+  const s = practice();
+  current = { ...s, ...(typeof patch === "function" ? patch(s) : patch) };
+  if (typeof window !== "undefined") writeSoon();
   for (const l of listeners) l();
 }
 
