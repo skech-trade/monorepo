@@ -67,8 +67,9 @@ fn main() {
     let quoter = Arc::new(Quoter::new(wallet, chain_id, contract));
     eprintln!("signing as {} for chain {chain_id}, contract {contract}", quoter.address());
 
-    // How far the attesters' median may be from Coinbase before it is signed instead, in basis points.
-    let band_bps: f64 = var("ENGINE_BAND_BPS").map(|b| b.parse().expect("ENGINE_BAND_BPS is not a number")).unwrap_or(1.0);
+    // How close two venues must be to agree on a price, in basis points. BTC trades a few bp apart across venues
+    // on a normal day; much tighter and Coinbase is overruled, or nothing signed, whenever the market moves.
+    let band_bps: f64 = var("ENGINE_BAND_BPS").map(|b| b.parse().expect("ENGINE_BAND_BPS is not a number")).unwrap_or(15.0);
     let band = band_bps / 10_000.0;
     eprintln!("attesting with binance and kraken, band {}%", band * 100.0);
     let port = var("ENGINE_PORT").and_then(|p| p.parse().ok()).unwrap_or(3102);
