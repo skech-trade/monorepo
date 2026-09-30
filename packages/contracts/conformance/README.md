@@ -9,6 +9,7 @@ If the two chains ever disagree on a payout, a fee, a refund or a refusal, one o
 | `reference.ts` | The reference model: what every step must do, on `@skech/core`'s ladder. |
 | `generate.ts` | Runs the cases through the model and writes `vectors.json`, and the Solidity that replays it (`evm/test/ConformanceCases.sol`). |
 | `vectors.json` | Every expected number. Generated; never edited by hand. |
+| `../solana/tests/vectors/ladder.json` | The ladder alone, row for row, from `@skech/core`: `SkechLadder` (`evm/test/LadderVectors.t.sol`) and the program (`solana/tests/src/ladder.rs`) are both checked against it. |
 
 The runners check every number after every step: what each piece staked and the bands it was offered at which rung,
 what each settlement paid and owed, and every balance, the pool, the fees and the IOUs. The Solana runner also checks

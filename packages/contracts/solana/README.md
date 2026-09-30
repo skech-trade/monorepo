@@ -47,7 +47,7 @@ bun run solana:client     # regenerate the TypeScript client (client/) from the 
 bun test solana/sdk.test.ts
 ```
 
-`tests/vectors/ladder.json` is the ladder as `@skech/core` computes it (`bun tests/vectors/ladder.ts`); the Rust tests check the program against all 12,852 rows. `tests/vectors/piece.json` is a piece's bytes as the program reads them; `sdk.test.ts` checks the TypeScript encodes the same (`SNAPSHOT=1 cargo test -p tests` rewrites it).
+`tests/vectors/ladder.json` is the ladder as `@skech/core` computes it (`bun tests/vectors/ladder.ts`, `--check` to see it is up to date); the Rust tests check the program against all 15,552 rows, and `evm/test/LadderVectors.t.sol` checks `SkechLadder` against the same file. `tests/vectors/piece.json` is a piece's bytes as the program reads them; `sdk.test.ts` checks the TypeScript encodes the same (`SNAPSHOT=1 cargo test -p tests` rewrites it).
 
 `sdk.ts` is the TypeScript side: networks, PDAs, the bytes a session key signs (`pieceBytes`) and the Ed25519 instruction that goes before `place`. It re-exports the generated client.
 

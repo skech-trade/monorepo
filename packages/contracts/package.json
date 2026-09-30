@@ -11,8 +11,8 @@
     "solana:test": "cd solana && anchor build && cargo test -p tests",
     "solana:snapshot": "cd solana && anchor build && SNAPSHOT=1 cargo test -p tests compute_units",
     "solana:client": "bun solana/codama.ts",
-    "conformance": "bun conformance/generate.ts --check && (cd evm && forge test --match-contract ConformanceCases) && (cd solana && cargo test -p tests conformance)",
-    "conformance:generate": "bun conformance/generate.ts"
+    "conformance": "bun conformance/generate.ts --check && bun solana/tests/vectors/ladder.ts --check && (cd evm && forge test --match-contract 'ConformanceCases|LadderVectorsTest') && (cd solana && cargo test -p tests conformance && cargo test -p tests ladder)",
+    "conformance:generate": "bun conformance/generate.ts && bun solana/tests/vectors/ladder.ts"
   },
   "devDependencies": {
     "@codama/nodes-from-anchor": "^1.5.6",
