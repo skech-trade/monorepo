@@ -4,7 +4,7 @@
  * generated client in `./client`.
  */
 import { type Address, address, getAddressEncoder, getProgramDerivedAddress, getU32Encoder, getU64Encoder, type Instruction, type ReadonlyUint8Array } from "@solana/kit";
-import { getPlaceInstructionDataEncoder, SKECH_PROGRAM_ADDRESS, type SectionArgArgs } from "./client";
+import { type Config, getPlaceInstructionDataEncoder, SKECH_PROGRAM_ADDRESS, type SectionArgArgs } from "./client";
 
 export * from "./client";
 
@@ -101,6 +101,21 @@ export const SECTION_BYTES = 11;
 export const ED25519_PROGRAM = address("Ed25519SigVerify111111111111111111111111111");
 export const INSTRUCTIONS_SYSVAR = address("Sysvar1nstructions1111111111111111111111111");
 
+/** `Config::DEFAULT`, what `initialize` sets: Monad's terms (`SkechGame.initialize`), and a session of 30 days at most. */
+export const DEFAULT_CONFIG: Config = {
+  feeBps: 400,
+  profitFeeBps: 1000,
+  sweepBps: 1000,
+  lateMs: 200,
+  placeGraceMs: 3000,
+  maxPriceAgeMs: 15_000,
+  minPerDot: 10_000n,
+  maxPerDot: 100_000_000n,
+  maxPieceStake: 10_000_000_000n,
+  minRedeem: 10_000n,
+  maxSessionSecs: 30n * 86_400n,
+};
+
 /* ---- addresses ---- */
 
 const enc = getAddressEncoder();
@@ -115,7 +130,8 @@ export const poolAddress = (program?: Address) => pda(["pool"], program).then((r
 export const marketAddress = (id: number, program?: Address) => pda(["market", Uint8Array.of(id)], program).then((r) => r[0]);
 export const barsAddress = (id: number, program?: Address) => pda(["bars", Uint8Array.of(id)], program).then((r) => r[0]);
 export const playerAddress = (wallet: Address, program?: Address) => pda(["player", enc.encode(wallet)], program).then((r) => r[0]);
-/** A piece's bet, and the bump `place` takes (so the program need not search for it). */
+/** A piece's bet, at its canonical bump (the only address `place` takes), and that bump: `place` searches down from
+ * 255 for it, and each bump below 255 costs it `place_per_bump` compute units more. */
 export const betAddress = (wallet: Address, drawing: bigint, index: number, program?: Address) =>
   pda(["bet", enc.encode(wallet), getU64Encoder().encode(drawing), getU32Encoder().encode(index)], program);
 
@@ -148,7 +164,7 @@ export type SolanaPiece = {
  * program checks the Ed25519 instruction points at that range of its own data).
  */
 export function pieceBytes(p: SolanaPiece): Uint8Array {
-  const data = getPlaceInstructionDataEncoder().encode({ ...p, price: 0n, momentum: 0n, receivedAt: 0n, chances: [], betBump: 0 });
+  const data = getPlaceInstructionDataEncoder().encode({ ...p, price: 0n, momentum: 0n, receivedAt: 0n, chances: [] });
   return new Uint8Array(data.slice(8, 8 + PIECE_FIXED + p.sections.length * SECTION_BYTES));
 }
 

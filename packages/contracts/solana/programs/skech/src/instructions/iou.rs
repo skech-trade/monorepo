@@ -13,7 +13,8 @@ use crate::state::*;
 
 #[derive(Accounts)]
 pub struct Redeem<'info> {
-    /// Whoever sends it. If it is not the holder, they earn the house a cut of the growth.
+    /// Whoever sends it. If it is not the holder, they earn a cut of the growth, as on Monad.
+    #[account(mut)]
     pub caller: Signer<'info>,
     #[account(seeds = [GAME_SEED], bump = game.bump)]
     pub game: Box<Account<'info, Game>>,
@@ -21,6 +22,18 @@ pub struct Redeem<'info> {
     pub pool: Box<Account<'info, Pool>>,
     #[account(mut, seeds = [PLAYER_SEED, holder.authority.as_ref()], bump = holder.bump)]
     pub holder: Box<Account<'info, Player>>,
+    /// The caller's own account, opened at their cost if need be, where their cut goes. Left out, they take no cut
+    /// and the holder has it all. Never the holder's: a holder redeeming their own takes no cut.
+    #[account(
+        init_if_needed,
+        payer = caller,
+        space = 8 + Player::INIT_SPACE,
+        seeds = [PLAYER_SEED, caller.key().as_ref()],
+        bump,
+        constraint = caller.key() != holder.authority @ SkechError::OwnRedeem,
+    )]
+    pub caller_player: Option<Box<Account<'info, Player>>>,
+    pub system_program: Program<'info, System>,
 }
 
 /// Take `shares` (at most `shares` of what `held` is) back for what they are worth now, as far as the pool goes.
@@ -53,9 +66,19 @@ pub fn redeem(ctx: Context<Redeem>, shares: u128) -> Result<()> {
     pool.iou_shares -= shares;
     pool.pool -= value;
     let growth = value.saturating_sub(basis);
-    let cut = if ctx.accounts.caller.key() == holder.authority { 0 } else { growth * game.config.sweep_bps as u64 / BPS };
+    let caller = ctx.accounts.caller.key();
+    let cut = match ctx.accounts.caller_player.as_deref_mut() {
+        Some(by) => {
+            if by.authority == Pubkey::default() {
+                (by.authority, by.rent_payer, by.bump) = (caller, caller, ctx.bumps.caller_player.unwrap());
+            }
+            let cut = growth * game.config.sweep_bps as u64 / BPS;
+            by.balance += cut;
+            cut
+        }
+        None => 0,
+    };
     holder.balance += value - cut;
-    pool.fees += cut;
     emit!(Redeemed { holder: holder.authority, by: ctx.accounts.caller.key(), shares, value, cut });
     Ok(())
 }

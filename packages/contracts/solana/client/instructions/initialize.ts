@@ -185,7 +185,15 @@ export type InitializeAsyncInput<
   authority: TAccountAuthority;
   game?: TAccountGame;
   pool?: TAccountPool;
+  /**
+   * SPL Token only: a Token-2022 mint's extensions (a transfer fee, a permanent delegate) could leave the vault
+   * holding less than the balances, the pool and the fees it backs.
+   */
   usdcMint: TAccountUsdcMint;
+  /**
+   * The game's associated token account. It may already exist: anyone can create another wallet's, and that
+   * must not stop the game being set up.
+   */
   vault?: TAccountVault;
   treasury: TAccountTreasury;
   program?: TAccountProgram;
@@ -468,7 +476,15 @@ export type InitializeInput<
   authority: TAccountAuthority;
   game: TAccountGame;
   pool: TAccountPool;
+  /**
+   * SPL Token only: a Token-2022 mint's extensions (a transfer fee, a permanent delegate) could leave the vault
+   * holding less than the balances, the pool and the fees it backs.
+   */
   usdcMint: TAccountUsdcMint;
+  /**
+   * The game's associated token account. It may already exist: anyone can create another wallet's, and that
+   * must not stop the game being set up.
+   */
   vault: TAccountVault;
   treasury: TAccountTreasury;
   program?: TAccountProgram;
@@ -710,7 +726,15 @@ export type ParsedInitializeInstruction<
     authority: TAccountMetas[0];
     game: TAccountMetas[1];
     pool: TAccountMetas[2];
+    /**
+     * SPL Token only: a Token-2022 mint's extensions (a transfer fee, a permanent delegate) could leave the vault
+     * holding less than the balances, the pool and the fees it backs.
+     */
     usdcMint: TAccountMetas[3];
+    /**
+     * The game's associated token account. It may already exist: anyone can create another wallet's, and that
+     * must not stop the game being set up.
+     */
     vault: TAccountMetas[4];
     treasury: TAccountMetas[5];
     program: TAccountMetas[6];

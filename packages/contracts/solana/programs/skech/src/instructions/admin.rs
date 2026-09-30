@@ -7,7 +7,7 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 use crate::error::SkechError;
-use crate::events::{ConfigSet, MarketSet};
+use crate::events::{AdminProposed, AdminSet, ConfigSet, IouRateSet, MarketSet, OracleSet, PausedSet, TreasurySet};
 use crate::program::Skech;
 use crate::state::*;
 
@@ -17,10 +17,10 @@ pub fn domain_for(program_id: &Pubkey, cluster: &str) -> [u8; 32] {
 }
 
 pub fn check_config(c: &Config) -> Result<()> {
-    require!(c.fee_bps <= 2000 && c.profit_fee_bps <= 5000 && c.sweep_bps <= 5000, SkechError::BadConfig);
+    require!(c.fee_bps <= MAX_FEE_BPS && c.profit_fee_bps <= MAX_PROFIT_FEE_BPS && c.sweep_bps <= MAX_SWEEP_BPS, SkechError::BadConfig);
     require!(c.min_per_dot > 0 && c.min_per_dot <= c.max_per_dot && c.max_per_dot <= u32::MAX as u64, SkechError::BadConfig);
     require!(c.max_piece_stake > 0, SkechError::BadConfig);
-    require!((1000..=10_000).contains(&c.place_grace_ms) && c.late_ms <= 1000, SkechError::BadConfig);
+    require!((MIN_PLACE_GRACE_MS..=MAX_PLACE_GRACE_MS).contains(&c.place_grace_ms) && c.late_ms <= MAX_LATE_MS, SkechError::BadConfig);
     require!(c.max_price_age_ms > 0 && c.max_session_secs > 0, SkechError::BadConfig);
     Ok(())
 }
@@ -33,10 +33,14 @@ pub struct Initialize<'info> {
     pub game: Account<'info, Game>,
     #[account(init, payer = authority, space = 8 + Pool::INIT_SPACE, seeds = [POOL_SEED], bump)]
     pub pool: Account<'info, Pool>,
-    #[account(mint::token_program = token_program)]
+    /// SPL Token only: a Token-2022 mint's extensions (a transfer fee, a permanent delegate) could leave the vault
+    /// holding less than the balances, the pool and the fees it backs.
+    #[account(owner = anchor_spl::token::ID @ SkechError::NotSplToken, mint::token_program = token_program)]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
+    /// The game's associated token account. It may already exist: anyone can create another wallet's, and that
+    /// must not stop the game being set up.
     #[account(
-        init,
+        init_if_needed,
         payer = authority,
         associated_token::mint = usdc_mint,
         associated_token::authority = game,
@@ -56,6 +60,7 @@ pub struct Initialize<'info> {
 
 pub fn initialize(ctx: Context<Initialize>, cluster: String, oracle: Pubkey, iou_rate: u64) -> Result<()> {
     require!(!cluster.is_empty() && cluster.len() <= 32, SkechError::BadConfig);
+    require!(oracle != Pubkey::default() && iou_rate <= MAX_IOU_RATE, SkechError::BadConfig);
     let game = &mut ctx.accounts.game;
     game.admin = ctx.accounts.authority.key();
     game.pending_admin = Pubkey::default();
@@ -74,6 +79,8 @@ pub fn initialize(ctx: Context<Initialize>, cluster: String, oracle: Pubkey, iou
     pool.iou_time_at = Clock::get()?.unix_timestamp;
     pool.bump = ctx.bumps.pool;
     emit!(ConfigSet { config: game.config });
+    emit!(OracleSet { oracle });
+    emit!(IouRateSet { rate: iou_rate });
     Ok(())
 }
 
@@ -94,23 +101,26 @@ pub fn set_config(ctx: Context<Admin>, config: Config) -> Result<()> {
 pub fn set_oracle(ctx: Context<Admin>, oracle: Pubkey) -> Result<()> {
     require_keys_neq!(oracle, Pubkey::default(), SkechError::BadConfig);
     ctx.accounts.game.oracle = oracle;
+    emit!(OracleSet { oracle });
     Ok(())
 }
 
 pub fn set_paused(ctx: Context<Admin>, paused: bool) -> Result<()> {
     ctx.accounts.game.paused = paused;
+    emit!(PausedSet { paused });
     Ok(())
 }
 
 pub fn propose_admin(ctx: Context<Admin>, admin: Pubkey) -> Result<()> {
     ctx.accounts.game.pending_admin = admin;
+    emit!(AdminProposed { admin });
     Ok(())
 }
 
 #[derive(Accounts)]
 pub struct AcceptAdmin<'info> {
     pub new_admin: Signer<'info>,
-    #[account(mut, seeds = [GAME_SEED], bump = game.bump, constraint = game.pending_admin == new_admin.key() @ SkechError::NotAdmin)]
+    #[account(mut, seeds = [GAME_SEED], bump = game.bump, constraint = game.pending_admin == new_admin.key() @ SkechError::NotPendingAdmin)]
     pub game: Account<'info, Game>,
 }
 
@@ -118,6 +128,7 @@ pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
     let game = &mut ctx.accounts.game;
     game.admin = game.pending_admin;
     game.pending_admin = Pubkey::default();
+    emit!(AdminSet { admin: game.admin });
     Ok(())
 }
 
@@ -132,6 +143,7 @@ pub struct SetTreasury<'info> {
 
 pub fn set_treasury(ctx: Context<SetTreasury>) -> Result<()> {
     ctx.accounts.game.treasury = ctx.accounts.treasury.key();
+    emit!(TreasurySet { treasury: ctx.accounts.treasury.key() });
     Ok(())
 }
 
@@ -144,13 +156,15 @@ pub struct SetIouRate<'info> {
     pub pool: Account<'info, Pool>,
 }
 
-/// How fast what is owed grows, from now on, x1e18 per second. What has accrued so far is kept.
+/// How fast what is owed grows, from now on, x1e18 per second, at most `MAX_IOU_RATE`. What has accrued so far is kept.
 pub fn set_iou_rate(ctx: Context<SetIouRate>, rate: u64) -> Result<()> {
+    require!(rate <= MAX_IOU_RATE, SkechError::BadConfig);
     let now = Clock::get()?.unix_timestamp;
     let pool = &mut ctx.accounts.pool;
     pool.iou_index_at = pool.index(now);
     pool.iou_time_at = now;
     pool.iou_rate = rate;
+    emit!(IouRateSet { rate });
     Ok(())
 }
 

@@ -307,7 +307,7 @@ impl Game {
     }
 
     pub fn place_ix(&self, piece: &PieceMessage, quote: &QuoteArgs) -> Instruction {
-        let (bet, bet_bump) = bet_pda(&piece.player, piece.drawing, piece.index);
+        let (bet, _) = bet_pda(&piece.player, piece.drawing, piece.index);
         self.ix(
             skech::accounts::Place {
                 payer: self.relayer.pubkey(),
@@ -321,7 +321,7 @@ impl Game {
                 instructions: anchor_lang::solana_program::sysvar::instructions::ID,
                 system_program: system_program::ID,
             },
-            skech::instruction::Place { piece: piece.clone(), quote: quote.clone(), bet_bump },
+            skech::instruction::Place { piece: piece.clone(), quote: quote.clone() },
         )
     }
 
@@ -336,6 +336,17 @@ impl Game {
     pub fn place(&mut self, p: &Player, piece: &PieceMessage, quote: &QuoteArgs) -> Result<TransactionMetadata, FailedTransactionMetadata> {
         let s = p.session.insecure_clone();
         self.place_signed(piece, quote, &s)
+    }
+
+    /// `settle`, or `expire`, on (bet, wallet) pairs, with the relayer taking back the rent.
+    pub fn settle_on(&mut self, expire: bool, bets: &[(Pubkey, Pubkey)]) -> Result<TransactionMetadata, FailedTransactionMetadata> {
+        let accounts = skech::accounts::Settle { game: game_pda(), bars: bars_pda(0), pool: pool_pda(), rent_receiver: self.relayer.pubkey() };
+        let mut ix = if expire { self.ix(accounts, skech::instruction::Expire { market: 0 }) } else { self.ix(accounts, skech::instruction::Settle { market: 0 }) };
+        for (bet, wallet) in bets {
+            ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(*bet, false));
+            ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(player_pda(wallet), false));
+        }
+        self.send(&[ix], &[])
     }
 
     pub fn post_and_settle(&mut self, second: i64, prev_close: u64, high: u64, low: u64, close: u64, bets: &[(Pubkey, Pubkey)]) -> Result<TransactionMetadata, FailedTransactionMetadata> {

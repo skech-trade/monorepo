@@ -60,6 +60,7 @@ const setTerms = (g: typeof game, d: number) => {
   sequencer.difficulty = d;
   sequencer.terms = { minPerDot: g.config.minPerDot, maxPerDot: g.config.maxPerDot, maxPieceStake: g.config.maxPieceStake, maxPriceAgeMs: g.config.maxPriceAgeMs, feeBps: g.config.feeBps, profitFeeBps: g.config.profitFeeBps };
   scfg.lateMs = g.config.lateMs;
+  settler.placeGraceMs = g.config.placeGraceMs;
 };
 setTerms(game, difficulty);
 server.sequencer = sequencer;

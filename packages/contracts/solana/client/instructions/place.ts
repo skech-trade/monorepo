@@ -154,7 +154,6 @@ export type PlaceInstructionData = {
   receivedAt: bigint;
   /** Each band's chance, in billionths, in the piece's order. */
   chances: Array<number>;
-  betBump: number;
 };
 
 export type PlaceInstructionDataArgs = {
@@ -188,7 +187,6 @@ export type PlaceInstructionDataArgs = {
   receivedAt: number | bigint;
   /** Each band's chance, in billionths, in the piece's order. */
   chances: Array<number>;
-  betBump: number;
 };
 
 export function getPlaceInstructionDataEncoder(): Encoder<PlaceInstructionDataArgs> {
@@ -212,7 +210,6 @@ export function getPlaceInstructionDataEncoder(): Encoder<PlaceInstructionDataAr
       ["momentum", getI64Encoder()],
       ["receivedAt", getI64Encoder()],
       ["chances", getArrayEncoder(getU32Encoder())],
-      ["betBump", getU8Encoder()],
     ]),
     (value) => ({ ...value, discriminator: PLACE_DISCRIMINATOR }),
   );
@@ -238,7 +235,6 @@ export function getPlaceInstructionDataDecoder(): Decoder<PlaceInstructionData> 
     ["momentum", getI64Decoder()],
     ["receivedAt", getI64Decoder()],
     ["chances", getArrayDecoder(getU32Decoder())],
-    ["betBump", getU8Decoder()],
   ]);
 }
 
@@ -296,7 +292,6 @@ export type PlaceAsyncInput<
   momentum: PlaceInstructionDataArgs["momentum"];
   receivedAt: PlaceInstructionDataArgs["receivedAt"];
   chances: PlaceInstructionDataArgs["chances"];
-  betBump: PlaceInstructionDataArgs["betBump"];
 };
 
 export async function getPlaceInstructionAsync<
@@ -527,7 +522,6 @@ export type PlaceInput<
   momentum: PlaceInstructionDataArgs["momentum"];
   receivedAt: PlaceInstructionDataArgs["receivedAt"];
   chances: PlaceInstructionDataArgs["chances"];
-  betBump: PlaceInstructionDataArgs["betBump"];
 };
 
 export function getPlaceInstruction<

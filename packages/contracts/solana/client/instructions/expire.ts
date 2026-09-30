@@ -20,7 +20,6 @@ import {
   SolanaError,
   transformEncoder,
   type AccountMeta,
-  type AccountSignerMeta,
   type Address,
   type FixedSizeCodec,
   type FixedSizeDecoder,
@@ -29,7 +28,6 @@ import {
   type InstructionWithAccounts,
   type InstructionWithData,
   type ReadonlyAccount,
-  type ReadonlySignerAccount,
   type ReadonlyUint8Array,
   type WritableAccount,
 } from "@solana/kit";
@@ -37,33 +35,23 @@ import {
   getAccountMetaFactory,
   type InstructionAccountInput,
   type InstructionAccountInputAddress,
-  type InstructionSignerInput,
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
 import { findGamePda, findPoolPda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
-import {
-  getBarInputDecoder,
-  getBarInputEncoder,
-  type BarInput,
-  type BarInputArgs,
-} from "../types";
 
-export const POST_BAR_AND_SETTLE_DISCRIMINATOR: ReadonlyUint8Array =
-  new Uint8Array([124, 167, 27, 224, 168, 50, 162, 170]);
+export const EXPIRE_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
+  243, 83, 205, 58, 57, 201, 247, 146,
+]);
 
-export function getPostBarAndSettleDiscriminatorBytes(): ReadonlyUint8Array {
-  return fixEncoderSize(getBytesEncoder(), 8).encode(
-    POST_BAR_AND_SETTLE_DISCRIMINATOR,
-  );
+export function getExpireDiscriminatorBytes(): ReadonlyUint8Array {
+  return fixEncoderSize(getBytesEncoder(), 8).encode(EXPIRE_DISCRIMINATOR);
 }
 
-export type PostBarAndSettleInstruction<
+export type ExpireInstruction<
   TProgram extends string = typeof SKECH_PROGRAM_ADDRESS,
-  TAccountOracle extends string | AccountMeta<string> = string,
   TAccountGame extends string | AccountMeta<string> = string,
-  TAccountMarketAccount extends string | AccountMeta<string> = string,
   TAccountBars extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
   TAccountRentReceiver extends string | AccountMeta<string> = string,
@@ -72,18 +60,11 @@ export type PostBarAndSettleInstruction<
   InstructionWithData<ReadonlyUint8Array> &
   InstructionWithAccounts<
     [
-      TAccountOracle extends string
-        ? ReadonlySignerAccount<TAccountOracle> &
-            AccountSignerMeta<TAccountOracle>
-        : TAccountOracle,
       TAccountGame extends string
         ? ReadonlyAccount<TAccountGame>
         : TAccountGame,
-      TAccountMarketAccount extends string
-        ? ReadonlyAccount<TAccountMarketAccount>
-        : TAccountMarketAccount,
       TAccountBars extends string
-        ? WritableAccount<TAccountBars>
+        ? ReadonlyAccount<TAccountBars>
         : TAccountBars,
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
@@ -95,99 +76,74 @@ export type PostBarAndSettleInstruction<
     ]
   >;
 
-export type PostBarAndSettleInstructionData = {
+export type ExpireInstructionData = {
   discriminator: ReadonlyUint8Array;
   market: number;
-  bar: BarInput;
 };
 
-export type PostBarAndSettleInstructionDataArgs = {
-  market: number;
-  bar: BarInputArgs;
-};
+export type ExpireInstructionDataArgs = { market: number };
 
-export function getPostBarAndSettleInstructionDataEncoder(): FixedSizeEncoder<PostBarAndSettleInstructionDataArgs> {
+export function getExpireInstructionDataEncoder(): FixedSizeEncoder<ExpireInstructionDataArgs> {
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
       ["market", getU8Encoder()],
-      ["bar", getBarInputEncoder()],
     ]),
-    (value) => ({ ...value, discriminator: POST_BAR_AND_SETTLE_DISCRIMINATOR }),
+    (value) => ({ ...value, discriminator: EXPIRE_DISCRIMINATOR }),
   );
 }
 
-export function getPostBarAndSettleInstructionDataDecoder(): FixedSizeDecoder<PostBarAndSettleInstructionData> {
+export function getExpireInstructionDataDecoder(): FixedSizeDecoder<ExpireInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["market", getU8Decoder()],
-    ["bar", getBarInputDecoder()],
   ]);
 }
 
-export function getPostBarAndSettleInstructionDataCodec(): FixedSizeCodec<
-  PostBarAndSettleInstructionDataArgs,
-  PostBarAndSettleInstructionData
+export function getExpireInstructionDataCodec(): FixedSizeCodec<
+  ExpireInstructionDataArgs,
+  ExpireInstructionData
 > {
   return combineCodec(
-    getPostBarAndSettleInstructionDataEncoder(),
-    getPostBarAndSettleInstructionDataDecoder(),
+    getExpireInstructionDataEncoder(),
+    getExpireInstructionDataDecoder(),
   );
 }
 
-export type PostBarAndSettleAsyncInput<
-  TAccountOracle extends InstructionSignerInput = InstructionSignerInput,
+export type ExpireAsyncInput<
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
-  TAccountMarketAccount extends InstructionAccountInput =
-    InstructionAccountInput,
   TAccountBars extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput =
     InstructionAccountInput,
 > = {
-  oracle: TAccountOracle;
   game?: TAccountGame;
-  marketAccount: TAccountMarketAccount;
   bars: TAccountBars;
   pool?: TAccountPool;
-  /** Gets back the rent of the bets closed here: only those it paid for are closed. */
   rentReceiver: TAccountRentReceiver;
-  market: PostBarAndSettleInstructionDataArgs["market"];
-  bar: PostBarAndSettleInstructionDataArgs["bar"];
+  market: ExpireInstructionDataArgs["market"];
 };
 
-export async function getPostBarAndSettleInstructionAsync<
-  TAccountOracle extends InstructionSignerInput,
+export async function getExpireInstructionAsync<
   TAccountGame extends InstructionAccountInput,
-  TAccountMarketAccount extends InstructionAccountInput,
   TAccountBars extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
-  input: PostBarAndSettleAsyncInput<
-    TAccountOracle,
+  input: ExpireAsyncInput<
     TAccountGame,
-    TAccountMarketAccount,
     TAccountBars,
     TAccountPool,
     TAccountRentReceiver
   >,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
-  PostBarAndSettleInstruction<
+  ExpireInstruction<
     TProgramAddress,
-    ResolvedInstructionAccountMeta<
-      TAccountOracle,
-      InstructionAccountInputAddress<TAccountOracle>
-    >,
     ResolvedInstructionAccountMeta<
       TAccountGame,
       InstructionAccountInputAddress<TAccountGame>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountMarketAccount,
-      InstructionAccountInputAddress<TAccountMarketAccount>
     >,
     ResolvedInstructionAccountMeta<
       TAccountBars,
@@ -211,14 +167,8 @@ export async function getPostBarAndSettleInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    oracle: { value: input.oracle ?? null, isSigner: true, isWritable: false },
     game: { value: input.game ?? null, isSigner: false, isWritable: false },
-    marketAccount: {
-      value: input.marketAccount ?? null,
-      isSigner: false,
-      isWritable: false,
-    },
-    bars: { value: input.bars ?? null, isSigner: false, isWritable: true },
+    bars: { value: input.bars ?? null, isSigner: false, isWritable: false },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
     rentReceiver: {
       value: input.rentReceiver ?? null,
@@ -244,30 +194,20 @@ export async function getPostBarAndSettleInstructionAsync<
 
   return Object.freeze({
     accounts: [
-      getAccountMeta("oracle", accounts.oracle),
       getAccountMeta("game", accounts.game),
-      getAccountMeta("marketAccount", accounts.marketAccount),
       getAccountMeta("bars", accounts.bars),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("rentReceiver", accounts.rentReceiver),
     ],
-    data: getPostBarAndSettleInstructionDataEncoder().encode(
-      args as PostBarAndSettleInstructionDataArgs,
+    data: getExpireInstructionDataEncoder().encode(
+      args as ExpireInstructionDataArgs,
     ),
     programAddress,
-  } as PostBarAndSettleInstruction<
+  } as ExpireInstruction<
     TProgramAddress,
-    ResolvedInstructionAccountMeta<
-      TAccountOracle,
-      InstructionAccountInputAddress<TAccountOracle>
-    >,
     ResolvedInstructionAccountMeta<
       TAccountGame,
       InstructionAccountInputAddress<TAccountGame>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountMarketAccount,
-      InstructionAccountInputAddress<TAccountMarketAccount>
     >,
     ResolvedInstructionAccountMeta<
       TAccountBars,
@@ -284,58 +224,39 @@ export async function getPostBarAndSettleInstructionAsync<
   >);
 }
 
-export type PostBarAndSettleInput<
-  TAccountOracle extends InstructionSignerInput = InstructionSignerInput,
+export type ExpireInput<
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
-  TAccountMarketAccount extends InstructionAccountInput =
-    InstructionAccountInput,
   TAccountBars extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput =
     InstructionAccountInput,
 > = {
-  oracle: TAccountOracle;
   game: TAccountGame;
-  marketAccount: TAccountMarketAccount;
   bars: TAccountBars;
   pool: TAccountPool;
-  /** Gets back the rent of the bets closed here: only those it paid for are closed. */
   rentReceiver: TAccountRentReceiver;
-  market: PostBarAndSettleInstructionDataArgs["market"];
-  bar: PostBarAndSettleInstructionDataArgs["bar"];
+  market: ExpireInstructionDataArgs["market"];
 };
 
-export function getPostBarAndSettleInstruction<
-  TAccountOracle extends InstructionSignerInput,
+export function getExpireInstruction<
   TAccountGame extends InstructionAccountInput,
-  TAccountMarketAccount extends InstructionAccountInput,
   TAccountBars extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
-  input: PostBarAndSettleInput<
-    TAccountOracle,
+  input: ExpireInput<
     TAccountGame,
-    TAccountMarketAccount,
     TAccountBars,
     TAccountPool,
     TAccountRentReceiver
   >,
   config?: { programAddress?: TProgramAddress },
-): PostBarAndSettleInstruction<
+): ExpireInstruction<
   TProgramAddress,
-  ResolvedInstructionAccountMeta<
-    TAccountOracle,
-    InstructionAccountInputAddress<TAccountOracle>
-  >,
   ResolvedInstructionAccountMeta<
     TAccountGame,
     InstructionAccountInputAddress<TAccountGame>
-  >,
-  ResolvedInstructionAccountMeta<
-    TAccountMarketAccount,
-    InstructionAccountInputAddress<TAccountMarketAccount>
   >,
   ResolvedInstructionAccountMeta<
     TAccountBars,
@@ -358,14 +279,8 @@ export function getPostBarAndSettleInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    oracle: { value: input.oracle ?? null, isSigner: true, isWritable: false },
     game: { value: input.game ?? null, isSigner: false, isWritable: false },
-    marketAccount: {
-      value: input.marketAccount ?? null,
-      isSigner: false,
-      isWritable: false,
-    },
-    bars: { value: input.bars ?? null, isSigner: false, isWritable: true },
+    bars: { value: input.bars ?? null, isSigner: false, isWritable: false },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
     rentReceiver: {
       value: input.rentReceiver ?? null,
@@ -383,30 +298,20 @@ export function getPostBarAndSettleInstruction<
 
   return Object.freeze({
     accounts: [
-      getAccountMeta("oracle", accounts.oracle),
       getAccountMeta("game", accounts.game),
-      getAccountMeta("marketAccount", accounts.marketAccount),
       getAccountMeta("bars", accounts.bars),
       getAccountMeta("pool", accounts.pool),
       getAccountMeta("rentReceiver", accounts.rentReceiver),
     ],
-    data: getPostBarAndSettleInstructionDataEncoder().encode(
-      args as PostBarAndSettleInstructionDataArgs,
+    data: getExpireInstructionDataEncoder().encode(
+      args as ExpireInstructionDataArgs,
     ),
     programAddress,
-  } as PostBarAndSettleInstruction<
+  } as ExpireInstruction<
     TProgramAddress,
-    ResolvedInstructionAccountMeta<
-      TAccountOracle,
-      InstructionAccountInputAddress<TAccountOracle>
-    >,
     ResolvedInstructionAccountMeta<
       TAccountGame,
       InstructionAccountInputAddress<TAccountGame>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountMarketAccount,
-      InstructionAccountInputAddress<TAccountMarketAccount>
     >,
     ResolvedInstructionAccountMeta<
       TAccountBars,
@@ -423,37 +328,34 @@ export function getPostBarAndSettleInstruction<
   >);
 }
 
-export type ParsedPostBarAndSettleInstruction<
+export type ParsedExpireInstruction<
   TProgram extends string = typeof SKECH_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    oracle: TAccountMetas[0];
-    game: TAccountMetas[1];
-    marketAccount: TAccountMetas[2];
-    bars: TAccountMetas[3];
-    pool: TAccountMetas[4];
-    /** Gets back the rent of the bets closed here: only those it paid for are closed. */
-    rentReceiver: TAccountMetas[5];
+    game: TAccountMetas[0];
+    bars: TAccountMetas[1];
+    pool: TAccountMetas[2];
+    rentReceiver: TAccountMetas[3];
   };
-  data: PostBarAndSettleInstructionData;
+  data: ExpireInstructionData;
 };
 
-export function parsePostBarAndSettleInstruction<
+export function parseExpireInstruction<
   TProgram extends string,
   TAccountMetas extends readonly AccountMeta[],
 >(
   instruction: Instruction<TProgram> &
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
-): ParsedPostBarAndSettleInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 6) {
+): ParsedExpireInstruction<TProgram, TAccountMetas> {
+  if (instruction.accounts.length < 4) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 6,
+        expectedAccountMetas: 4,
       },
     );
   }
@@ -466,13 +368,11 @@ export function parsePostBarAndSettleInstruction<
   return {
     programAddress: instruction.programAddress,
     accounts: {
-      oracle: getNextAccount(),
       game: getNextAccount(),
-      marketAccount: getNextAccount(),
       bars: getNextAccount(),
       pool: getNextAccount(),
       rentReceiver: getNextAccount(),
     },
-    data: getPostBarAndSettleInstructionDataDecoder().decode(instruction.data),
+    data: getExpireInstructionDataDecoder().decode(instruction.data),
   };
 }

@@ -6,6 +6,7 @@
  * @see https://github.com/codama-idl/codama
  */
 
+export * from "./callerPlayer";
 export * from "./game";
 export * from "./player";
 export * from "./pool";

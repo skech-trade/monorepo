@@ -71,6 +71,10 @@ pub struct Settled {
     pub owed: u64,
     /// Every band decided: the bet is closed.
     pub closed: bool,
+    /// Bands whose second can no longer be posted, given back by `expire`, and what they gave back (in `paid` and
+    /// `owed` with the rest).
+    pub expired_mask: u32,
+    pub refunded: u64,
 }
 
 /// `to` is owed `value` as IOU shares; the house when `to` is the default key.
@@ -106,4 +110,37 @@ pub struct MarketSet {
 #[event]
 pub struct ConfigSet {
     pub config: crate::state::Config,
+}
+
+#[event]
+pub struct OracleSet {
+    pub oracle: Pubkey,
+}
+
+#[event]
+pub struct PausedSet {
+    pub paused: bool,
+}
+
+/// `admin` may take over by `accept_admin`; the default key withdraws the proposal.
+#[event]
+pub struct AdminProposed {
+    pub admin: Pubkey,
+}
+
+/// `admin` has taken over.
+#[event]
+pub struct AdminSet {
+    pub admin: Pubkey,
+}
+
+#[event]
+pub struct TreasurySet {
+    pub treasury: Pubkey,
+}
+
+/// What is owed grows by `rate` a second from now on, x1e18.
+#[event]
+pub struct IouRateSet {
+    pub rate: u64,
 }

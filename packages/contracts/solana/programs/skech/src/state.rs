@@ -17,9 +17,27 @@ pub const HORIZON: u8 = 30;
 pub const MAX_SECTIONS: usize = 32;
 /// Seconds of price the ring keeps: the horizon, the grace and plenty of room for a relayer that falls behind.
 pub const BAR_RING: usize = 240;
+/// How long after a second is over its bar may still be posted, seconds: inside the ring by the horizon and the most
+/// grace the config allows, so a late bar never lands in a slot a newer second holds. Once it is past, a band in
+/// that second can never be decided, and `expire` gives its stake back.
+pub const BAR_LATE: i64 = 200;
+const _: () = assert!(BAR_LATE as usize + HORIZON as usize + (MAX_PLACE_GRACE_MS / 1000) as usize <= BAR_RING);
+/// A grid unit is at most this small a part of the price: it pads every band, so it cannot be let grow.
+pub const PRICE_UNITS: u128 = 2000;
+/// How fast an IOU may be set to grow, at most, x1e18 a second: 1% a day.
+pub const MAX_IOU_RATE: u64 = 115_740_740_740;
 /// An IOU share's index at the start, x1e18: one share was worth one millionth of a USDC.
 pub const INDEX_ONE: u128 = 1_000_000_000_000_000_000;
 pub const BPS: u64 = 10_000;
+
+/// The most a fee may be set to, bps: of a stake, of a hit's profit, of an IOU's growth to its redeemer.
+pub const MAX_FEE_BPS: u16 = 2000;
+pub const MAX_PROFIT_FEE_BPS: u16 = 5000;
+pub const MAX_SWEEP_BPS: u16 = 5000;
+/// What the placing grace may be set to, ms, and how late the oracle may have had a piece at most.
+pub const MIN_PLACE_GRACE_MS: u32 = 1000;
+pub const MAX_PLACE_GRACE_MS: u32 = 10_000;
+pub const MAX_LATE_MS: u32 = 1000;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, PartialEq, Eq, Debug)]
 pub struct Config {
@@ -47,17 +65,19 @@ pub struct Config {
 }
 
 impl Config {
+    /// What `initialize` sets: Monad's terms, `SkechGame.initialize`'s, field for field (a test holds them to it).
     pub const DEFAULT: Config = Config {
-        fee_bps: 200,
+        fee_bps: 400,
         profit_fee_bps: 1000,
         sweep_bps: 1000,
         late_ms: 200,
         place_grace_ms: 3000,
         max_price_age_ms: 15_000,
-        min_per_dot: 10_000,       // 1 cent
-        max_per_dot: 10_000_000,   // $10: a section's stake fits in a u32
-        max_piece_stake: 1_000_000_000, // $1,000
+        min_per_dot: 10_000,             // 1 cent
+        max_per_dot: 100_000_000,        // $100
+        max_piece_stake: 10_000_000_000, // $10,000
         min_redeem: 10_000,
+        // Solana's own: Monad's sessions are bounded by the signature that registers them.
         max_session_secs: 30 * 86_400,
     };
 }
@@ -72,7 +92,7 @@ pub struct Game {
     /// Signs every placement (its quote) and every bar.
     pub oracle: Pubkey,
     pub usdc_mint: Pubkey,
-    /// The token program the mint is under: SPL Token for USDC, Token-2022 allowed.
+    /// The token program the mint is under: SPL Token (`initialize` takes no other).
     pub token_program: Pubkey,
     /// Every player's USDC, the pool and the fees: the game PDA's associated token account.
     pub vault: Pubkey,
@@ -126,6 +146,7 @@ impl Pool {
 #[derive(InitSpace)]
 pub struct Market {
     pub id: u8,
+    /// Open to new pieces. Closed, its bars are still posted and its bets still settled.
     pub active: bool,
     /// 0 to 100: how hard the game is here. Pieces placed from now on pay by it.
     pub difficulty: u8,
@@ -148,7 +169,7 @@ pub struct Bar {
 }
 
 /// The last `BAR_RING` seconds of a market's price, one slot per second. A slot is reused when its second comes
-/// round again; settling only ever looks thirty seconds back, and a bet lives only until its last second is here.
+/// round again, and never by an older one: a second, once posted, is that bar for as long as anything can read it.
 #[account(zero_copy)]
 pub struct Bars {
     pub market: u8,
@@ -159,7 +180,7 @@ pub struct Bars {
 }
 
 impl Bars {
-    pub const SPACE: usize = 8 + 1 + 7 + 8 + BAR_RING * 40;
+    pub const SPACE: usize = 8 + std::mem::size_of::<Bars>();
 
     fn slot(second: i64) -> usize {
         (second.div_euclid(1000)).rem_euclid(BAR_RING as i64) as usize
@@ -169,12 +190,21 @@ impl Bars {
         let b = &self.ring[Self::slot(second)];
         (b.second == second && second != 0).then_some(b)
     }
-    pub fn put(&mut self, bar: Bar) {
-        let s = Self::slot(bar.second);
-        self.ring[s] = bar;
+    /// Whether `second`'s bar can no longer be posted, at `now_ms`.
+    pub fn too_late(second: i64, now_ms: i64) -> bool {
+        second + 1000 + BAR_LATE * 1000 < now_ms
+    }
+    /// Put `bar` in its slot, unless the slot holds a newer second.
+    pub fn put(&mut self, bar: Bar) -> bool {
+        let slot = &mut self.ring[Self::slot(bar.second)];
+        if slot.second > bar.second {
+            return false;
+        }
+        *slot = bar;
         if bar.second > self.last {
             self.last = bar.second;
         }
+        true
     }
 }
 
@@ -219,6 +249,7 @@ pub struct BetSection {
 /// One bet: a piece of a drawing as placed. It lives until every band in it is decided, then is closed and its rent
 /// goes back to whoever paid it.
 #[account]
+#[derive(InitSpace)]
 pub struct Bet {
     /// The player's wallet.
     pub player: Pubkey,
@@ -234,11 +265,14 @@ pub struct Bet {
     pub unit: u64,
     pub stake: u64,
     pub rent_payer: Pubkey,
+    /// Sized per bet, by `space`.
+    #[max_len(0)]
     pub sections: Vec<BetSection>,
 }
 
 impl Bet {
-    pub const FIXED: usize = 8 + 32 + 8 + 4 + 1 + 1 + 4 + 4 + 8 + 8 + 8 + 8 + 32 + 4;
+    /// Everything but the sections.
+    pub const FIXED: usize = 8 + Bet::INIT_SPACE;
     pub fn space(sections: usize) -> usize {
         Self::FIXED + sections * BetSection::INIT_SPACE
     }
