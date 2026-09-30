@@ -6,11 +6,23 @@
 import { AccountRole, type Address, type Instruction } from "@solana/kit";
 import { fetchMaybeToken, findAssociatedTokenPda, TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import { CLOSE_AFTER_MS } from "@skech/core/bars";
-import { fetchBars, getCollectFeesInstruction, getPostBarAndSettleInstruction, getRedeemHouseInstruction, getRedeemInstruction, getSettleInstruction, getSweepInstruction, playerAddress } from "@skech/contracts/solana/sdk";
+import {
+  fetchBars,
+  getCollectFeesInstruction,
+  getPostBarAndSettleInstruction,
+  getRedeemHouseInstruction,
+  getRedeemInstruction,
+  getSettleInstruction,
+  getSkechErrorMessage,
+  getSweepInstruction,
+  playerAddress,
+  SKECH_ERROR__BAR_CONFLICT,
+  SKECH_ERROR__BAR_DISCONTINUOUS,
+} from "@skech/contracts/solana/sdk";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Engine } from "../engine";
 import { report } from "../sentry";
-import type { SolanaChain } from "./chain";
+import { customCode, type Sent, type SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { Band } from "./sequencer";
 
@@ -18,7 +30,10 @@ export type Settled = { betId: Address; player: Address; hitMask: number; missMa
 export type Notify = { settled: (s: Settled) => void; owed: (to: Address, value: bigint) => void; account: (player: Address) => void };
 
 type Live = { player: Address; unit: bigint; bands: Band[] };
+type Bar = { prevClose: bigint; high: bigint; low: bigint; close: bigint };
 type State = { bets: { bet: Address; player: Address; unit: string; bands: { second: number; lo: string; hi: string; stake: string; rung: number }[] }[]; holders: Address[]; approved: Address[]; posted: Record<string, string> };
+
+const jsonOf = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
 
 /** Every share a holder has: redeem takes what the pool can pay of it. */
 const ALL = (1n << 128n) - 1n;
@@ -28,6 +43,11 @@ export class SolanaSettler {
   private watching = new Map<number, Set<Address>>();
   /** The close we posted for each second, so the next follows on from it exactly. */
   private closes = new Map<number, bigint>();
+  /** Seconds the chain already has a different bar for: posted as the chain has them, so their bets settle. */
+  private adopted = new Map<number, Bar>();
+  /** Posts failed in a row, and when to try again: a revert that keeps coming is not paid for every 100 ms. */
+  private failures = 0;
+  private retryAt = 0;
   private holders = new Set<Address>();
   /** Wallets that approved the game to sweep their USDC in. */
   private approved = new Set<Address>();
@@ -70,14 +90,17 @@ export class SolanaSettler {
     at.add(bet);
   }
 
-  private forget(second: number) {
+  /** A second is posted and its bets settled, but those in `keep`, whose settling failed: they go again. */
+  private forget(second: number, keep = new Set<Address>()) {
     for (const bet of this.watching.get(second) ?? []) {
+      if (keep.has(bet)) continue;
       const b = this.bets.get(bet);
       if (!b) continue;
       b.bands = b.bands.filter((x) => x.second !== second);
       if (!b.bands.length) this.bets.delete(bet);
     }
-    this.watching.delete(second);
+    if (keep.size) this.watching.set(second, keep);
+    else this.watching.delete(second);
   }
 
   async start() {
@@ -100,7 +123,19 @@ export class SolanaSettler {
     try {
       const now = this.engine.now();
       const due = [...this.watching.keys()].filter((s) => s + 1000 + CLOSE_AFTER_MS <= now).sort((a, b) => a - b).slice(0, 4);
-      for (const second of due) if (this.engine.ready()) await this.post(second);
+      if (due.length && Date.now() >= this.retryAt) {
+        try {
+          for (const second of due) if (this.engine.ready()) await this.post(second);
+          this.failures = 0;
+        } catch (e) {
+          // Backing off, doubling up to thirty seconds.
+          this.failures++;
+          const wait = Math.min(30_000, 100 * 2 ** Math.min(this.failures, 9));
+          this.retryAt = Date.now() + wait;
+          this.log(`settle: ${String((e as Error).message ?? e).split("\n")[0]}; again in ${wait} ms`);
+          report("settle", e);
+        }
+      }
       const soon = [...this.watching.keys()].some((s) => s + 1000 + CLOSE_AFTER_MS <= now + 1500);
       const since = Date.now() - this.lastSweep;
       if (since > this.cfg.sweepEveryMs && (!soon || since > 4 * this.cfg.sweepEveryMs)) {
@@ -126,15 +161,23 @@ export class SolanaSettler {
 
   private async post(second: number) {
     const b = this.engine.book.at(second);
-    if (!b) {
+    const theirs = this.adopted.get(second);
+    if (!b && !theirs) {
       if (this.engine.book.bars[0] && this.engine.book.bars[0].t > second) {
         this.log(`settle: no bar for ${second}, before this relayer's history; dropping its watch`);
         this.forget(second);
       }
       return;
     }
-    const prevClose = this.closes.get(second - 1000) ?? BigInt(Math.round((this.engine.book.at(second - 1000)?.c ?? b.c) * 1e8));
-    const bar = { second: BigInt(second), prevClose, high: BigInt(Math.round(b.h * 1e8)), low: BigInt(Math.round(b.l * 1e8)), close: BigInt(Math.round(b.c * 1e8)) };
+    const bar = theirs
+      ? { second: BigInt(second), ...theirs }
+      : {
+          second: BigInt(second),
+          prevClose: this.closes.get(second - 1000) ?? BigInt(Math.round((this.engine.book.at(second - 1000)?.c ?? b!.c) * 1e8)),
+          high: BigInt(Math.round(b!.h * 1e8)),
+          low: BigInt(Math.round(b!.l * 1e8)),
+          close: BigInt(Math.round(b!.c * 1e8)),
+        };
     const bets = [...(this.watching.get(second) ?? [])].filter((x) => this.bets.has(x));
     const d = this.cfg.deployment;
     const chunks: Address[][] = [];
@@ -143,18 +186,46 @@ export class SolanaSettler {
     const first = getPostBarAndSettleInstruction({ oracle: this.chain.signer, game: d.game, marketAccount: d.market, bars: d.bars, pool: d.pool, rentReceiver: this.chain.signer.address, market: this.cfg.market, bar });
     const withBets = (ix: Instruction, extra: { address: Address; role: AccountRole }[]): Instruction => ({ ...ix, accounts: [...(ix.accounts ?? []), ...extra] });
     const sent = await this.chain.send(`bar ${second} + ${chunks[0].length} bets`, [withBets(first, await this.pairs(chunks[0]))], this.computeFor(chunks[0].length, true));
-    if (sent.err) throw new Error(`bar ${second}: ${JSON.stringify(sent.err, (_, v) => (typeof v === "bigint" ? v.toString() : v))}`);
+    if (sent.err) {
+      // A bar the chain already has, different, or one that does not follow on from its second before, fails every
+      // time: the chain's own are read instead, and posted as they are.
+      const code = customCode(sent.err);
+      if (code === SKECH_ERROR__BAR_CONFLICT || code === SKECH_ERROR__BAR_DISCONTINUOUS) await this.adopt(second);
+      throw new Error(`bar ${second}: ${code !== null ? (getSkechErrorMessage(code as Parameters<typeof getSkechErrorMessage>[0]) ?? `error ${code}`) : jsonOf(sent.err)}`);
+    }
     this.closes.set(second, bar.close);
+    this.adopted.delete(second);
     if (this.closes.size > 4000) for (const k of [...this.closes.keys()].sort((a, c) => a - c).slice(0, 1000)) this.closes.delete(k);
     this.stats.bars++;
-    const rest = await Promise.all(
+    const rest = await Promise.allSettled(
       chunks.slice(1).map(async (chunk) => {
         const ix = getSettleInstruction({ game: d.game, bars: d.bars, pool: d.pool, rentReceiver: this.chain.signer.address, market: this.cfg.market });
         return this.chain.send(`settle ${chunk.length} on ${second}`, [withBets(ix, await this.pairs(chunk))], this.computeFor(chunk.length, false));
       }),
     );
-    this.forget(second);
-    for (const s of [sent, ...rest]) if (!s.err) void this.tell(s.signature).catch((e) => this.log(`settle ${second}: ${String((e as Error).message ?? e).split("\n")[0]}`));
+    // A chunk that failed, or was never seen to land, keeps its bets watched: they settle on the next round, with
+    // the bar posted again as it is (the same bar twice is fine, and a bet settled already is passed over).
+    const keep = new Set<Address>();
+    const landed: Sent[] = [sent];
+    for (const [i, r] of rest.entries()) {
+      if (r.status === "fulfilled" && !r.value.err) landed.push(r.value);
+      else for (const bet of chunks[i + 1]) keep.add(bet);
+    }
+    this.forget(second, keep);
+    for (const s of landed) void this.tell(s.signature).catch((e) => this.log(`settle ${second}: ${String((e as Error).message ?? e).split("\n")[0]}`));
+    if (keep.size) throw new Error(`settle on ${second}: ${keep.size} bets did not settle, and go again`);
+  }
+
+  /** The chain's own bars, after it refused ours: its bar for `second` if it has one, and its close before. */
+  private async adopt(second: number) {
+    const ring = await fetchBars(this.chain.rpc, this.cfg.deployment.bars).catch(() => null);
+    if (!ring) return;
+    this.closes.delete(second - 1000);
+    for (const b of ring.data.ring) {
+      if (b.second === BigInt(second)) this.adopted.set(second, { prevClose: b.prevClose, high: b.high, low: b.low, close: b.close });
+      if (b.second === BigInt(second - 1000)) this.closes.set(second - 1000, b.close);
+    }
+    this.log(`settle: the chain has other bars around ${second}; posting its own`);
   }
 
   /** Tell each player what their bets did, from the settlement's events. */

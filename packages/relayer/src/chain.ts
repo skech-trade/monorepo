@@ -45,6 +45,16 @@ const unsure = (e: unknown) =>
 
 type Dispatched = { nonce: number; serialized: Hex; sending: Promise<TransactionReceipt> };
 
+/** A call the chain reverted, and why (the contract's error, when it has one): sending it again as it is will not help. */
+export class Reverted extends Error {
+  constructor(
+    message: string,
+    readonly why: string | null,
+  ) {
+    super(message);
+  }
+}
+
 /**
  * What the relayer knows of the pool and the fees without asking: followed from
  * its own receipts, and read afresh every few seconds for what others did.
@@ -268,7 +278,7 @@ export class ChainClient {
           continue;
         }
         this.log(`${label}: reverted in block ${receipt.blockNumber} (${receipt.transactionHash}) after ${ms} ms${verdict.kind === "reverted" ? `: ${verdict.why}` : ""}`);
-        throw new Error(`${label} reverted${verdict.kind === "reverted" ? `: ${verdict.why}` : ""}`);
+        throw new Reverted(`${label} reverted${verdict.kind === "reverted" ? `: ${verdict.why}` : ""}`, verdict.kind === "reverted" ? verdict.why : null);
       }
       const events = this.events(receipt);
       this.ledger.note(events);
