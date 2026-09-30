@@ -1,5 +1,7 @@
 //! The skech program, compiled for Solana (`anchor build`), run in LiteSVM.
 #[cfg(test)]
+mod conformance;
+#[cfg(test)]
 mod game;
 #[cfg(test)]
 mod harness;
