@@ -25,13 +25,13 @@ Vercel builds the app and the landing from the merge. Then check:
 ```bash
 curl https://api.skech.trade/engine/health      # ok
 curl https://api.skech.trade/relayer/health     # ok
-curl -s https://api.skech.trade/relayer/status  # up: seconds since the restart; pieces, settling
+ssh skech curl -s localhost:3103/status         # up: seconds since the restart; pieces, settling
 ```
 
 and draw one piece on app.skech.trade.
 
-`deploy.sh` copies the working tree, not a commit: run it from a clean `main`. The engine's Sentry
-release is marked `-dirty` when it is not.
+`deploy.sh` ships the commit checked out, from `git archive`, and refuses to run while what it ships has
+changes that are not committed. The engine's Sentry release is that commit.
 
 ## 2. Change a key or a setting
 
@@ -51,7 +51,7 @@ fees stay in the old one.
 **Before**, on the old game:
 
 1. Players withdraw what they hold (the app's Withdraw). Say so first: the new game starts empty.
-2. Let every open bet settle: `settling.seconds` in `/relayer/status` reaches 0.
+2. Let every open bet settle: `settling.seconds` in the relayer's `/status` (`ssh skech curl -s localhost:3103/status`) reaches 0.
 3. Take the fees out of `SkechRevenue` (its `TREASURER_ROLE` is the deployer's):
    ```bash
    cast send <revenue> 'withdraw(address,address,uint256)' <usdc> <to> <amount> --private-key <admin> --rpc-url <rpc>
@@ -73,12 +73,12 @@ and the block it went out in (where the relayer counts transactions from). On ma
 1. Commit `deployments/<chainId>.json` and merge it: the app reads it at build, so Vercel picks the
    new game up from the merge.
 2. `infra/deploy.sh`: the engine signs for the new game and the relayer places on it. Its state
-   files are per game (`.relayer-state.<chain>.<game>.json`, `.relayer-activity.…`), so it starts
-   clean and the old ones are left alone.
+   files are per game (`/var/lib/skech-relayer/.relayer-state.<chain>.<game>.json`, `.relayer-activity.…`),
+   so it starts clean and the old ones are left alone.
 3. Check the difficulty and the fees are what you want (`SkechGame.config()`, `difficultyOf(0)`).
    The pool starts at 0 and only fills from stakes: the first wins are paid in IOUs, which are
    paid off as it fills.
-4. Check as in 1, and that `/relayer/status` names the new `chain.game`.
+4. Check as in 1, and that the relayer's `/status` names the new `chain.game`.
 
 `SKECH_GAME` (app, relayer), `ENGINE_VERIFYING_CONTRACT` (engine) and `SKECH_DEPLOY_BLOCK` (relayer)
 override the file, for a one-off; the file is what everything should agree on.
@@ -93,15 +93,15 @@ The game on Solana is its own program (`packages/contracts/solana`), its own rel
 1. **Deploy the program and set the game up**, once per cluster: `bun run deploy:solana` (devnet by default; `--mainnet` for mainnet-beta). It writes `packages/contracts/deployments/solana-<cluster>.json`; commit it. The deployer needs about 5 SOL for the program's rent; devnet SOL is free from `solana airdrop` or faucet.solana.com.
 2. **Give the relayer its key and SOL.** `SOLANA_RELAYER_KEYPAIR` locally, or `SOLANA_RELAYER_SECRET_KEY` (the 64 bytes as JSON) in `.env.local` for the box, plus `SKECH_SOLANA_CLUSTER`. Its key must be the game's oracle: the deploy uses `SOLANA_RELAYER_KEYPAIR`'s. It pays every fee and every rent (a bet's comes back when it settles): keep 1 SOL or more in it.
 3. **Ship it**: `infra/deploy.sh --env`. With both Solana keys in the box's env, the Solana relayer starts beside the Monad one; without them it stays off.
-4. **Check it**: `curl https://api.skech.trade/solana/status`.
+4. **Check it**: `ssh skech curl -s localhost:3104/status`.
 
 Locally: a validator (`solana-test-validator --reset --gossip-port 8110 --dynamic-port-range 8111-8140`, off port 8000, which Docker holds), `SKECH_SOLANA_CLUSTER=localnet bun run deploy:solana`, then `bun packages/relayer/scripts/e2e-solana.ts` plays the whole game through the relayer.
 
 ## 4. A new box
 
 [infra/README.md](../infra/README.md): `infra/setup.sh`, then `infra/deploy.sh --env`. Open 80 and
-443 for the certificate, point `api.skech.trade` at it, and copy the relayer's state file across from
-the old box if it had bets still open.
+443 for the certificate, point `api.skech.trade` at it, and copy the relayer's state files across from
+the old box (`/var/lib/skech-relayer`) if it had bets still open.
 
 ## 5. Going back
 
