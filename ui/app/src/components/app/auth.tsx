@@ -1,7 +1,9 @@
 "use client";
 
 import { useCurrentUser, useEvmAddress, useIsInitialized, useIsSignedIn, useSignEvmMessage, useSignEvmTypedData, useSignOut } from "@coinbase/cdp-hooks";
-import { CDPReactProvider, type Config, type Theme } from "@coinbase/cdp-react";
+// The provider alone, not the package's index: that pulls in every one of its components, and their styles.
+import { CDPReactProvider } from "@coinbase/cdp-react/components/CDPReactProvider";
+import type { Config, Theme } from "@coinbase/cdp-react";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { identify, track } from "@/lib/analytics";
 import { shortAddress } from "@/lib/market";

@@ -8,7 +8,7 @@ import { DepositButton } from "./ink-controls";
 import { InkIntro } from "./ink-intro";
 import { InkScreen } from "./ink-screen";
 import { forReal } from "./onboarding";
-import { GateProvider, useGate } from "./deposit-modal";
+import { GateProvider, useGate } from "./gate";
 import { Button } from "@/components/ui/button";
 
 /**

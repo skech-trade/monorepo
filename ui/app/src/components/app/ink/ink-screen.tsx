@@ -41,7 +41,7 @@ import { introReady } from "./ink-intro";
 import { homeBarRoom, HomeScreenBar, HomeScreenSheet, useHomeScreen } from "./home-screen";
 import { forReal, Onboarding, useOnboarding } from "./onboarding";
 import { SignInButton } from "@/components/app/sign-in";
-import { useGate } from "./deposit-modal";
+import { useGate } from "./gate";
 import { useAccount } from "@/components/app/auth";
 
 /**

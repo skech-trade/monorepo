@@ -1,10 +1,10 @@
 "use client";
 
-import { SignInModal } from "@coinbase/cdp-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
+import { SignInModal } from "./ink/gate";
 
 /**
  * Our button, Coinbase's panel.
@@ -16,13 +16,17 @@ import { cn } from "@/lib/utils";
 export function SignInButton({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <SignInModal open={open} setIsOpen={setOpen}>
+    <>
       {/* Matched to the toggle beside it on a phone, where it was forty
           against forty-four and the two sat on different centre lines in the
           same bar. The small size is kept for the desk, unchanged. */}
       <Button className={cn("h-11 rounded-full px-[18px] font-semibold text-base sm:h-11 sm:px-[18px]", className)} onClick={() => { track("sign_in_opened", { from: "app_bar" }); setOpen(true); }} size="sm">
         Sign in
       </Button>
-    </SignInModal>
+      {/* Beside the button, not around it: the panel loads after the page, and the button must not wait for it. */}
+      <SignInModal open={open} setIsOpen={setOpen}>
+        <span hidden />
+      </SignInModal>
+    </>
   );
 }

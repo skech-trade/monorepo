@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Menu, MenuPopup, MenuSeparator, MenuItem, MenuTrigger } from "@/components/ui/menu";
 import { hasAuth, useAccount } from "./auth";
 import { useChain } from "./ink/chain-context";
-import { useGate } from "./ink/deposit-modal";
+import { useGate } from "./ink/gate";
 import { openHomeScreen, useInstallable } from "./ink/home-screen";
 import { TransactionsSheet } from "./ink/transactions-sheet";
 import { PRIVATE_TEXT } from "@/lib/analytics";
