@@ -14,13 +14,14 @@ import { TransactionsSheet } from "./ink/transactions-sheet";
 import { money } from "@/lib/money";
 import { CopyAddress } from "./copy";
 import { Wordmark } from "./logo";
-import { SignInButton } from "./sign-in";
 import { ThemeToggle } from "./theme-toggle";
 
 /**
  * The bar over the game: the wordmark, light or dark, the page's own button
- * (the practice deposit), and the way in. Signed in, the way in becomes a
- * small menu: who you are, withdrawing, their transactions, and signing out.
+ * (Deposit), and the account. Signed out it is only light or dark: the way in
+ * is the one "Sign in to play" in the middle of the game. Signed in, the
+ * account is a small menu: who you are, withdrawing, their transactions, and
+ * signing out.
  *
  * Taller on a phone, where the things in it are thumb-sized: fifty-six
  * pixels is what a phone header is on both platforms.
@@ -34,8 +35,6 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   const [txsOpen, setTxsOpen] = useState(false);
   // The transaction count, only from a relayer that keeps one.
   const counted = chain.real && chain.hello?.activity === true;
-  // Signed out only once Coinbase has read the saved session: before that, no Sign in to tap by mistake.
-  const anonymous = hasAuth && me.ready && !me.signedIn;
   // An email or a phone number names the account; without one it is simply the wallet, and the address says which.
   const name = me.handle && !me.handle.startsWith("0x") ? me.handle : "Your wallet";
   return (
@@ -46,7 +45,6 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
       <div className="ml-auto flex shrink-0 items-center gap-2">
         {showTheme ? <ThemeToggle className="size-11 rounded-full border-0 bg-secondary sm:size-11 [&_svg]:size-5" /> : null}
         {lead}
-        {anonymous ? <SignInButton /> : null}
         {hasAuth && !me.ready ? <span aria-hidden="true" className="size-11 shrink-0 animate-pulse rounded-full bg-secondary" /> : null}
         {hasAuth && me.signedIn ? (
           <Menu>
