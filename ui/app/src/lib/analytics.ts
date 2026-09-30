@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
-import posthog, { type Properties } from "posthog-js";
+import type { PostHog, Properties } from "posthog-js";
 
 /**
  * What the app tells PostHog, and nothing else.
@@ -17,6 +17,10 @@ import posthog, { type Properties } from "posthog-js";
  * NEXT_PUBLIC_POSTHOG_DEV=1, so a laptop never counts against the plan.
  * Events go through /ingest on our own domain (next.config.ts), past ad
  * blockers. Identity is the wallet address, never an email or phone number.
+ *
+ * PostHog itself (about 110 KB gzipped) is loaded once the page has painted
+ * and the browser is idle, not before the game can be seen; what is tracked
+ * before then waits for it.
  */
 
 export type Event =
@@ -75,10 +79,26 @@ const ROUNDS_PER_VISIT = 150;
 let started = false;
 let rounds = 0;
 let roundsSent = 0;
+/** PostHog, once loaded; until then, what was asked of it, in order. */
+let ph: PostHog | null = null;
+const waiting: ((posthog: PostHog) => void)[] = [];
+const withPostHog = (fn: (posthog: PostHog) => void) => (ph ? fn(ph) : waiting.push(fn));
+
+/** Run `fn` once the page has loaded and the browser has a moment: for what the first paint should not wait on. */
+export function whenIdle(fn: () => void) {
+  const idle = () => (typeof requestIdleCallback === "function" ? requestIdleCallback(fn, { timeout: 4000 }) : setTimeout(fn, 1));
+  if (document.readyState === "complete") idle();
+  else addEventListener("load", idle, { once: true });
+}
 
 export function startAnalytics() {
   if (!ON || started || typeof window === "undefined") return;
   started = true;
+  watchVisit();
+  whenIdle(() => void import("posthog-js").then(({ default: posthog }) => load(posthog), () => undefined));
+}
+
+function load(posthog: PostHog) {
   posthog.init(KEY, {
     api_host: "/ingest",
     ui_host: `https://${REGION}.posthog.com`,
@@ -103,7 +123,8 @@ export function startAnalytics() {
     standalone: Boolean(nav.standalone) || matchMedia("(display-mode: standalone)").matches,
     network: process.env.NEXT_PUBLIC_SKECH_NETWORK ?? "testnet",
   });
-  watchVisit();
+  ph = posthog;
+  for (const fn of waiting.splice(0)) fn(posthog);
 }
 
 export function track(event: Event, props?: Properties) {
@@ -111,15 +132,14 @@ export function track(event: Event, props?: Properties) {
   if (!started) return;
   if (event === "round_finished" && ++rounds > ROUNDS_PER_VISIT) return;
   if (event === "round_finished") roundsSent++;
-  posthog.capture(event, props);
+  withPostHog((posthog) => posthog.capture(event, props));
 }
 
 /** Who is playing: the wallet, once signed in. Signing out starts a new anonymous visitor. */
 export function identify(address: string | null) {
   Sentry.setUser(address ? { id: address.toLowerCase() } : null);
   if (!started) return;
-  if (address) posthog.identify(address.toLowerCase());
-  else posthog.reset();
+  withPostHog((posthog) => (address ? posthog.identify(address.toLowerCase()) : posthog.reset()));
 }
 
 /** Something that went wrong and was caught, so it would not reach the automatic capture. */
@@ -144,7 +164,8 @@ function watchVisit() {
     shownAt = null;
     // Under a second is a flicker, not a visit.
     if (activeMs < 1000) return;
-    posthog.capture("visit_ended", { active_ms: activeMs, active_min: Math.round(activeMs / 6000) / 10, rounds: rounds - roundsAtShow, rounds_capped: rounds > roundsSent }, { transport: "sendBeacon" });
+    const visit = { active_ms: activeMs, active_min: Math.round(activeMs / 6000) / 10, rounds: rounds - roundsAtShow, rounds_capped: rounds > roundsSent };
+    withPostHog((posthog) => posthog.capture("visit_ended", visit, { transport: "sendBeacon" }));
   };
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flush();
