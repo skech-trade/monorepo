@@ -396,80 +396,97 @@ contract SkechGameTest is Base {
         // Replay: the same drawing and index.
         expectRefused(betId, 9, 0, SkechGame.Refusal.Replay);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
-        // Difficulty changed under the player.
+        // Difficulty changed under the player. Every refusal spends its piece's name: each try from here is a new index.
         p.index = 1;
         p.difficulty = 60;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Difficulty);
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Difficulty);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.difficulty = 51;
         // Received too late.
+        p.index++;
         SkechGame.Placement[] memory pls = new SkechGame.Placement[](1);
         pls[0] = placement(p, SESSION_KEY);
         (SkechGame.Quote memory q, bytes memory sig) = quote(pls, p.openAt + 201, chancesOf(500_000_000), 0);
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Late);
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Late);
         game.place(pls, q, sig);
         // The price seen is too old, or from the future.
         p.priceTime = p.openAt - 400 - 15_001;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.StalePrice);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.StalePrice);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.priceTime = p.openAt - 399;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.StalePrice);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.StalePrice);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.priceTime = p.openAt - 500;
         // A dot too cheap or too dear.
         p.perDot = 9_999;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.PerDot);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.PerDot);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.perDot = 100_000_001;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.PerDot);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.PerDot);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.perDot = PER_DOT;
         // Bands off the grid, out of reach, or upside down.
         p.sections[0].lo = LO + 1;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Sections);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Sections);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.sections[0].lo = LO;
         p.sections[0].second = 31;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Sections);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Sections);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.sections[0].second = 0;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Sections);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Sections);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.sections[0].second = 1;
         p.sections[0].hi = LO;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Sections);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Sections);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.sections[0].hi = HI;
         p.sections[0].stake = 10_000_000_001;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Sections);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Sections);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         p.sections[0].stake = HALF_DOT;
         // The stroke does not match its hash.
+        p.index++;
         pls[0] = placement(p, SESSION_KEY);
         pls[0].stroke = hex"00";
         (q, sig) = quote(pls, p.openAt - 400, chancesOf(500_000_000), 0);
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Stroke);
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Stroke);
         game.place(pls, q, sig);
         // The price the player saw was not signed by the oracle.
+        p.index++;
         pls[0] = placement(p, SESSION_KEY);
         pls[0].priceSig = sign(OTHER_KEY, game.priceDigest("BTC-USD", p.priceSeen, p.priceTime));
         (q, sig) = quote(pls, p.openAt - 400, chancesOf(500_000_000), 0);
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.PriceSig);
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.PriceSig);
         game.place(pls, q, sig);
         // Signed by the wrong session key.
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.SessionSig);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.SessionSig);
         placeOne(p, OTHER_SESSION_KEY, chancesOf(500_000_000));
         // Nothing on offer.
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.NotOffered);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.NotOffered);
         placeOne(p, SESSION_KEY, chancesOf(0));
         // Session expired.
         vm.warp(vm.getBlockTimestamp() + 1 days);
         p.openAt = openAtNow();
         p.priceTime = p.openAt - 500;
-        expectRefused(game.betIdOf(player, 9, 1), 9, 1, SkechGame.Refusal.Session);
+        p.index++;
+        expectRefused(game.betIdOf(player, 9, p.index), 9, p.index, SkechGame.Refusal.Session);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
-        // Through all of that, nothing was charged.
+        // Through all of that, nothing was charged; and a refused piece is spent, so it never goes in later.
         assertEq(game.balanceOf(player), 100e6 - HALF_DOT);
+        assertTrue(game.wasRefused(game.betIdOf(player, 9, p.index)));
+        assertFalse(game.wasRefused(betId));
         assertEq(game.sessionOf(player).allowance, 100e6 - HALF_DOT);
     }
 
@@ -480,10 +497,34 @@ contract SkechGameTest is Base {
         expectRefused(game.betIdOf(player, 1, 0), 1, 0, SkechGame.Refusal.Allowance);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         registerSession(PLAYER_KEY, SESSION_KEY, 100e6);
+        p.index = 1;
         p.sections[0].stake = 2e6;
-        expectRefused(game.betIdOf(player, 1, 0), 1, 0, SkechGame.Refusal.Balance);
+        expectRefused(game.betIdOf(player, 1, 1), 1, 1, SkechGame.Refusal.Balance);
         placeOne(p, SESSION_KEY, chancesOf(500_000_000));
         assertEq(game.balanceOf(player), 1e6);
+    }
+
+    /// A piece refused for want of money is public calldata: sent again once the price has moved the player's way,
+    /// and the balance topped up, it would be a free option. Its name was spent when it was refused.
+    function test_aRefusedPieceCannotBePlacedLater() public {
+        deposit(player, 30_000);
+        registerSession(PLAYER_KEY, SESSION_KEY, 100e6);
+        SkechGame.Piece memory p = piece(1, 0, oneSection(HALF_DOT));
+        SkechGame.Placement[] memory pls = new SkechGame.Placement[](1);
+        pls[0] = placement(p, SESSION_KEY);
+        (SkechGame.Quote memory q, bytes memory sig) = quote(pls, p.openAt - 400, chancesOf(500_000_000), 0);
+        bytes32 betId = game.betIdOf(player, 1, 0);
+        expectRefused(betId, 1, 0, SkechGame.Refusal.Balance);
+        game.place(pls, q, sig);
+        assertTrue(game.wasRefused(betId));
+        // The same calldata, inside the window, after a top-up: refused as a replay, and nothing moves.
+        deposit(player, 100e6);
+        vm.warp(vm.getBlockTimestamp() + 2);
+        expectRefused(betId, 1, 0, SkechGame.Refusal.Replay);
+        game.place(pls, q, sig);
+        assertEq(game.betOf(betId).player, address(0));
+        assertEq(game.balanceOf(player), 100e6 + 30_000);
+        assertEq(game.pool(), 0);
     }
 
     function test_quoteMustBeTheOraclesAndFitThePieces() public {

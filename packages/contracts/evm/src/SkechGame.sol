@@ -229,6 +229,9 @@ contract SkechGame is
         mapping(address => uint64) balances;
         mapping(address => Session) sessions;
         mapping(bytes32 => Bet) bets;
+        /// @dev Pieces the oracle quoted that were refused. Spent like a placed bet's name, so the same signed piece
+        /// can never go in later, once its price is known.
+        mapping(bytes32 => bool) refused;
     }
 
     /* ------------------------------------------------------------------ */
@@ -622,7 +625,7 @@ contract SkechGame is
         bytes32 betId = keccak256(abi.encodePacked(p.player, p.drawing, p.index));
         Refusal why = _check(p, pl, betId, pieceHash, q, market, receivedAt);
         if (why != Refusal.None) {
-            emit Refused(betId, p.player, p.drawing, p.index, why);
+            _refuse(p, betId, why);
             return (0, 0);
         }
         GameStorage storage $ = _s();
@@ -647,17 +650,17 @@ contract SkechGame is
             count++;
         }
         if (kept == 0) {
-            emit Refused(betId, p.player, p.drawing, p.index, Refusal.NotOffered);
+            _refuse(p, betId, Refusal.NotOffered);
             return (0, 0);
         }
         Session storage session = $.sessions[p.player];
         if (session.allowance < kept) {
-            emit Refused(betId, p.player, p.drawing, p.index, Refusal.Allowance);
+            _refuse(p, betId, Refusal.Allowance);
             return (0, 0);
         }
         uint64 held = $.balances[p.player];
         if (held < kept) {
-            emit Refused(betId, p.player, p.drawing, p.index, Refusal.Balance);
+            _refuse(p, betId, Refusal.Balance);
             return (0, 0);
         }
         // Everything checks out: only now is anything written.
@@ -685,6 +688,14 @@ contract SkechGame is
         emit Stroke(betId, pl.stroke);
     }
 
+    /// @dev A quoted piece that does not go in. Its name is spent all the same: its calldata is public, and sent again
+    /// once the player had topped up their balance or allowance, or registered the key, it would be a bet placed
+    /// after its price was seen. The player signs the ink again under a new index instead.
+    function _refuse(Piece calldata p, bytes32 betId, Refusal why) private {
+        if (why != Refusal.Replay) _s().refused[betId] = true;
+        emit Refused(betId, p.player, p.drawing, p.index, why);
+    }
+
     /// @dev Everything about a piece that can be wrong before its bands are priced.
     function _check(
         Piece calldata p,
@@ -698,7 +709,7 @@ contract SkechGame is
         GameStorage storage $ = _s();
         Config storage c = $.config;
         if (p.market != q.market || p.openAt != q.openAt || p.unit != q.unit) return Refusal.Mismatch;
-        if ($.bets[betId].player != address(0)) return Refusal.Replay;
+        if ($.bets[betId].player != address(0) || $.refused[betId]) return Refusal.Replay;
         if (p.difficulty != market.difficulty) return Refusal.Difficulty;
         // The engine must have had the piece before its opening second, give or take the network.
         if (receivedAt > p.openAt + c.lateMs) return Refusal.Late;
@@ -988,6 +999,11 @@ contract SkechGame is
             v.sections[i] = Section({second: uint8(w), lo: uint64(w >> 8), hi: uint64(w >> 72), stake: uint64(w >> 136)});
             v.rungs[i] = uint16(w >> 200);
         }
+    }
+
+    /// @notice Whether a piece the oracle quoted was refused: its name is spent, and it can never be placed.
+    function wasRefused(bytes32 betId) external view returns (bool) {
+        return _s().refused[betId];
     }
 
     /// @notice The name of a piece's bet.
