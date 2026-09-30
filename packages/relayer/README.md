@@ -17,7 +17,9 @@ app ──ws /ws──> relayer ──eth_sendRawTransactionSync──> SkechGam
   `place` transaction carries them all.
 - `src/settler.ts`: 600 ms after a second ends, its bar is signed and posted with the bets that have ink
   in it, in one `postBarAndSettle`. Every fifteen seconds it redeems IOUs the pool can pay and collects
-  the fees. What is still to settle survives a restart in `.relayer-state.<chainId>.<game>.json`.
+  the fees. What is still to settle survives a restart in `.relayer-state.<chainId>.<game>.json`, written whole
+  or not at all (`src/state.ts`). A state file that is there but cannot be read stops the relayer at start, rather
+  than being saved over: restore it, or move it aside to start without it.
 - `src/chain.ts`: viem with a local nonce and Monad's synchronous send, which returns the receipt from the
   proposed block. Nothing is asked of the node between deciding to send and sending: the gas limit comes
   from `src/gas.ts` and the base fee is followed in the background. Nonces are taken and transactions signed

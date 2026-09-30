@@ -5,13 +5,13 @@
  */
 import { CLOSE_AFTER_MS } from "@skech/core/bars";
 import { TYPES } from "@skech/core/chain";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Address, Hex } from "viem";
 import { type ChainClient, Reverted } from "./chain";
 import type { Config } from "./config";
 import type { Engine } from "./engine";
 import { type Band, type LiveBet, type PostedBar, predictSettle } from "./predict";
 import { report } from "./sentry";
+import { readState, writeAtomic } from "./state";
 
 export type Settled = { betId: Hex; player: Address; hitMask: number; missMask: number; paid: bigint; owed: bigint; tx: Hex };
 export type Notify = { settled: (s: Settled) => void; owed: (to: Address, value: bigint) => void; account: (player: Address) => void };
@@ -266,10 +266,11 @@ export class Settler {
 
   /* ---- what survives a restart: the seconds still to settle, who is owed, what we posted ---- */
 
+  /** A file that is there but cannot be read stops the relayer here (state.ts): nothing owed is written over. */
   private load() {
-    if (!existsSync(this.statePath)) return;
+    const s = readState<State>(this.statePath);
+    if (!s) return;
     try {
-      const s = JSON.parse(readFileSync(this.statePath, "utf8")) as State;
       for (const b of s.bets ?? []) {
         for (const band of b.bands) this.watch(b.betId, b.player, BigInt(b.unit), { second: band.second, lo: BigInt(band.lo), hi: BigInt(band.hi), stake: BigInt(band.stake), rung: band.rung });
       }
@@ -286,8 +287,7 @@ export class Settler {
       for (const [second, close] of Object.entries(s.posted)) this.posted.set(Number(second), BigInt(close));
       this.log(`settle: restored ${this.watching.size} seconds to settle and ${this.holders.size} IOU holders`);
     } catch (e) {
-      this.log(`settle: could not read ${this.statePath}: ${String(e)}`);
-      report("state-read", e);
+      throw new Error(`${this.statePath} is not state this relayer can restore (${String((e as Error).message ?? e)}): restore it, or move it aside to start without it`);
     }
   }
 
@@ -302,7 +302,7 @@ export class Settler {
     }
     for (const [second, close] of [...this.posted].slice(-600)) s.posted[second] = close.toString();
     try {
-      writeFileSync(this.statePath, JSON.stringify(s));
+      writeAtomic(this.statePath, JSON.stringify(s));
     } catch (e) {
       this.log(`settle: could not write ${this.statePath}: ${String(e)}`);
       report("state-write", e);

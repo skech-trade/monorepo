@@ -19,9 +19,9 @@ import {
   SKECH_ERROR__BAR_CONFLICT,
   SKECH_ERROR__BAR_DISCONTINUOUS,
 } from "@skech/contracts/solana/sdk";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { Engine } from "../engine";
 import { report } from "../sentry";
+import { readState, writeAtomic } from "../state";
 import { customCode, type Sent, type SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { Band } from "./sequencer";
@@ -306,18 +306,18 @@ export class SolanaSettler {
 
   /* ---- what survives a restart ---- */
 
+  /** A file that is there but cannot be read stops the relayer here (state.ts): nothing owed is written over. */
   private load() {
-    if (!existsSync(this.statePath)) return;
+    const s = readState<State>(this.statePath);
+    if (!s) return;
     try {
-      const s = JSON.parse(readFileSync(this.statePath, "utf8")) as State;
       for (const b of s.bets) for (const band of b.bands) this.watch(b.bet, b.player, BigInt(b.unit), { second: band.second, lo: BigInt(band.lo), hi: BigInt(band.hi), stake: BigInt(band.stake), rung: band.rung });
       for (const h of s.holders) this.holders.add(h);
       for (const a of s.approved ?? []) this.approved.add(a);
       for (const [second, close] of Object.entries(s.posted)) this.closes.set(Number(second), BigInt(close));
       this.log(`settle: restored ${this.watching.size} seconds to settle, ${this.holders.size} IOU holders, ${this.approved.size} approvals`);
     } catch (e) {
-      this.log(`settle: could not read ${this.statePath}: ${String(e)}`);
-      report("state-read", e);
+      throw new Error(`${this.statePath} is not state this relayer can restore (${String((e as Error).message ?? e)}): restore it, or move it aside to start without it`);
     }
   }
 
@@ -326,7 +326,7 @@ export class SolanaSettler {
     for (const [bet, b] of this.bets) s.bets.push({ bet, player: b.player, unit: b.unit.toString(), bands: b.bands.map((x) => ({ second: x.second, lo: x.lo.toString(), hi: x.hi.toString(), stake: x.stake.toString(), rung: x.rung })) });
     for (const [second, close] of [...this.closes].slice(-600)) s.posted[second] = close.toString();
     try {
-      writeFileSync(this.statePath, JSON.stringify(s));
+      writeAtomic(this.statePath, JSON.stringify(s));
     } catch (e) {
       this.log(`settle: could not write ${this.statePath}: ${String(e)}`);
       report("state-write", e);

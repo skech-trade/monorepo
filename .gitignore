@@ -47,6 +47,9 @@ skills-lock.json
 # relayer
 .relayer-state*.json
 .relayer-activity*.json
+# a save cut short, and a file that could not be read, moved aside
+.relayer-*.tmp
+.relayer-*.unreadable-*
 
 # infra: the box's address, IDs and to-dos stay off the public repo
 *.local.md
