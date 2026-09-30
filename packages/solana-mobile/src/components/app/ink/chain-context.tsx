@@ -46,6 +46,10 @@ const SESSION_ALLOWANCE = 100_000_000_000n;
 /** How much USDC landing in the wallet the game may sweep in without asking again: $1,000,000. */
 const APPROVE = 1_000_000_000_000n;
 export const MIN_DEPOSIT = 1;
+/** How long USDC in the wallet may take to move in before the app stops waiting on it. */
+const SWEEP_WAIT_MS = 30_000;
+/** How long after that, or after a deposit that did not go through, it asks again. */
+const SWEEP_BACKOFF_MS = 30_000;
 
 export function ChainProvider({ children }: { children: ReactNode }) {
   const me = useAccount();
@@ -143,25 +147,43 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   const [adding, setAdding] = useState<number | null>(null);
   const [landed, setLanded] = useState<{ amount: number; at: number } | null>(null);
   const live = Boolean(player && hello && connected);
-  const pending = useRef<{ amount: number; before: string | null } | null>(null);
+  const pending = useRef<{ amount: number; before: string | null; signing: boolean } | null>(null);
+  const pausedUntil = useRef(0);
+  const [again, setAgain] = useState(0);
+  // A sweep that failed, or never emptied the wallet: stop saying "Adding", and look again in a while, as the web does.
+  const giveUp = useCallback(() => {
+    pending.current = null;
+    setAdding(null);
+    pausedUntil.current = Date.now() + SWEEP_BACKOFF_MS;
+    setTimeout(() => setAgain((n) => n + 1), SWEEP_BACKOFF_MS);
+  }, []);
   useEffect(() => {
-    if (!live || wallet === null || wallet < MIN_DEPOSIT) return;
-    if (pending.current) return;
-    pending.current = { amount: wallet, before: saidRef.current };
+    if (!live || wallet === null || wallet < MIN_DEPOSIT || Date.now() < pausedUntil.current) return;
+    // One on its way for what is there now. USDC that arrived since is asked for again, all of it.
+    const p = pending.current;
+    if (p && (p.signing || p.amount === wallet)) return;
+    const ask = { amount: wallet, before: saidRef.current, signing: false };
+    pending.current = ask;
     setAdding(wallet);
     if (approved >= wallet) client.send({ type: "sweep" });
-    else if (me.kind === "coinbase")
+    else if (me.kind === "coinbase") {
+      ask.signing = true;
       void deposit(wallet).then((why) => {
-        if (why) {
-          pending.current = null;
-          setAdding(null);
-        }
+        ask.signing = false;
+        if (pending.current !== ask) return;
+        if (why) giveUp();
+        else setAgain((n) => n + 1);
       });
-    else {
+    } else {
       pending.current = null;
       setAdding(null);
     }
-  }, [live, wallet, approved, client, deposit, me.kind]);
+  }, [live, wallet, approved, client, deposit, me.kind, again, giveUp]);
+  useEffect(() => {
+    if (adding === null) return;
+    const timer = setTimeout(giveUp, SWEEP_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [adding, giveUp]);
   // Landed: the wallet emptied into the balance.
   useEffect(() => {
     const p = pending.current;

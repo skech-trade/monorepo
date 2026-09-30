@@ -25,11 +25,13 @@ import { scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { setDark, useDark } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { type Chain, useChain } from "./chain-context";
-import { InkControls } from "./ink-controls";
+import { DepositButton, InkControls } from "./ink-controls";
 import { introReady } from "./ink-intro";
 import { addChange, Ledger } from "./ledger";
+import { Arrive, Bump, Glow, MOTION } from "./motion";
 import { Onboarding, Pill, useOnboarding } from "./onboarding";
 import { fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
+import { WalletButton } from "./wallet-button";
 
 /**
  * skech. Draw ahead of the Bitcoin price; wherever it runs through your ink pays.
@@ -698,7 +700,9 @@ export function InkScreen() {
     Signed out, the phone plays for practice money, as the web did before there was a game on chain: the game is
     there to try. Signing in (the bar) puts real USDC on Solana in play.
   */
-  const connecting = !fresh || onboarding.step === "connecting";
+  // Not while signed out: the blur and "Sign in to play" cover the game there.
+  const signedOut = onboarding.step === "signin";
+  const connecting = !signedOut && (!fresh || onboarding.step === "connecting");
   const board = useScoreboard();
   const [assetOpen, setAssetOpen] = useState(false);
   const { width } = useWindowDimensions();
@@ -711,6 +715,20 @@ export function InkScreen() {
   const showingBatch = totals.drawings > 0 || totals.committed > 0;
   const displayedWon = forReal && !real ? 0 : showingBatch ? totals.returned : board.won;
   const pillTop = top + 116;
+  // What skech keeps, as the relayer says it; nothing numeric until it has.
+  const fees = chain.hello?.terms ?? null;
+  // The balance, green and a little larger for a moment on a win, and what just moved it under it.
+  const balance = (
+    <>
+      <Text className="text-[12px] text-muted-foreground">Balance</Text>
+      <Bump on={gained > 0}>
+        <Text className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
+          {money(shownBalance)}
+        </Text>
+      </Bump>
+      <Ledger />
+    </>
+  );
 
   return (
     <View className="flex-1 overflow-hidden bg-background">
@@ -727,35 +745,40 @@ export function InkScreen() {
       </View>
       <LinearGradient colors={[c.bg, c.bg, dark ? "rgba(0,0,0,0)" : "rgba(255,255,255,0)"]} locations={[0, 0.8, 1]} pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: top + 64 }} />
 
-      <View className="absolute inset-x-0 z-20 flex-row items-center justify-between gap-4 px-5 pt-1.5 pb-2.5" pointerEvents="box-none" style={{ top }}>
-        <Pressable accessibilityLabel="Change asset: Bitcoin" className="flex-row items-center gap-2.5" onPress={() => setAssetOpen(true)}>
-          <BitcoinMark size={36} />
-          <View>
-            <View className="flex-row items-center gap-[3px]">
-              <Text className="font-semibold text-[13px] text-muted-foreground">Bitcoin</Text>
-              <ChevronDownIcon color={c.muted} size={12} strokeWidth={2.4} />
+      <Arrive motion={MOTION.settle} pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, top, zIndex: 20 }}>
+        <View className="flex-row items-center justify-between gap-4 px-5 pt-1.5 pb-2.5" pointerEvents="box-none">
+          <Pressable accessibilityLabel="Change asset: Bitcoin" className="flex-row items-center gap-2.5" onPress={() => setAssetOpen(true)}>
+            <BitcoinMark size={36} />
+            <View>
+              <View className="flex-row items-center gap-[3px]">
+                <Text className="font-semibold text-[13px] text-muted-foreground">Bitcoin</Text>
+                <ChevronDownIcon color={c.muted} size={12} strokeWidth={2.4} />
+              </View>
+              {price ? <Price className={cn("font-bold text-foreground", width < 430 ? "text-[21px]" : "text-[24px]")} value={price} /> : <View className="my-[3px] h-6 w-32 rounded-md bg-muted" />}
             </View>
-            {price ? <Price className={cn("font-bold text-foreground", width < 430 ? "text-[21px]" : "text-[24px]")} value={price} /> : <View className="my-[3px] h-6 w-32 rounded-md bg-muted" />}
-          </View>
-        </Pressable>
-        {forReal && (!me.ready || !me.signedIn || onboarding.step === "connecting") ? null : (
-          <View className="flex-row items-center gap-[14px]">
-            <Pressable accessibilityLabel={`Balance ${money(shownBalance)}`} className="items-end" disabled={!real} onPress={() => gate.openDeposit()}>
-              <Text className="text-[12px] text-muted-foreground">Balance</Text>
-              <Text className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"], transform: [{ scale: gained ? 1.08 : 1 }] }}>
-                {money(shownBalance)}
-              </Text>
-              <Ledger />
-            </Pressable>
-            <Pressable accessibilityLabel={`Won: ${money(displayedWon)}. Open the scoreboard`} className="items-end" onPress={gate.openScoreboard}>
-              <Text className="text-[12px] text-muted-foreground">Won</Text>
-              <Text className={cn("font-semibold text-[16px]", displayedWon > 0 ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
-                {displayedWon > 0 ? `+${money(displayedWon)}` : money(0)}
-              </Text>
-            </Pressable>
-          </View>
-        )}
-      </View>
+          </Pressable>
+          {forReal && (!me.ready || !me.signedIn || onboarding.step === "connecting") ? null : (
+            <View className="flex-row items-center gap-[14px]">
+              {/* The one balance on screen. Playing for real it opens the wallet: deposit, withdraw. */}
+              {real ? (
+                <WalletButton accessibilityLabel={`Balance ${money(shownBalance)}. Deposit or withdraw`} className="items-end">
+                  {balance}
+                </WalletButton>
+              ) : (
+                <View accessibilityLabel={forReal ? "Balance" : "Practice balance"} className="items-end">
+                  {balance}
+                </View>
+              )}
+              <Pressable accessibilityLabel={`Won: ${money(displayedWon)}. Open the scoreboard`} className="items-end" onPress={gate.openScoreboard}>
+                <Text className="text-[12px] text-muted-foreground">Won</Text>
+                <Text className={cn("font-semibold text-[16px]", displayedWon > 0 ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
+                  {displayedWon > 0 ? `+${money(displayedWon)}` : money(0)}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      </Arrive>
 
       {connecting ? (
         <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
@@ -768,20 +791,22 @@ export function InkScreen() {
 
       {preview ? (
         <View className="absolute inset-x-0 z-20 items-center" pointerEvents="none" style={{ top: top + 112 }}>
-          <View className="flex-row gap-4 rounded-full border-[0.5px] border-border bg-raised px-4 py-2" style={raised}>
-            {preview.inPlay.length ? (
-              <>
-                <Text className="text-[14px] text-muted-foreground">
-                  In play <Text className="font-semibold text-foreground">{money(preview.cost)}</Text>
-                </Text>
-                <Text className="text-[14px] text-muted-foreground">
-                  Could win <Text className="font-semibold text-brand">{money(preview.high)}</Text>
-                </Text>
-              </>
-            ) : (
-              <Text className="text-[14px] text-muted-foreground">Move to a spot with a multiplier on it</Text>
-            )}
-          </View>
+          <Arrive motion={MOTION.pillIn}>
+            <View className="flex-row gap-4 rounded-full border-[0.5px] border-border bg-raised px-4 py-2" style={raised}>
+              {preview.inPlay.length ? (
+                <>
+                  <Text className="text-[14px] text-muted-foreground">
+                    In play <Text className="font-semibold text-foreground">{money(preview.cost)}</Text>
+                  </Text>
+                  <Text className="text-[14px] text-muted-foreground">
+                    Could win <Text className="font-semibold text-brand">{money(preview.high)}</Text>
+                  </Text>
+                </>
+              ) : (
+                <Text className="text-[14px] text-muted-foreground">Move to a spot with a multiplier on it</Text>
+              )}
+            </View>
+          </Arrive>
         </View>
       ) : connecting ? null : onboarding.step ? (
         <Onboarding {...onboarding} top={pillTop} />
@@ -791,43 +816,51 @@ export function InkScreen() {
         </Pill>
       ) : null}
 
+      {/* The round just over: a win springs in, in the middle; a loss is a small toast bottom right, as on the web's phone. */}
       {over && !preview ? (
-        <View className="absolute inset-x-0 z-20 items-center" pointerEvents="none" style={{ bottom: bottom + 78 }}>
-          <View className={cn("items-center rounded-[20px] border-[0.5px] bg-raised", overWon ? "px-[22px] py-2.5" : "px-[18px] py-[9px]", overBig ? "border-success-foreground" : "border-border")} style={raised}>
-            {overWon && (over.streak ?? 0) >= 2 ? (
-              <View className="mb-1 rounded-full bg-brand/15 px-2.5 py-0.5">
-                <Text className="font-bold text-[12px] text-brand">{over.streak} wins in a row</Text>
-              </View>
-            ) : null}
-            <Text className="text-[13px] text-muted-foreground">{overWon ? (overBig ? "Big win" : "You won") : "Round over"}</Text>
-            <Text className={cn("font-bold", overWon ? "text-success-foreground" : "text-muted-foreground", overBig ? "text-[32px]" : overWon ? "text-[26px]" : "text-[18px] font-semibold")} style={{ fontVariant: ["tabular-nums"] }}>
-              {signed(overNet)}
-            </Text>
-            {overWon && over.points ? (
-              <Text className="mt-0.5 text-[12px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
-                {`${Math.round((100 * over.hits) / over.points)}% of your ink hit`}
-                {over.best ? ` · best ${fmtMultiple(over.best)}` : ""}
+        <View className={cn("absolute z-20", overWon ? "inset-x-0 items-center" : "right-4")} key={over.key} pointerEvents="none" style={{ bottom: bottom + 78 }}>
+          <Arrive motion={overBig ? MOTION.cardBig : overWon ? MOTION.cardIn : MOTION.cardSoft}>
+            <View className={cn("border-[0.5px] bg-raised", overWon ? "items-center rounded-[20px] px-[22px] py-2.5" : "items-end rounded-2xl px-[18px] py-[9px]", overBig ? "border-success-foreground" : "border-border")} style={raised}>
+              {overWon && (over.streak ?? 0) >= 2 ? (
+                <View className="mb-1 rounded-full bg-brand/15 px-2.5 py-0.5">
+                  <Text className="font-bold text-[12px] text-brand">{over.streak} wins in a row</Text>
+                </View>
+              ) : null}
+              <Text className={cn("text-muted-foreground", overWon ? "text-[13px]" : "text-[12px]")}>{overWon ? (overBig ? "Big win" : "You won") : "Round over"}</Text>
+              <Text className={cn("font-bold", overWon ? "text-success-foreground" : "text-muted-foreground", overBig ? "text-[32px]" : overWon ? "text-[26px]" : "text-[18px] font-semibold")} style={{ fontVariant: ["tabular-nums"] }}>
+                {signed(overNet)}
               </Text>
-            ) : null}
-          </View>
+              {overWon && over.points ? (
+                <Text className="mt-0.5 text-[12px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
+                  {`${Math.round((100 * over.hits) / over.points)}% of your ink hit`}
+                  {over.best ? ` · best ${fmtMultiple(over.best)}` : ""}
+                </Text>
+              ) : null}
+            </View>
+          </Arrive>
         </View>
       ) : null}
+      {over && overBig && !preview ? <Glow color={dark ? "rgba(48,209,88,0.38)" : "rgba(36,138,61,0.38)"} key={`glow-${over.key}`} /> : null}
 
       {returnedInk && !preview && !over ? (
-        <View className="absolute right-4 z-20 rounded-full border-[0.5px] border-border bg-raised px-3 py-1.5" pointerEvents="none" style={[raised, { bottom: bottom + 78 }]}>
-          <Text className="text-[12px] text-muted-foreground">
-            Unpriced ink · <Text className="font-semibold text-foreground">{money(returnedInk.amount)} refunded</Text>
-          </Text>
-        </View>
+        <Arrive key={returnedInk.id} motion={MOTION.pillUp} pointerEvents="none" style={{ position: "absolute", right: 16, bottom: bottom + 78, zIndex: 20 }}>
+          <View className="rounded-full border-[0.5px] border-border bg-raised px-3 py-1.5" style={raised}>
+            <Text className="text-[12px] text-muted-foreground">
+              Unpriced ink · <Text className="font-semibold text-foreground">{money(returnedInk.amount)} refunded</Text>
+            </Text>
+          </View>
+        </Arrive>
       ) : null}
 
       <LinearGradient colors={[dark ? "rgba(0,0,0,0)" : "rgba(255,255,255,0)", c.bg, c.bg]} locations={[0, 0.7, 1]} pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 100 + bottom }} />
-      <View className="absolute z-20 flex-row items-stretch gap-2 self-center rounded-[32px] border-[0.5px] border-border bg-dock p-2" style={{ bottom, width: Math.min(420, width - 32), height: 64 }}>
-        <Pressable accessibilityLabel="Settings" className="size-12 items-center justify-center rounded-full bg-raised" onPress={() => setSettingsOpen(true)} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
-          <SlidersHorizontalIcon color={c.fg} size={22} strokeWidth={1.8} />
-        </Pressable>
-        <InkControls amount={state.perDot} bottom={bottom} onAmount={(n) => setPractice({ perDot: n })} onPen={(id) => setPractice({ brush: id })} pen={state.brush} />
-      </View>
+      <Arrive motion={MOTION.dockIn} style={{ position: "absolute", zIndex: 20, alignSelf: "center", bottom }}>
+        <View className="flex-row items-stretch gap-2 rounded-[32px] border-[0.5px] border-border bg-dock p-2" style={{ width: Math.min(420, width - 32), height: 64 }}>
+          <Pressable accessibilityLabel="Settings" className="size-12 items-center justify-center rounded-full bg-raised" onPress={() => setSettingsOpen(true)} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
+            <SlidersHorizontalIcon color={c.fg} size={22} strokeWidth={1.8} />
+          </Pressable>
+          <InkControls amount={state.perDot} bottom={bottom} onAmount={(n) => setPractice({ perDot: n })} onPen={(id) => setPractice({ brush: id })} pen={state.brush} />
+        </View>
+      </Arrive>
 
       {/* Signed out: the game plays on behind, blurred, and the only thing to do is sign in. A tap anywhere opens it. */}
       {forReal && me.ready && !me.signedIn ? (
@@ -881,9 +914,7 @@ export function InkScreen() {
               </Button>
             )
           ) : (
-            <Button onPress={() => setPractice((st) => ({ balance: cents(st.balance + 100) }))} size="md" variant="raised">
-              Add $100
-            </Button>
+            <DepositButton onDeposit={(amount) => setPractice((st) => ({ balance: cents(st.balance + amount) }))} />
           )}
         </View>
         <View className="overflow-hidden rounded-[14px] bg-muted">
@@ -912,7 +943,7 @@ export function InkScreen() {
         {[
           "Draw ahead of the live price. One full dot at your selected pen size costs the amount under Per dot. A longer stroke costs more; retracing ink in the same drawing adds no cost. The total cost rounds up to the next cent, once per drawing.",
           "Every part of your ink pays a rung of the ladder on the map, 1× up to 128× what it cost, if the price crosses it in its second. Rungs come from the chance the price reaches that spot then: near the price and soon is likely and pays little; far away pays a lot. A wider pen puts more ink, and more money, on the same spots; it never changes what a spot pays. Only solid blue ink is in play. A hit pays immediately.",
-          "Ink is bet as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing.",
+          "Ink is bet as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing. The drawing’s cost rounds up to the cent once, over all of it.",
           "Placing a drawing takes its stake from your balance straight away; what just moved your balance shows under it. The number beside it is what you have won: this round’s payouts while ink is in play, this session’s otherwise. Tap it for the scoreboard. Hits pay the moment the price touches them; the rest settles when its second closes.",
           `Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches ${RULES.horizon} seconds ahead.`,
         ].map((p) => (
@@ -923,7 +954,7 @@ export function InkScreen() {
         <Text className="text-[15px] text-muted-foreground leading-relaxed">
           {`Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns ${Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for ${difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. `}
           {forReal
-            ? `skech keeps ${(chain.hello?.terms?.feeBps ?? 200) / 100}% of every stake and 10% of every win. Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
+            ? `${fees ? `skech keeps ${fees.feeBps / 100}% of every stake and ${fees.profitFeeBps / 100}% of every win.` : "skech keeps a share of every stake and of every win."} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
             : "Your balance is practice money saved on this phone."}
         </Text>
       </Sheet>

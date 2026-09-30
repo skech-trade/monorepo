@@ -1,8 +1,8 @@
 import { CheckIcon, ChevronDownIcon } from "lucide-react-native";
-import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useRef, useState } from "react";
+import { Pressable, Text, useWindowDimensions, View } from "react-native";
 import { POINT_PRICES } from "@skech/core/odds";
-import { Popover, useColors } from "@/components/ui";
+import { Button, Popover, useColors } from "@/components/ui";
 import type { Brush } from "@/lib/practice";
 import { cn } from "@/lib/utils";
 
@@ -19,11 +19,13 @@ export const PENS: { id: Brush; name: string; dot: number; says: string }[] = [
 export const penFor = (id: Brush) => PENS.find((p) => p.id === id) ?? PENS[1];
 export const amountLabel = (n: number) => `$${Number(n.toFixed(2))}`;
 
+const PEN_MENU = 224;
+
 const Dot = ({ size }: { size: number }) => <View className="rounded-full bg-brand" style={{ width: size, height: size }} />;
 
-function DockButton({ onPress, children, label }: { onPress: () => void; children: React.ReactNode; label: string }) {
+function DockButton({ onPress, children, label, ref }: { onPress: () => void; children: React.ReactNode; label: string; ref?: React.Ref<View> }) {
   return (
-    <Pressable accessibilityLabel={label} className="h-12 min-w-0 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-raised px-3" onPress={onPress} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
+    <Pressable accessibilityLabel={label} className="h-12 min-w-0 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-raised px-3" onPress={onPress} ref={ref} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
       {children}
     </Pressable>
   );
@@ -31,10 +33,21 @@ function DockButton({ onPress, children, label }: { onPress: () => void; childre
 
 export function InkControls({ pen, amount, onPen, onAmount, bottom }: { pen: Brush; amount: number; onPen: (id: Brush) => void; onAmount: (n: number) => void; bottom: number }) {
   const c = useColors();
+  const { width, height } = useWindowDimensions();
   const [open, setOpen] = useState<"pen" | "amount" | null>(null);
+  // The pen's card opens above its button, centred on it, as the web's does.
+  const penButton = useRef<View>(null);
+  const [penAt, setPenAt] = useState({ bottom: bottom + 76, left: 16 });
+  const openPen = () => {
+    if (!penButton.current) return setOpen("pen");
+    penButton.current.measureInWindow((x, y, w) => {
+      setPenAt({ bottom: height - y + 12, left: Math.min(width - PEN_MENU - 12, Math.max(12, x + w / 2 - PEN_MENU / 2)) });
+      setOpen("pen");
+    });
+  };
   return (
     <View className="min-w-0 flex-1 flex-row gap-2">
-      <DockButton label={`Pen: ${penFor(pen).name}`} onPress={() => setOpen("pen")}>
+      <DockButton label={`Pen:${penFor(pen).name}`} onPress={openPen} ref={penButton}>
         <Dot size={penFor(pen).dot} />
         <Text className="font-semibold text-[16px] text-foreground">{penFor(pen).name}</Text>
         <ChevronDownIcon color={c.muted} size={14} />
@@ -46,7 +59,7 @@ export function InkControls({ pen, amount, onPen, onAmount, bottom }: { pen: Bru
         <ChevronDownIcon color={c.muted} size={14} />
       </DockButton>
 
-      <Popover anchor={{ bottom: bottom + 76, left: 16 }} onClose={() => setOpen(null)} open={open === "pen"} width={224}>
+      <Popover anchor={penAt} onClose={() => setOpen(null)} open={open === "pen"} width={PEN_MENU}>
         <Text className="px-2 pt-2 font-semibold text-[15px] text-foreground">Pen size</Text>
         <View className="mt-2 gap-1">
           {PENS.map((p) => (
@@ -94,5 +107,48 @@ export function InkControls({ pen, amount, onPen, onAmount, bottom }: { pen: Bru
         <Text className="mt-3 px-2 pb-2 text-[12px] text-muted-foreground">A hit pays it times its multiple.</Text>
       </Popover>
     </View>
+  );
+}
+
+const DEPOSITS = [100, 1000, 10000];
+const DEPOSIT_MENU = 240;
+
+/** Practice money in: it lands in the balance at once. In the settings, beside the practice balance. */
+export function DepositButton({ onDeposit }: { onDeposit: (amount: number) => void }) {
+  const { width } = useWindowDimensions();
+  const trigger = useRef<View>(null);
+  // Under the button, its right edge on the button's, and never off the screen.
+  const [at, setAt] = useState<{ top: number; right: number } | null>(null);
+  const show = () => trigger.current?.measureInWindow((x, y, w, h) => setAt({ top: y + h + 4, right: Math.min(width - DEPOSIT_MENU - 12, Math.max(12, width - (x + w))) }));  return (
+    <>
+      <View ref={trigger}>
+        <Button onPress={show} size="md" variant="raised">
+          Deposit
+        </Button>
+      </View>
+      <Popover anchor={at ?? { top: 0, right: 12 }} onClose={() => setAt(null)} open={at !== null} width={DEPOSIT_MENU}>
+        <View className="p-2.5">
+          <Text className="font-semibold text-[17px] text-foreground">Add practice money</Text>
+          <Text className="mt-1 text-[14px] text-muted-foreground">It lands in your balance at once. Every point you draw is paid for from there, and every hit paid into it.</Text>
+          <View className="flex-row gap-1.5 pt-3">
+            {DEPOSITS.map((a) => (
+              <Pressable
+                className="h-10 flex-1 items-center justify-center rounded-lg border border-border"
+                key={a}
+                onPress={() => {
+                  onDeposit(a);
+                  setAt(null);
+                }}
+                style={({ pressed }) => ({ backgroundColor: pressed ? "rgba(127,127,127,0.12)" : "transparent" })}
+              >
+                <Text className="text-[14px] text-foreground" style={{ fontVariant: ["tabular-nums"] }}>
+                  ${a.toLocaleString("en-US")}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      </Popover>
+    </>
   );
 }
