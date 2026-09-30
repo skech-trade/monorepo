@@ -2,17 +2,37 @@
 Description=skech relayer: prices, signs and sends every transaction, on :3103
 After=network-online.target skech-engine.service
 Wants=network-online.target skech-engine.service
+# A crash loop gives up after this many starts in ten minutes, rather than spin: `systemctl reset-failed` to go again.
+StartLimitIntervalSec=600
+StartLimitBurst=50
 
 [Service]
-User=skech
+User=skech-relayer
+Group=skech-relayer
 WorkingDirectory=/opt/skech
-EnvironmentFile=/etc/skech/env
+EnvironmentFile=/etc/skech/relayer.env
 Environment=NEXT_PUBLIC_ENGINE_URL=ws://127.0.0.1:3102/ws
-ExecStart=/home/skech/.bun/bin/bun packages/relayer/src/index.ts
+# Bets placed but not settled: /var/lib/skech-relayer, the one place it writes. skech-backup.timer copies it off.
+StateDirectory=skech-relayer
+StateDirectoryMode=0750
+Environment=RELAYER_STATE_DIR=/var/lib/skech-relayer
+# bun keeps a transpiler cache under HOME; give it one of its own rather than a home the user does not have.
+CacheDirectory=skech-relayer
+Environment=HOME=/var/cache/skech-relayer XDG_CACHE_HOME=/var/cache/skech-relayer BUN_RUNTIME_TRANSPILER_CACHE_PATH=/var/cache/skech-relayer
+ExecStart=/usr/local/bin/bun packages/relayer/src/index.ts
 Restart=always
 RestartSec=2
+LimitNOFILE=65536
+# A leak ends here, on a 1 GB box, not in the kernel killing whatever is biggest. Check `systemctl status`'s Memory after a change.
+MemoryMax=400M
+
 NoNewPrivileges=true
-ProtectSystem=full
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 [Install]
 WantedBy=multi-user.target
