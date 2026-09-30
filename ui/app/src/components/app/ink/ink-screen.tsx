@@ -33,7 +33,7 @@ import { track } from "@/lib/analytics";
 import { fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
 import { HapticHost } from "./haptic-host";
 import { UpdateReady } from "./update-ready";
-import { TokenAvatar } from "@/components/app/market-header";
+import { TokenAvatar } from "@/components/app/token-avatar";
 import { DepositButton, InkControls } from "./ink-controls";
 import feedback from "./drawing-feedback.module.css";
 import { CrispNumber } from "./crisp-number";

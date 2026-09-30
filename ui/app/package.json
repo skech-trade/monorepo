@@ -16,7 +16,6 @@
     "@coinbase/cdp-hooks": "^0.0.126",
     "@coinbase/cdp-react": "^0.0.126",
     "@sentry/nextjs": "^11.1.0",
-    "@skech/contracts": "workspace:*",
     "@skech/core": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
