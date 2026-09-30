@@ -238,8 +238,9 @@ export function InkScreen() {
       .then((r) => r.arrayBuffer())
       .then((b) => {
         if (!live) return;
-        w.postMessage({ kind: "lib", bytes: b.slice(0) });
+        // Read here first (the library is copied out of the file), then the file itself is handed to the worker, not copied to it.
         setLib(readLibrary(new Uint8Array(b)));
+        w.postMessage({ kind: "lib", bytes: b }, [b]);
       })
       .catch(() => undefined);
     return () => {
