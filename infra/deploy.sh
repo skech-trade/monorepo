@@ -3,9 +3,14 @@
 #
 #   infra/deploy.sh           # code only
 #   infra/deploy.sh --env     # also replace the box's keys with the server's keys from .env.local
+#
+# SKECH_ENV_FILE=<path> reads the keys from somewhere else. The box's keys are not always the ones
+# this machine develops against, and copying them over .env.local to send them is how a laptop ends
+# up pointed at production.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 HOST="${SKECH_HOST:-skech}"
+ENV_FILE="${SKECH_ENV_FILE:-.env.local}"
 
 # Only what the engine and relayer read. .env.local holds much more (CDP, Lighter, the database);
 # none of it goes to the box.
@@ -30,10 +35,10 @@ trap 'rm -rf "$TREE"' EXIT
 git archive HEAD | tar -x -C "$TREE"
 
 if [ "${1:-}" = "--env" ]; then
-  [ -f .env.local ] || { echo ".env.local not found" >&2; exit 1; }
+  [ -f "$ENV_FILE" ] || { echo "$ENV_FILE not found" >&2; exit 1; }
   # /etc/skech/env, root's alone (600), is where the box keeps them all; each service is given its own
   # share of it on every deploy, below. umask first, so the file is never readable by anyone else.
-  for k in $SERVER_KEYS; do grep -E "^$k=.+" .env.local || true; done \
+  for k in $SERVER_KEYS; do grep -E "^$k=.+" "$ENV_FILE" || true; done \
     | ssh "$HOST" 'umask 077 && sudo install -m 600 -o root -g root /dev/null /etc/skech/env.new && sudo tee /etc/skech/env.new >/dev/null && sudo mv -f /etc/skech/env.new /etc/skech/env'
   echo "env: $(ssh "$HOST" 'sudo cut -d= -f1 /etc/skech/env | tr "\n" " "')"
   # The Solana relayer runs only on a box with a Solana cluster and key.
