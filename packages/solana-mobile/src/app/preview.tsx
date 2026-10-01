@@ -29,7 +29,6 @@ export default function Preview() {
     sendCode: async () => null,
     sendSms: async () => null,
     verify: async () => null,
-    oauth: async () => null,
     connectWallet: async () => null,
     canConnectWallet: false,
   };
