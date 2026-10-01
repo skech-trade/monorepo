@@ -20,7 +20,10 @@ if [ -n "$(git status --porcelain -- .)" ]; then
 fi
 
 scp -q Caddyfile backup-relayer.sh systemd/*.service systemd/*.timer "$HOST:/tmp/"
-ssh "$HOST" sudo BUN_VERSION="$BUN_VERSION" DOMAIN="$DOMAIN" bash -s <<'REMOTE'
+# Quoted for the far side: ssh joins its arguments into one string for the remote shell, so a domain
+# that is two names ("a.example.com, 1-2-3-4.sslip.io", which is what Caddy wants to serve both) was
+# split on the space and its second half run as a command.
+ssh "$HOST" "sudo BUN_VERSION=$(printf %q "$BUN_VERSION") DOMAIN=$(printf %q "$DOMAIN") bash -s" <<'REMOTE'
 set -euo pipefail
 
 # Caddy, pinned: a new version is a change to this file, with the SHA-256 of its release tarball
