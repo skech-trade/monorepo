@@ -11,7 +11,62 @@ Three things ship separately:
 Merging does not reach the box. A change to the engine, the relayer, `packages/core` or a
 deployment file is live only after `infra/deploy.sh`.
 
-## 1. Ship a change
+## 0. Getting in
+
+Two things, and they are separate: the repo, and the box.
+
+**The repo.** Ask an owner of [skech-trade](https://github.com/skech-trade) for write access to
+`monorepo`. That is enough to open a pull request, and enough to merge one once it is approved.
+
+**The box.** One SSH key reaches it, held as an EC2 key pair; there is no AWS account login involved
+and no IAM user to ask for. To give somebody their own way in, add their public key rather than
+sending them the `.pem`: a key per person can be taken away again, a shared `.pem` cannot, and that
+one file is root on the whole box.
+
+```bash
+# they run this and send you the second line, never the first
+ssh-keygen -t ed25519 -C "their-name@skech"      # makes ~/.ssh/id_ed25519 and .pub
+cat ~/.ssh/id_ed25519.pub
+
+# you add it, from a machine that can already get in
+ssh skech 'cat >> ~/.ssh/authorized_keys' < their-key.pub
+```
+
+Then they put the box in `~/.ssh/config`, which is the name every script here uses:
+
+```
+Host skech
+  HostName 13.206.202.4
+  User ec2-user
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+```
+
+`ssh skech` should answer. Taking access away is one line: delete their key from
+`~/.ssh/authorized_keys` on the box.
+
+Everyone who gets in is `ec2-user`, who can `sudo` without a password. There is no per-person
+account and no audit trail of who did what. If that matters, attach an IAM role with
+`AmazonSSMManagedInstanceCore` to the instance and use Session Manager instead: the agent is already
+running, it is only missing the role, and after that access is an IAM policy per person with every
+session logged. That is a change in the AWS console, not in this repo.
+
+## 1. Push to main
+
+Nobody commits to `main` directly; it takes a pull request.
+
+```bash
+git checkout main && git pull
+git checkout -b what-you-are-doing
+# work, commit
+git push -u origin what-you-are-doing
+gh pr create --fill          # or open it on github.com
+```
+
+Get it reviewed, then merge it. Vercel builds the app and the landing from the merge by itself.
+Nothing else does: see below.
+
+## 2. Ship a change to the box
 
 From `main`, after the PR is merged:
 
@@ -20,7 +75,7 @@ git checkout main && git pull
 infra/deploy.sh            # only if the engine, relayer, core or deployments/ changed
 ```
 
-Vercel builds the app and the landing from the merge. Then check:
+Then check:
 
 ```bash
 curl https://api.skech.trade/engine/health      # ok
@@ -33,18 +88,43 @@ and draw one piece on app.skech.trade.
 `deploy.sh` ships the commit checked out, from `git archive`, and refuses to run while what it ships has
 changes that are not committed. The engine's Sentry release is that commit.
 
-## 2. Change a key or a setting
+If the box has not been deployed to in a while, `deploy.sh` may stop with `no skech-engine user on
+the box: run infra/setup.sh first`. That is the box predating the split into one user per service.
+Run `infra/setup.sh` and then `infra/deploy.sh`; it is safe to run again and it leaves the running
+services alone until the deploy restarts them.
+
+`setup.sh` rewrites which name Caddy serves, so pass the one already in `/etc/caddy/env` on the box
+or the real domain is dropped for an sslip.io one:
+
+```bash
+ssh skech 'sudo cat /etc/caddy/env'      # SKECH_DOMAIN=api.skech.trade, 13-206-202-4.sslip.io
+SKECH_DOMAIN="api.skech.trade, 13-206-202-4.sslip.io" infra/setup.sh
+```
+
+## 3. Change a key or a setting
 
 | Setting | Where | Then |
 |---|---|---|
 | A server key or RPC (`ENGINE_*`, `RELAYER_*`, `MONAD_*_RPC_URL`, the Sentry DSNs) | `.env.local` | `infra/deploy.sh --env` |
+| The same, from a file of the box's own keys | any path | `SKECH_ENV_FILE=.server.env infra/deploy.sh --env` |
 | Where the backups go (`SKECH_BACKUP_S3`, `SKECH_BACKUP_KEEP`) | `/etc/skech/backup.env` on the box | the next backup reads it |
 | An app setting (`NEXT_PUBLIC_*`, `SENTRY_AUTH_TOKEN`) | the app's Vercel project, Production and Preview | redeploy in Vercel: they are read at build |
 | The landing's app link | `NEXT_PUBLIC_APP_URL` in the landing's Vercel project | redeploy |
 
 The full list, with what each is for, is in [.env.example](../.env.example).
 
-## 3. A new deployment of the contracts
+`--env` sends only the keys the engine and the relayers read, and replaces the box's set with
+whatever it finds: a key missing from the file is a key gone from the box. Check what would go
+before sending it.
+
+```bash
+ssh skech 'sudo cut -d= -f1 /etc/skech/env'        # what the box has now
+```
+
+Keep the box's keys in their own file rather than copying them over `.env.local`, which is what this
+machine develops against. `.server.env` is gitignored for that.
+
+## 4. A new deployment of the contracts
 
 A new game is a new set of addresses: nothing moves across by itself. Balances, open bets, IOUs and
 fees stay in the old one.
@@ -98,13 +178,13 @@ The game on Solana is its own program (`packages/contracts/solana`), its own rel
 
 Locally: a validator (`solana-test-validator --reset --gossip-port 8110 --dynamic-port-range 8111-8140`, off port 8000, which Docker holds), `SKECH_SOLANA_CLUSTER=localnet bun run deploy:solana`, then `bun packages/relayer/scripts/e2e-solana.ts` plays the whole game through the relayer.
 
-## 4. A new box
+## 5. A new box
 
 [infra/README.md](../infra/README.md): `infra/setup.sh`, then `infra/deploy.sh --env`. Open 80 and
 443 for the certificate, point `api.skech.trade` at it, and copy the relayer's state files across from
 the old box (`/var/lib/skech-relayer`, or its newest backup) if it had bets still open.
 
-## 5. Going back
+## 6. Going back
 
 - **The app or the landing:** promote the previous deployment in Vercel, then revert the PR.
 - **The box:** check out the last good commit and `infra/deploy.sh` from it. The relayer's state
