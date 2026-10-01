@@ -100,6 +100,8 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Which way in it came from: an email or a number shows under its field, Google, Apple or a wallet under the buttons.
+  const [errorFrom, setErrorFrom] = useState<string | null>(null);
   const [shown, setShown] = useState(open);
   const a = useRef(new Animated.Value(0)).current;
 
@@ -122,13 +124,17 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
     setError(null);
     const why = await job();
     setBusy(null);
-    if (why) setError(why);
+    if (why) {
+      setError(why);
+      setErrorFrom(what);
+    }
     return why;
   };
   const e164 = () => {
     const digits = phone.replace(/\D/g, "");
     return phone.trim().startsWith("+") ? `+${digits}` : `+1${digits}`;
   };
+  const fieldError = errorFrom === "email" || errorFrom === "phone";
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const phoneOk = phone.replace(/\D/g, "").length >= 10;
   const verify = async (v: string) => {
@@ -183,7 +189,7 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
                   autoCapitalize="none"
                   autoComplete="email"
                   autoCorrect={false}
-                  error={!!error}
+                  error={!!error && fieldError}
                   keyboardType="email-address"
                   label="Email address"
                   onChangeText={setEmail}
@@ -208,14 +214,14 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
                       onChangeText={setPhone}
                       placeholder="(000) 000-0000"
                       placeholderTextColor={c.muted}
-                      style={{ borderWidth: 2, borderColor: error ? "#ff3b30" : c.brand }}
+                      style={{ borderWidth: 2, borderColor: error && fieldError ? "#ff3b30" : c.brand }}
                       textContentType="telephoneNumber"
                       value={phone}
                     />
                   </View>
                 </View>
               )}
-              {error ? <Text className="-mt-1 text-[14px] text-destructive-foreground">{error}</Text> : null}
+              {error && fieldError ? <Text className="-mt-1 text-[14px] text-destructive-foreground">{error}</Text> : null}
               <Pressable
                 className={cn("h-[46px] items-center justify-center rounded-full bg-brand", (step.kind === "email" ? !emailOk : !phoneOk) && "opacity-40")}
                 disabled={(step.kind === "email" ? !emailOk : !phoneOk) || !!busy}
@@ -243,6 +249,7 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
                 <Alt busy={busy === "google"} disabled={!!busy} icon={<GoogleMark color={c.fg} />} label="Continue with Google" onPress={() => void run("google", () => me.oauth("google"))} />
                 <Alt busy={busy === "apple"} disabled={!!busy} icon={<AppleMark color={c.fg} />} label="Continue with Apple" onPress={() => void run("apple", () => me.oauth("apple"))} />
                 {me.canConnectWallet ? <Alt busy={busy === "wallet"} disabled={!!busy} icon={<WalletIcon color={c.fg} size={20} />} label="Continue with a Solana wallet" onPress={() => void run("wallet", me.connectWallet)} /> : null}
+                {error && !fieldError ? <Text className="text-center text-[14px] text-destructive-foreground">{error}</Text> : null}
               </View>
             </View>
           )}
