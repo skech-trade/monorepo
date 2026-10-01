@@ -2,33 +2,19 @@ import { LockIcon, MailIcon, PhoneIcon, WalletIcon, XIcon } from "lucide-react-n
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Platform, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Path } from "react-native-svg";
 import { useAccount } from "@/components/app/auth";
 import { useColors } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
 /**
  * Signing in, as the web's panel is: Coinbase's own (their SignInModal, in our colours). The same card, the same
- * steps and the same words: email or phone, Google, Apple, a six-digit code, "Secured by coinbase". On Android a
- * Solana wallet on the phone is one more way in, through the Mobile Wallet Adapter.
+ * steps and the same words: email or phone, a six-digit code, "Secured by coinbase". On Android a Solana wallet on
+ * the phone is one more way in, through the Mobile Wallet Adapter. No Google or Apple yet: on a phone they come back
+ * to the app through a deep link the Coinbase project has to allow.
  */
 
 type Step = { kind: "email" } | { kind: "phone" } | { kind: "code"; to: string };
 
-function GoogleMark({ color }: { color: string }) {
-  return (
-    <Svg height={20} viewBox="0 0 24 24" width={20}>
-      <Path d="M21.35 11.1H12v2.98h5.35c-.23 1.4-1.64 4.1-5.35 4.1-3.22 0-5.85-2.67-5.85-5.96S8.78 6.26 12 6.26c1.83 0 3.06.78 3.76 1.45l2.57-2.47C16.68 3.7 14.54 2.75 12 2.75 6.95 2.75 2.86 6.9 2.86 12S6.95 21.25 12 21.25c5.28 0 8.78-3.71 8.78-8.94 0-.6-.07-1.06-.15-1.51z" fill={color} />
-    </Svg>
-  );
-}
-function AppleMark({ color }: { color: string }) {
-  return (
-    <Svg height={20} viewBox="0 0 24 24" width={20}>
-      <Path d="M16.37 12.62c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.28-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.77.74 2.98.72 1.23-.02 2.01-1.12 2.76-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.42-3.66zM14.1 5.86c.63-.77 1.06-1.83.94-2.89-.91.04-2.01.61-2.66 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.05-.52 2.68-1.28z" fill={color} />
-    </Svg>
-  );
-}
 
 /** A grey pill with a mark on its left and its words in the middle, as Coinbase's alternatives are. */
 function Alt({ icon, label, onPress, disabled, busy }: { icon: React.ReactNode; label: string; onPress: () => void; disabled?: boolean; busy?: boolean }) {
@@ -100,7 +86,7 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Which way in it came from: an email or a number shows under its field, Google, Apple or a wallet under the buttons.
+  // Which way in it came from: an email or a number shows under its field, a wallet under the buttons.
   const [errorFrom, setErrorFrom] = useState<string | null>(null);
   const [shown, setShown] = useState(open);
   const a = useRef(new Animated.Value(0)).current;
@@ -246,8 +232,6 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
                 ) : (
                   <Alt icon={<MailIcon color={c.fg} size={20} />} label="Continue with email" onPress={() => (setError(null), setStep({ kind: "email" }))} />
                 )}
-                <Alt busy={busy === "google"} disabled={!!busy} icon={<GoogleMark color={c.fg} />} label="Continue with Google" onPress={() => void run("google", () => me.oauth("google"))} />
-                <Alt busy={busy === "apple"} disabled={!!busy} icon={<AppleMark color={c.fg} />} label="Continue with Apple" onPress={() => void run("apple", () => me.oauth("apple"))} />
                 {me.canConnectWallet ? <Alt busy={busy === "wallet"} disabled={!!busy} icon={<WalletIcon color={c.fg} size={20} />} label="Continue with a Solana wallet" onPress={() => void run("wallet", me.connectWallet)} /> : null}
                 {error && !fieldError ? <Text className="text-center text-[14px] text-destructive-foreground">{error}</Text> : null}
               </View>
