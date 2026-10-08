@@ -10,31 +10,82 @@
     "ios": {
       "bundleIdentifier": "trade.skech.app",
       "supportsTablet": false,
-      "infoPlist": { "NSCameraUsageDescription": "To scan an address to withdraw to." }
+      "infoPlist": {
+        "NSCameraUsageDescription": "To scan an address to withdraw to."
+      }
     },
     "android": {
       "package": "trade.skech.app",
-      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#2A62DD" },
-      "permissions": ["android.permission.CAMERA", "android.permission.VIBRATE"],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#2A62DD"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.VIBRATE",
+        "android.permission.INTERNET",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
-          "data": [{ "scheme": "https", "host": "www.skech.trade", "pathPrefix": "/app-link" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "https",
+              "host": "www.skech.trade",
+              "pathPrefix": "/app-link"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
-      ]
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
+      ],
+      "versionCode": 1
     },
-    "web": { "output": "static" },
+    "web": {
+      "output": "static"
+    },
     "plugins": [
       "expo-router",
       "expo-secure-store",
       "expo-web-browser",
       "expo-asset",
       "expo-font",
-      "expo-audio",
-      ["expo-camera", { "cameraPermission": "To scan an address to withdraw to.", "recordAudioAndroid": false }]
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "To scan an address to withdraw to.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "./plugins/with-release-signing",
+      "./plugins/with-gradle-memory"
     ],
-    "experiments": { "typedRoutes": false }
+    "experiments": {
+      "typedRoutes": false
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      }
+    }
   }
 }
