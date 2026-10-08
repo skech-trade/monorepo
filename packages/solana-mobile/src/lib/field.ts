@@ -9,13 +9,19 @@ import { INK_EDGE_CELLS } from "@skech/core/ink";
  */
 
 const SLICE_MS = 5;
+/** A map that has taken this long gets longer slices: on a slow phone at a few milliseconds a frame it would never
+ *  finish before the next second's map, and no tiles would ever show. */
+const BEHIND_MS = 600;
+const BEHIND_SLICE_MS = 12;
 /** Paths a slice starts with; tuned from how long the last slice took, so each takes about `SLICE_MS`. */
 let perSlice = 400;
 
 export type FieldAsk = { id: number; f: Features; at: number; step: number; cell: number; difficulty: number };
 
 export class FieldMaker {
-  private job: { ask: FieldAsk; run: (n: number) => boolean; result: () => Field } | null = null;
+  private job: { ask: FieldAsk; run: (n: number) => boolean; result: () => Field; began: number } | null = null;
+  /** The newest map asked for while one was being made: made next. Older ones in between are skipped. */
+  private next: FieldAsk | null = null;
   private frame = 0;
 
   constructor(
@@ -23,11 +29,22 @@ export class FieldMaker {
     private readonly done: (id: number, field: Field) => void,
   ) {}
 
-  /** Start on a map; one already under way is dropped for it. */
+  /**
+   * A map to make. One already under way is finished first, then the newest asked for: dropping it for each new
+   * ask, as this did, meant that on a phone slower than a map a second no map was ever finished.
+   */
   ask(ask: FieldAsk) {
+    if (this.job) {
+      this.next = ask;
+      return;
+    }
+    this.start(ask);
+  }
+
+  private start(ask: FieldAsk) {
     setDifficulty(ask.difficulty);
     const j = fieldJob(this.lib, ask.f, ask.at, ask.step, ask.cell, INK_EDGE_CELLS);
-    this.job = { ask, run: j.run, result: j.result };
+    this.job = { ask, run: j.run, result: j.result, began: performance.now() };
     if (!this.frame) this.frame = requestAnimationFrame(this.slice);
   }
 
@@ -39,6 +56,7 @@ export class FieldMaker {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.job = null;
+    this.next = null;
   }
 
   private slice = () => {
@@ -46,8 +64,9 @@ export class FieldMaker {
     const job = this.job;
     if (!job) return;
     const t0 = performance.now();
+    const budget = t0 - job.began > BEHIND_MS ? BEHIND_SLICE_MS : SLICE_MS;
     let finished = false;
-    while (!finished && performance.now() - t0 < SLICE_MS) {
+    while (!finished && performance.now() - t0 < budget) {
       const s = performance.now();
       finished = job.run(perSlice);
       const took = performance.now() - s;
@@ -58,6 +77,9 @@ export class FieldMaker {
       // The difficulty the paths were laid for, as the web's worker keeps its own.
       setDifficulty(job.ask.difficulty);
       this.done(job.ask.id, job.result());
+      const next = this.next;
+      this.next = null;
+      if (next) this.start(next);
     } else this.frame = requestAnimationFrame(this.slice);
   };
 }

@@ -33,6 +33,9 @@ import { Onboarding, Pill, useOnboarding } from "./onboarding";
 import { fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
 import { WalletButton } from "./wallet-button";
 
+/** How old a map of the odds may be, in ms past its second, and still be shown. */
+const STALE_MAP_MS = 3500;
+
 /**
  * skech. Draw ahead of the Bitcoin price; wherever it runs through your ink pays.
  *
@@ -249,10 +252,14 @@ export function InkScreen() {
     if (!lib) return;
     let asked = "";
     let pendingId = 0;
+    // The newest map shown: the maker finishes a map before starting the next, so one a second or two behind still
+    // comes in, and is better than none on a slow phone.
+    let shown = 0;
     const m = new FieldMaker(lib, (id, fl) => {
-      if (id !== pendingId) return;
+      if (id <= shown) return;
+      shown = id;
       const g = game.current;
-      if (Date.now() + g.skew - fl.openAt > 2500) {
+      if (Date.now() + g.skew - fl.openAt > STALE_MAP_MS) {
         asked = "";
         return;
       }
