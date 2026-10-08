@@ -35,8 +35,9 @@ const PEN_H = 459;
 const PEN_SIZE = 110;
 const PEN_HEIGHT = (PEN_SIZE * PEN_H) / PEN_W;
 
-/** The longest the ink holds for live prices before it drains anyway, in ms. */
-const MAX_HOLD_MS = 8000;
+/** The longest the name holds, once the screen is inked over, before the ink drains anyway: prices or sign-in still
+ *  on their way show up in the game instead of keeping everyone on the name. In ms. */
+const MAX_HOLD_MS = 1800;
 
 /*
   Whether the game has live prices to show. The ink holds, covering the screen, until it does, so the way in never
@@ -150,7 +151,7 @@ export function InkIntro() {
     const start = Date.now();
     let timer: ReturnType<typeof setTimeout>;
     const wait = () => {
-      if (!ready && Date.now() - start <= MAX_HOLD_MS) {
+      if (!ready && Date.now() - start <= 500 + MAX_HOLD_MS) {
         timer = setTimeout(wait, 100);
         return;
       }
@@ -168,7 +169,7 @@ export function InkIntro() {
     const t = info.timestamp - startAt.value;
     time.value = t;
     // When the ink starts to drain: once it has covered the screen and the prices are in.
-    if (drainAt.value < 0 && t >= IN_MS && (live.value || t > MAX_HOLD_MS)) {
+    if (drainAt.value < 0 && t >= IN_MS && (live.value || t > IN_MS + MAX_HOLD_MS)) {
       drainAt.value = t;
       scheduleOnRN(setDraining, true);
     }
