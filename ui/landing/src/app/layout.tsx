@@ -1,4 +1,3 @@
-import { GeistPixelSquare } from "geist/font/pixel";
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { ToastProvider } from "@/components/ui/toast";
@@ -25,7 +24,9 @@ import "./globals.css";
  * ticks, which is the only thing the monospace was needed for.
  *
  * `--font-pixel` stays. It is the one deliberate accent on the page, in one
- * place, and it is a device rather than a second opinion about body copy.
+ * place, and it is a device rather than a second opinion about body copy. It
+ * is loaded by that page (not-found.tsx), not here: from the layout, every page
+ * preloaded the face, and the four other Geist Pixel faces its module declares.
  */
 const inter = Inter({
   variable: "--font-sans",
@@ -103,10 +104,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`h-full ${inter.variable} ${GeistPixelSquare.variable} antialiased`}
-      // GeistPixelSquare publishes --font-geist-pixel-square; alias it to the
-      // name the font-pixel utility reads.
-      style={{ ["--font-pixel" as string]: "var(--font-geist-pixel-square)" }}
+      className={`h-full ${inter.variable} antialiased`}
       // The boot script sets a class React did not render.
       suppressHydrationWarning
     >
