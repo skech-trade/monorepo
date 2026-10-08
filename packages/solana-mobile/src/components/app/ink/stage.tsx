@@ -351,16 +351,28 @@ export function Stage({
     let renderedGroups: { id: string; stroke: Stroke; cells: Cell[]; edgeCells: number; step: number }[] = [];
     let raf = 0;
     let previousFrame = performance.now();
+    // How the stage keeps up, in the log every 5s: frames drawn and what a frame costs on the JS thread.
+    const perf = { since: performance.now(), frames: 0, ms: 0, worst: 0 };
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const w = W(),
         h = H();
       const g = game.current;
       if (!g || !w) return;
+      const t0 = performance.now();
       const recorder = Skia.PictureRecorder();
       const c = recorder.beginRecording(Skia.XYWHRect(0, 0, w, h));
       draw(c, w, h, g);
       picture.value = recorder.finishRecordingAsPicture();
+      const took = performance.now() - t0;
+      perf.frames++;
+      perf.ms += took;
+      perf.worst = Math.max(perf.worst, took);
+      if (t0 - perf.since >= 5000) {
+        const secs = (t0 - perf.since) / 1000;
+        console.info(`[perf] stage: ${(perf.frames / secs).toFixed(1)} fps, ${(perf.ms / perf.frames).toFixed(1)}ms a frame (worst ${perf.worst.toFixed(1)}), ${((perf.ms / (secs * 1000)) * 100).toFixed(0)}% of the JS thread`);
+        Object.assign(perf, { since: t0, frames: 0, ms: 0, worst: 0 });
+      }
     };
     const draw = (c: SkCanvas, w: number, h: number, g: Game) => {
       at = now(g);
