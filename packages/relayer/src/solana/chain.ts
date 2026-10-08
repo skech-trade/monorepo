@@ -1,8 +1,8 @@
 /**
  * The relayer's hand on Solana: one keypair that pays every fee and rent and signs as the oracle; a blockhash and a
  * priority fee kept fresh in the background, so sending never waits for either; v0 transactions through the lookup
- * table; and a send loop that rebroadcasts until the transaction lands or its blockhash runs out, since an RPC
- * forwards a transaction once and a busy leader can drop it.
+ * table; and every transaction rebroadcast until it lands or its blockhash runs out, since an RPC forwards a
+ * transaction once and a busy leader can drop it: all of those in flight looked for together (confirm.ts).
  */
 import {
   type Address,
@@ -54,9 +54,10 @@ import {
 } from "@skech/contracts/solana/sdk";
 import { remember } from "../limits";
 import type { SolanaConfig } from "./config";
+import { Confirmations, type Sent } from "./confirm";
 
 type Blockhash = { blockhash: Parameters<typeof setTransactionMessageLifetimeUsingBlockhash>[0]["blockhash"]; lastValidBlockHeight: bigint };
-export type Sent = { signature: Signature; slot: bigint; err: unknown | null };
+export type { Sent };
 
 const EVENTS = [
   ["Placed", PLACED_EVENT_DISCRIMINATOR, getPlacedEventDecoder()],
@@ -87,12 +88,30 @@ export class SolanaChain {
   /** Micro-lamports per compute unit, from what recent blocks paid to write the pool. */
   priority = 0;
   /** Built transactions awaiting a wallet's signature: their message, so only what we built is ever co-signed, and whether it approves the game to sweep. */
-  private built = new Map<string, { message: Uint8Array; at: number; kind: string; player: Address; approve: boolean }>();
+  private built = new Map<string, { message: Uint8Array; lastValid: bigint; at: number; kind: string; player: Address; approve: boolean }>();
   inflight = 0;
   stats = { sent: 0, landed: 0, failed: 0, expired: 0, rebroadcasts: 0 };
+  /** Every transaction in flight, looked for in one request. */
+  readonly confirmations: Confirmations;
 
   constructor(readonly cfg: SolanaConfig, private readonly log: (s: string) => void) {
     this.rpc = createSolanaRpc(cfg.rpcUrl);
+    this.confirmations = new Confirmations(
+      {
+        statuses: (signatures, searchTransactionHistory) =>
+          this.rpc
+            .getSignatureStatuses(signatures, { searchTransactionHistory })
+            .send()
+            .then(({ value }) => value),
+        push: (wire) => this.push(wire),
+        height: () => this.height,
+      },
+      this.stats,
+    );
+  }
+
+  private push(wire: Base64EncodedWireTransaction) {
+    return this.rpc.sendTransaction(wire, { encoding: "base64", skipPreflight: true, maxRetries: 0n }).send().catch(() => undefined);
   }
 
   async start() {
@@ -142,47 +161,9 @@ export class SolanaChain {
   private async broadcast(label: string, wire: Base64EncodedWireTransaction, signature: Signature, lastValid: bigint): Promise<Sent> {
     this.inflight++;
     this.stats.sent++;
-    const push = () => this.rpc.sendTransaction(wire, { encoding: "base64", skipPreflight: true, maxRetries: 0n }).send().catch(() => undefined);
-    // What the RPC says of it: null while it has not landed, or when the RPC could not be asked.
-    const status = (searchTransactionHistory = false) =>
-      this.rpc
-        .getSignatureStatuses([signature], { searchTransactionHistory })
-        .send()
-        .then(
-          ({ value }) => value[0],
-          () => null,
-        );
-    const started = Date.now();
     try {
-      await push();
-      for (let i = 0; ; i++) {
-        await Bun.sleep(i < 10 ? 200 : 400);
-        // An RPC that fails to answer says nothing of the transaction: it may land all the same, so it is looked for
-        // until its blockhash has run out, never given up on the first error.
-        const s = await status();
-        if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
-          if (s.err) this.stats.failed++;
-          else this.stats.landed++;
-          return { signature, slot: s.slot, err: s.err };
-        }
-        // Past its blockhash (or, with no word of the height, two minutes on) it can no longer land: one last look.
-        if (this.height > lastValid || Date.now() - started > 120_000) {
-          await Bun.sleep(1_000);
-          const last = await status(true);
-          if (last && (last.confirmationStatus === "confirmed" || last.confirmationStatus === "finalized")) {
-            if (last.err) this.stats.failed++;
-            else this.stats.landed++;
-            return { signature, slot: last.slot, err: last.err };
-          }
-          this.stats.expired++;
-          throw new Error(`${label}: expired unconfirmed (${signature})`);
-        }
-        // Rebroadcast every 800 ms until it lands: the RPC forwards once, and leaders drop under load.
-        if (i % 4 === 3) {
-          this.stats.rebroadcasts++;
-          void push();
-        }
-      }
+      await this.push(wire);
+      return await this.confirmations.watch(label, wire, signature, lastValid);
     } finally {
       this.inflight--;
     }
@@ -218,7 +199,7 @@ export class SolanaChain {
     const tx = await partiallySignTransactionMessageWithSigners(this.message(instructions, computeUnits));
     const id = crypto.randomUUID();
     for (const [k, v] of this.built) if (Date.now() - v.at > 120_000) this.built.delete(k);
-    remember(this.built, id, { message: new Uint8Array(tx.messageBytes), at: Date.now(), kind, player, approve }, 10_000);
+    remember(this.built, id, { message: new Uint8Array(tx.messageBytes), lastValid: this.hash!.lastValidBlockHeight, at: Date.now(), kind, player, approve }, 10_000);
     return { id, tx: getBase64EncodedWireTransaction(tx) };
   }
 
@@ -232,7 +213,8 @@ export class SolanaChain {
     this.built.delete(id);
     const wire = getBase64Decoder().decode(getTransactionEncoder().encode(tx)) as Base64EncodedWireTransaction;
     const signature = getSignatureFromTransaction(tx);
-    const sent = await this.broadcast(b.kind, wire, signature, this.hash!.lastValidBlockHeight + 150n);
+    // Its own blockhash's last block, from when it was built: not one from now, a wallet's signing later.
+    const sent = await this.broadcast(b.kind, wire, signature, b.lastValid);
     return { kind: b.kind, player: b.player, approve: b.approve, sent };
   }
 
