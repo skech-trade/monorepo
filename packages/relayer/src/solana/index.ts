@@ -50,6 +50,7 @@ const server: SolanaServer = new SolanaServer(scfg, engine, chain, domain, log, 
   up: Math.round((Date.now() - started) / 1000),
   engine: { connected: engine.connected, ready: engine.ready(), bars: engine.book.bars.length, skew: Math.round(engine.skew), signer: engine.signer },
   chain: { cluster: scfg.net.cluster, program: scfg.deployment.program, relayer: chain.signer.address, inflight: chain.inflight, priority: chain.priority, sends: chain.stats },
+  rpc: { perSec: chain.budget.perSec, waiting: chain.budget.waiting, ...chain.budget.stats, statusPolls: chain.confirmations.polls },
   difficulty: sequencer.difficulty,
   connections: server.connections,
   pieces: sequencer.stats,
@@ -70,7 +71,7 @@ server.settler = settler;
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
 // The difficulty and the terms live on chain: follow them, and tell every app when they change.
 setInterval(() => {
-  void Promise.all([chain.game(), chain.difficulty()]).then(([g, d]) => {
+  void chain.terms().then(([g, d]) => {
     const changed = d !== sequencer.difficulty || json(g.config) !== json(game.config);
     if (d !== sequencer.difficulty) log(`difficulty is now ${d}`);
     setTerms(g, d);

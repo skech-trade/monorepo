@@ -1,17 +1,21 @@
 /**
  * The relayer's hand on Solana: one keypair that pays every fee and rent and signs as the oracle; a blockhash and a
  * priority fee kept fresh in the background, so sending never waits for either; v0 transactions through the lookup
- * table; and a send loop that rebroadcasts until the transaction lands or its blockhash runs out, since an RPC
- * forwards a transaction once and a busy leader can drop it.
+ * table; and every transaction rebroadcast until it lands or its blockhash runs out, since an RPC forwards a
+ * transaction once and a busy leader can drop it: all of those in flight looked for together (confirm.ts).
  */
 import {
   type Address,
   appendTransactionMessageInstructions,
+  assertAccountExists,
   type Base64EncodedWireTransaction,
   compressTransactionMessageUsingAddressLookupTables,
   createKeyPairSignerFromBytes,
-  createSolanaRpc,
+  createDefaultRpcTransport,
+  createSolanaRpcFromTransport,
   createTransactionMessage,
+  type EncodedAccount,
+  fetchEncodedAccounts,
   getBase64Decoder,
   getBase64EncodedWireTransaction,
   getBase64Encoder,
@@ -30,7 +34,12 @@ import {
 } from "@solana/kit";
 import { fetchAddressLookupTable } from "@solana-program/address-lookup-table";
 import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from "@solana-program/compute-budget";
+import { decodeToken, findAssociatedTokenPda, TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import {
+  decodeGame,
+  decodeMarket,
+  decodePlayer,
+  decodePool,
   fetchGame,
   fetchMarket,
   fetchMaybePlayer,
@@ -54,9 +63,12 @@ import {
 } from "@skech/contracts/solana/sdk";
 import { remember } from "../limits";
 import type { SolanaConfig } from "./config";
+import { Accounts, type Snapshot } from "./accounts";
+import { Budget, budgeted } from "./budget";
+import { Confirmations, type Sent } from "./confirm";
 
 type Blockhash = { blockhash: Parameters<typeof setTransactionMessageLifetimeUsingBlockhash>[0]["blockhash"]; lastValidBlockHeight: bigint };
-export type Sent = { signature: Signature; slot: bigint; err: unknown | null };
+export type { Sent };
 
 const EVENTS = [
   ["Placed", PLACED_EVENT_DISCRIMINATOR, getPlacedEventDecoder()],
@@ -67,6 +79,12 @@ const EVENTS = [
   ["BarPosted", BAR_POSTED_EVENT_DISCRIMINATOR, getBarPostedEventDecoder()],
 ] as const;
 export type SolanaEvent = { name: (typeof EVENTS)[number][0]; data: Record<string, unknown> };
+
+/** A fresh blockhash this often, and what recent blocks paid in priority this often. */
+const HASH_EVERY_MS = 12_000;
+const PRIORITY_EVERY_MS = 45_000;
+/** A block at least this often, for reckoning the height: slower than a slot, so it runs behind (see `height`). */
+const BLOCK_MS = 450;
 
 const b64 = getBase64Encoder();
 const same = (a: Uint8Array | { readonly [i: number]: number; length: number }, b: { readonly [i: number]: number; length: number }) => a.length === b.length && Array.from({ length: a.length }).every((_, i) => a[i] === b[i]);
@@ -80,19 +98,46 @@ export function customCode(err: unknown): number | null {
 
 export class SolanaChain {
   readonly rpc: Rpc<SolanaRpcApi>;
+  /** The same RPC, for the sweep's reads: they wait behind everything players are waiting on. */
+  readonly sweepRpc: Rpc<SolanaRpcApi>;
   signer!: KeyPairSigner;
   private table: Record<Address, Address[]> = {};
   private hash: Blockhash | null = null;
-  private height = 0n;
+  private hashAt = 0;
   /** Micro-lamports per compute unit, from what recent blocks paid to write the pool. */
   priority = 0;
   /** Built transactions awaiting a wallet's signature: their message, so only what we built is ever co-signed, and whether it approves the game to sweep. */
-  private built = new Map<string, { message: Uint8Array; at: number; kind: string; player: Address; approve: boolean }>();
+  private built = new Map<string, { message: Uint8Array; lastValid: bigint; at: number; kind: string; player: Address; approve: boolean }>();
   inflight = 0;
   stats = { sent: 0, landed: 0, failed: 0, expired: 0, rebroadcasts: 0 };
+  /** Every transaction in flight, looked for in one request. */
+  readonly confirmations: Confirmations;
+  /** What every request to the RPC waits on (budget.ts). */
+  readonly budget: Budget;
+  /** Each player's accounts, read at most once a second however many ask (accounts.ts). */
+  readonly accounts = new Accounts((wallet) => this.snapshot(wallet));
 
   constructor(readonly cfg: SolanaConfig, private readonly log: (s: string) => void) {
-    this.rpc = createSolanaRpc(cfg.rpcUrl);
+    this.budget = new Budget(cfg.rpcPerSec, log);
+    const http = createDefaultRpcTransport({ url: cfg.rpcUrl });
+    this.rpc = createSolanaRpcFromTransport(budgeted(http, this.budget, cfg.rpcUrl));
+    this.sweepRpc = createSolanaRpcFromTransport(budgeted(http, this.budget, cfg.rpcUrl, "sweep"));
+    this.confirmations = new Confirmations(
+      {
+        statuses: (signatures, searchTransactionHistory) =>
+          this.rpc
+            .getSignatureStatuses(signatures, { searchTransactionHistory })
+            .send()
+            .then(({ value }) => value),
+        push: (wire) => this.push(wire),
+        height: () => this.height,
+      },
+      this.stats,
+    );
+  }
+
+  private push(wire: Base64EncodedWireTransaction) {
+    return this.rpc.sendTransaction(wire, { encoding: "base64", skipPreflight: true, maxRetries: 0n }).send().catch(() => undefined);
   }
 
   async start() {
@@ -100,14 +145,39 @@ export class SolanaChain {
     const t = await fetchAddressLookupTable(this.rpc, this.cfg.deployment.lookupTable);
     this.table = { [this.cfg.deployment.lookupTable]: [...t.data.addresses] };
     await Promise.all([this.refreshHash(), this.refreshPriority()]);
-    setInterval(() => void this.refreshHash().catch((e) => this.log(`blockhash: ${String(e).split("\n")[0]}`)), 2_000);
-    setInterval(() => void this.refreshPriority().catch(() => {}), 5_000);
+    // A blockhash is good for 150 blocks, about a minute: one a few seconds old costs a transaction nothing. Asked
+    // again sooner while the RPC is not answering, so it never runs out under us.
+    const hashes = (ms: number) =>
+      setTimeout(
+        () =>
+          void this.refreshHash().then(
+            () => hashes(HASH_EVERY_MS),
+            (e) => {
+              if (Date.now() - this.hashAt > 30_000) this.log(`blockhash ${Math.round((Date.now() - this.hashAt) / 1000)} s old: ${String(e).split("\n")[0]}`);
+              hashes(2_000);
+            },
+          ),
+        ms,
+      );
+    hashes(HASH_EVERY_MS);
+    // A fixed fee is never asked for.
+    if (this.cfg.priorityFixed === null) setInterval(() => void this.refreshPriority().catch(() => {}), PRIORITY_EVERY_MS);
+  }
+
+  /**
+   * The block height, reckoned rather than asked for: the blockhash's last valid block less its 150, plus a block for
+   * every 450 ms since. Slots are 400 ms and some are skipped, so this runs behind the chain: a transaction is given
+   * up a little late, never while it could still land.
+   */
+  get height(): bigint {
+    if (!this.hash) return 0n;
+    return this.hash.lastValidBlockHeight - 150n + BigInt(Math.floor((Date.now() - this.hashAt) / BLOCK_MS));
   }
 
   private async refreshHash() {
-    const [{ value }, height] = await Promise.all([this.rpc.getLatestBlockhash({ commitment: "confirmed" }).send(), this.rpc.getBlockHeight({ commitment: "confirmed" }).send()]);
+    const { value } = await this.rpc.getLatestBlockhash({ commitment: "confirmed" }).send();
     this.hash = value;
-    this.height = height;
+    this.hashAt = Date.now();
   }
 
   private async refreshPriority() {
@@ -142,47 +212,9 @@ export class SolanaChain {
   private async broadcast(label: string, wire: Base64EncodedWireTransaction, signature: Signature, lastValid: bigint): Promise<Sent> {
     this.inflight++;
     this.stats.sent++;
-    const push = () => this.rpc.sendTransaction(wire, { encoding: "base64", skipPreflight: true, maxRetries: 0n }).send().catch(() => undefined);
-    // What the RPC says of it: null while it has not landed, or when the RPC could not be asked.
-    const status = (searchTransactionHistory = false) =>
-      this.rpc
-        .getSignatureStatuses([signature], { searchTransactionHistory })
-        .send()
-        .then(
-          ({ value }) => value[0],
-          () => null,
-        );
-    const started = Date.now();
     try {
-      await push();
-      for (let i = 0; ; i++) {
-        await Bun.sleep(i < 10 ? 200 : 400);
-        // An RPC that fails to answer says nothing of the transaction: it may land all the same, so it is looked for
-        // until its blockhash has run out, never given up on the first error.
-        const s = await status();
-        if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) {
-          if (s.err) this.stats.failed++;
-          else this.stats.landed++;
-          return { signature, slot: s.slot, err: s.err };
-        }
-        // Past its blockhash (or, with no word of the height, two minutes on) it can no longer land: one last look.
-        if (this.height > lastValid || Date.now() - started > 120_000) {
-          await Bun.sleep(1_000);
-          const last = await status(true);
-          if (last && (last.confirmationStatus === "confirmed" || last.confirmationStatus === "finalized")) {
-            if (last.err) this.stats.failed++;
-            else this.stats.landed++;
-            return { signature, slot: last.slot, err: last.err };
-          }
-          this.stats.expired++;
-          throw new Error(`${label}: expired unconfirmed (${signature})`);
-        }
-        // Rebroadcast every 800 ms until it lands: the RPC forwards once, and leaders drop under load.
-        if (i % 4 === 3) {
-          this.stats.rebroadcasts++;
-          void push();
-        }
-      }
+      await this.push(wire);
+      return await this.confirmations.watch(label, wire, signature, lastValid);
     } finally {
       this.inflight--;
     }
@@ -218,7 +250,7 @@ export class SolanaChain {
     const tx = await partiallySignTransactionMessageWithSigners(this.message(instructions, computeUnits));
     const id = crypto.randomUUID();
     for (const [k, v] of this.built) if (Date.now() - v.at > 120_000) this.built.delete(k);
-    remember(this.built, id, { message: new Uint8Array(tx.messageBytes), at: Date.now(), kind, player, approve }, 10_000);
+    remember(this.built, id, { message: new Uint8Array(tx.messageBytes), lastValid: this.hash!.lastValidBlockHeight, at: Date.now(), kind, player, approve }, 10_000);
     return { id, tx: getBase64EncodedWireTransaction(tx) };
   }
 
@@ -232,7 +264,8 @@ export class SolanaChain {
     this.built.delete(id);
     const wire = getBase64Decoder().decode(getTransactionEncoder().encode(tx)) as Base64EncodedWireTransaction;
     const signature = getSignatureFromTransaction(tx);
-    const sent = await this.broadcast(b.kind, wire, signature, this.hash!.lastValidBlockHeight + 150n);
+    // Its own blockhash's last block, from when it was built: not one from now, a wallet's signing later.
+    const sent = await this.broadcast(b.kind, wire, signature, b.lastValid);
     return { kind: b.kind, player: b.player, approve: b.approve, sent };
   }
 
@@ -250,6 +283,29 @@ export class SolanaChain {
   async player(wallet: Address): Promise<Player | null> {
     const a = await fetchMaybePlayer(this.rpc, await playerAddress(wallet, this.cfg.deployment.program));
     return a.exists ? a.data : null;
+  }
+  /** The game's account and the market's difficulty, in one request. */
+  async terms(): Promise<[Game, number]> {
+    const [game, market] = await fetchEncodedAccounts(this.rpc, [this.cfg.deployment.game, this.cfg.deployment.market]);
+    assertAccountExists(game);
+    assertAccountExists(market);
+    return [decodeGame(game).data, decodeMarket(market).data.difficulty];
+  }
+  /** Accounts in as few requests as `getMultipleAccounts` allows, 100 to one: null for one that is not there. */
+  async many<T>(addresses: Address[], decode: (a: EncodedAccount) => T, rpc: Rpc<SolanaRpcApi> = this.rpc): Promise<(T | null)[]> {
+    const out: (T | null)[] = [];
+    for (let i = 0; i < addresses.length; i += 100) {
+      for (const a of await fetchEncodedAccounts(rpc, addresses.slice(i, i + 100))) out.push(a.exists ? decode(a) : null);
+    }
+    return out;
+  }
+  /** A player's game account, the pool and the USDC account in their wallet, in one request: see `accounts`. */
+  async snapshot(wallet: Address): Promise<Omit<Snapshot, "at">> {
+    const d = this.cfg.deployment;
+    const [pda, [ata]] = await Promise.all([playerAddress(wallet, d.program), findAssociatedTokenPda({ mint: d.usdcMint, owner: wallet, tokenProgram: TOKEN_PROGRAM_ADDRESS })]);
+    const [player, pool, token] = await fetchEncodedAccounts(this.rpc, [pda, d.pool, ata]);
+    assertAccountExists(pool);
+    return { player: player.exists ? decodePlayer(player).data : null, pool: decodePool(pool).data, token: token.exists ? decodeToken(token).data : null };
   }
   async lamports(): Promise<bigint> {
     return (await this.rpc.getBalance(this.signer.address).send()).value;

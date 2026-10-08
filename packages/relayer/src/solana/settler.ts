@@ -4,10 +4,12 @@
  * off as the pool refills, USDC that landed in approving wallets swept in, and the fees moved to the treasury.
  */
 import { AccountRole, type Address, type Instruction } from "@solana/kit";
-import { fetchMaybeToken, findAssociatedTokenPda, TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
+import { decodeToken, fetchMaybeToken, findAssociatedTokenPda, TOKEN_PROGRAM_ADDRESS, type Token } from "@solana-program/token";
 import { CLOSE_AFTER_MS } from "@skech/core/bars";
 import {
+  decodePlayer,
   fetchBars,
+  fetchPool,
   getCollectFeesInstruction,
   getExpireInstruction,
   getPostBarAndSettleInstruction,
@@ -57,8 +59,12 @@ export class SolanaSettler {
   private approved = new Set<Address>();
   private running = false;
   private sweeping = false;
+  /** Wallets with a sweep in flight. */
+  private sweepingIn = new Set<Address>();
   private lastSweep = 0;
   private told = new Map<Address, number>();
+  /** What the state file was last written with. */
+  private saved: string | null = null;
   /** Bets whose every band is decided but that the program keeps until their piece's placing window is over. */
   private closing = new Map<Address, { player: Address; due: number; tries: number }>();
   stats = { bars: 0, settled: 0, redeemed: 0n, swept: 0n, collected: 0n };
@@ -85,8 +91,10 @@ export class SolanaSettler {
   owed(holder: Address) {
     this.holders.add(holder);
   }
+  /** A wallet approved the game: what is in it now is swept in now, not on the next full pass minutes away. */
   approve(wallet: Address) {
     this.approved.add(wallet);
+    void this.sweepIn(wallet).catch((e) => this.log(`sweep ${wallet}: ${String((e as Error).message ?? e).split("\n")[0]}`));
   }
 
   watch(bet: Address, player: Address, unit: bigint, band: Band) {
@@ -147,7 +155,7 @@ export class SolanaSettler {
       await this.close();
       const soon = [...this.watching.keys()].some((s) => s + 1000 + CLOSE_AFTER_MS <= now + 1500);
       const since = Date.now() - this.lastSweep;
-      if (since > this.cfg.sweepEveryMs && (!soon || since > 4 * this.cfg.sweepEveryMs)) {
+      if (since > this.cfg.sweepEveryMs && (!soon || since > 2 * this.cfg.sweepEveryMs)) {
         this.lastSweep = Date.now();
         void this.sweep();
       }
@@ -291,29 +299,49 @@ export class SolanaSettler {
     }
   }
 
-  /** Pay off what is owed as far as the pool goes, the house behind the players; sweep deposits in; move fees out. */
+  /**
+   * Pay off what is owed as far as the pool goes, the house behind the players; sweep deposits in; move fees out.
+   * Read in a few requests whatever the number of holders and wallets: the pool once, then holders' and wallets'
+   * accounts a hundred to a request, at the lowest priority (budget.ts).
+   */
   private async sweep() {
     if (this.sweeping) return;
     this.sweeping = true;
     const d = this.cfg.deployment;
+    const rpc = this.chain.sweepRpc;
     try {
-      let pool = await this.chain.pool();
-      for (const holder of this.holders) {
-        if (pool.pool === 0n) break;
-        const p = await this.chain.player(holder);
-        if (!p || p.iouShares === 0n) {
-          this.holders.delete(holder);
-          continue;
+      const pool = (await fetchPool(rpc, d.pool)).data;
+      // What the pool has left, followed down from each redemption's due rather than read again after it: the
+      // program pays what it can, and an overestimate costs one redemption that pays less.
+      let left = pool.pool;
+      if (left > 0n && this.holders.size) {
+        const holders = [...this.holders];
+        const players = await this.chain.many(await Promise.all(holders.map((h) => playerAddress(h, d.program))), (a) => decodePlayer(a).data, rpc);
+        const now = BigInt(Math.floor(Date.now() / 1000));
+        const index = pool.iouIndexAt + pool.iouRate * (now - pool.iouTimeAt > 0n ? now - pool.iouTimeAt : 0n);
+        for (const [i, holder] of holders.entries()) {
+          const p = players[i];
+          if (!p || p.iouShares === 0n) {
+            this.holders.delete(holder);
+            continue;
+          }
+          if (left === 0n) continue;
+          // The redeemer's cut, as on Monad, goes to the relayer's own account in the game.
+          const ix = getRedeemInstruction({ caller: this.chain.signer, game: d.game, pool: d.pool, holder: await playerAddress(holder, d.program), callerPlayer: await playerAddress(this.chain.signer.address, d.program), shares: ALL });
+          const s = await this.chain.send(`redeem ${holder}`, [ix], 30_000);
+          if (!s.err) this.notify.account(holder);
+          const due = (p.iouShares * index) / 10n ** 18n;
+          left = due < left ? left - due : 0n;
         }
-        // The redeemer's cut, as on Monad, goes to the relayer's own account in the game.
-        const ix = getRedeemInstruction({ caller: this.chain.signer, game: d.game, pool: d.pool, holder: await playerAddress(holder, d.program), callerPlayer: await playerAddress(this.chain.signer.address, d.program), shares: ALL });
-        const s = await this.chain.send(`redeem ${holder}`, [ix], 30_000);
-        if (!s.err) this.notify.account(holder);
-        pool = await this.chain.pool();
       }
-      if (pool.houseShares > 0n && pool.pool > 0n) await this.chain.send("redeem house", [getRedeemHouseInstruction({ game: d.game, pool: d.pool })], 30_000);
-      for (const wallet of this.approved) await this.sweepIn(wallet);
-      pool = await this.chain.pool();
+      if (pool.houseShares > 0n && left > 0n) await this.chain.send("redeem house", [getRedeemHouseInstruction({ game: d.game, pool: d.pool })], 30_000);
+      if (this.approved.size) {
+        const wallets = [...this.approved];
+        const atas = await Promise.all(wallets.map((w) => findAssociatedTokenPda({ mint: d.usdcMint, owner: w, tokenProgram: TOKEN_PROGRAM_ADDRESS }).then(([a]) => a)));
+        const tokens = await this.chain.many(atas, (a) => decodeToken(a).data, rpc);
+        for (const [i, wallet] of wallets.entries()) await this.sweepFrom(wallet, atas[i], tokens[i]);
+      }
+      // Fees from the read at the start: what came in since is collected next time.
       if (pool.fees >= this.cfg.collectAboveE6) {
         const ix = getCollectFeesInstruction({ game: d.game, pool: d.pool, vault: d.vault, treasury: d.treasury, usdcMint: d.usdcMint, tokenProgram: TOKEN_PROGRAM_ADDRESS });
         const s = await this.chain.send(`collect ${pool.fees} fees`, [ix], 40_000);
@@ -327,24 +355,36 @@ export class SolanaSettler {
     }
   }
 
-  /** Move what landed in `wallet` into its balance, on the approval it gave: from the sweep, or when its app asks. */
+  /** Move what landed in `wallet` into its balance, on the approval it gave: when its app asks, or it just gave it. */
   async sweepIn(wallet: Address): Promise<bigint> {
     const d = this.cfg.deployment;
     const [ata] = await findAssociatedTokenPda({ mint: d.usdcMint, owner: wallet, tokenProgram: TOKEN_PROGRAM_ADDRESS });
     const t = await fetchMaybeToken(this.chain.rpc, ata);
-    if (!t.exists || t.data.delegate.__option !== "Some" || t.data.delegate.value !== d.game) {
+    return this.sweepFrom(wallet, ata, t.exists ? t.data : null);
+  }
+
+  /** Sweep `wallet`'s token account `t`, as just read, if it still approves the game. One at a time for a wallet. */
+  private async sweepFrom(wallet: Address, ata: Address, t: Token | null): Promise<bigint> {
+    const d = this.cfg.deployment;
+    if (!t || t.delegate.__option !== "Some" || t.delegate.value !== d.game) {
       this.approved.delete(wallet);
       return 0n;
     }
     this.approved.add(wallet);
-    const amount = t.data.amount < t.data.delegatedAmount ? t.data.amount : t.data.delegatedAmount;
-    if (amount === 0n) return 0n;
-    const ix = getSweepInstruction({ game: d.game, player: await playerAddress(wallet, d.program), from: ata, vault: d.vault, usdcMint: d.usdcMint, tokenProgram: TOKEN_PROGRAM_ADDRESS });
-    const s = await this.chain.send(`sweep ${amount} for ${wallet}`, [ix], 40_000);
-    if (s.err) return 0n;
-    this.stats.swept += amount;
-    this.notify.account(wallet);
-    return amount;
+    const amount = t.amount < t.delegatedAmount ? t.amount : t.delegatedAmount;
+    // Swept already, or being swept: the same USDC twice would fail on chain, its fee paid for nothing.
+    if (amount === 0n || this.sweepingIn.has(wallet)) return 0n;
+    this.sweepingIn.add(wallet);
+    try {
+      const ix = getSweepInstruction({ game: d.game, player: await playerAddress(wallet, d.program), from: ata, vault: d.vault, usdcMint: d.usdcMint, tokenProgram: TOKEN_PROGRAM_ADDRESS });
+      const s = await this.chain.send(`sweep ${amount} for ${wallet}`, [ix], 40_000);
+      if (s.err) return 0n;
+      this.stats.swept += amount;
+      this.notify.account(wallet);
+      return amount;
+    } finally {
+      this.sweepingIn.delete(wallet);
+    }
   }
 
   /* ---- what survives a restart ---- */
@@ -369,8 +409,12 @@ export class SolanaSettler {
     const s: State = { bets: [], holders: [...this.holders], approved: [...this.approved], posted: {}, closing: [...this.closing].map(([bet, c]) => ({ bet, player: c.player })) };
     for (const [bet, b] of this.bets) s.bets.push({ bet, player: b.player, unit: b.unit.toString(), bands: b.bands.map((x) => ({ second: x.second, lo: x.lo.toString(), hi: x.hi.toString(), stake: x.stake.toString(), rung: x.rung })) });
     for (const [second, close] of [...this.closes].slice(-600)) s.posted[second] = close.toString();
+    // Written only when it changed: an idle relayer does not fsync the same file every five seconds.
+    const text = JSON.stringify(s);
+    if (text === this.saved) return;
     try {
-      writeAtomic(this.statePath, JSON.stringify(s));
+      writeAtomic(this.statePath, text);
+      this.saved = text;
     } catch (e) {
       this.log(`settle: could not write ${this.statePath}: ${String(e)}`);
       report("state-write", e);

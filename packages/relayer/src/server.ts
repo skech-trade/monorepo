@@ -13,7 +13,7 @@ import type { Engine } from "./engine";
 import type { PieceMsg, Placed, Refused, Sequencer } from "./sequencer";
 import type { Settled, Settler } from "./settler";
 import type { Activity } from "./activity";
-import { clientIp, Door, MESSAGE_BYTES, Rates, Sponsor } from "./limits";
+import { beat, clientIp, Door, IDLE_S, MESSAGE_BYTES, Rates, Sponsor } from "./limits";
 import { report } from "./sentry";
 import { big, type Message, MONAD, read, refusal } from "./wire";
 
@@ -67,8 +67,10 @@ export class Server {
         },
         perMessageDeflate: false,
         maxPayloadLength: MESSAGE_BYTES,
+        idleTimeout: IDLE_S,
       },
     });
+    beat(this.clients);
     this.d.log(`listening on ws://${this.d.cfg.host}:${this.d.cfg.port}/ws`);
   }
 

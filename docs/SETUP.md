@@ -23,6 +23,7 @@ the servers read. [`.env.example`](../.env.example) documents each.
 | `SKECH_SOLANA_CLUSTER` | `devnet` | **new: add** (part 5) |
 | `SOLANA_RELAYER_SECRET_KEY` | the Solana relayer's keypair, the 64 bytes as JSON: `~/.config/solana/skech-devnet-relayer.json` on Swayam's machine (`3hNNKV…Ge9s`). It is also the devnet game's oracle | **new: add** (part 5) |
 | `SOLANA_DEVNET_RPC_URL` | a devnet RPC (the public one rate-limits) | **new: add** (part 5) |
+| `SOLANA_RPC_RPS` | requests a second the Solana relayer asks of that RPC, all told. Blank: 15. Set it under the plan's limit | optional (part 5) |
 
 `RELAYER_ENGINE_SIGNER` for today's key is `0xc6377415Ee98A7b71161Ee963603eE52fF7750FC`
 (`cast wallet address --private-key $ENGINE_PRIVATE_KEY` prints it).
@@ -118,7 +119,9 @@ The game is on devnet (2026-10-01). Every address is in `packages/contracts/depl
 What is left is running its relayer on the box (`https://api.skech.trade/solana/health` answers 502 until then):
 
 1. **Keys**: `SKECH_SOLANA_CLUSTER=devnet`, `SOLANA_RELAYER_SECRET_KEY` (the relayer keypair file's contents) and
-   `SOLANA_DEVNET_RPC_URL` in the env file `infra/deploy.sh` reads (`.env.local`, or `SKECH_ENV_FILE`).
+   `SOLANA_DEVNET_RPC_URL` in the env file `infra/deploy.sh` reads (`.env.local`, or `SKECH_ENV_FILE`). If the
+   RPC's plan allows fewer than 15 requests a second, set `SOLANA_RPC_RPS` below it: the relayer holds itself to
+   that and backs off on a 429 (`/status` → `rpc` counts both).
 2. **Ship**: `infra/deploy.sh --env`. With both Solana keys, the Solana relayer starts beside the Monad one, at
    `wss://api.skech.trade/solana/ws`.
 3. **Check**: `curl https://api.skech.trade/solana/health` answers `ok`; `ssh skech curl -s localhost:3104/status`

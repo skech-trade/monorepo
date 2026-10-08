@@ -17,7 +17,7 @@ ENV_FILE="${SKECH_ENV_FILE:-.env.local}"
 SERVER_KEYS="SKECH_NETWORK ENGINE_PRIVATE_KEY ENGINE_BAND_BPS ENGINE_MAX_CLIENTS ENGINE_SENTRY_DSN RELAYER_PRIVATE_KEY RELAYER_SHADOW_EVERY RELAYER_ENGINE_SIGNER
   RELAYER_SENTRY_DSN MONAD_RPC_URL MONAD_TESTNET_RPC_URL MONAD_MAINNET_RPC_URL
   SKECH_SOLANA_CLUSTER SOLANA_RELAYER_SECRET_KEY SOLANA_DEVNET_RPC_URL SOLANA_DEVNET_WS_URL SOLANA_MAINNET_BETA_RPC_URL
-  SOLANA_MAINNET_BETA_WS_URL SOLANA_PRIORITY_MICROLAMPORTS SOLANA_PRIORITY_MAX_MICROLAMPORTS"
+  SOLANA_MAINNET_BETA_WS_URL SOLANA_PRIORITY_MICROLAMPORTS SOLANA_PRIORITY_MAX_MICROLAMPORTS SOLANA_RPC_RPS"
 
 # What ships, below. It ships as committed, from `git archive`: anything changed and not committed there is
 # refused rather than left behind unnoticed.
@@ -128,8 +128,14 @@ sudo chown root:root /opt/skech && sudo chmod 755 /opt/skech
 sudo install -m 755 -o root -g root /tmp/backup-relayer.sh /usr/local/sbin/skech-backup-relayer
 sudo install -m 644 /tmp/*.service /tmp/*.timer /etc/systemd/system/ && sudo systemctl daemon-reload
 sudo systemctl enable -q --now skech-backup.timer
-# Restart if a reload fails: once, the running Caddy is one whose admin API was on localhost:2019.
-sudo install -m 644 /tmp/Caddyfile /etc/caddy/Caddyfile && (sudo systemctl reload caddy || sudo systemctl restart caddy)
+# Caddy only when its routes changed: every socket through it is the price of a reload (eased by stream_close_delay),
+# and most deploys change none. Restart if a reload fails: once, the running Caddy is one whose admin API was on
+# localhost:2019. A Caddy that is not running is started either way.
+if ! sudo cmp -s /tmp/Caddyfile /etc/caddy/Caddyfile; then
+  sudo install -m 644 /tmp/Caddyfile /etc/caddy/Caddyfile && (sudo systemctl reload caddy || sudo systemctl restart caddy)
+elif ! systemctl is-active -q caddy; then
+  sudo systemctl restart caddy
+fi
 sudo systemctl reset-failed skech-engine skech-relayer skech-relayer-solana 2>/dev/null || true
 sudo systemctl restart skech-engine skech-relayer
 if [ -f /etc/skech/solana ]; then sudo systemctl enable -q skech-relayer-solana; sudo systemctl restart skech-relayer-solana; fi

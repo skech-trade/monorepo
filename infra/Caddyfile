@@ -8,6 +8,9 @@
 #   wss://$SKECH_DOMAIN/solana/ws    -> the Solana relayer 127.0.0.1:3104/ws
 #
 # The relayers' /status is for the box only: `curl localhost:3103/status` there.
+#
+# stream_close_delay: a reload closes every socket through Caddy at once, unless told to let them be. Five minutes
+# on, they are closed anyway, so an old config does not live on; phones reconnect long before.
 {
 	# The admin API on a socket only caddy (and root) can open, not a port any process on the box can reach.
 	admin unix//run/caddy/admin.sock
@@ -19,15 +22,21 @@
 		max_size 16KB
 	}
 	handle_path /engine/* {
-		reverse_proxy 127.0.0.1:3102
+		reverse_proxy 127.0.0.1:3102 {
+			stream_close_delay 5m
+		}
 	}
 	handle_path /relayer/* {
 		respond /status 404
-		reverse_proxy 127.0.0.1:3103
+		reverse_proxy 127.0.0.1:3103 {
+			stream_close_delay 5m
+		}
 	}
 	handle_path /solana/* {
 		respond /status 404
-		reverse_proxy 127.0.0.1:3104
+		reverse_proxy 127.0.0.1:3104 {
+			stream_close_delay 5m
+		}
 	}
 	respond 404
 }

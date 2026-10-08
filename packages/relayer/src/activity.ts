@@ -66,7 +66,8 @@ export class Activity {
     for (;;) {
       let caughtUp = false;
       try {
-        this.head = (await this.chain.pub.getBlockNumber()) - BEHIND;
+        // The block the base fee was last read with, a couple of seconds old at most, rather than a request of its own.
+        this.head = (await this.chain.blockNumber()) - BEHIND;
         if (this.head > this.scannedTo) {
           const to = this.scannedTo + this.span < this.head ? this.scannedTo + this.span : this.head;
           await this.scan(this.scannedTo + 1n, to);

@@ -46,6 +46,8 @@ export class Settler {
   private lastSweep = 0;
   /** When each player was last sent their account after a settlement. */
   private told = new Map<Address, number>();
+  /** What the state file was last written with. */
+  private saved: string | null = null;
   /** The house's cut of profits, from the chain's config: what a hit is due depends on it. */
   profitFeeBps = 1000n;
   /** The least a partial redemption may pay, from the chain's config. */
@@ -299,8 +301,12 @@ export class Settler {
       if (unknown.length) s.watch![second] = unknown.map((betId) => ({ betId, player: this.bets.get(betId)!.player }));
     }
     for (const [second, close] of [...this.posted].slice(-600)) s.posted[second] = close.toString();
+    // Written only when it changed: an idle relayer does not fsync the same file every five seconds.
+    const text = JSON.stringify(s);
+    if (text === this.saved) return;
     try {
-      writeAtomic(this.statePath, JSON.stringify(s));
+      writeAtomic(this.statePath, text);
+      this.saved = text;
     } catch (e) {
       this.log(`settle: could not write ${this.statePath}: ${String(e)}`);
       report("state-write", e);

@@ -9,6 +9,22 @@ export const MESSAGE_BYTES = 64 * 1024;
 /** Connections in all, and from one address (a phone network puts many players behind one). */
 export const CONNECTIONS = 5_000;
 export const PER_IP = 32;
+/** A socket that says nothing this long, not even a pong to Bun's pings, is closed: a phone that went away. */
+export const IDLE_S = 30;
+export const BEAT_MS = 15_000;
+
+/**
+ * `{ type: "beat" }` to every socket every 15 s: phone networks and proxies close a socket that is quiet for a while,
+ * and the app can tell a dead socket from a quiet one. Apps pass over a type they do not know.
+ */
+export function beat(clients: Iterable<{ send(text: string): unknown }>, every = BEAT_MS) {
+  const text = JSON.stringify({ type: "beat" });
+  const timer = setInterval(() => {
+    for (const ws of clients) ws.send(text);
+  }, every);
+  timer.unref?.();
+  return timer;
+}
 
 /** A token bucket: up to `burst` at once, refilled at `perSec`. */
 export class Bucket {

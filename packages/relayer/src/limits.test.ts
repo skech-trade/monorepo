@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Bucket, clientIp, Door, RATES, Rates, remember } from "./limits";
+import { beat, Bucket, clientIp, Door, RATES, Rates, remember } from "./limits";
 
 /** A clock that moves only when told. */
 const clock = () => {
@@ -70,6 +70,19 @@ describe("the door", () => {
     expect(clientIp(req("6.6.6.6"), "9.9.9.9")).toBe("9.9.9.9");
     expect(clientIp(req(), "127.0.0.1")).toBe("127.0.0.1");
   });
+});
+
+test("every socket hears a beat, those that joined since too", async () => {
+  const heard: string[][] = [[], []];
+  const clients = new Set([{ send: (s: string) => heard[0].push(s) }]);
+  const timer = beat(clients, 10);
+  await Bun.sleep(15);
+  clients.add({ send: (s: string) => heard[1].push(s) });
+  await Bun.sleep(25);
+  clearInterval(timer);
+  expect(heard[0].length).toBeGreaterThanOrEqual(3);
+  expect(heard[1].length).toBeGreaterThanOrEqual(1);
+  expect(JSON.parse(heard[0][0])).toEqual({ type: "beat" });
 });
 
 test("a remembered map keeps its newest", () => {

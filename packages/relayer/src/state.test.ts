@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChainClient } from "./chain";
@@ -48,5 +48,18 @@ describe("a state file", () => {
     expect(make).toThrow("cannot be read");
     writeFileSync(path, JSON.stringify({ holders: 7, posted: {} }));
     expect(make).toThrow("not state this relayer can restore");
+  });
+
+  test("is written again only when what it holds changed", () => {
+    const path = join(dir, "idle.json");
+    const settler = new Settler({} as Config, {} as Engine, {} as ChainClient, { settled: () => {}, owed: () => {}, account: () => {} }, () => {}, path);
+    settler.save();
+    expect(existsSync(path)).toBe(true);
+    rmSync(path);
+    settler.save();
+    expect(existsSync(path)).toBe(false);
+    settler.owed("0x70997970c51812dc3a010c7d01b50e0d17dc79c8");
+    settler.save();
+    expect(readState<{ holders: string[] }>(path)?.holders).toEqual(["0x70997970c51812dc3a010c7d01b50e0d17dc79c8"]);
   });
 });

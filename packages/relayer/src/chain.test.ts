@@ -4,7 +4,7 @@
  * would land: a bet placed twice, or placed and never settled).
  */
 import { afterAll, expect, test } from "bun:test";
-import { keccak256, type Hex } from "viem";
+import { decodeFunctionData, encodeAbiParameters, encodeFunctionResult, type Hex, keccak256, multicall3Abi } from "viem";
 import { ChainClient } from "./chain";
 import type { Config } from "./config";
 
@@ -68,3 +68,30 @@ test("a send that times out is waited on by its hash, and never sent again under
   expect(calls.filter((c) => c === "eth_sendRawTransactionSync")).toHaveLength(1);
   expect(calls.filter((c) => c === "eth_getTransactionCount")).toHaveLength(1);
 }, 10_000);
+
+/** A node that answers Multicall3's aggregate3, each call with the next number. */
+const multicalls: number[] = [];
+const node = Bun.serve({
+  port: 0,
+  async fetch(req) {
+    type Req = { id: number; method: string; params: { to: Hex; data: Hex }[] };
+    const body = (await req.json()) as Req | Req[];
+    const one = (m: Req) => {
+      if (m.method === "eth_chainId") return { jsonrpc: "2.0", id: m.id, result: "0x279f" };
+      if (m.method !== "eth_call" || m.params[0].to.toLowerCase() !== "0xca11bde05977b3631167028862be2a173976ca11") return { jsonrpc: "2.0", id: m.id, error: { code: -32601, message: `no ${m.method}` } };
+      const calls = (decodeFunctionData({ abi: multicall3Abi, data: m.params[0].data }).args as unknown as [unknown[]])[0];
+      multicalls.push(calls.length);
+      const result = encodeFunctionResult({ abi: multicall3Abi, functionName: "aggregate3", result: calls.map((_, i) => ({ success: true, returnData: encodeAbiParameters([{ type: "uint256" }], [BigInt(5 + i)]) })) });
+      return { jsonrpc: "2.0", id: m.id, result };
+    };
+    return Response.json(Array.isArray(body) ? body.map(one) : one(body));
+  },
+});
+afterAll(() => node.stop(true));
+
+test("reads made together are one eth_call through Multicall3", async () => {
+  const chain = new ChainClient({ key: KEY, chainId: 10143, rpcUrl: `http://127.0.0.1:${node.port}`, game: GAME } as unknown as Config, () => {});
+  const [pool, fees, balance] = await Promise.all([chain.pool(), chain.fees(), chain.balanceOf("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")]);
+  expect([pool, fees, balance]).toEqual([5n, 6n, 7n]);
+  expect(multicalls).toEqual([3]);
+});
