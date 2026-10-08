@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "trade.skech.app",
-      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#ffffff" },
+      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#2A62DD" },
       "permissions": ["android.permission.CAMERA", "android.permission.VIBRATE"]
     },
     "web": { "output": "static" },
