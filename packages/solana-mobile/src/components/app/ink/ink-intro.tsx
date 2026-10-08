@@ -21,9 +21,9 @@ import { useDark } from "@/lib/theme";
 /* A zigzag down the screen, from off its top left to off its bottom, in a 1000 by 1000 box. */
 const SCRIBBLE =
   "M -120 60 C 300 -60, 900 40, 1120 140 C 900 300, 300 200, -120 360 C 300 520, 800 380, 1120 560 C 800 760, 200 600, -120 780 C 300 980, 800 860, 1120 1000 C 900 1120, 500 1060, 400 1160";
-/** How long the pen takes to ink the screen over, and the ink to drain away, in ms. */
-const IN_MS = 1000;
-const OUT_MS = 1100;
+/** How long the pen takes to ink the screen over, and the ink to drain away, in ms: half as slow again as the web's, so the pen can be followed. */
+const IN_MS = 1500;
+const OUT_MS = 1650;
 /** How thick the ink is at its thinnest and when the screen is covered, in the box's units. */
 const THIN = 60;
 const THICK = 390;
