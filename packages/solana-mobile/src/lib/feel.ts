@@ -34,7 +34,23 @@ function ctx(): AudioContext | null {
     bus.connect(audio.destination);
   }
   if (audio.state === "suspended") void audio.resume();
+  sleepSoon();
   return audio;
+}
+
+/*
+  A running context renders silence on its own thread, all the time: about a third of a core on a cheap phone. It
+  sleeps once nothing has sounded for a while, and the next sound wakes it.
+*/
+const SLEEP_AFTER_MS = 3000;
+let sleeper: ReturnType<typeof setTimeout> | null = null;
+function sleepSoon() {
+  if (sleeper) clearTimeout(sleeper);
+  sleeper = setTimeout(() => {
+    sleeper = null;
+    if (penVoice) return sleepSoon();
+    if (audio?.state === "running") void audio.suspend();
+  }, SLEEP_AFTER_MS);
 }
 
 /** Half a second of white noise, made once: every hiss and the pen's scratch are cut from it. */
