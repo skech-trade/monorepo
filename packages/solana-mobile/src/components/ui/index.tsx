@@ -1,7 +1,8 @@
 import { Image } from "expo-image";
 import { XIcon } from "lucide-react-native";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Pressable, type PressableProps, ScrollView, Switch as RNSwitch, Text, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { ActivityIndicator, Animated, Modal, Pressable, type PressableProps, ScrollView, Switch as RNSwitch, Text, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { G, Path } from "react-native-svg";
 import { useDark } from "@/lib/theme";
@@ -68,14 +69,16 @@ export function Sheet({ open, onClose, title, description, children, scroll = tr
   const Body = scroll ? ScrollView : View;
   return (
     <Modal animationType="none" onRequestClose={onClose} statusBarTranslucent transparent visible={shown}>
-      {/* Padding on Android too: inside a Modal, drawn edge to edge, the window is not resized for the keyboard, so it would cover the field. */}
-      <KeyboardAvoidingView behavior="padding" className="flex-1 justify-end">
+      {/* keyboard-controller's, not React Native's: inside a Modal drawn edge to edge, Android does not resize the window for the
+          keyboard and React Native's own reads it wrong, so the field went behind it. This one follows the Modal's own window. */}
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: "flex-end" }}>
         <Animated.View className="absolute inset-0 bg-black/30" style={{ opacity: a }}>
           <Pressable accessibilityLabel="Close" className="flex-1" onPress={onClose} />
         </Animated.View>
+        {/* A share of the room above the keyboard, not of the screen, so a tall sheet shrinks and scrolls rather than run under the status bar. */}
         <Animated.View
           className="rounded-t-[24px] bg-popover"
-          style={{ maxHeight: height * 0.92, paddingBottom: Math.max(insets.bottom, 16), transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [height, 0] }) }] }}
+          style={{ maxHeight: "92%", paddingBottom: Math.max(insets.bottom, 16), transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [height, 0] }) }] }}
         >
           <View className="flex-row items-start gap-3 px-4 pt-6 pb-3.5">
             <View className="flex-1 justify-center" style={{ minHeight: 32 }}>
