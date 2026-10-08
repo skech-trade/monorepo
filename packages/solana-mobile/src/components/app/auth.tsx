@@ -1,4 +1,4 @@
-import { CDPHooksProvider, type Config, useCurrentUser, useIsInitialized, useIsSignedIn, useSignInWithEmail, useSignInWithOAuth, useSignInWithSms, useSignOut, useSignSolanaTransaction, useSolanaAddress, useVerifyEmailOTP, useVerifySmsOTP } from "@coinbase/cdp-hooks";
+import { CDPHooksProvider, type Config, useCurrentUser, useIsInitialized, useIsSignedIn, useSignInWithEmail, useSignInWithSms, useSignOut, useSignSolanaTransaction, useSolanaAddress, useVerifyEmailOTP, useVerifySmsOTP } from "@coinbase/cdp-hooks";
 import type { transact as Transact } from "@solana-mobile/mobile-wallet-adapter-protocol";
 import { getAddressDecoder } from "@solana/kit";
 import { Buffer } from "buffer";
@@ -38,8 +38,6 @@ export type Account = {
   sendCode: (email: string) => Promise<string | null>;
   sendSms: (phone: string) => Promise<string | null>;
   verify: (code: string) => Promise<string | null>;
-  /** Coinbase: Google or Apple, in the phone's browser, back to the app on `skech://callback`. */
-  oauth: (provider: "google" | "apple") => Promise<string | null>;
   /** A wallet on the phone, through the Mobile Wallet Adapter. Android only. */
   connectWallet: () => Promise<string | null>;
   canConnectWallet: boolean;
@@ -69,7 +67,6 @@ export const AccountContext = createContext<Account>({
   sendCode: async () => "Sign-in is not set up in this build",
   sendSms: async () => "Sign-in is not set up in this build",
   verify: async () => "Sign-in is not set up in this build",
-  oauth: async () => "Sign-in is not set up in this build",
   connectWallet: async () => "Not available",
   canConnectWallet: false,
 });
@@ -129,7 +126,6 @@ function Publish({ children }: { children: ReactNode }) {
   const { verifyEmailOTP } = useVerifyEmailOTP();
   const { signInWithSms } = useSignInWithSms();
   const { verifySmsOTP } = useVerifySmsOTP();
-  const { signInWithOAuth } = useSignInWithOAuth();
   const { signSolanaTransaction } = useSignSolanaTransaction();
   const [flow, setFlow] = useState<{ id: string; by: "email" | "sms" } | null>(null);
   const ready = Boolean(isInitialized) || waited;
@@ -173,14 +169,6 @@ function Publish({ children }: { children: ReactNode }) {
           return String((err as Error).message ?? err);
         }
       },
-      oauth: async (provider) => {
-        try {
-          await signInWithOAuth(provider);
-          return null;
-        } catch (err) {
-          return String((err as Error).message ?? err);
-        }
-      },
       verify: async (code) => {
         if (!flow) return "Ask for a code first";
         try {
@@ -195,7 +183,7 @@ function Publish({ children }: { children: ReactNode }) {
       connectWallet: mwa.connect,
       canConnectWallet: Platform.OS === "android",
     };
-  }, [ready, isSignedIn, solanaAddress, user, mwa, signOut, signSolanaTransaction, signInWithEmail, verifyEmailOTP, signInWithSms, verifySmsOTP, signInWithOAuth, flow]);
+  }, [ready, isSignedIn, solanaAddress, user, mwa, signOut, signSolanaTransaction, signInWithEmail, verifyEmailOTP, signInWithSms, verifySmsOTP, flow]);
   return <AccountContext.Provider value={account}>{children}</AccountContext.Provider>;
 }
 
@@ -215,7 +203,6 @@ function WalletOnly({ children }: { children: ReactNode }) {
       sendCode: async () => "Email sign-in is not set up in this build",
       sendSms: async () => "Phone sign-in is not set up in this build",
       verify: async () => "Email sign-in is not set up in this build",
-      oauth: async () => "Google and Apple sign-in are not set up in this build",
       connectWallet: mwa.connect,
       canConnectWallet: Platform.OS === "android",
     }),
@@ -224,7 +211,7 @@ function WalletOnly({ children }: { children: ReactNode }) {
   return <AccountContext.Provider value={account}>{children}</AccountContext.Provider>;
 }
 
-const config = { projectId: CDP_PROJECT_ID, appName: "skech", solana: { createOnLogin: true }, disableAnalytics: true, nativeOAuthCallback: "skech://callback" } as unknown as Config;
+const config = { projectId: CDP_PROJECT_ID, appName: "skech", solana: { createOnLogin: true }, disableAnalytics: true } as unknown as Config;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   if (!hasAuth) return <WalletOnly>{children}</WalletOnly>;
