@@ -76,7 +76,7 @@ old game's money, is in [docs/DEPLOYING.md](../docs/DEPLOYING.md).
 
 The app finds them through `NEXT_PUBLIC_ENGINE_URL=wss://<domain>/engine/ws` and
 `NEXT_PUBLIC_RELAYER_URL=wss://<domain>/relayer/ws`, set in its Vercel project. The app's origin also
-goes in the CDP project (`docs/CDP-SETUP.md`).
+goes in the Privy app's allowed origins (`docs/PRIVY-SETUP.md`).
 
 ## State, and why there is no database
 

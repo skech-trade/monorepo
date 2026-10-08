@@ -988,7 +988,7 @@ export function InkScreen() {
   const shownBalance = forReal ? chain.balance : state.balance;
   const onboarding = useOnboarding(live);
   /*
-    The game plays on for everyone; a tap from someone who cannot play yet opens the way to: Coinbase's sign-in
+    The game plays on for everyone; a tap from someone who cannot play yet opens the way to: Privy's sign-in
     signed out, the deposit sheet with less than a dot's worth in the balance. It never reaches the chart, so no
     ink is drawn that could not be placed.
   */

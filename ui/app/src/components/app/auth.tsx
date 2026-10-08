@@ -1,53 +1,35 @@
 "use client";
 
-import { useCurrentUser, useEvmAddress, useIsInitialized, useIsSignedIn, useSignEvmMessage, useSignEvmTypedData, useSignOut } from "@coinbase/cdp-hooks";
-// The provider alone, not the package's index: that pulls in every one of its components, and their styles.
-import { CDPReactProvider } from "@coinbase/cdp-react/components/CDPReactProvider";
-import type { Config, Theme } from "@coinbase/cdp-react";
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { type ComponentType, createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { identify, track } from "@/lib/analytics";
-import { shortAddress } from "@/lib/market";
+import type { Bridge } from "./privy";
 
 /**
  * Signing in.
  *
- * Coinbase embedded wallets: email, phone or Google, no extension to install
- * and no seed phrase to write down. The wallet is an EOA rather than a smart
- * account, so it can sign a plain message off chain.
+ * Privy embedded wallets: email, phone, Google or Apple, no extension to
+ * install and no seed phrase to write down. The wallet is an EOA rather than
+ * a smart account, so it can sign a plain message off chain.
  *
- * With no project id configured the app runs signed out and everything else
- * still works, which is what the tests and screenshots use. Coinbase's hooks
+ * With no app id configured the app runs signed out and everything else
+ * still works, which is what the tests and screenshots use. Privy's hooks
  * only work inside their provider, so they are read in one component that
- * only mounts there and published through context; everyone else reads the
- * context and calls exactly one hook however the build is configured.
+ * only mounts there (privy.tsx) and published through context; everyone else
+ * reads the context and calls exactly one hook however the build is configured.
+ *
+ * Privy's SDK is over half a megabyte, so it is not in the page's first load: it
+ * comes in its own chunk once the page is up, and mounts beside the app, not
+ * around it, so its arrival re-renders nothing but the account.
  */
 
-const PROJECT = process.env.NEXT_PUBLIC_CDP_PROJECT_ID ?? "";
+const APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
 
 /** Whether this build can sign anyone in at all. */
-export const hasAuth = PROJECT !== "";
-
-const config: Config = {
-  projectId: PROJECT,
-  appName: "skech",
-  /*
-    Off: the SDK reports sign-in events to Coinbase with a fetch it never
-    catches, so wherever that is blocked (an ad blocker, say) every token
-    refresh left an unhandled "Failed to fetch" on the page.
-  */
-  disableAnalytics: true,
-  /*
-    Whatever someone already has. The SDK's own union is "email" and "sms"
-    plus `oauth:` with google, apple, x, telegram or github; each one still
-    has to be turned on in the CDP Portal or its button never appears.
-  */
-  authMethods: ["email", "sms", "oauth:google", "oauth:apple"],
-  ethereum: { createOnLogin: "eoa" },
-};
+export const hasAuth = APP_ID !== "";
 
 export type Account = {
   /**
-   * Whether Coinbase has finished reading the saved session. Until it has, `signedIn` is false for everyone,
+   * Whether Privy has finished reading the saved session. Until it has, `signedIn` is false for everyone,
    * someone signed in included: that is not knowing yet, not signed out, and nothing may ask them to sign in.
    */
   ready: boolean;
@@ -64,12 +46,12 @@ export type Account = {
    *
    * Published through this context like everything
    * else, so a screen can ask for a signature without knowing whether
-   * Coinbase's provider is mounted.
+   * Privy's provider is mounted.
    */
   signMessage: (message: string) => Promise<string | null>;
   /**
    * Sign EIP-712 typed data with the wallet: a session, a deposit's permit,
-   * a withdrawal. The wallet signs in its enclave with no prompt, so the
+   * a withdrawal. The wallet signs in Privy's iframe with no prompt, so the
    * values must be plain JSON: bigints go in as decimal strings.
    */
   signTypedData: (typedData: TypedDataToSign) => Promise<`0x${string}` | null>;
@@ -83,152 +65,77 @@ export type TypedDataToSign = {
 };
 
 /** Bigints as decimal strings, all the way down: what the wallet's signer takes. */
-const plain = (v: unknown): unknown =>
+export const plain = (v: unknown): unknown =>
   typeof v === "bigint" ? v.toString() : Array.isArray(v) ? v.map(plain) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, plain(x)])) : v;
 
-/** The longest the app waits for Coinbase to read a saved session before treating someone as signed out. */
+/** The longest the app waits for Privy to read a saved session before treating someone as signed out. */
 const READY_WITHIN_MS = 8000;
 
 const SIGNED_OUT: Account = { ready: true, signedIn: false, address: null, handle: null, email: null, signOut: () => undefined, signMessage: async () => null, signTypedData: async () => null };
+export const NOT_YET: Account = { ...SIGNED_OUT, ready: false };
 const Ctx = createContext<Account>(SIGNED_OUT);
+const SignInCtx = createContext<() => void>(() => undefined);
 
-/** Reads Coinbase's hooks. Only ever mounted inside their provider. */
-function Publish({ children }: { children: ReactNode }) {
-  const { isInitialized } = useIsInitialized();
-  // If Coinbase cannot be reached at all (blocked, offline), it never says; after a while, stop waiting and let them sign in.
+export function AuthProvider({ children }: { children: ReactNode }) {
+  if (!hasAuth) return <Ctx.Provider value={SIGNED_OUT}>{children}</Ctx.Provider>;
+  return <WithPrivy>{children}</WithPrivy>;
+}
+
+function WithPrivy({ children }: { children: ReactNode }) {
+  const [Loaded, setLoaded] = useState<ComponentType<Bridge> | null>(null);
+  useEffect(() => {
+    let live = true;
+    // Blocked or offline: it never comes, and the wait below lets them in signed out.
+    import("./privy").then((m) => live && setLoaded(() => m.PrivyBridge)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  const [reported, setReported] = useState<Account>(NOT_YET);
+  // If Privy cannot be reached at all (blocked, offline), it never says; after a while, stop waiting and let them sign in.
   const [waited, setWaited] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setWaited(true), READY_WITHIN_MS);
     return () => clearTimeout(t);
   }, []);
-  const { isSignedIn } = useIsSignedIn();
+  const ready = reported.ready || waited;
+  const account = useMemo<Account>(() => ({ ...reported, ready }), [reported, ready]);
   // Who is playing, for analytics: the wallet once known. Signed in is counted only when it happens in this visit,
   // not each time a saved session is read back; signed out likewise.
-  const ready = Boolean(isInitialized) || waited;
-  const { evmAddress } = useEvmAddress();
   const was = useRef<"in" | "out" | null>(null);
   useEffect(() => {
     if (!ready) return;
-    if (isSignedIn && evmAddress) {
-      identify(evmAddress);
+    if (account.signedIn && account.address) {
+      identify(account.address);
       if (was.current === "out") track("signed_in");
       was.current = "in";
-    } else if (!isSignedIn) {
+    } else if (!account.signedIn) {
       if (was.current === "in") {
         track("signed_out");
         identify(null);
       }
       was.current = "out";
     }
-  }, [ready, isSignedIn, evmAddress]);
-  const { currentUser } = useCurrentUser();
-  const { signOut } = useSignOut();
-  const { signEvmMessage } = useSignEvmMessage();
-  const { signEvmTypedData } = useSignEvmTypedData();
-  const user = currentUser as { authenticationMethods?: { email?: { email?: string }; sms?: { phoneNumber?: string }; google?: { email?: string }; apple?: { email?: string } } } | null;
-  const account = useMemo<Account>(() => {
-    const ways = user?.authenticationMethods;
-    const email = ways?.email?.email ?? ways?.google?.email ?? ways?.apple?.email ?? null;
-    const handle = email ?? ways?.sms?.phoneNumber ?? (evmAddress ? shortAddress(evmAddress) : null);
-    return {
-      ready,
-      signedIn: Boolean(isSignedIn),
-      address: evmAddress ?? null,
-      handle,
-      email,
-      signOut: () => void signOut(),
-      signMessage: async (message: string) => {
-        if (!evmAddress) return null;
-        const { signature } = await signEvmMessage({ evmAccount: evmAddress, message });
-        return signature;
-      },
-      signTypedData: async (typedData) => {
-        if (!evmAddress) return null;
-        const types = {
-          EIP712Domain: [
-            { name: "name", type: "string" },
-            { name: "version", type: "string" },
-            { name: "chainId", type: "uint256" },
-            { name: "verifyingContract", type: "address" },
-          ],
-          ...typedData.types,
-        };
-        const { signature } = await signEvmTypedData({ evmAccount: evmAddress, typedData: { domain: typedData.domain, types, primaryType: typedData.primaryType, message: plain(typedData.message) as Record<string, unknown> } });
-        return signature as `0x${string}`;
-      },
-    };
-  }, [ready, isSignedIn, evmAddress, user, signOut, signEvmMessage, signEvmTypedData]);
-  return <Ctx.Provider value={account}>{children}</Ctx.Provider>;
-}
-
-/**
- * Coinbase's panel, in our colours.
- *
- * Every value is one of our own CSS variables rather than a hex, so the panel
- * follows the theme switch for free: the variables are redefined under `.dark`
- * and the panel is reading them live. Handing it two palettes to choose
- * between would mean keeping them in step by hand for ever.
- */
-const theme: Partial<Theme> = {
-  "colors-bg-default": "var(--popover)",
-  "colors-bg-alternate": "var(--muted)",
-  "colors-bg-overlay": "rgb(0 0 0 / 0.32)",
-  "colors-bg-skeleton": "var(--muted)",
-  "colors-bg-primary": "var(--primary)",
-  "colors-bg-secondary": "var(--secondary)",
-  "colors-fg-default": "var(--foreground)",
-  "colors-fg-muted": "var(--muted-foreground)",
-  "colors-fg-primary": "var(--brand)",
-  "colors-fg-onPrimary": "var(--primary-foreground)",
-  "colors-fg-onSecondary": "var(--secondary-foreground)",
-  "colors-fg-positive": "var(--up)",
-  "colors-fg-negative": "var(--down)",
-  "colors-line-default": "var(--border)",
-  "colors-line-heavy": "var(--input)",
-  "colors-line-primary": "var(--brand)",
-  "colors-page-bg-default": "var(--popover)",
-  "colors-page-border-default": "var(--border)",
-  "colors-page-text-default": "var(--foreground)",
-  "colors-page-text-muted": "var(--muted-foreground)",
-  /* The one filled button on this screen is the ballpoint blue the line is
-     drawn in, so Coinbase's Continue is that blue too. */
-  "colors-cta-primary-bg-default": "var(--brand)",
-  "colors-cta-primary-bg-hover": "color-mix(in srgb, var(--brand) 88%, black)",
-  "colors-cta-primary-bg-pressed": "color-mix(in srgb, var(--brand) 78%, black)",
-  "colors-cta-primary-text-default": "#ffffff",
-  "colors-cta-primary-text-hover": "#ffffff",
-  "colors-cta-secondary-bg-default": "var(--muted)",
-  "colors-cta-secondary-bg-hover": "var(--accent)",
-  "font-family-sans": "var(--font-sans), ui-sans-serif, system-ui, sans-serif",
-  /*
-    And our corners. The panel came with Coinbase's rounding, which is square
-    beside a screen where every panel is an 18px curve and every button is a
-    pill. Same trick as the colours: our variables, so one change moves both.
-  */
-  "borderRadius-xs": "var(--radius-sm)",
-  "borderRadius-sm": "var(--radius-md)",
-  "borderRadius-md": "var(--radius-lg)",
-  "borderRadius-lg": "var(--radius-xl)",
-  "borderRadius-xl": "var(--radius-2xl)",
-  "borderRadius-modal": "var(--radius-2xl)",
-  "borderRadius-input": "var(--radius-xl)",
-  "borderRadius-cta": "9999px",
-  "borderRadius-badge": "9999px",
-  "borderRadius-banner": "var(--radius-xl)",
-  "borderRadius-select-trigger": "var(--radius-xl)",
-  "borderRadius-select-list": "var(--radius-2xl)",
-};
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  if (!hasAuth) return <Ctx.Provider value={SIGNED_OUT}>{children}</Ctx.Provider>;
+  }, [ready, account.signedIn, account.address]);
+  // Each ask is a number the bridge answers once, when Privy is ready: a tap before its chunk lands still opens it.
+  const [asked, setAsked] = useState(0);
+  const signIn = useCallback(() => setAsked((n) => n + 1), []);
   return (
-    <CDPReactProvider config={config} theme={theme}>
-      <Publish>{children}</Publish>
-    </CDPReactProvider>
+    <Ctx.Provider value={account}>
+      <SignInCtx.Provider value={signIn}>
+        {children}
+        {Loaded ? <Loaded appId={APP_ID} asked={asked} onAccount={setReported} /> : null}
+      </SignInCtx.Provider>
+    </Ctx.Provider>
   );
 }
 
 /** Who is signed in. Answers signed out rather than throwing where there is no auth. */
 export function useAccount(): Account {
   return useContext(Ctx);
+}
+
+/** Opens Privy's sign-in. Does nothing where there is no auth. */
+export function useSignIn(): () => void {
+  return useContext(SignInCtx);
 }
