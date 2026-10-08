@@ -242,7 +242,8 @@ export function InkScreen() {
     let live = true;
     const w = new Worker(new URL("./field.worker.ts", import.meta.url), { type: "module" });
     worker.current = w;
-    void fetch("/dots-lib.bin")
+    // By its content's hash (next.config.ts), so the browser keeps it.
+    void fetch(process.env.NEXT_PUBLIC_DOTS_LIB ?? "/dots-lib.bin")
       .then((r) => r.arrayBuffer())
       .then((b) => {
         if (!live) return;
@@ -369,7 +370,8 @@ export function InkScreen() {
     fresh, and the field, priced for a drawing placed now. The dot size
     follows the market, but only while nothing of yours is on it.
   */
-  const connected = feed.connected && lib !== null;
+  // Prices alone make the chart fresh: the paths only price the map, and its tiles come in when they do.
+  const connected = feed.connected;
   useEffect(() => {
     /* One map asked for at a time; a new one once a second, or at once when the pen or the step changes. */
     let asked = "";
@@ -395,7 +397,7 @@ export function InkScreen() {
       const last = g.ticks.at(-1)?.t ?? latest?.t ?? 0;
       const ok = connected && !!latest && nowMs - last < 5000 && g.bars.length > 60;
       setFresh(ok);
-      if (!ok || !lib) {
+      if (!ok) {
         g.field = null;
         return;
       }
@@ -421,6 +423,11 @@ export function InkScreen() {
         g.step = drawingLayout(g.viewport.width, g.viewport.height, g.marketStep).step;
         // Ink is priced and judged on a grid of the market step, the same on every screen and on chain.
         g.priceStep = gridStep(g.marketStep);
+      }
+      // The chart is scaled from the prices alone; the map waits for the paths.
+      if (!lib) {
+        g.field = null;
+        return;
       }
       // Use the same fine price slices for every pen.
       const size = g.priceStep * g.cell;
@@ -1128,11 +1135,10 @@ export function InkScreen() {
       </div>
 
       <div className="absolute inset-0" onPointerDownCapture={onGate} style={homeBar ? { bottom: homeBarRoom(window.innerWidth) } : undefined}>
-          {lib ? (
-            <HapticHost className="absolute inset-0">
-              <Stage onViewport={onViewport} className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} />
-            </HapticHost>
-          ) : null}
+          {/* From the start, not once the paths are in: the price draws as soon as it comes, the tiles once there is a map. */}
+          <HapticHost className="absolute inset-0">
+            <Stage onViewport={onViewport} className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} />
+          </HapticHost>
           {owner === false ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/80 backdrop-blur-sm" role="status">
               <p className="text-sm text-muted-foreground">The game is open in another tab.</p>
