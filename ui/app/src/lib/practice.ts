@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { START_BALANCE } from "@skech/core/dots";
 import { POINT_PRICES } from "@skech/core/odds";
 import type { InkBet } from "@skech/core/ink";
@@ -151,6 +151,25 @@ function subscribe(fn: () => void) {
 
 export function usePractice(): Practice {
   return useSyncExternalStore(subscribe, practice, () => DEFAULTS);
+}
+
+/**
+ * Only the named fields: what reads them renders again when one of them changes, not on every write. The
+ * drawings in play are written as each trade judges them and the balance as each piece goes in, many times a
+ * second while drawing, and a whole screen reading the store re-rendered for each.
+ */
+export function usePracticeOf<K extends keyof Practice>(...keys: K[]): Pick<Practice, K> {
+  const [pick] = useState(() => {
+    let last: Pick<Practice, K> | null = null;
+    return (s: Practice) => {
+      const prev = last;
+      if (prev && keys.every((k) => prev[k] === s[k])) return prev;
+      const next = {} as Pick<Practice, K>;
+      for (const k of keys) next[k] = s[k];
+      return (last = next);
+    };
+  });
+  return useSyncExternalStore(subscribe, () => pick(practice()), () => pick(DEFAULTS));
 }
 
 export { cents } from "./money";

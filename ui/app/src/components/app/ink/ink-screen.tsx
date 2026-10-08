@@ -21,7 +21,7 @@ import { setDark, useDark } from "@/components/app/theme-toggle";
 
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { type Market, useEngine } from "@/lib/engine";
-import { cents, practice, record, setPractice, usePractice } from "@/lib/practice";
+import { cents, practice, record, setPractice, usePracticeOf } from "@/lib/practice";
 import { feel, sound } from "@/lib/feel";
 import { money, signed } from "@/lib/money";
 import { scoreboard, useScoreboard } from "@/lib/scoreboard";
@@ -156,6 +156,12 @@ function LivePrice({ feed }: { feed: Market }) {
   return price ? <Price value={price} /> : <Skeleton className="my-[3px] h-6 w-32 rounded-md" />;
 }
 
+/** The practice balance, which moves with every piece of ink placed: read here, so only the figure renders again. */
+function PracticeBalance({ crisp = false }: { crisp?: boolean }) {
+  const { balance } = usePracticeOf("balance");
+  return crisp ? <CrispNumber value={money(balance)} /> : <>{money(balance)}</>;
+}
+
 /** A value that changes faster than the screen should re-render, for the one part that shows it. */
 type Signal<T> = { get: () => T; set: (next: T) => void; subscribe: (fn: () => void) => () => void };
 function signal<T>(initial: T): Signal<T> {
@@ -211,7 +217,8 @@ export function InkScreen() {
   useEffect(() => {
     feedRef.current = feed;
   });
-  const state = usePractice();
+  // Not the balance (PracticeBalance) nor the drawings in play (only kept, never shown): those change many times a second.
+  const state = usePracticeOf("perDot", "brush", "taught", "houseDifficulty", "sound", "haptics");
   /*
     Real money: the game on chain, through the relayer. Read through a ref
     inside the effects and the pen, which run for the life of the page.
@@ -329,10 +336,12 @@ export function InkScreen() {
 
   const onViewport = useCallback((size: { width: number; height: number }) => { game.current.viewport = size; }, []);
   const settledTotals = useRef({ committed: 0, returned: 0 });
-  const [totals, setTotals] = useState(() => liveInkTotals([]));
+  // Only what the "Won" figure shows: what is staked moves with every piece placed, and the screen need not render for it.
+  const [totals, setTotals] = useState({ batch: false, returned: 0 });
   const updateTotals = useCallback(() => {
     const next = liveInkTotals(game.current.bets, settledTotals.current);
-    setTotals(previous => previous.committed === next.committed && previous.returned === next.returned && previous.settledCost === next.settledCost && previous.drawings === next.drawings ? previous : next);
+    const batch = next.drawings > 0 || next.committed > 0;
+    setTotals(previous => previous.batch === batch && previous.returned === next.returned ? previous : { batch, returned: next.returned });
   }, []);
 
   // For tests and debugging in development: the live game, and the engine and paths it prices on, from the console.
@@ -999,7 +1008,6 @@ export function InkScreen() {
     painted.current = n;
   }, [preview]);
 
-  const shownBalance = forReal ? chain.balance : state.balance;
   const onboarding = useOnboarding(live);
   /*
     The game plays on for everyone; a tap from someone who cannot play yet opens the way to: Privy's sign-in
@@ -1069,7 +1077,7 @@ export function InkScreen() {
   const overBig = over ? overWon && (over.won >= over.cost * 3 || (over.best ?? 0) >= 10) : false;
   // What has been won, never what has been lost: this round's payouts while ink is in play, the session's
   // between rounds. The balance beside it is always the exact truth. A tap opens the scoreboard.
-  const showingBatch = totals.drawings > 0 || totals.committed > 0;
+  const showingBatch = totals.batch;
   const displayedWon = forReal && !real ? 0 : showingBatch ? totals.returned : board.won;
 
   return (
@@ -1095,15 +1103,15 @@ export function InkScreen() {
         <div className={feedback.accounts}>
           {/* The one balance on screen. Playing for real it opens the wallet: deposit, withdraw. */}
           {real ? (
-            <WalletButton render={<button aria-label={`Balance ${money(shownBalance)}. Deposit or withdraw`} className={cn(feedback.balance, feedback.tappable)} type="button" />}>
+            <WalletButton render={<button aria-label={`Balance ${money(chain.balance)}. Deposit or withdraw`} className={cn(feedback.balance, feedback.tappable)} type="button" />}>
               <span className={feedback.eyebrow}>Balance</span>
-              <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}><CrispNumber value={money(shownBalance)} /></span>
+              <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}><CrispNumber value={money(chain.balance)} /></span>
               <Ledger />
             </WalletButton>
           ) : (
             <div className={feedback.balance} aria-label={forReal ? "Balance" : "Practice balance"}>
               <span className={feedback.eyebrow}>Balance</span>
-              <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}><CrispNumber value={money(shownBalance)} /></span>
+              <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}>{forReal ? <CrispNumber value={money(chain.balance)} /> : <PracticeBalance crisp />}</span>
               <Ledger />
             </div>
           )}
@@ -1191,7 +1199,7 @@ export function InkScreen() {
             {forReal ? (
               <div className="flex min-h-[60px] items-center justify-between gap-3 rounded-[14px] bg-muted px-4 py-2"><div className="flex flex-col"><span className="text-[13px] text-muted-foreground">Balance</span><span className="figures font-semibold text-[17px]">{money(chain.balance)}</span></div>{real ? <span className="text-right text-xs text-muted-foreground">Add or withdraw from your balance, top right</span> : <SignInButton />}</div>
             ) : (
-              <div className="flex min-h-[60px] items-center justify-between gap-3 rounded-[14px] bg-muted px-4 py-2"><div className="flex flex-col"><span className="text-[13px] text-muted-foreground">Practice balance</span><span className="figures font-semibold text-[17px]">{money(state.balance)}</span></div><DepositButton className="bg-raised" onDeposit={amount => setPractice(st => ({ balance: cents(st.balance + amount) }))} /></div>
+              <div className="flex min-h-[60px] items-center justify-between gap-3 rounded-[14px] bg-muted px-4 py-2"><div className="flex flex-col"><span className="text-[13px] text-muted-foreground">Practice balance</span><span className="figures font-semibold text-[17px]"><PracticeBalance /></span></div><DepositButton className="bg-raised" onDeposit={amount => setPractice(st => ({ balance: cents(st.balance + amount) }))} /></div>
             )}
             <div className="divide-y divide-border overflow-hidden rounded-[14px] bg-muted">
               <button className={navRow} onClick={() => { setSettingsOpen(false); setBoardOpen(true); }} type="button">This session<span className={cn("figures ml-auto", board.won > 0 ? "text-success-foreground" : "text-muted-foreground")}>{board.won > 0 ? `+${money(board.won)} won` : ""}</span><ChevronRightIcon className="size-4 text-faint" /></button>
