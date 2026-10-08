@@ -1,5 +1,5 @@
 import { Image } from "expo-image";
-import { XIcon } from "lucide-react-native";
+import { XIcon } from "@/components/ui/icons";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Modal, Pressable, type PressableProps, ScrollView, Switch as RNSwitch, Text, useWindowDimensions, View, type ViewStyle } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";

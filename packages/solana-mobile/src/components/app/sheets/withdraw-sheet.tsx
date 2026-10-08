@@ -1,7 +1,7 @@
 import { isAddress } from "@solana/kit";
 import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
-import { ArrowLeftIcon, ArrowUpRightIcon, CheckIcon, ClipboardPasteIcon, ScanLineIcon, SendIcon, XIcon } from "lucide-react-native";
+import { ArrowLeftIcon, ArrowUpRightIcon, CheckIcon, ClipboardPasteIcon, ScanLineIcon, SendIcon, XIcon } from "@/components/ui/icons";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Alert, Animated, Linking, Pressable, Text, TextInput, View } from "react-native";
 import { useAccount } from "@/components/app/auth";

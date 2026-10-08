@@ -1,4 +1,4 @@
-import { LockIcon, MailIcon, PhoneIcon, WalletIcon, XIcon } from "lucide-react-native";
+import { LockIcon, MailIcon, PhoneIcon, WalletIcon, XIcon } from "@/components/ui/icons";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Modal, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";

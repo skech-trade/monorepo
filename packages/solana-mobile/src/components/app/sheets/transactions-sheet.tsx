@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon } from "lucide-react-native";
+import { ArrowUpRightIcon } from "@/components/ui/icons";
 import { useEffect, useRef, useState } from "react";
 import { Animated, Linking, Pressable, Text, View } from "react-native";
 import { useChain } from "@/components/app/ink/chain-context";

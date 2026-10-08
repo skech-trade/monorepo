@@ -1,4 +1,4 @@
-import { CheckIcon, ChevronDownIcon } from "lucide-react-native";
+import { CheckIcon, ChevronDownIcon } from "@/components/ui/icons";
 import { useRef, useState } from "react";
 import { Pressable, Text, useWindowDimensions, View } from "react-native";
 import { POINT_PRICES } from "@skech/core/odds";
