@@ -63,6 +63,8 @@ export class SolanaSettler {
   private sweepingIn = new Set<Address>();
   private lastSweep = 0;
   private told = new Map<Address, number>();
+  /** What the state file was last written with. */
+  private saved: string | null = null;
   /** Bets whose every band is decided but that the program keeps until their piece's placing window is over. */
   private closing = new Map<Address, { player: Address; due: number; tries: number }>();
   stats = { bars: 0, settled: 0, redeemed: 0n, swept: 0n, collected: 0n };
@@ -407,8 +409,12 @@ export class SolanaSettler {
     const s: State = { bets: [], holders: [...this.holders], approved: [...this.approved], posted: {}, closing: [...this.closing].map(([bet, c]) => ({ bet, player: c.player })) };
     for (const [bet, b] of this.bets) s.bets.push({ bet, player: b.player, unit: b.unit.toString(), bands: b.bands.map((x) => ({ second: x.second, lo: x.lo.toString(), hi: x.hi.toString(), stake: x.stake.toString(), rung: x.rung })) });
     for (const [second, close] of [...this.closes].slice(-600)) s.posted[second] = close.toString();
+    // Written only when it changed: an idle relayer does not fsync the same file every five seconds.
+    const text = JSON.stringify(s);
+    if (text === this.saved) return;
     try {
-      writeAtomic(this.statePath, JSON.stringify(s));
+      writeAtomic(this.statePath, text);
+      this.saved = text;
     } catch (e) {
       this.log(`settle: could not write ${this.statePath}: ${String(e)}`);
       report("state-write", e);
