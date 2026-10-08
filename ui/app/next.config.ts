@@ -98,6 +98,12 @@ const region = (process.env.NEXT_PUBLIC_POSTHOG_REGION ?? env.NEXT_PUBLIC_POSTHO
 const nextConfig: NextConfig = {
   devIndicators: false,
   env,
+  /*
+    Sentry without its debug logging: what withSentryConfig's bundleSizeOptimizations.excludeDebugStatements would
+    do, but that only reaches a webpack build, and this one is Turbopack. Not __SENTRY_TRACING__: a define reaches
+    the server's bundle too, and would end its traces; the browser's are left out in src/instrumentation-client.ts.
+  */
+  compiler: { define: { __SENTRY_DEBUG__: false } },
   async rewrites() {
     return [
       { source: "/ingest/static/:path*", destination: `https://${region}-assets.i.posthog.com/static/:path*` },
@@ -146,6 +152,4 @@ export default withSentryConfig(nextConfig, {
   tunnelRoute: "/monitoring",
   // Marks our bundle, for the filter that drops errors thrown only by extensions (src/instrumentation-client.ts).
   applicationKey: "skech-app",
-  // Component names on clicks and in replays: "tapped DepositModal > Button", not "tapped button".
-  reactComponentAnnotation: { enabled: true },
 });
