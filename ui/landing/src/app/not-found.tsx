@@ -1,6 +1,21 @@
+import localFont from "next/font/local";
 import Link from "next/link";
 import { Body, Kicker } from "@/components/site/type";
 import { Button } from "@/components/ui/button";
+
+/*
+ * The pixel face, here and nowhere else, and not preloaded: the root 404 is
+ * part of every page's tree, so a preload would put it back on all of them.
+ * It is fetched when the number is drawn. Square, the one cut the page uses.
+ */
+const pixel = localFont({
+  src: "./_fonts/GeistPixel-Square.woff2",
+  variable: "--font-pixel",
+  weight: "500",
+  preload: false,
+  fallback: ["Geist Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+  adjustFontFallback: false,
+});
 
 /**
  * 404, full bleed.
@@ -11,7 +26,7 @@ import { Button } from "@/components/ui/button";
  */
 export default function NotFound() {
   return (
-    <main className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-5 py-20 text-center">
+    <main className={`${pixel.variable} relative flex flex-1 flex-col items-center justify-center overflow-hidden px-5 py-20 text-center`}>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 bg-grid"

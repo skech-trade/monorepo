@@ -19,7 +19,7 @@ export const SENTRY_ON = SENTRY_DSN !== "" && (process.env.NODE_ENV === "product
 /** production, preview or development: Vercel's name for the deploy, so a preview's errors are not production's. */
 export const SENTRY_ENVIRONMENT = process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.NODE_ENV;
 
-/** A fifth of page loads and navigations traced in production; every one while working on it. */
+/** A fifth of server requests traced in production; every one while working on it. The browser does not trace. */
 export const SENTRY_TRACES = process.env.NODE_ENV === "production" ? 0.2 : 1;
 
 /** Marks our own bundle at build (next.config.ts), so an error thrown only by an extension or injected script is dropped. */

@@ -78,6 +78,13 @@
 .questions { align-self: center; width: 100%; }
 .question { border-bottom: 1px solid var(--edge); padding-inline: 0.5rem; }
 .question:last-child { border-bottom: 0; }
+/* An answer slides open, as the accordion's did, where the browser can animate to its height; elsewhere it just opens. */
+.question { interpolate-size: allow-keywords; }
+.question::details-content { block-size: 0; overflow: hidden; transition: block-size 200ms ease-in-out, content-visibility 200ms ease-in-out allow-discrete; }
+.question[open]::details-content { block-size: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .question::details-content { transition: none; }
+}
 
 .cta { width: min(80rem, calc(100% - 3rem)); margin: 1.5rem auto 0; scroll-margin-top: 2rem; }
 .ctaCard { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 2rem; padding: 3rem; border-radius: 2.5rem; background: var(--surface); }

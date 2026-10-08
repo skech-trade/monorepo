@@ -13,11 +13,15 @@ import { THEME_BOOT } from "@/lib/theme-boot";
   in inline scripts whose text changes every render, and it puts this nonce on them, and on its own script tags,
   when it finds it in the request's policy. The one inline script of our own, the theme's, is allowed by its hash.
 
-  Coinbase's sign-in, read from its SDK: its API (api.cdp.coinbase.com), the iframe that holds the wallet's key
-  (secure-wallet.cdp.coinbase.com), and the fonts its stylesheet imports from Google. Google and Apple sign-in
-  are a redirect, which no directive here covers. Its analytics host (cca-lite.coinbase.com) is left out: the
-  app turns them off (src/components/app/auth.tsx).
+  Privy's sign-in, as its CSP guide lists it (docs.privy.io, Content Security Policy): its API and the iframe
+  that holds the wallet's key (auth.privy.io), its RPCs (*.rpc.privy.systems), Cloudflare's Turnstile for its
+  bot check (challenges.cloudflare.com), and WalletConnect, which the SDK loads whether or not anyone connects
+  an outside wallet. Google and Apple sign-in are a redirect, which no directive here covers.
 */
+
+const PRIVY_FRAMES = ["https://auth.privy.io", "https://verify.walletconnect.com", "https://verify.walletconnect.org"];
+const PRIVY_CONNECT = ["https://auth.privy.io", "https://*.rpc.privy.systems", "wss://relay.walletconnect.com", "wss://relay.walletconnect.org", "wss://www.walletlink.org", "https://explorer-api.walletconnect.com"];
+const TURNSTILE = "https://challenges.cloudflare.com";
 
 const THEME_HASH = `'sha256-${createHash("sha256").update(THEME_BOOT).digest("base64")}'`;
 const origin = (url: string) => {
@@ -39,18 +43,19 @@ const REPORT_URI = (() => {
 
 function policy(nonce: string) {
   const dev = process.env.NODE_ENV === "development";
-  const connect = ["'self'", ...new Set([ENGINE_URL, RELAYER_URL, RPC_URL].map(origin).filter(Boolean)), "https://api.cdp.coinbase.com"];
+  const connect = ["'self'", ...new Set([ENGINE_URL, RELAYER_URL, RPC_URL].map(origin).filter(Boolean)), ...PRIVY_CONNECT];
   return [
     "default-src 'self'",
     // React rebuilds server error stacks with eval in development only.
-    `script-src 'self' 'nonce-${nonce}' ${THEME_HASH}${dev ? " 'unsafe-eval'" : ""}`,
-    // Inline styles are React's style props and the sign-in panel's theme, not injected markup.
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
+    `script-src 'self' 'nonce-${nonce}' ${THEME_HASH} ${TURNSTILE}${dev ? " 'unsafe-eval'" : ""}`,
+    // Inline styles are React's style props and the sign-in panel's, which it injects as it renders.
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
     "img-src 'self' data: blob:",
     // /ingest (PostHog), /monitoring (Sentry) and /api are this origin.
     `connect-src ${connect.join(" ")}`,
-    "frame-src https://secure-wallet.cdp.coinbase.com",
+    `child-src ${PRIVY_FRAMES.join(" ")}`,
+    `frame-src ${[...PRIVY_FRAMES, TURNSTILE].join(" ")}`,
     // The map's worker is ours; Sentry's replay compresses in a worker made from a blob.
     "worker-src 'self' blob:",
     "manifest-src 'self'",

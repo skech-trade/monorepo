@@ -1,9 +1,5 @@
-import {
-  Accordion,
-  AccordionItem,
-  AccordionPanel,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { ChevronDownIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Reveal } from "./motion";
 import { SectionScene } from "./illo";
 import styles from "./story.module.css";
@@ -43,7 +39,12 @@ const FAQS = [
   },
 ] as const;
 
-/** The first answer is open so the questions read as part of the page. */
+/**
+ * The first answer is open so the questions read as part of the page.
+ *
+ * Plain <details>, one open at a time through their shared `name`: the browser
+ * does what Base UI's accordion did, with no script to load or hydrate.
+ */
 export function Faq() {
   return (
     <section aria-labelledby="faq-title" className={styles.faq} id="faq">
@@ -54,18 +55,22 @@ export function Faq() {
         <SectionScene className={styles.faqArt} name="faq" />
       </Reveal>
 
-      <Accordion className={styles.questions} defaultValue={[FAQS[0].q]}>
-        {FAQS.map((item) => (
-            <AccordionItem className={styles.question} key={item.q} value={item.q}>
-              <AccordionTrigger className="py-5 text-left text-body text-foreground data-panel-open:text-foreground">
+      <div className={styles.questions}>
+        {FAQS.map((item, i) => (
+            <details className={cn("group border-b last:border-b-0", styles.question)} key={item.q} name="faq" open={i === 0}>
+              <summary className="flex flex-1 cursor-pointer list-none items-start justify-between gap-4 rounded-md py-5 text-left font-medium text-body text-foreground outline-none transition-all focus-visible:ring-[3px] focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                 {item.q}
-              </AccordionTrigger>
-              <AccordionPanel className="measure pt-0 pb-6 text-fg-muted text-sm leading-[1.75]">
+                <ChevronDownIcon
+                  aria-hidden="true"
+                  className="pointer-events-none size-4 shrink-0 translate-y-0.5 opacity-80 transition-transform duration-200 ease-in-out group-open:rotate-180"
+                />
+              </summary>
+              <div className="measure pt-0 pb-6 text-fg-muted text-sm leading-[1.75]">
                 {item.a}
-              </AccordionPanel>
-            </AccordionItem>
+              </div>
+            </details>
         ))}
-      </Accordion>
+      </div>
     </section>
   );
 }

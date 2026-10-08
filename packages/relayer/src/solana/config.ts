@@ -56,8 +56,11 @@ export const scfg = {
   lateMs: 200,
   /** How far ahead of now a piece's opening second may be. */
   aheadMs: 1500,
-  /** Sweep IOUs, deposits and fees this often. */
-  sweepEveryMs: 15_000,
+  /**
+   * Sweep IOUs, deposits and fees this often, in full. A wallet is swept at once when its app says USDC landed in it,
+   * or when it approves the game; IOUs and fees can wait a few minutes.
+   */
+  sweepEveryMs: 300_000,
   collectAboveE6: 1_000_000n,
   /** The least a deposit or withdrawal the relayer pays for may move, USDC e6 (a withdrawal of the whole balance always goes): the app's least deposit. */
   minMoveE6: 1_000_000n,
@@ -66,6 +69,8 @@ export const scfg = {
   /** Priority fee, micro-lamports per compute unit: a fixed one, or what recent blocks paid to write the pool, capped. */
   priorityFixed: env("SOLANA_PRIORITY_MICROLAMPORTS") ? Number(env("SOLANA_PRIORITY_MICROLAMPORTS")) : null,
   priorityMax: Number(env("SOLANA_PRIORITY_MAX_MICROLAMPORTS") ?? (net.cluster === "mainnet-beta" ? 2_000_000 : 50_000)),
+  /** Requests a second the relayer asks of its RPC, all told (budget.ts): under the plan's limit, which bills per request on mainnet. */
+  rpcPerSec: Math.max(1, Number(env("SOLANA_RPC_RPS") ?? 15) || 15),
   /** Bets settled in one transaction: two accounts each, 32 bytes a key, in 1232 bytes. */
   betsPerSettle: 12,
 };

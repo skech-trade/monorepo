@@ -62,12 +62,12 @@ export type Event =
   Who someone is (their email, or the phone number they signed in with) is never in a replay, Sentry's or
   PostHog's. Typing is masked in both already; these mark what is shown. PRIVATE_TEXT goes on an element whose
   text names them: Sentry masks the text, PostHog leaves the element out. PRIVATE_LINK goes on a link whose
-  address does, since masking covers text and not an href: both leave it out. Coinbase's sign-in panel says
-  where a code went, and has no mark but its stylesheet's class names, so it is masked by those.
+  address does, since masking covers text and not an href: both leave it out. Privy's sign-in panel says
+  where a code went, and has no mark of ours, so it is masked by its own id.
 */
 export const PRIVATE_TEXT = "sentry-mask ph-no-capture";
 export const PRIVATE_LINK = "sentry-block ph-no-capture";
-export const SIGN_IN_PANEL = '[class*="Modal-module__modal"]';
+export const SIGN_IN_PANEL = "#privy-modal-content";
 
 const KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY ?? "";
 const REGION = process.env.NEXT_PUBLIC_POSTHOG_REGION === "eu" ? "eu" : "us";

@@ -385,14 +385,35 @@
   }
 }
 
-/* Coinbase's panel, wearing our backdrop.
-   Its overlay is a flat colour with no blur, which reads as a different app
-   sitting on top of this one. Ours is a 32% black and a small blur, and the
-   theme cannot express the blur, so it is set here. The panel itself is
-   themed through tokens in `auth.tsx`. */
-[data-cdp-provider] [class*="overlay"],
-[data-cdp-provider] [class*="Overlay"],
-[data-cdp-provider] [data-slot="overlay"] {
+/* Privy's panel, in our colours and corners.
+   Privy sets these on :root from its own light or dark palette; on body they
+   win for everything inside it, and being our variables they follow the
+   theme switch live. The shades not set here come from the theme picked in
+   `privy.tsx`. The one filled button is the ballpoint blue the line is drawn
+   in, so Privy's Submit is that blue too. */
+body {
+  --privy-color-background: var(--popover);
+  --privy-color-background-2: var(--muted);
+  --privy-color-foreground: var(--foreground);
+  --privy-color-foreground-2: var(--muted-foreground);
+  --privy-color-foreground-3: var(--muted-foreground);
+  --privy-color-foreground-accent: #ffffff;
+  --privy-color-accent: var(--brand);
+  --privy-color-accent-dark: color-mix(in srgb, var(--brand) 88%, black);
+  --privy-color-accent-darkest: color-mix(in srgb, var(--brand) 78%, black);
+  --privy-color-border-default: var(--border);
+  --privy-color-success: var(--up);
+  --privy-color-error: var(--down);
+  --privy-border-radius-sm: var(--radius-md);
+  --privy-border-radius-md: var(--radius-xl);
+  --privy-border-radius-lg: var(--radius-2xl);
+  --privy-border-radius-full: 9999px;
+}
+
+/* And our backdrop: a 32% black and a small blur, not a flat colour that
+   reads as a different app sitting on top of this one. */
+#privy-dialog-backdrop {
+  background: rgb(0 0 0 / 0.32);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }

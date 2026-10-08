@@ -88,7 +88,7 @@ monorepo so the two apps use different ports.
 | Doc | What it covers |
 | --- | --- |
 | [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) | the game end to end: the price feed, what a drawing costs and pays, the replay that checks it, and the game on chain |
-| [docs/CDP-SETUP.md](docs/CDP-SETUP.md) | Coinbase embedded wallets, and the portal page with three names |
+| [docs/PRIVY-SETUP.md](docs/PRIVY-SETUP.md) | sign-in and the embedded wallet: what to turn on in Privy's dashboard |
 | [infra/README.md](infra/README.md) | the EC2 box the engine and relayer run on: access, deploy, logs |
 | [docs/SETUP.md](docs/SETUP.md) | what is set up by hand: keys, consoles, the box, upgrading the contracts, Solana devnet, the phone app |
 | [docs/DEPLOYING.md](docs/DEPLOYING.md) | shipping a change, changing a key, a new deployment of the contracts, going back |

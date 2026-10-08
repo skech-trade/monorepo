@@ -1,19 +1,24 @@
 // Runs before the app is interactive: analytics and error capture start here, so a crash on load is still seen.
 import * as Sentry from "@sentry/nextjs";
 import { SIGN_IN_PANEL, standalone, startAnalytics, whenIdle } from "@/lib/analytics";
-import { SENTRY_APP_KEY, SENTRY_DATA, SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_ON, SENTRY_TRACES } from "@/lib/sentry";
+import { SENTRY_APP_KEY, SENTRY_DATA, SENTRY_DSN, SENTRY_ENVIRONMENT, SENTRY_ON } from "@/lib/sentry";
 
 try {
+  /*
+    Errors only in the browser, no traces: no sample rate, and none of the tracing integration's observers and
+    patched fetches running in a game that draws every frame. PostHog has how the app is used; the server still
+    traces (sentry.server.config.ts).
+  */
   Sentry.init({
     dsn: SENTRY_DSN,
     enabled: SENTRY_ON,
     environment: SENTRY_ENVIRONMENT,
-    tracesSampleRate: SENTRY_TRACES,
     // No replay of a visit that went fine; the last minute before every error.
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 1,
     dataCollection: SENTRY_DATA,
-    integrations: [
+    integrations: (defaults) => [
+      ...defaults.filter((i) => i.name !== "BrowserTracing"),
       // An error whose every frame is outside our bundle is an extension's or an injected script's, not ours.
       Sentry.thirdPartyErrorFilterIntegration({ filterKeys: [SENTRY_APP_KEY], behaviour: "drop-error-if-exclusively-contains-third-party-frames" }),
     ],
@@ -54,6 +59,3 @@ try {
 } catch {
   // Analytics must never be the reason the game does not open.
 }
-
-// Each navigation as a trace, named for its route.
-export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

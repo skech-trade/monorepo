@@ -24,7 +24,9 @@ app ──ws /ws──> relayer ──eth_sendRawTransactionSync──> SkechGam
   proposed block. Nothing is asked of the node between deciding to send and sending: the gas limit comes
   from `src/gas.ts` and the base fee is followed in the background. Nonces are taken and transactions signed
   one at a time; a send that times out is waited on by its hash, its bytes sent again, never sent again under
-  a new nonce (both could land). A nonce that went unused is filled once every other is accounted for.
+  a new nonce (both could land). A nonce that went unused is filled once every other is accounted for. Reads made
+  together (an account's balance, session, IOUs and nonce) are one `eth_call` through Multicall3, and the activity
+  count follows the block the base fee was read with rather than asking for its own.
 - `src/rpc.ts`: Monad's public RPC allows 15 requests a second and turns the rest away with error -32011,
   which viem does not retry. This waits it out (five tries, under 2.5 s), so a throttled send goes again
   with the same bytes instead of failing and losing its nonce. Set `MONAD_TESTNET_RPC_URL` (or `MONAD_MAINNET_RPC_URL`) to a private RPC for
@@ -70,10 +72,12 @@ estimates, the worst estimate-to-limit ratio seen, and any slack added. Keep the
 `src/solana/` is the same job for the Solana program, as its own process (`bun run dev:relayer:solana`, port 3104), sharing the engine client, the pricer and the price check:
 
 - **One piece, one transaction.** Pieces are checked as they arrive (the session's Ed25519 signature over `pieceBytes`, the engine's price, the balance), then at 350 ms into their second each is priced and sent on its own. The Ed25519 precompile instruction points at the piece inside `place`; the relayer signs as fee payer and oracle.
-- **Sending.** A blockhash and a priority fee kept fresh in the background: the fee is 75% of what recent blocks paid to write the pool, capped. v0 transactions go through the deployment's lookup table. Compute limits come from `packages/contracts/solana/snapshots/compute.json`. Each transaction is rebroadcast every 800 ms until it is confirmed or its blockhash expires.
-- **Settling.** A second's bar goes in with the first dozen bets that have ink in it, and the rest settle on it in parallel transactions. Bets are closed as they are decided and the rent comes back. Every fifteen seconds, when nothing is due: IOUs, the house's IOUs, USDC swept in from wallets that approved it, and fees to the treasury.
+- **Sending.** A blockhash and a priority fee kept fresh in the background, every 12 s and every 45 s (never, with `SOLANA_PRIORITY_MICROLAMPORTS`): the fee is 75% of what recent blocks paid to write the pool, capped. The block height is reckoned from the blockhash, not asked for. v0 transactions go through the deployment's lookup table. Compute limits come from `packages/contracts/solana/snapshots/compute.json`. Each transaction is rebroadcast every 2 s until it is confirmed or its blockhash expires, and every one in flight is looked for in one `getSignatureStatuses` (up to 256 at once, every 400 ms while any is new, then every second): `src/solana/confirm.ts`.
+- **Asking the RPC.** Every request waits on one budget, `SOLANA_RPC_RPS` a second (15 by default): sends first, then looking for transactions in flight, the blockhash and fee, players' reads, and the sweep last. A 429 stops them all for its `Retry-After`, or a doubling wait with jitter, and is logged at most every 30 s with a count; identical reads at once are one request (`src/solana/budget.ts`).
+- **Settling.** A second's bar goes in with the first dozen bets that have ink in it, and the rest settle on it in parallel transactions. Bets are closed as they are decided and the rent comes back. Every five minutes, when nothing is due: IOUs, the house's IOUs, USDC swept in from wallets that approved it, and fees to the treasury, read in a few requests (the pool once, holders and wallets a hundred to a `getMultipleAccounts`). A wallet is swept at once when it approves the game, or when its app says USDC landed (`sweep`).
 - **Wallet-signed transactions.** Sessions, deposits and withdrawals are `build` → wallet signs → `submit`; the relayer co-signs only a message it built. Players never hold SOL.
-- **Transactions per player** are their `Player` account's signatures, counted incrementally.
+- **Reading players.** A player's game account, the pool and their wallet's USDC are one `getMultipleAccounts`, made at most once a second for each player however many ask (the app, a settlement, a piece arriving; `src/solana/accounts.ts`). A piece's price signature is checked before anything is read for it, and an address with no game account is remembered as such for 30 s.
+- **Transactions per player** are their `Player` account's signatures, counted incrementally; for an address nobody is watching, one page of them every 30 s at most.
 
 `scripts/e2e-solana.ts` plays it end to end on a local validator against the live engine.
 
@@ -95,7 +99,11 @@ the game, the oracle, the difficulty and the terms. Then:
 { "type": "refused", "betId", "why" }
 { "type": "settled", "betId", "hitMask", "missMask", "paid", "owed", "tx" }
 { "type": "account", "player", "balance", "session": {…}, "owed" }
+{ "type": "beat" }                                          // every 15 s, so a phone's socket is never quiet; ignore it
 ```
+
+A socket that sends nothing for 30 s, not even a pong to the server's pings, is closed (both relayers). Apps pass
+over a message type they do not know.
 
 Every message is checked before it is read (`src/wire.ts`) and, if it is wrong, answered with why in the reply
 its sender waits for. What the relayer pays for is held to players with money in: a session only with a balance

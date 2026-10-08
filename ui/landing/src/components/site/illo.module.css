@@ -9,6 +9,11 @@
   user-select: none;
 }
 
+/* Only there to choose a file: the image inside lays out as if it were not. */
+.picture {
+  display: contents;
+}
+
 .sectionArtwork {
   display: block;
   width: 100%;

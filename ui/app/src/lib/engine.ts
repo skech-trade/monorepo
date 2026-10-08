@@ -24,6 +24,7 @@ import { ENGINE_URL as STREAM, jitter, STEADY_MS } from "./endpoints";
 
 const KEEP_BARS = 660;
 const KEEP_TICKS = 4000;
+const TRIM_TICKS = 500;
 /** No message at all for this long (heartbeats included) and the socket is reopened. */
 const SILENT_MS = 5000;
 
@@ -148,7 +149,8 @@ export function useEngine(): Market {
         if (m.bars.length > KEEP_BARS) m.bars.splice(0, m.bars.length - KEEP_BARS);
       }
       m.ticks.push({ t, p });
-      if (m.ticks.length > KEEP_TICKS) m.ticks.splice(0, m.ticks.length - KEEP_TICKS);
+      // Trimmed a chunk at a time: one off the front per trade moved all four thousand along, every trade.
+      if (m.ticks.length > KEEP_TICKS + TRIM_TICKS) m.ticks.splice(0, m.ticks.length - KEEP_TICKS);
     };
 
     const connect = () => {

@@ -165,6 +165,19 @@ export class RelayerClient {
   }
 }
 
+/** The same account, to the cent and the key: the relayer sends it often (after payouts, on request), mostly unchanged. */
+const sameAccount = (a: Account | null, b: Account) =>
+  !!a &&
+  a.player.toLowerCase() === b.player.toLowerCase() &&
+  a.balance === b.balance &&
+  a.owed === b.owed &&
+  (a.nonce ?? null) === (b.nonce ?? null) &&
+  a.session.key === b.session.key &&
+  a.session.x === b.session.x &&
+  a.session.y === b.session.y &&
+  a.session.validUntil === b.session.validUntil &&
+  a.session.allowance === b.session.allowance;
+
 /** One relayer for the page, following `player`. */
 export function useRelayer(player: Address | null, enabled: boolean) {
   const [client] = useState(() => new RelayerClient());
@@ -176,7 +189,8 @@ export function useRelayer(player: Address | null, enabled: boolean) {
     client.start();
     const off = client.on((m) => {
       if (m.type === "hello") setHello(m);
-      else if (m.type === "account") setAccount(m);
+      // Kept as it was when nothing in it changed, so nothing that reads it re-renders for a repeat.
+      else if (m.type === "account") setAccount((a) => (sameAccount(a, m) ? a : m));
     });
     const offConnection = client.onConnection(setConnected);
     // Gone from the page: the socket closes, and nothing reopens it.

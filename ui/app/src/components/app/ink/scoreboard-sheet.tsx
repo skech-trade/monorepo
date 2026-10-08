@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { money, signed } from "@/lib/money";
-import { usePractice } from "@/lib/practice";
+import { usePracticeOf } from "@/lib/practice";
 import { curve, resetScoreboard, type Scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { cn } from "@/lib/utils";
 import { fmtMultiple } from "./stage";
@@ -17,7 +17,7 @@ import { fmtMultiple } from "./stage";
  */
 export function ScoreboardSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const s = useScoreboard();
-  const all = usePractice();
+  const all = usePracticeOf("bestHit", "bestStreak");
   const rounds = s.rounds.length;
   const wins = s.rounds.filter((r) => r.won > r.cost);
   // From the first round to the last: pure, and what the session actually spanned.
