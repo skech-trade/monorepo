@@ -21,7 +21,7 @@ the servers read. [`.env.example`](../.env.example) documents each.
 | `ENGINE_SENTRY_DSN`, `RELAYER_SENTRY_DSN` | errors from the box | set |
 | `ENGINE_BAND_BPS` | how far Coinbase may be from Binance or Kraken, in bp. Blank: 15 | leave blank |
 | `SKECH_SOLANA_CLUSTER` | `devnet` | **new: add** (part 5) |
-| `SOLANA_RELAYER_SECRET_KEY` | the Solana relayer's keypair, the 64 bytes as JSON. It is also the Solana game's oracle | **new: add** (part 5) |
+| `SOLANA_RELAYER_SECRET_KEY` | the Solana relayer's keypair, the 64 bytes as JSON: `~/.config/solana/skech-devnet-relayer.json` on Swayam's machine (`3hNNKV…Ge9s`). It is also the devnet game's oracle | **new: add** (part 5) |
 | `SOLANA_DEVNET_RPC_URL` | a devnet RPC (the public one rate-limits) | **new: add** (part 5) |
 
 `RELAYER_ENGINE_SIGNER` for today's key is `0xc6377415Ee98A7b71161Ee963603eE52fF7750FC`
@@ -34,8 +34,6 @@ Unused, safe to delete: `DATABASE_URL`, `LIGHTER_*`, `BOOST_*`, `FEED_URL`, `API
 
 **Coinbase (CDP Portal, portal.cdp.coinbase.com), Embedded Wallets → Domains:**
 - [ ] `https://app.skech.trade` (the web app)
-- [ ] `skech://callback`, exactly (the phone app's Google and Apple sign-in; without it: "Redirect URL does
-  not match project's configured CORS origins")
 - [ ] `http://localhost:3101` for local development
 
 **Vercel, the app's project, Production and Preview.** These are read when the app is built: redeploy after
@@ -92,7 +90,7 @@ relayer reads the new `Settled` event, so the upgrade and the box deploy go toge
 
 1. **Check** from `packages/contracts`: `bun run test:check` passes, including the storage layout check.
 2. **Work out `OWED`**: the IOU basis outstanding, `SkechIOU.basisOf` summed over every address that ever
-   received IOU (the `to` of every IOU `Transfer` since block 66,645,399). It was 0 on 2026-09-29. Too low
+   received IOU (the `to` of every IOU `Transfer` since block 66,645,399). It was 0 on 2026-09-29, and the relayer counted one IOU holder on 2026-10-01, so read it again. Too low
    and `redeem` reverts; too high and only the count is off.
 3. **Pause**: `cast send $GAME 'pause()' --private-key $ENGINE_PRIVATE_KEY --rpc-url $MONAD_TESTNET_RPC_URL`.
 4. **Upgrade the game**, then the IOU, from `packages/contracts/evm`:
@@ -107,31 +105,55 @@ The live difficulty is 51 (set 2026-09-30). The upgraded contracts refuse anythi
 
 ## 5. Solana devnet
 
-Solana has never been deployed to devnet (only `deployments/solana-localnet.json` exists). Once:
+The game is on devnet (2026-10-01). Every address is in `packages/contracts/deployments/solana-devnet.json`:
 
-1. **Keys**: a deployer keypair with about 5 SOL (`solana airdrop`, or faucet.solana.com), and the relayer's
-   keypair with 1 SOL or more. The relayer is the game's oracle, and pays every fee and rent.
-2. **Deploy** from the repo root: `bun run deploy:solana`. It writes `packages/contracts/deployments/solana-devnet.json`;
-   commit and merge it. The market starts at difficulty 51 and Monad's terms (4% of a stake, 10% of a
-   win's profit, $100 a dot, $10,000 a piece).
-3. **Ship**: the part 1 Solana keys in `.env.local`, then `infra/deploy.sh --env`. With them, the Solana
-   relayer starts beside the Monad one, at `wss://api.skech.trade/solana/ws`.
-4. **Check**: `ssh skech curl -s localhost:3104/status`.
+| | |
+|---|---|
+| Program | `2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV` (upgrade authority: the deployer, `7Qfww9…Njng`) |
+| Game | `EQmnM7EP6ewPvjq81cCKmcKKzXFi5WGuciHfDtTCpyxF`, BTC-USD at difficulty 51, Monad's terms |
+| USDC | Circle's devnet mint, `4zMMC9…DncDU` |
+| Oracle and relayer | `3hNNKVAfS95A1Rqqss7xoRS8PZceQbKCS4HCfhDsGe9s`, 0.3 SOL |
+
+What is left is running its relayer on the box (`https://api.skech.trade/solana/health` answers 502 until then):
+
+1. **Keys**: `SKECH_SOLANA_CLUSTER=devnet`, `SOLANA_RELAYER_SECRET_KEY` (the relayer keypair file's contents) and
+   `SOLANA_DEVNET_RPC_URL` in the env file `infra/deploy.sh` reads (`.env.local`, or `SKECH_ENV_FILE`).
+2. **Ship**: `infra/deploy.sh --env`. With both Solana keys, the Solana relayer starts beside the Monad one, at
+   `wss://api.skech.trade/solana/ws`.
+3. **Check**: `curl https://api.skech.trade/solana/health` answers `ok`; `ssh skech curl -s localhost:3104/status`
+   shows devnet, difficulty 51 and the engine connected.
+4. **SOL**: the relayer pays every fee and every bet's rent (the rent comes back when the bet settles). Keep it
+   over 1 SOL from faucet.solana.com; `solana airdrop` is rate-limited.
+
+Upgrading the program: `deploy:solana` uploads through the RPC (`--use-rpc`), and the public devnet RPC rate-limits
+it to a crawl (4% in 30 minutes). Upload straight to the validators instead, then set up or reconfigure the game:
+`solana program deploy target/deploy/skech.so --program-id target/deploy/skech-keypair.json --url devnet` from
+`packages/contracts/solana`, then `bun run deploy:solana --skip-program`.
 
 ## 6. The phone app
 
-`packages/solana-mobile`, its own npm project (not in the bun workspace).
+`packages/solana-mobile`, its own npm project (not in the bun workspace). It signs in by email, SMS or, on
+Android, a Solana wallet on the phone (Phantom, Solflare, the Seeker's Seed Vault). Google and Apple are off
+on the phone: they need `skech://callback` in the CDP project's allowed domains, and come back with it.
 
 1. `packages/solana-mobile/.env` from its `.env.example`: `EXPO_PUBLIC_CDP_PROJECT_ID` (the web's) and the
-   two URLs, which default to the box.
+   two URLs, which default to the box. Until the Solana relayer runs there (part 5), point
+   `EXPO_PUBLIC_RELAYER_URL` at a relayer on your machine by its network address, e.g. `ws://192.168.x.x:3104/ws`
+   (a phone's `localhost` is the phone), with `RELAYER_HOST=0.0.0.0` on the relayer.
 2. `npm install` (its `.npmrc` allows Coinbase's optional peer against Expo 55), then `npx expo run:ios` or
-   `npx expo run:android`. Needs Xcode, or Android Studio and JDK 17.
-3. `skech://callback` in the CDP Portal: part 2.
+   `npx expo run:android`. Needs Xcode, or Android Studio and JDK 17. A development build loads its code from
+   Metro on your machine: the phone has to be on the same network.
+3. To play: sign in, copy the Solana address from Deposit, get devnet USDC at faucet.circle.com (Solana Devnet)
+   and send it there. It is swept into the balance by itself.
 
-Not yet tried on a device: a real sign-in, a real deposit on devnet, and a Solana wallet through the Mobile
-Wallet Adapter (Android only).
+Not yet done: a sign-in, a deposit and a piece on a real phone; a Solana wallet through the Mobile Wallet
+Adapter on a device; a build to hand to testers (part 7).
 
 ## 7. Before mainnet
+
+- **A build to hand out.** There is no `eas.json` and Android signs with the debug key, so the app runs only as a
+  development build tied to a laptop. Add EAS Build (or a release keystore and an iOS distribution
+  certificate), with `EXPO_PUBLIC_*` set per build, for TestFlight and Play internal testing.
 
 - **Split the keys.** One key is today the contracts' admin, upgrader, pauser, treasurer, oracle and relayer,
   and it sits on the box: whoever takes the box can upgrade the contracts. Give admin and upgrade to a wallet
