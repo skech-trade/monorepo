@@ -867,6 +867,19 @@ export function InkScreen() {
     if (!real) return;
     const g = game.current;
     const feeBps = () => chainRef.current.hello?.config?.profitFeeBps ?? 1000;
+    /*
+      The account once a burst of settlements is over, not after each one: a drawing settles a section a second,
+      and every request was a batch of chain reads and a re-render. The relayer sends it itself after a payout;
+      this is for the word after the last loss, so what nothing is waiting on is resynced.
+    */
+    let asking: ReturnType<typeof setTimeout> | undefined;
+    const askAccount = () => {
+      if (asking) return;
+      asking = setTimeout(() => {
+        asking = undefined;
+        chainRef.current.client.send({ type: "account" });
+      }, 500);
+    };
     const off = chain.client.on((m) => {
       if (m.type === "placed") {
         const sent = chainBets.current.get(m.betId);
@@ -950,11 +963,12 @@ export function InkScreen() {
           updateTotals();
         }
         if (decided(g.bets[i])) chainBets.current.delete(m.betId);
-        chainRef.current.client.send({ type: "account" });
+        askAccount();
       }
     });
     return () => {
       off();
+      clearTimeout(asking);
     };
   }, [real, chain.client, letGo, updateTotals]);
 
