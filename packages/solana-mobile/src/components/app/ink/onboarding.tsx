@@ -96,7 +96,7 @@ export function Onboarding({ step, setupError, retrySetup, top }: ReturnType<typ
               wallet ? "Approve in wallet" : "Allow"
             )}
           </Button>
-          {setupError ? <Text className="mt-3 text-center text-destructive-foreground text-sm">That didn&rsquo;t go through. Try again.</Text> : null}
+          {setupError ? <Text className="mt-3 text-center text-destructive-foreground text-sm">{`That didn\u2019t go through: ${setupError}`}</Text> : null}
         </View>
       </View>
     );

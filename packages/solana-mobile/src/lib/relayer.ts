@@ -130,20 +130,20 @@ export class RelayerClient {
     const built: BuiltMsg[] = [];
     for (const { kind, params } of steps) {
       const b = await this.request({ type: "build", kind, player: this.player, ...params }, (m): m is BuiltMsg => m.type === "built" && m.kind === kind, 15_000);
-      if (!b?.id || !b.tx) return { ok: false, why: b?.why ?? "The relayer did not answer" };
+      if (!b?.id || !b.tx) return fail(kind, "build", b?.why ?? "The relayer did not answer");
       built.push(b);
     }
     let signed: string[];
     try {
       signed = await signAll(built.map((b) => b.tx!));
     } catch (e) {
-      return { ok: false, why: String((e as Error).message ?? e) || "Not signed" };
+      return fail(steps.map((x) => x.kind).join("+"), "sign", String((e as Error).message ?? e) || "Not signed");
     }
     let last = "";
     for (const [i, b] of built.entries()) {
       const done = await this.request({ type: "submit", id: b.id, tx: signed[i], ...(steps[i].params.approve ? { approve: true } : {}) }, (m): m is SubmittedMsg => m.type === "submitted" && m.id === b.id, 60_000);
-      if (!done) return { ok: false, why: "No answer from the chain" };
-      if (!done.ok || !done.tx) return { ok: false, why: done.why ?? "Not sent" };
+      if (!done) return fail(steps[i].kind, "submit", "No answer from the chain");
+      if (!done.ok || !done.tx) return fail(steps[i].kind, "submit", done.why ?? "Not sent");
       last = done.tx;
     }
     return { ok: true, tx: last };
@@ -217,4 +217,10 @@ export function useRelayer(player: string | null, enabled: boolean) {
   }, [client, player, enabled]);
   const own = player && account && account.player === player ? account : null;
   return { client, hello, account: own, connected };
+}
+
+/** A wallet transaction that did not go through, said in the log as well: the screen only has room for a line. */
+function fail(kind: string, at: "build" | "sign" | "submit", why: string): { ok: false; why: string } {
+  console.warn(`wallet transaction: ${kind} failed at ${at}:`, why);
+  return { ok: false, why };
 }
