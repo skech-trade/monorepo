@@ -27,14 +27,15 @@ the servers read. [`.env.example`](../.env.example) documents each.
 `RELAYER_ENGINE_SIGNER` for today's key is `0xc6377415Ee98A7b71161Ee963603eE52fF7750FC`
 (`cast wallet address --private-key $ENGINE_PRIVATE_KEY` prints it).
 
-Unused, safe to delete: `DATABASE_URL`, `LIGHTER_*`, `BOOST_*`, `FEED_URL`, `API_URL`, `TRADER_URL`,
-`CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`. Rotate the Lighter and Boost keys first if those accounts hold anything.
+Unused, safe to delete: `DATABASE_URL`, `LIGHTER_*`, `BOOST_*`, `FEED_URL`, `API_URL`, `TRADER_URL`, and the
+web app's old Coinbase keys. Rotate the Lighter and Boost keys first if those accounts hold anything.
 
 ## 2. Consoles
 
-**Coinbase (CDP Portal, portal.cdp.coinbase.com), Embedded Wallets → Domains:**
-- [ ] `https://app.skech.trade` (the web app)
-- [ ] `http://localhost:3101` for local development
+**Privy (dashboard.privy.io), the app `cmuzqwmig01200dl8gf8j8tf2`** ([`PRIVY-SETUP.md`](PRIVY-SETUP.md)):
+- [ ] Login methods: email, SMS, Google, Apple
+- [ ] Embedded wallets: Ethereum on
+- [ ] Allowed origins: `https://app.skech.trade` and `http://localhost:3101`
 
 **Vercel, the app's project, Production and Preview.** These are read when the app is built: redeploy after
 changing any.
@@ -43,7 +44,7 @@ changing any.
 |---|---|
 | `NEXT_PUBLIC_ENGINE_URL` | `wss://api.skech.trade/engine/ws` |
 | `NEXT_PUBLIC_RELAYER_URL` | `wss://api.skech.trade/relayer/ws` |
-| `NEXT_PUBLIC_CDP_PROJECT_ID` | the CDP project id |
+| `NEXT_PUBLIC_PRIVY_APP_ID` | `cmuzqwmig01200dl8gf8j8tf2`. Not the app secret, which the web app never needs |
 | `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_REGION` | PostHog → Settings → Project; `us` or `eu` |
 | `NEXT_PUBLIC_SENTRY_DSN` | the Sentry project `next-app` |
 | `SENTRY_AUTH_TOKEN` | Sentry → Settings → Auth Tokens. Secret. Without it errors show minified code |
@@ -136,7 +137,8 @@ it to a crawl (4% in 30 minutes). Upload straight to the validators instead, the
 Android, a Solana wallet on the phone (Phantom, Solflare, the Seeker's Seed Vault). Google and Apple are off
 on the phone: they need `skech://callback` in the CDP project's allowed domains, and come back with it.
 
-1. `packages/solana-mobile/.env` from its `.env.example`: `EXPO_PUBLIC_CDP_PROJECT_ID` (the web's) and the
+1. `packages/solana-mobile/.env` from its `.env.example`: `EXPO_PUBLIC_CDP_PROJECT_ID` (the phone still signs in
+   with Coinbase; the web app moved to Privy) and the
    two URLs, which default to the box. Until the Solana relayer runs there (part 5), point
    `EXPO_PUBLIC_RELAYER_URL` at a relayer on your machine by its network address, e.g. `ws://192.168.x.x:3104/ws`
    (a phone's `localhost` is the phone), with `RELAYER_HOST=0.0.0.0` on the relayer.
@@ -162,5 +164,6 @@ Adapter on a device; a build to hand to testers (part 7).
 - **Shorten the web session.** A browser-held session key is allowed $100,000 for 7 days; about a day, and
   an allowance near the balance, is enough.
 - **Enforce the CSP.** It runs report-only; switch it to enforced once Sentry shows no reports.
-- **Coinbase's first-party cookie** (`auth.skech.trade`), so iPhones don't sign players out after 7 days
-  without a visit: an access request to Coinbase and three DNS records.
+- **Privy's HttpOnly cookies** on our own domain (dashboard → Configuration → App settings → Domains, then the
+  DNS records it shows), so the session is a first-party cookie rather than browser storage. Add the
+  `privy.skech.trade` host it gives to the CSP's `connect-src` and `frame-src` (`ui/app/src/proxy.ts`).
