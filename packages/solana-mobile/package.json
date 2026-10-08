@@ -19,11 +19,12 @@
   "main": "./index.js",
   "version": "1.0.0",
   "dependencies": {
-    "@coinbase/cdp-core": "^0.0.126",
-    "@coinbase/cdp-hooks": "^0.0.126",
+    "@ethersproject/shims": "^5.8.0",
     "@expo/metro-runtime": "~55.0.6",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
+    "@privy-io/expo": "^0.76.1",
+    "@privy-io/expo-native-extensions": "^0.0.12",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@shopify/react-native-skia": "2.4.18",
     "@solana-mobile/mobile-wallet-adapter-protocol": "^2.3.0",
@@ -63,6 +64,7 @@
     "react-native-keyboard-controller": "1.20.7",
     "react-native-mmkv": "^3.3.3",
     "react-native-nitro-modules": "^0.37.1",
+    "react-native-passkeys": "^0.4.2",
     "react-native-qrcode-svg": "^6.3.26",
     "react-native-quick-base64": "^3.0.1",
     "react-native-quick-crypto": "^1.0.7",
@@ -87,5 +89,5 @@
     "typescript": "~5.9.2"
   },
   "private": true,
-  "description": "skech on phones: draw ahead of the Bitcoin price on Solana. Expo, Solana Mobile Stack, Coinbase embedded wallets."
+  "description": "skech on phones: draw ahead of the Bitcoin price on Solana. Expo, Solana Mobile Stack, Privy embedded wallets."
 }

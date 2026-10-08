@@ -20,7 +20,7 @@ export default function Preview() {
   const me: Account = {
     ready: true,
     signedIn: true,
-    kind: "coinbase",
+    kind: "privy",
     address: ADDRESS,
     handle: "swayam@ns.com",
     email: "swayam@ns.com",

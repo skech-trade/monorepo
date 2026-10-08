@@ -133,14 +133,22 @@ it to a crawl (4% in 30 minutes). Upload straight to the validators instead, the
 ## 6. The phone app
 
 `packages/solana-mobile`, its own npm project (not in the bun workspace). It signs in by email, SMS or, on
-Android, a Solana wallet on the phone (Phantom, Solflare, the Seeker's Seed Vault). Google and Apple are off
-on the phone: they need `skech://callback` in the CDP project's allowed domains, and come back with it.
+Android, a Solana wallet on the phone (Phantom, Solflare, the Seeker's Seed Vault). The email and SMS sign-in
+and the embedded Solana wallet are Privy's (the web stays on Coinbase). Google and Apple are off on the phone.
 
-1. `packages/solana-mobile/.env` from its `.env.example`: `EXPO_PUBLIC_CDP_PROJECT_ID` (the web's) and the
-   two URLs, which default to the box. Until the Solana relayer runs there (part 5), point
-   `EXPO_PUBLIC_RELAYER_URL` at a relayer on your machine by its network address, e.g. `ws://192.168.x.x:3104/ws`
-   (a phone's `localhost` is the phone), with `RELAYER_HOST=0.0.0.0` on the relayer.
-2. `npm install` (its `.npmrc` allows Coinbase's optional peer against Expo 55), then `npx expo run:ios` or
+**Privy (dashboard.privy.io), app `cmuzqwmig01200dl8gf8j8tf2`:**
+- Login methods: email and SMS on.
+- Embedded wallets: Solana on. The app creates one for anyone who signs in without one.
+- App settings → Clients → Add app client: allowed app identifiers `trade.skech.app` (the Android package and
+  the iOS bundle id), URL scheme `skech`. Its client id is `EXPO_PUBLIC_PRIVY_CLIENT_ID`.
+- The app secret stays on servers: nothing in `packages/solana-mobile` may hold it.
+
+1. `packages/solana-mobile/.env` from its `.env.example`: `EXPO_PUBLIC_PRIVY_APP_ID`, `EXPO_PUBLIC_PRIVY_CLIENT_ID`
+   (without both the app signs in only with a wallet on the phone) and the two URLs, which default to the box.
+   Until the Solana relayer runs there (part 5), point `EXPO_PUBLIC_RELAYER_URL` at a relayer on your machine by
+   its network address, e.g. `ws://192.168.x.x:3104/ws` (a phone's `localhost` is the phone), with
+   `RELAYER_HOST=0.0.0.0` on the relayer.
+2. `npm install` (its `.npmrc` lets Privy's pinned viem peer through), then `npx expo run:ios` or
    `npx expo run:android`. Needs Xcode, or Android Studio and JDK 17. A development build loads its code from
    Metro on your machine: the phone has to be on the same network.
 3. To play: sign in, copy the Solana address from Deposit, get devnet USDC at faucet.circle.com (Solana Devnet)

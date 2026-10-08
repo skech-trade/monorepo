@@ -1,26 +1,26 @@
-import { CDPHooksProvider, type Config, useCurrentUser, useIsInitialized, useIsSignedIn, useSignInWithEmail, useSignInWithSms, useSignOut, useSignSolanaTransaction, useSolanaAddress, useVerifyEmailOTP, useVerifySmsOTP } from "@coinbase/cdp-hooks";
+import { PrivyProvider, useEmbeddedSolanaWallet, useLoginWithEmail, useLoginWithSMS, usePrivy } from "@privy-io/expo";
 import type { transact as Transact } from "@solana-mobile/mobile-wallet-adapter-protocol";
 import { getAddressDecoder } from "@solana/kit";
 import { Buffer } from "buffer";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
-import { CDP_PROJECT_ID, hasAuth } from "@/lib/config";
+import { hasAuth, PRIVY_APP_ID, PRIVY_CLIENT_ID } from "@/lib/config";
 import { readJson, storage, writeJson } from "@/lib/storage";
 import { shortAddress } from "@/lib/market";
 
 /**
  * Signing in, two ways, one account shape.
  *
- * - Coinbase's embedded wallet: an email and a one-time code, no seed phrase, a Solana account made at sign-in and
- *   kept in Coinbase's enclave. It signs without prompting, so a deposit or a session is one tap. The web's way in.
+ * - Privy's embedded wallet: an email or a phone and a one-time code, no seed phrase, a Solana account made at
+ *   sign-in and kept by Privy. It signs without prompting, so a deposit or a session is one tap.
  * - A Solana wallet on the phone, through the Mobile Wallet Adapter (Android: Phantom, Solflare, the Seeker's Seed
  *   Vault). Every signature is the wallet's own prompt.
  *
- * Either way the app reads one `Account`: who, and a way to sign a transaction the relayer built. As on the web,
- * Coinbase's hooks only work inside their provider, so they are read in one component that mounts there.
+ * Either way the app reads one `Account`: who, and a way to sign a transaction the relayer built. Privy's hooks
+ * only work inside their provider, so they are read in one component that mounts there.
  */
 
-export type WalletKind = "coinbase" | "wallet";
+export type WalletKind = "privy" | "wallet";
 export type Account = {
   /** Whether the saved session has been read. Until then nobody is asked to sign in. */
   ready: boolean;
@@ -36,7 +36,7 @@ export type Account = {
   signTransaction: (base64: string) => Promise<string>;
   /** Several at once, in order: a wallet on the phone signs them all in one visit rather than opening once each. */
   signTransactions: (base64s: string[]) => Promise<string[]>;
-  /** Coinbase: send a one-time code to an email or a phone (E.164); then `verify` it. What went wrong, or null. */
+  /** Privy: send a one-time code to an email or a phone (E.164); then `verify` it. What went wrong, or null. */
   sendCode: (email: string) => Promise<string | null>;
   sendSms: (phone: string) => Promise<string | null>;
   verify: (code: string) => Promise<string | null>;
@@ -116,60 +116,73 @@ function useMobileWallet() {
   return { saved, connect, sign, signAll, disconnect };
 }
 
-/** Reads Coinbase's hooks. Only ever mounted inside their provider. */
+/** A wrong or stale code, as Privy says it: whatever the words, the code is what to fix. */
+const WRONG_CODE = "invalid_credentials";
+const toBytes = (b64: string) => Uint8Array.from(Buffer.from(b64, "base64"));
+
+/** Reads Privy's hooks. Only ever mounted inside their provider. */
 function Publish({ children }: { children: ReactNode }) {
   const mwa = useMobileWallet();
-  const { isInitialized } = useIsInitialized();
+  const { isReady, user, logout } = usePrivy();
   const [waited, setWaited] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setWaited(true), READY_WITHIN_MS);
     return () => clearTimeout(t);
   }, []);
-  const { isSignedIn } = useIsSignedIn();
-  const { solanaAddress } = useSolanaAddress();
-  const { currentUser } = useCurrentUser();
-  const { signOut } = useSignOut();
-  const { signInWithEmail } = useSignInWithEmail();
-  const { verifyEmailOTP } = useVerifyEmailOTP();
-  const { signInWithSms } = useSignInWithSms();
-  const { verifySmsOTP } = useVerifySmsOTP();
-  const { signSolanaTransaction } = useSignSolanaTransaction();
-  const [flow, setFlow] = useState<{ id: string; by: "email" | "sms" } | null>(null);
-  const ready = Boolean(isInitialized) || waited;
-  const user = currentUser as { authenticationMethods?: { email?: { email?: string }; sms?: { phoneNumber?: string }; google?: { email?: string }; apple?: { email?: string } } } | null;
+  const solana = useEmbeddedSolanaWallet();
+  const { sendCode: sendEmailCode, loginWithCode: loginWithEmail } = useLoginWithEmail();
+  const { sendCode: sendSmsCode, loginWithCode: loginWithSms } = useLoginWithSMS();
+  const [flow, setFlow] = useState<{ to: string; by: "email" | "sms" } | null>(null);
+  const ready = isReady || waited;
+  const wallet = solana.wallets?.[0] ?? null;
+
+  // The wallet is made at sign-in; anyone who signed in without one (an older account, a failed try) gets one now,
+  // once. Not while a code is being checked: that sign-in is still making its own.
+  const made = useRef<string | null>(null);
+  const create = solana.create;
+  useEffect(() => {
+    if (!user || wallet || flow || !create || made.current === user.id) return;
+    made.current = user.id;
+    create().catch((e) => console.warn("sign-in: no Solana wallet made", e));
+  }, [user, wallet, flow, create]);
 
   const account = useMemo<Account>(() => {
-    const coinbase = Boolean(isSignedIn && solanaAddress);
-    const email = user?.authenticationMethods?.email?.email ?? user?.authenticationMethods?.google?.email ?? user?.authenticationMethods?.apple?.email ?? null;
-    const phone = user?.authenticationMethods?.sms?.phoneNumber ?? null;
-    const address = coinbase ? solanaAddress! : (mwa.saved?.address ?? null);
+    const privy = Boolean(user && wallet);
+    const linked = user?.linked_accounts ?? [];
+    const email = linked.find((a) => a.type === "email")?.address ?? linked.find((a) => a.type === "google_oauth" || a.type === "apple_oauth")?.email ?? null;
+    const phone = linked.find((a) => a.type === "phone")?.phoneNumber ?? null;
+    const address = privy ? wallet!.address : (mwa.saved?.address ?? null);
+    // Privy signs in the app, without asking: a deposit or a session is one tap, as on the web.
+    const sign = async (base64: string) => {
+      const provider = await wallet!.getProvider();
+      const { signedTransaction } = await provider.request({ method: "signTransaction", params: { transaction: toBytes(base64) } });
+      return Buffer.from(signedTransaction).toString("base64");
+    };
     return {
       ready,
-      signedIn: coinbase || Boolean(mwa.saved),
-      kind: coinbase ? "coinbase" : mwa.saved ? "wallet" : null,
+      signedIn: privy || Boolean(mwa.saved),
+      kind: privy ? "privy" : mwa.saved ? "wallet" : null,
       address,
-      handle: coinbase ? (email ?? phone ?? (address ? shortAddress(address) : null)) : address ? shortAddress(address) : null,
-      email: coinbase ? email : null,
+      handle: privy ? (email ?? phone ?? (address ? shortAddress(address) : null)) : address ? shortAddress(address) : null,
+      email: privy ? email : null,
       signOut: () => {
-        if (coinbase) void signOut();
+        if (user) void logout();
         mwa.disconnect();
       },
-      signTransaction: async (base64) => {
-        if (coinbase) return (await signSolanaTransaction({ solanaAccount: solanaAddress!, transaction: base64 })).signedTransaction;
-        return mwa.sign(base64);
-      },
+      signTransaction: async (base64) => (privy ? sign(base64) : mwa.sign(base64)),
       signTransactions: async (base64s) => {
-        if (!coinbase) return mwa.signAll(base64s);
-        // Coinbase signs in the app without asking, so one at a time costs nothing.
+        if (!privy) return mwa.signAll(base64s);
+        // Nothing to open or approve, so one at a time costs nothing.
         const out: string[] = [];
-        for (const t of base64s) out.push((await signSolanaTransaction({ solanaAccount: solanaAddress!, transaction: t })).signedTransaction);
+        for (const t of base64s) out.push(await sign(t));
         return out;
       },
       sendCode: async (e) => {
         try {
-          const r = await signInWithEmail({ email: e.trim() });
-          console.info("sign-in: a code went out by email, sign-in", r.flowId);
-          setFlow({ id: r.flowId, by: "email" });
+          const to = e.trim();
+          await sendEmailCode({ email: to });
+          console.info("sign-in: a code went out by email");
+          setFlow({ to, by: "email" });
           return null;
         } catch (err) {
           return String((err as Error).message ?? err);
@@ -177,9 +190,9 @@ function Publish({ children }: { children: ReactNode }) {
       },
       sendSms: async (phone) => {
         try {
-          const r = await signInWithSms({ phoneNumber: phone });
-          console.info("sign-in: a code went out by text, sign-in", r.flowId);
-          setFlow({ id: r.flowId, by: "sms" });
+          await sendSmsCode({ phone });
+          console.info("sign-in: a code went out by text");
+          setFlow({ to: phone, by: "sms" });
           return null;
         } catch (err) {
           return String((err as Error).message ?? err);
@@ -188,25 +201,25 @@ function Publish({ children }: { children: ReactNode }) {
       verify: async (code) => {
         if (!flow) return "Ask for a code first";
         try {
-          if (flow.by === "sms") await verifySmsOTP({ flowId: flow.id, otp: code.trim() });
-          else await verifyEmailOTP({ flowId: flow.id, otp: code.trim() });
+          // Said again rather than left to the hook's memory, as Privy asks.
+          if (flow.by === "sms") await loginWithSms({ code: code.trim(), phone: flow.to });
+          else await loginWithEmail({ code: code.trim(), email: flow.to });
           setFlow(null);
           return null;
         } catch (err) {
           console.warn("sign-in: the code was not accepted", err);
-          // Coinbase answers a wrong code with a bare 401, and every send starts a new sign-in with its own code: say which one counts.
-          if ((err as { statusCode?: number }).statusCode === 401) return `That code didn't match. Use the one in the newest ${flow.by === "sms" ? "text" : "email"}, or tap Resend code.`;
+          if ((err as { code?: string }).code === WRONG_CODE) return `That code didn't match. Check the ${flow.by === "sms" ? "text" : "email"}, or tap Resend code for a new one.`;
           return String((err as Error).message ?? err);
         }
       },
       connectWallet: mwa.connect,
       canConnectWallet: Platform.OS === "android",
     };
-  }, [ready, isSignedIn, solanaAddress, user, mwa, signOut, signSolanaTransaction, signInWithEmail, verifyEmailOTP, signInWithSms, verifySmsOTP, flow]);
+  }, [ready, user, wallet, mwa, logout, sendEmailCode, loginWithEmail, sendSmsCode, loginWithSms, flow]);
   return <AccountContext.Provider value={account}>{children}</AccountContext.Provider>;
 }
 
-/** Without a Coinbase project, the wallet on the phone is still a way in. */
+/** Without a Privy app, the wallet on the phone is still a way in. */
 function WalletOnly({ children }: { children: ReactNode }) {
   const mwa = useMobileWallet();
   const account = useMemo<Account>(
@@ -231,14 +244,15 @@ function WalletOnly({ children }: { children: ReactNode }) {
   return <AccountContext.Provider value={account}>{children}</AccountContext.Provider>;
 }
 
-const config = { projectId: CDP_PROJECT_ID, appName: "skech", solana: { createOnLogin: true }, disableAnalytics: true } as unknown as Config;
+// A Solana wallet for everyone who signs in without one; no Ethereum wallet, the game is on Solana.
+const config = { embedded: { solana: { createOnLogin: "users-without-wallets" } } } as const;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   if (!hasAuth) return <WalletOnly>{children}</WalletOnly>;
   return (
-    <CDPHooksProvider config={config}>
+    <PrivyProvider appId={PRIVY_APP_ID} clientId={PRIVY_CLIENT_ID} config={config}>
       <Publish>{children}</Publish>
-    </CDPHooksProvider>
+    </PrivyProvider>
   );
 }
 

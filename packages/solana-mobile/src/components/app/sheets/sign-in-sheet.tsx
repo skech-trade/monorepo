@@ -8,16 +8,16 @@ import { useColors } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
 /**
- * Signing in, as the web's panel is: Coinbase's own (their SignInModal, in our colours). The same card, the same
- * steps and the same words: email or phone, a six-digit code, "Secured by coinbase". On Android a Solana wallet on
- * the phone is one more way in, through the Mobile Wallet Adapter. No Google or Apple yet: on a phone they come back
- * to the app through a deep link the Coinbase project has to allow.
+ * Signing in, as the web's panel is: the same card, the same steps and the same words (email or phone, a six-digit
+ * code). Privy sends and checks the code and keeps the wallet. On Android a Solana wallet on the phone is one more way
+ * in, through the Mobile Wallet Adapter. No Google or Apple yet: on a phone they come back to the app through a deep
+ * link the Privy app client has to allow.
  */
 
 type Step = { kind: "email" } | { kind: "phone" } | { kind: "code"; to: string };
 
 
-/** A grey pill with a mark on its left and its words in the middle, as Coinbase's alternatives are. */
+/** A grey pill with a mark on its left and its words in the middle, as the web's alternatives are. */
 function Alt({ icon, label, onPress, disabled, busy }: { icon: React.ReactNode; label: string; onPress: () => void; disabled?: boolean; busy?: boolean }) {
   const c = useColors();
   return (
@@ -246,7 +246,7 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
             <LockIcon color={c.muted} size={13} strokeWidth={2.4} />
             <Text className="text-[13px] text-muted-foreground">Secured by</Text>
             <Text className="font-bold text-[15px] text-muted-foreground" style={{ letterSpacing: -0.3 }}>
-              coinbase
+              Privy
             </Text>
           </View>
         </Animated.View>

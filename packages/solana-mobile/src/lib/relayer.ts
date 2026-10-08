@@ -115,7 +115,7 @@ export class RelayerClient {
   }
 
   /**
-   * A transaction the wallet signs and the relayer pays for: built there, signed here by `sign` (Coinbase's
+   * A transaction the wallet signs and the relayer pays for: built there, signed here by `sign` (Privy's
    * embedded wallet or a Mobile Wallet Adapter wallet), sent there. What went wrong, if anything.
    */
   async transact(kind: Kind, params: Record<string, unknown>, sign: (base64: string) => Promise<string>): Promise<{ ok: true; tx: string } | { ok: false; why: string }> {

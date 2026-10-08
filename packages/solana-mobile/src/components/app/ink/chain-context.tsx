@@ -163,7 +163,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
 
   /*
     USDC that lands in the wallet is on its way in. With the session's standing approval the relayer sweeps it in
-    by itself; the app asks it to look now rather than on its next round. With no approval left, a Coinbase wallet
+    by itself; the app asks it to look now rather than on its next round. With no approval left, a Privy wallet
     signs the deposit without asking, as on the web; a wallet on the phone would prompt, so the sheet offers it.
   */
   const wallet = account ? Number(account.wallet.usdc) / 1e6 : null;
@@ -190,7 +190,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     pending.current = ask;
     setAdding(wallet);
     if (approved >= wallet) client.send({ type: "sweep" });
-    else if (me.kind === "coinbase") {
+    else if (me.kind === "privy") {
       ask.signing = true;
       void deposit(wallet).then((why) => {
         ask.signing = false;
