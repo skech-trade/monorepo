@@ -69,6 +69,12 @@ const EVENTS = [
 ] as const;
 export type SolanaEvent = { name: (typeof EVENTS)[number][0]; data: Record<string, unknown> };
 
+/** A fresh blockhash this often, and what recent blocks paid in priority this often. */
+const HASH_EVERY_MS = 12_000;
+const PRIORITY_EVERY_MS = 45_000;
+/** A block at least this often, for reckoning the height: slower than a slot, so it runs behind (see `height`). */
+const BLOCK_MS = 450;
+
 const b64 = getBase64Encoder();
 const same = (a: Uint8Array | { readonly [i: number]: number; length: number }, b: { readonly [i: number]: number; length: number }) => a.length === b.length && Array.from({ length: a.length }).every((_, i) => a[i] === b[i]);
 
@@ -84,7 +90,7 @@ export class SolanaChain {
   signer!: KeyPairSigner;
   private table: Record<Address, Address[]> = {};
   private hash: Blockhash | null = null;
-  private height = 0n;
+  private hashAt = 0;
   /** Micro-lamports per compute unit, from what recent blocks paid to write the pool. */
   priority = 0;
   /** Built transactions awaiting a wallet's signature: their message, so only what we built is ever co-signed, and whether it approves the game to sweep. */
@@ -119,14 +125,39 @@ export class SolanaChain {
     const t = await fetchAddressLookupTable(this.rpc, this.cfg.deployment.lookupTable);
     this.table = { [this.cfg.deployment.lookupTable]: [...t.data.addresses] };
     await Promise.all([this.refreshHash(), this.refreshPriority()]);
-    setInterval(() => void this.refreshHash().catch((e) => this.log(`blockhash: ${String(e).split("\n")[0]}`)), 2_000);
-    setInterval(() => void this.refreshPriority().catch(() => {}), 5_000);
+    // A blockhash is good for 150 blocks, about a minute: one a few seconds old costs a transaction nothing. Asked
+    // again sooner while the RPC is not answering, so it never runs out under us.
+    const hashes = (ms: number) =>
+      setTimeout(
+        () =>
+          void this.refreshHash().then(
+            () => hashes(HASH_EVERY_MS),
+            (e) => {
+              if (Date.now() - this.hashAt > 30_000) this.log(`blockhash ${Math.round((Date.now() - this.hashAt) / 1000)} s old: ${String(e).split("\n")[0]}`);
+              hashes(2_000);
+            },
+          ),
+        ms,
+      );
+    hashes(HASH_EVERY_MS);
+    // A fixed fee is never asked for.
+    if (this.cfg.priorityFixed === null) setInterval(() => void this.refreshPriority().catch(() => {}), PRIORITY_EVERY_MS);
+  }
+
+  /**
+   * The block height, reckoned rather than asked for: the blockhash's last valid block less its 150, plus a block for
+   * every 450 ms since. Slots are 400 ms and some are skipped, so this runs behind the chain: a transaction is given
+   * up a little late, never while it could still land.
+   */
+  get height(): bigint {
+    if (!this.hash) return 0n;
+    return this.hash.lastValidBlockHeight - 150n + BigInt(Math.floor((Date.now() - this.hashAt) / BLOCK_MS));
   }
 
   private async refreshHash() {
-    const [{ value }, height] = await Promise.all([this.rpc.getLatestBlockhash({ commitment: "confirmed" }).send(), this.rpc.getBlockHeight({ commitment: "confirmed" }).send()]);
+    const { value } = await this.rpc.getLatestBlockhash({ commitment: "confirmed" }).send();
     this.hash = value;
-    this.height = height;
+    this.hashAt = Date.now();
   }
 
   private async refreshPriority() {
