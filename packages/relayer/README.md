@@ -99,7 +99,11 @@ the game, the oracle, the difficulty and the terms. Then:
 { "type": "refused", "betId", "why" }
 { "type": "settled", "betId", "hitMask", "missMask", "paid", "owed", "tx" }
 { "type": "account", "player", "balance", "session": {…}, "owed" }
+{ "type": "beat" }                                          // every 15 s, so a phone's socket is never quiet; ignore it
 ```
+
+A socket that sends nothing for 30 s, not even a pong to the server's pings, is closed (both relayers). Apps pass
+over a message type they do not know.
 
 Every message is checked before it is read (`src/wire.ts`) and, if it is wrong, answered with why in the reply
 its sender waits for. What the relayer pays for is held to players with money in: a session only with a balance

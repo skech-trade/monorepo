@@ -18,7 +18,7 @@ import type { SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { Placed, Refused, SolanaPieceMsg, SolanaSequencer } from "./sequencer";
 import type { Settled, SolanaSettler } from "./settler";
-import { clientIp, Door, MESSAGE_BYTES, Rates, remember, Sponsor } from "../limits";
+import { beat, clientIp, Door, IDLE_S, MESSAGE_BYTES, Rates, remember, Sponsor } from "../limits";
 import { report } from "../sentry";
 import { big, type Message, read, refusal, SOLANA } from "../wire";
 
@@ -86,8 +86,10 @@ export class SolanaServer {
         },
         perMessageDeflate: false,
         maxPayloadLength: MESSAGE_BYTES,
+        idleTimeout: IDLE_S,
       },
     });
+    beat(this.clients);
     this.log(`listening on ws://${this.cfg.host}:${this.cfg.port}/ws (${this.cfg.net.label})`);
   }
 
