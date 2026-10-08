@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { NextConfig } from "next";
@@ -75,6 +76,20 @@ const env = rootEnv();
 if (!process.env.NEXT_PUBLIC_BUILD_ID) env.NEXT_PUBLIC_BUILD_ID = process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_GIT_COMMIT_SHA || "local";
 
 /*
+  The paths every chance is priced on (public/dots-lib.bin, 2 MB), asked for by what is in it: /dots-lib.bin?v=<its
+  hash>. That address never changes what it answers, so it is kept for a year (headers below) and a return visit
+  never fetches it again; a new file is a new address. Served from public/, it was revalidated on every visit.
+*/
+function libAddress(): string {
+  try {
+    return `/dots-lib.bin?v=${createHash("sha256").update(readFileSync(join(process.cwd(), "public", "dots-lib.bin"))).digest("hex").slice(0, 16)}`;
+  } catch {
+    return "/dots-lib.bin";
+  }
+}
+env.NEXT_PUBLIC_DOTS_LIB = libAddress();
+
+/*
   PostHog through our own domain: /ingest is proxied to PostHog's, so an ad
   blocker that knows posthog.com does not drop the events (src/lib/analytics.ts).
 */
@@ -83,6 +98,12 @@ const region = (process.env.NEXT_PUBLIC_POSTHOG_REGION ?? env.NEXT_PUBLIC_POSTHO
 const nextConfig: NextConfig = {
   devIndicators: false,
   env,
+  /*
+    Sentry without its debug logging: what withSentryConfig's bundleSizeOptimizations.excludeDebugStatements would
+    do, but that only reaches a webpack build, and this one is Turbopack. Not __SENTRY_TRACING__: a define reaches
+    the server's bundle too, and would end its traces; the browser's are left out in src/instrumentation-client.ts.
+  */
+  compiler: { define: { __SENTRY_DEBUG__: false } },
   async rewrites() {
     return [
       { source: "/ingest/static/:path*", destination: `https://${region}-assets.i.posthog.com/static/:path*` },
@@ -109,6 +130,8 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
         ],
       },
+      // Only under its versioned address (libAddress above): the bare path stays revalidated, as public/ files are.
+      { source: "/dots-lib.bin", has: [{ type: "query", key: "v" }], headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
     ];
   },
 };
@@ -129,6 +152,4 @@ export default withSentryConfig(nextConfig, {
   tunnelRoute: "/monitoring",
   // Marks our bundle, for the filter that drops errors thrown only by extensions (src/instrumentation-client.ts).
   applicationKey: "skech-app",
-  // Component names on clicks and in replays: "tapped DepositModal > Button", not "tapped button".
-  reactComponentAnnotation: { enabled: true },
 });
