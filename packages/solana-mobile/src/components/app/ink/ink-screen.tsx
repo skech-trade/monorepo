@@ -15,7 +15,7 @@ import { useGate } from "@/components/app/gate";
 import { BitcoinMark, Button, Popover, raised, Sheet, Spinner, Switch, useColors } from "@/components/ui";
 import { hasAuth } from "@/lib/config";
 import { useEngine } from "@/lib/engine";
-import { feel, sound } from "@/lib/feel";
+import { feel } from "@/lib/feel";
 import { FieldMaker } from "@/lib/field";
 import { library } from "@/lib/library";
 import { money, signed } from "@/lib/money";
@@ -211,6 +211,8 @@ export function InkScreen() {
     return () => clearTimeout(t);
   }, [gained]);
   const hitRun = useRef({ n: 0, at: 0 });
+  // Misses are felt, but at most this often: a stroke can miss in many places in one second.
+  const missFelt = useRef(0);
   const sealed = useRef(new Set<string>());
   const insets = useSafeAreaInsets();
   const top = insets.top + 64;
@@ -329,7 +331,8 @@ export function InkScreen() {
     record({ id: line, at: t.at, cost: cents(t.cost), won: cents(t.won), hits: t.hits, dots: t.points, best: t.best });
     const streak = scoreboard().streak;
     setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false, best: t.best, streak });
-    if (t.won > t.cost) feel("win", { ratio: t.cost > 0 ? t.won / t.cost : 1 });
+    const ratio = t.cost > 0 ? t.won / t.cost : 1;
+    if (t.won > t.cost) feel(ratio >= 5 ? "jackpot" : "win", { ratio });
     else if (!t.hits) hitRun.current.n = 0;
   };
   const gate = useGate();
@@ -480,7 +483,19 @@ export function InkScreen() {
               const run = hitRun.current;
               run.n = performance.now() - run.at < 6000 ? run.n + 1 : 0;
               run.at = performance.now();
-              feel(best >= 10 ? "big" : "hit", { multiple: best, streak: run.n });
+              feel(best >= 10 ? "big" : run.n >= 2 ? "combo" : "hit", { multiple: best, streak: run.n });
+            }
+          }
+          // Ink the price passed by: what it staked, shown as lost there, in red, as a hit shows what it paid.
+          const missNow = bet.cells.filter((d, kk) => d.status === "miss" && before.cells[kk].status !== "miss");
+          if (missNow.length && nowMs - (bar.t + 1000) < 3000) {
+            const lost = Math.floor(missNow.reduce((a, d) => a + bet.perUnit * (isArea(bet.model) ? d.area : 1), 0) * 100 + 1e-8) / 100;
+            const lo = Math.min(...missNow.map((d) => d.lo));
+            const hi = Math.max(...missNow.map((d) => d.hi));
+            if (lost > 0) g.fx.push({ kind: "miss", t: missNow[0].t + 500, price: (lo + hi) / 2, born: performance.now(), text: `\u2212${money(lost)}`, loss: true, line: bet.group ?? bet.id });
+            if (performance.now() - missFelt.current > 700) {
+              missFelt.current = performance.now();
+              feel("miss");
             }
           }
           if (bet.status !== "live") break;
@@ -584,7 +599,10 @@ export function InkScreen() {
       tally(line, bet.placedAt).open++;
       g.bets.push(bet);
       updateTotals();
-      if (ch.real) setPractice({ taught: true });
+      // Once: each call writes the whole practice state to storage and re-renders everyone reading it.
+      if (ch.real) {
+        if (!practice().taught) setPractice({ taught: true });
+      }
       else setPractice((st) => ({ balance: cents(st.balance - charge), taught: true, open: g.bets.filter((b) => !decided(b)) }));
       setLive(new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size);
       if (done) {
@@ -615,7 +633,7 @@ export function InkScreen() {
         if (!sealed.current.has(drawn)) {
           sealed.current.add(drawn);
           if (sealed.current.size > 200) sealed.current.clear();
-          sound.placed();
+          feel("placed");
         }
         const cells = m.sections.map((s) => ({ t: bet.openAt + s.second * 1000, lo: fromE8(BigInt(s.lo)), hi: fromE8(BigInt(s.hi)), area: Number(s.stake) / 1e6 / bet.perUnit, multiple: s.rung / 100, status: "live" as const }));
         g.bets[i] = { ...bet, status: cells.length ? "live" : "void", why: cells.length ? undefined : "The price moved, and none of it is in play now.", cells, charged: staked };
@@ -679,7 +697,8 @@ export function InkScreen() {
           chainBets.current.delete(key);
           betKeys.current.delete(m.betId);
         }
-        chainRef.current.client.send({ type: "account" });
+        // No account asked for here: the relayer pushes it after every payout, and asking after every settlement cost
+        // it three chain reads each time.
       }
     });
     return () => {
@@ -835,8 +854,15 @@ export function InkScreen() {
                 </View>
               ) : null}
               <Text className={cn("text-muted-foreground", overWon ? "text-[13px]" : "text-[12px]")}>{overWon ? (overBig ? "Big win" : "You won") : "Round over"}</Text>
-              <Text className={cn("font-bold", overWon ? "text-success-foreground" : "text-muted-foreground", overBig ? "text-[32px]" : overWon ? "text-[26px]" : "text-[18px] font-semibold")} style={{ fontVariant: ["tabular-nums"] }}>
+              <Text className={cn("font-bold", overWon ? "text-success-foreground" : "text-destructive-foreground", overBig ? "text-[32px]" : overWon ? "text-[26px]" : "text-[18px] font-semibold")} style={{ fontVariant: ["tabular-nums"] }}>
                 {signed(overNet)}
+              </Text>
+              {/* Both sides of it, every round: what came back, and what went in. */}
+              <Text className="mt-0.5 text-[12px]" style={{ fontVariant: ["tabular-nums"] }}>
+                <Text className="text-success-foreground">+{money(over.won)}</Text>
+                <Text className="text-muted-foreground"> won · </Text>
+                <Text className="text-destructive-foreground">{"\u2212"}{money(over.cost)}</Text>
+                <Text className="text-muted-foreground"> staked</Text>
               </Text>
               {overWon && over.points ? (
                 <Text className="mt-0.5 text-[12px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>

@@ -40,9 +40,10 @@ function ctx(): AudioContext | null {
 
 /*
   A running context renders silence on its own thread, all the time: about a third of a core on a cheap phone. It
-  sleeps once nothing has sounded for a while, and the next sound wakes it.
+  sleeps once nothing has sounded for 20s, and the next sound wakes it.
 */
-const SLEEP_AFTER_MS = 3000;
+// Long enough that a player drawing stroke after stroke never pays to wake it; short enough to sleep when they stop.
+const SLEEP_AFTER_MS = 20_000;
 let sleeper: ReturnType<typeof setTimeout> | null = null;
 function sleepSoon() {
   if (sleeper) clearTimeout(sleeper);
@@ -190,17 +191,27 @@ export const sound = {
     hiss(0, 0.03, 0.05, 3200, 1.4);
   },
 
-  /** A piece the chain took: a soft, low seal under the drop. */
+  /** A piece the chain took: a chip set down on the felt, a hard clack with a low knock under it. */
   placed: () => {
     if (!on()) return;
-    tone({ freq: 330, to: 262, dur: 0.09, gain: 0.03, type: "triangle" });
+    hiss(0, 0.018, 0.09, 4200, 3);
+    hiss(0.012, 0.02, 0.05, 2600, 2.5);
+    tone({ freq: vary(520, 30), to: 300, dur: 0.06, gain: 0.05, type: "triangle", attack: 0.001 });
+    tone({ freq: 140, to: 90, dur: 0.08, gain: 0.05, attack: 0.002 });
   },
 
-  /** Coins, as many as the hit deserves, pitched up a step for every hit in a row. */
+  /**
+   * Coins, as many as the hit deserves, and a combo: every hit in a row a step higher, up an octave, with a bell
+   * over them from the third.
+   */
   hit: (multiple: number, streak = 0) => {
     if (!on()) return;
-    const lift = 2 ** (Math.min(streak, 7) / 12);
-    const coins = multiple >= 10 ? 4 : multiple >= 4 ? 3 : 2;
+    const lift = 2 ** (Math.min(streak, 12) / 12);
+    const coins = multiple >= 32 ? 7 : multiple >= 10 ? 5 : multiple >= 4 ? 3 : 2;
+    if (streak >= 2) {
+      tone({ freq: note(12 + Math.min(streak, 12), 440), dur: 0.5, gain: 0.03, type: "triangle", attack: 0.002 });
+      tone({ freq: note(19 + Math.min(streak, 12), 440), at: 0.04, dur: 0.35, gain: 0.015 });
+    }
     for (let i = 0; i < coins; i++) {
       const t = i * 0.06;
       const f = vary(1318.5 * lift * (1 + i * 0.12), 10);
@@ -209,16 +220,34 @@ export const sound = {
       tone({ freq: f * 2.01, at: t, dur: 0.06, gain: 0.012 });
       hiss(t, 0.025, 0.02, 6000, 2);
     }
-    // A big hit: a sparkle running up over the coins.
+    // A big hit: a sparkle running up over the coins, and for the biggest a cascade of more coins after it.
     if (multiple >= 10) for (let i = 0; i < 5; i++) tone({ freq: note(10 + i, 880) * lift, at: 0.22 + i * 0.045, dur: 0.16, gain: 0.03, type: "triangle" });
+    if (multiple >= 32)
+      for (let i = 0; i < 10; i++) {
+        const t = 0.45 + i * 0.05 + Math.random() * 0.02;
+        tone({ freq: vary(1568 + (i % 4) * 220, 25), at: t, dur: 0.14, gain: 0.028 });
+        hiss(t, 0.02, 0.015, 7000, 2);
+      }
   },
 
-  /** A round that came out ahead: a rising chord, fuller the more it made. */
+  /** Ink the price missed: a short, soft knock on the felt. Quiet: the money is shown, not rubbed in. */
+  miss: () => {
+    if (!on()) return;
+    tone({ freq: 150, to: 95, dur: 0.07, gain: 0.035, attack: 0.002 });
+    hiss(0, 0.02, 0.012, 900, 1);
+  },
+
+  /** A round that came out ahead: a rising chord, fuller the more it made; five times the stake or more, a fanfare. */
   win: (ratio: number) => {
     if (!on()) return;
     const steps = ratio >= 3 ? [0, 2, 4, 5, 7] : [0, 2, 4];
     steps.forEach((s, i) => tone({ freq: note(5 + s, 440), at: 0.05 + i * 0.075, dur: 0.35, gain: 0.045, type: "triangle" }));
     if (ratio >= 3) steps.forEach((s, i) => tone({ freq: note(10 + s, 440), at: 0.4 + i * 0.05, dur: 0.25, gain: 0.02 }));
+    if (ratio >= 5) {
+      [0, 4, 7, 12].forEach((s, i) => tone({ freq: note(12 + s, 440), at: 0.75 + i * 0.09, dur: 0.6, gain: 0.04, type: "triangle" }));
+      [0, 4, 7].forEach((s) => tone({ freq: note(s, 440), at: 1.12, dur: 0.9, gain: 0.03 }));
+      sound.hit(32, 6);
+    }
   },
 
   /** Refused: ink that could not go in, not enough money. Short, low, twice. */
@@ -240,19 +269,32 @@ export const sound = {
   Touch: the phone's own haptic engine, which a web page could only borrow. Every one plays, whenever it is asked
   for, finger or not: a hit seconds after the stroke is felt too.
 */
-export type Feel = "tap" | "tick" | "hit" | "big" | "win" | "nope" | "cash";
+export type Feel = "tap" | "tick" | "placed" | "hit" | "combo" | "big" | "win" | "jackpot" | "miss" | "nope" | "cash";
 
 const later = (ms: number, f: () => void) => setTimeout(f, ms);
 const HAPTIC: Record<Feel, () => void> = {
   tap: () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
   tick: () => void Haptics.selectionAsync(),
+  placed: () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid),
   hit: () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium),
+  // Three in a row and more: the hit, then a quick double tap, a little faster the longer the run.
+  combo: () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    later(70, () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    later(130, () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid));
+  },
   big: () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     later(90, () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy));
     later(180, () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
   },
   win: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+  jackpot: () => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    for (let i = 1; i <= 6; i++) later(i * 85, () => void Haptics.impactAsync(i % 2 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Rigid));
+    later(650, () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+  },
+  miss: () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft),
   nope: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning),
   cash: () => {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -274,8 +316,10 @@ export function feel(kind: Feel, detail?: { multiple?: number; streak?: number; 
   haptic(kind);
   if (kind === "tap") sound.drop();
   // "tick" is touch only: the pen's own sound comes from pen.move.
-  else if (kind === "hit" || kind === "big") sound.hit(detail?.multiple ?? 2, detail?.streak ?? 0);
-  else if (kind === "win") sound.win(detail?.ratio ?? 1);
+  else if (kind === "placed") sound.placed();
+  else if (kind === "hit" || kind === "combo" || kind === "big") sound.hit(detail?.multiple ?? 2, detail?.streak ?? 0);
+  else if (kind === "win" || kind === "jackpot") sound.win(detail?.ratio ?? 1);
+  else if (kind === "miss") sound.miss();
   else if (kind === "nope") sound.nope();
   else if (kind === "cash") sound.cash();
 }

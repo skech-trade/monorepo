@@ -19,7 +19,7 @@ import { tracePricePath } from "./price-path";
  * the money; this owns the picture and the pen. The pen is a finger: a pan that starts the moment it lands.
  */
 
-export type Fx = { kind: "hit" | "placed" | "drop"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean };
+export type Fx = { kind: "hit" | "miss" | "placed" | "drop"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean };
 export type Preview = { multipleLow: number; multipleHigh: number; units: number; cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[]; keyboard?: boolean };
 
 export type Game = {
@@ -673,7 +673,19 @@ export function Stage({
             const cx = Math.min(w - tw / 2 - 8, Math.max(tw / 2 + 8, ex));
             const cy = ey - 62 - (still.current ? 0 : age * 24);
             c.drawRRect(rrect(cx - tw / 2, cy - 14, tw, 28, 14), paintOf(e.loss ? color(pal.down, alpha) : color(pal.up, alpha)));
-            text(c, e.text, cx, cy + 0.5, f, Skia.Color(`rgba(255,255,255,${alpha})`));
+            text(c, e.text, cx, cy + 0.5, f, color([255, 255, 255], alpha));
+          }
+        } else if (e.kind === "miss") {
+          // A miss: a red ring shrinking away where the price passed, and what it cost floating up, smaller than a win.
+          c.drawCircle(ex, ey, (still.current ? 14 : 22 - age * 10) , paintOf(color(pal.down, 0.45 * (1 - age)), 1.5));
+          if (e.text) {
+            const alpha = Math.max(0, Math.min(1, 1.5 - age * 1.5));
+            const f = font(600, 13);
+            const tw = measure(f, e.text) + 18;
+            const cx = Math.min(w - tw / 2 - 8, Math.max(tw / 2 + 8, ex));
+            const cy = ey - 40 - (still.current ? 0 : age * 18);
+            c.drawRRect(rrect(cx - tw / 2, cy - 12, tw, 24, 12), paintOf(color(pal.down, 0.9 * alpha)));
+            text(c, e.text, cx, cy + 0.5, f, color([255, 255, 255], alpha));
           }
         } else if (e.kind === "drop") {
           const life = Math.min(1, (ms - e.born) / 520);
