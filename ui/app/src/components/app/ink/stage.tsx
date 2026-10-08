@@ -260,8 +260,25 @@ export function Stage({
       Columns are fixed distances ahead of now, as the pen sees them; rows
       are fixed prices, so they ride with the chart.
     */
-    type Tile = { id: string; left: number; width: number; offset: number; p: number; rung: number; text: string; was: string; changed: number; opacity: number };
+    /** `x0` and `y0` are where it is on screen this frame, worked out once and read by everything that draws it. */
+    type Tile = { id: string; left: number; width: number; offset: number; p: number; rung: number; text: string; was: string; changed: number; opacity: number; x0: number; y0: number };
     const map = { pen: "", width: 0, height: 0, step: 0, field: null as Field | null, tiles: [] as Tile[], rowPx: 36 };
+    /*
+      Each multiple's face and colour, by its text: a few dozen tiles show a dozen or so values, and building the
+      font and colour strings per tile per frame was most of what writing them cost. Forgotten with the palette
+      and with each new map (the size follows the screen).
+    */
+    const labelStyles = new Map<string, { font: string; fill: string }>();
+    const labelStyle = (text: string) => {
+      let s = labelStyles.get(text);
+      if (!s) {
+        const m = parseFloat(text);
+        labelStyles.set(text, (s = { font: `${m >= 8 ? 600 : 500} ${phone() ? 11 : 14}px ${SANS}`, fill: rgba(mix(pal!.faint, pal!.ink, height(m))) }));
+      }
+      return s;
+    };
+    /** The price tag's width, measured again only when its text changes. */
+    let tagMeasured = { text: "", w: 0 };
     const gPen = () => game.current!.drawing?.pen ?? game.current!.pen;
     /** Where the tiles start: the wait line, two seconds ahead, where ink always counts. */
     const WAIT_MS = 2000;
@@ -270,6 +287,7 @@ export function Stage({
     const inkFrom = () => waitX() + radius();
     const paintMap = (fl: Field) => {
       map.field = fl; map.pen = gPen(); map.width = w; map.height = h; map.step = game.current.step;
+      labelStyles.clear();
       const previous = new Map(map.tiles.map(tile => [tile.id, tile]));
       map.tiles = [];
       const sampledAt = now(game.current);
@@ -299,7 +317,7 @@ export function Stage({
           const old = previous.get(id);
           // A changed number fades across from the old one; it never rolls or snaps.
           const changing = !!old && old.text !== text;
-          map.tiles.push({ id, left, width, offset, p, rung, text, was: changing ? old!.text : old?.was ?? text, changed: changing ? performance.now() : old?.changed ?? 0, opacity: old?.opacity ?? 0 });
+          map.tiles.push({ id, left, width, offset, p, rung, text, was: changing ? old!.text : old?.was ?? text, changed: changing ? performance.now() : old?.changed ?? 0, opacity: old?.opacity ?? 0, x0: 0, y0: 0 });
         }
       }
     };
@@ -581,7 +599,10 @@ export function Stage({
       c.clearRect(0, 0, w, h);
       if (!p) return;
       const dark = g.dark;
-      if (!pal || pal.dark !== dark) pal = readPalette(dark);
+      if (!pal || pal.dark !== dark) {
+        pal = readPalette(dark);
+        labelStyles.clear();
+      }
       const rgb = pal.fg.join(",");
       const solid = rgba(pal.ink, 0.92);
       const green = rgba(pal.up);
@@ -729,27 +750,29 @@ export function Stage({
       /* Where the pen is, and the price's own tag: a tile under either is picked out, or kept clear. */
       const tip = pen ? pen.last : hover && hover.x >= waitX() ? hover : null;
       const py = y(p);
-      c.font = `600 12px ${SANS}`;
       const tagText = fmtPrice(g.displayPrice || latest, true);
-      const tagW = c.measureText(tagText).width + 20;
+      if (tagMeasured.text !== tagText) {
+        c.font = `600 12px ${SANS}`;
+        tagMeasured = { text: tagText, w: c.measureText(tagText).width };
+      }
+      const tagW = tagMeasured.w + 20;
       // On a phone the tiles start close to now: the tag sits left of the dot, over the past, so the price's own row keeps its multiples.
       const tagX = phone() ? nx - 12 - tagW : nx + 12;
       const tag = { x0: tagX, x1: tagX + tagW, y0: py - 12, y1: py + 12 };
-      const tileBox = (tile: Tile) => {
-        const ty = y(tile.p);
-        return { x0: nx + tile.left, y0: ty - map.rowPx / 2 + 2, w: tile.width, h: map.rowPx - 4 };
-      };
+      const tileH = map.rowPx - 4;
       const tiles = fl && map.field === fl ? map.tiles : [];
       // Ease every tile toward whether it shows: on the chart, clear of the price's tag, and with a multiple.
+      const top = plotTop(), bottom = plotBottom();
       for (const tile of tiles) {
-        const b = tileBox(tile);
+        tile.x0 = nx + tile.left;
+        tile.y0 = y(tile.p) - map.rowPx / 2 + 2;
         // Whole tiles only: one cut by the chart's edge reads as a mistake.
-        const onChart = b.y0 >= plotTop() && b.y0 + b.h <= plotBottom();
-        const underTag = b.x0 < tag.x1 + 4 && b.x0 + b.w > tag.x0 - 4 && b.y0 < tag.y1 + 4 && b.y0 + b.h > tag.y0 - 4;
+        const onChart = tile.y0 >= top && tile.y0 + tileH <= bottom;
+        const underTag = tile.x0 < tag.x1 + 4 && tile.x0 + tile.width > tag.x0 - 4 && tile.y0 < tag.y1 + 4 && tile.y0 + tileH > tag.y0 - 4;
         const visible = onChart && tile.rung ? underTag ? 0.12 : 1 : 0;
         tile.opacity += (visible - tile.opacity) * ease(0.012);
       }
-      const underPen = tip ? tiles.find(tile => { const b = tileBox(tile); return tile.rung && tip.x >= b.x0 - 2 && tip.x <= b.x0 + b.w + 2 && tip.y >= b.y0 - 2 && tip.y <= b.y0 + b.h + 2; }) : undefined;
+      const underPen = tip ? tiles.find(tile => tile.rung && tip.x >= tile.x0 - 2 && tip.x <= tile.x0 + tile.width + 2 && tip.y >= tile.y0 - 2 && tip.y <= tile.y0 + tileH + 2) : undefined;
 
       c = screen;
       // The tiles themselves, under everything but the page: bluer where a hit pays more.
@@ -758,12 +781,11 @@ export function Stage({
         c.beginPath();
         c.rect(0, plotTop(), w, plotBottom() - plotTop());
         c.clip();
-        const top = dark ? 0.12 : 0.072;
+        const most = dark ? 0.12 : 0.072;
         for (const tile of tiles) {
           if (tile.opacity < 0.01) continue;
-          const b = tileBox(tile);
-          roundRect(c, b.x0, b.y0, b.w, b.h, phone() ? 9 : 12);
-          c.fillStyle = rgba(pal.ink, top * Math.pow(height(tile.rung), 0.6) * tile.opacity);
+          roundRect(c, tile.x0, tile.y0, tile.width, tileH, phone() ? 9 : 12);
+          c.fillStyle = rgba(pal.ink, most * Math.pow(height(tile.rung), 0.6) * tile.opacity);
           c.fill();
         }
         c.restore();
@@ -881,8 +903,7 @@ export function Stage({
         c.rect(0, plotTop(), w, plotBottom() - plotTop());
         c.clip();
         if (underPen) {
-          const b = tileBox(underPen);
-          roundRect(c, b.x0 - 1, b.y0 - 1, b.w + 2, b.h + 2, phone() ? 10 : 13);
+          roundRect(c, underPen.x0 - 1, underPen.y0 - 1, underPen.width + 2, tileH + 2, phone() ? 10 : 13);
           c.fillStyle = rgba(pal.ink, 0.14);
           c.fill();
           c.strokeStyle = rgba(pal.ink);
@@ -891,19 +912,20 @@ export function Stage({
         }
         c.textAlign = "center";
         c.textBaseline = "middle";
-        const size = phone() ? 11 : 14;
+        const still = reducedMotion.matches;
+        let font = "";
         for (const tile of tiles) {
           if (tile.opacity < 0.01) continue;
-          const b = tileBox(tile);
-          const k = reducedMotion.matches ? 1 : Math.min(1, (ms - tile.changed) / 260);
+          const k = still ? 1 : Math.min(1, (ms - tile.changed) / 260);
           const eased = k * k * (3 - 2 * k);
           const write = (text: string, alpha: number) => {
             if (alpha < 0.01 || !text) return;
-            const m = parseFloat(text);
-            c.font = `${m >= 8 ? 600 : 500} ${size}px ${SANS}`;
+            const s = labelStyle(text);
+            // Set only when it differs: most neighbours share a face.
+            if (font !== s.font) c.font = font = s.font;
             c.globalAlpha = tile.opacity * alpha;
-            c.fillStyle = rgba(mix(pal!.faint, pal!.ink, height(m)));
-            c.fillText(text, b.x0 + b.w / 2, b.y0 + b.h / 2 + 0.5);
+            c.fillStyle = s.fill;
+            c.fillText(text, tile.x0 + tile.width / 2, tile.y0 + tileH / 2 + 0.5);
           };
           // A changed number goes out, then the new one comes in: never both at once, which read as a smudge.
           if (tile.was !== tile.text && eased < 1) {
