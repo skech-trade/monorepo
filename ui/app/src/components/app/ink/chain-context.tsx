@@ -62,6 +62,8 @@ const SESSION_ALLOWANCE = 100_000_000_000n;
 const deadline = () => BigInt(Math.floor(Date.now() / 1000) + 300);
 /** How often the wallet is looked at for USDC to move in, and how long to leave it after a move fails. */
 const SWEEP_MS = 4000;
+/** The longest it is left while the wallet keeps coming back empty. */
+const SWEEP_MAX_MS = 15_000;
 /** The least USDC moved in at once, in dollars: under it, a deposit costs more gas than it is worth. */
 export const MIN_DEPOSIT = 1;
 const SWEEP_BACKOFF_MS = 30_000;
@@ -246,14 +248,36 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     let alive = true;
     let busy = false;
     let pausedUntil = 0;
+    /*
+      Every few seconds while USDC may be on its way, then less often the longer the wallet stays empty, and not at
+      all while the page is hidden: it is looked at again the moment the page is back, which is when someone who
+      went to send it from elsewhere returns.
+    */
+    let wait = SWEEP_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const look = async () => {
-      if (busy || Date.now() < pausedUntil) return;
+      clearTimeout(timer);
+      if (busy || document.hidden) return;
+      if (Date.now() >= pausedUntil) await sweep();
+      if (alive && !document.hidden) timer = setTimeout(() => void look(), wait);
+    };
+    const back = () => {
+      if (document.hidden) return;
+      wait = SWEEP_MS;
+      void look();
+    };
+    document.addEventListener("visibilitychange", back);
+    const sweep = async () => {
       busy = true;
       try {
         const held = Number(await usdcBalance(player!)) / 1e6;
         if (!alive) return;
         setWallet(held);
-        if (held < MIN_DEPOSIT) return;
+        if (held < MIN_DEPOSIT) {
+          wait = Math.min(SWEEP_MAX_MS, wait * 1.5);
+          return;
+        }
+        wait = SWEEP_MS;
         setAdding(held);
         const before = saidRef.current;
         const why = await deposit(held);
@@ -277,10 +301,10 @@ export function ChainProvider({ children }: { children: ReactNode }) {
       }
     };
     void look();
-    const timer = setInterval(() => void look(), SWEEP_MS);
     return () => {
       alive = false;
-      clearInterval(timer);
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", back);
     };
   }, [live, player, deposit]);
 
