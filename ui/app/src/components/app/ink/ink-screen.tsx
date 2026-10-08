@@ -30,7 +30,7 @@ import { addChange, Ledger } from "./ledger";
 import { WalletButton } from "./wallet-button";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/analytics";
-import { fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
+import { firstAtOrAfter, fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
 import { HapticHost } from "./haptic-host";
 import { UpdateReady } from "./update-ready";
 import { TokenAvatar } from "@/components/app/token-avatar";
@@ -691,9 +691,9 @@ export function InkScreen() {
       }
       if (bet.status === "live") {
         const from = Math.min(...bet.cells.filter((d) => d.status === "live").map((d) => d.t));
-        for (let k = 0; k < bars.length; k++) {
+        // Straight to its first live second: the ten minutes of bars before it were walked on every trade.
+        for (let k = firstAtOrAfter(bars, from); k < bars.length; k++) {
           const bar = bars[k];
-          if (bar.t < from) continue;
           const before = bet;
           // From where the second before closed: a jump across the ink crosses it, as the line on the chart does.
           const prev = k > 0 && bars[k - 1].t === bar.t - 1000 ? bars[k - 1].c : undefined;

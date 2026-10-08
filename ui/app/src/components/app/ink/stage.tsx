@@ -102,7 +102,7 @@ export const fmtMultiple = (m: number) => `${Math.floor(m * 10 + 1e-8) / 10}×`;
 const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 
 /** The first index at or after time `t`, in a list kept in time order (bars and trades both are). */
-function firstAtOrAfter(list: readonly { t: number }[], t: number) {
+export function firstAtOrAfter(list: readonly { t: number }[], t: number) {
   let lo = 0;
   let hi = list.length;
   while (lo < hi) {
@@ -565,6 +565,28 @@ export function Stage({
       price did not go.
     */
     const glowLayer = document.createElement("canvas");
+    /*
+      Each drawing's hit and missed cells, and the newest second of each: sorted out once per judged bet (a bet is
+      replaced, never changed, when the price decides some of it), not filtered from all its cells twice a frame.
+    */
+    const decidedCells = new WeakMap<InkBet, { hits: InkBet["cells"]; misses: InkBet["cells"]; lastHit: number; lastMiss: number }>();
+    const decidedOf = (bet: InkBet) => {
+      let d = decidedCells.get(bet);
+      if (!d) {
+        d = { hits: [], misses: [], lastHit: -Infinity, lastMiss: -Infinity };
+        for (const q of bet.cells) {
+          if (q.status === "hit") {
+            d.hits.push(q);
+            d.lastHit = Math.max(d.lastHit, q.t);
+          } else if (q.status === "miss") {
+            d.misses.push(q);
+            d.lastMiss = Math.max(d.lastMiss, q.t);
+          }
+        }
+        decidedCells.set(bet, d);
+      }
+      return d;
+    };
 
     /** The price line's points, kept from frame to frame and written over rather than made anew. */
     const line: { x: number; y: number }[] = [];
@@ -683,10 +705,11 @@ export function Stage({
       }
       // Ink the price missed turns red as the price passes it, and fades, as a hit glows green.
       if (inked) for (const bet of g.bets) {
-        const misses = bet.cells.filter((q) => q.status === "miss" && at - (q.t + 1000) < 2200);
-        if (!misses.length) continue;
+        const d = decidedOf(bet);
+        if (at - (d.lastMiss + 1000) >= 2200) continue;
+        const misses = d.misses.filter((q) => at - (q.t + 1000) < 2200);
         const pad = (bet.edgeCells ?? 0) * bet.step * INK_CELL;
-        const age = Math.max(0, Math.min(1, (at - (Math.max(...misses.map((q) => q.t)) + 1000)) / 2200));
+        const age = Math.max(0, Math.min(1, (at - (d.lastMiss + 1000)) / 2200));
         c.save();
         c.beginPath();
         for (const q of misses) c.rect(x(q.t), y(q.hi + pad), pxMs() * 1000, y(q.lo - pad) - y(q.hi + pad));
@@ -697,8 +720,9 @@ export function Stage({
       }
       // Where the price ran through the ink, it glows green for a moment: there, and nowhere else.
       if (inked) for (const bet of g.bets) {
-        const hits = bet.cells.filter((q) => q.status === "hit" && at - (q.t + 1000) < 2200);
-        if (!hits.length) continue;
+        const d = decidedOf(bet);
+        if (at - (d.lastHit + 1000) >= 2200) continue;
+        const hits = d.hits.filter((q) => at - (q.t + 1000) < 2200);
         if (glowLayer.width !== el.width || glowLayer.height !== el.height) {
           glowLayer.width = el.width;
           glowLayer.height = el.height;
@@ -739,7 +763,7 @@ export function Stage({
         gl.setTransform(dpr, 0, 0, dpr, 0, 0);
         gl.fillRect(nx, 0, w - nx, h);
         gl.restore();
-        const age = Math.max(0, Math.min(1, (at - (Math.max(...hits.map((q) => q.t)) + 1000)) / 2200));
+        const age = Math.max(0, Math.min(1, (at - (d.lastHit + 1000)) / 2200));
         c.save();
         c.setTransform(1, 0, 0, 1, 0, 0);
         c.globalAlpha = 1 - age * age;
