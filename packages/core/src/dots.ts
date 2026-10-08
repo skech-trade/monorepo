@@ -388,14 +388,29 @@ export function field(lib: Library, f: Features, openAt: number, step: number, c
  * in. The same sums in the same order, so the result is exactly `field`'s. A phone, with no worker to hand the
  * map to, runs a few milliseconds of it a frame and has it inside the second without stalling the pen.
  */
-export function fieldJob(lib: Library, f: Features, openAt: number, step: number, cell = 0, edgeCells = 0): { run: (paths: number) => boolean; result: () => Field } {
-  const seconds = lib.seconds - 1;
+export function fieldJob(
+  lib: Library,
+  f: Features,
+  openAt: number,
+  step: number,
+  cell = 0,
+  edgeCells = 0,
+  /*
+    For the phone, which prices only bands (`rangeChanceOf`, from the CDFs) and only as far ahead as its screen:
+    `perRow: false` skips each fine row's own chance (`chance`, empty), most of the work; `seconds` stops early.
+    The rows are the full horizon's either way, so every CDF it does make is the full map's, bit for bit.
+  */
+  opts: { seconds?: number; perRow?: boolean } = {},
+): { run: (paths: number) => boolean; result: () => Field } {
+  const horizon = lib.seconds - 1;
+  const seconds = Math.max(1, Math.min(horizon, opts.seconds ?? horizon));
+  const perRow = opts.perRow ?? true;
   // Far enough to hold any move the paths make, and bounded to 512 fine rows either way for large viewports.
-  const reach = Math.min(512, Math.ceil((8 * f.sigma * f.price * Math.sqrt(seconds)) / step));
+  const reach = Math.min(512, Math.ceil((8 * f.sigma * f.price * Math.sqrt(horizon)) / step));
   const here = rowOf(f.price, step);
   const row0 = here - reach;
   const rows = reach * 2 + 1;
-  const acc = new Float64Array(seconds * rows);
+  const acc = new Float64Array(perRow ? seconds * rows : 0);
   const lowHistogram = new Float64Array(seconds * (rows + 2));
   const highHistogram = new Float64Array(seconds * (rows + 2));
   const w = weights(lib, f);
@@ -424,6 +439,7 @@ export function fieldJob(lib: Library, f: Features, openAt: number, step: number
         highHistogram[j * (rows + 2) + Math.min(rows + 1, Math.max(0, Math.floor(rawHigh / step) - row0 + 1))] += wi;
         lowHistogram[j * (rows + 2) + Math.min(rows + 1, Math.max(0, Math.ceil(rawLow / step) - row0))] += wi;
         prev = c;
+        if (!perRow) continue;
         const a = Math.max(0, lo);
         const b = Math.min(rows - 1, hi);
         for (let r = a; r <= b; r++) acc[j * rows + r] += wi;
@@ -441,8 +457,8 @@ export function fieldJob(lib: Library, f: Features, openAt: number, step: number
       where the estimate is thinnest.
     */
     const paths = sq > 0 ? (all * all) / sq : 0;
-    const chance = new Float32Array(seconds * rows);
-    if (all > 0 && paths > 0)
+    const chance = new Float32Array(perRow ? seconds * rows : 0);
+    if (perRow && all > 0 && paths > 0)
       for (let x = 0; x < acc.length; x++) {
         const p = acc[x] / all;
         chance[x] = p > 0 ? calibrate(p + (1 - p) / paths, cell) : 0;
@@ -469,7 +485,8 @@ export function fieldJob(lib: Library, f: Features, openAt: number, step: number
 export function chanceOf(fl: Field, d: Dot): number {
   const j = Math.round((d.t - fl.openAt) / 1000);
   const r = d.row - fl.row0;
-  if (j < 1 || j > fl.seconds || r < 0 || r >= fl.rows) return 0;
+  // A map made without each row's chance (`perRow: false`) has none to give.
+  if (j < 1 || j > fl.seconds || r < 0 || r >= fl.rows || !fl.chance.length) return 0;
   return fl.chance[(j - 1) * fl.rows + r];
 }
 

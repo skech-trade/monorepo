@@ -9,6 +9,8 @@ import { INK_EDGE_CELLS } from "@skech/core/ink";
  */
 
 const SLICE_MS = 5;
+/** How far ahead the phone's map reaches: the screen shows 15s, and a piece opens a second or two after it is drawn. */
+const PHONE_SECONDS = 20;
 /** A map that has taken this long gets longer slices: on a slow phone at a few milliseconds a frame it would never
  *  finish before the next second's map, and no tiles would ever show. */
 const BEHIND_MS = 600;
@@ -43,7 +45,8 @@ export class FieldMaker {
 
   private start(ask: FieldAsk) {
     setDifficulty(ask.difficulty);
-    const j = fieldJob(this.lib, ask.f, ask.at, ask.step, ask.cell, INK_EDGE_CELLS);
+    // Only what the phone prices with: bands (no per-row chances), as far ahead as the screen reaches.
+    const j = fieldJob(this.lib, ask.f, ask.at, ask.step, ask.cell, INK_EDGE_CELLS, { perRow: false, seconds: PHONE_SECONDS });
     this.job = { ask, run: j.run, result: j.result, began: performance.now() };
     if (!this.frame) this.frame = requestAnimationFrame(this.slice);
   }
