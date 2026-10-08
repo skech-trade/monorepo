@@ -4,13 +4,15 @@ import { Body, Kicker } from "@/components/site/type";
 import { Button } from "@/components/ui/button";
 
 /*
- * The pixel face, here and nowhere else: declared on this page, it is fetched
- * only by someone who lands on it. Square, the one cut the page uses.
+ * The pixel face, here and nowhere else, and not preloaded: the root 404 is
+ * part of every page's tree, so a preload would put it back on all of them.
+ * It is fetched when the number is drawn. Square, the one cut the page uses.
  */
 const pixel = localFont({
   src: "./_fonts/GeistPixel-Square.woff2",
   variable: "--font-pixel",
   weight: "500",
+  preload: false,
   fallback: ["Geist Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
   adjustFontFallback: false,
 });
