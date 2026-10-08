@@ -74,7 +74,8 @@ estimates, the worst estimate-to-limit ratio seen, and any slack added. Keep the
 - **Asking the RPC.** Every request waits on one budget, `SOLANA_RPC_RPS` a second (15 by default): sends first, then looking for transactions in flight, the blockhash and fee, players' reads, and the sweep last. A 429 stops them all for its `Retry-After`, or a doubling wait with jitter, and is logged at most every 30 s with a count; identical reads at once are one request (`src/solana/budget.ts`).
 - **Settling.** A second's bar goes in with the first dozen bets that have ink in it, and the rest settle on it in parallel transactions. Bets are closed as they are decided and the rent comes back. Every fifteen seconds, when nothing is due: IOUs, the house's IOUs, USDC swept in from wallets that approved it, and fees to the treasury.
 - **Wallet-signed transactions.** Sessions, deposits and withdrawals are `build` → wallet signs → `submit`; the relayer co-signs only a message it built. Players never hold SOL.
-- **Transactions per player** are their `Player` account's signatures, counted incrementally.
+- **Reading players.** A player's game account, the pool and their wallet's USDC are one `getMultipleAccounts`, made at most once a second for each player however many ask (the app, a settlement, a piece arriving; `src/solana/accounts.ts`). A piece's price signature is checked before anything is read for it, and an address with no game account is remembered as such for 30 s.
+- **Transactions per player** are their `Player` account's signatures, counted incrementally; for an address nobody is watching, one page of them every 30 s at most.
 
 `scripts/e2e-solana.ts` plays it end to end on a local validator against the live engine.
 

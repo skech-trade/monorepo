@@ -58,6 +58,7 @@ export class SolanaSequencer {
   private seen = new Set<Address>();
   private players = new Map<Address, { at: number; balance: bigint; allowance: bigint; key: Uint8Array; validUntil: bigint }>();
   private pending = new Map<Address, bigint>();
+  private since = new Map<Address, { at: number; balance: bigint; allowance: bigint }[]>();
   stats = { accepted: 0, placed: 0, refused: 0, turnedAway: {} as Record<string, number> };
 
   constructor(
@@ -79,20 +80,40 @@ export class SolanaSequencer {
     return NICE.filter((n) => n >= want / 2.5 && n <= want * 2.5).map((n) => toE8(unitFor(n)));
   }
 
+  /** A transaction of the player's own landed (a session, a deposit, a withdrawal): read their account afresh. */
   forget(player: Address) {
     this.players.delete(player);
+    this.chain.accounts.invalidate(player);
   }
   credit(player: Address, paid: bigint) {
     const c = this.players.get(player);
     if (c && paid > 0n) c.balance += paid;
+    if (paid > 0n) this.moved(player, paid, 0n);
+  }
+
+  /** What landed for a player, and when: a read made before it does not have it. */
+  private moved(player: Address, balance: bigint, allowance: bigint) {
+    const now = Date.now();
+    const recent = (this.since.get(player) ?? []).filter((x) => now - x.at < 5_000);
+    recent.push({ at: now, balance, allowance });
+    remember(this.since, player, recent, 20_000);
   }
 
   private async account(player: Address) {
     const c = this.players.get(player);
     if (c && Date.now() - c.at < 3_000) return c;
-    const p = await this.chain.player(player);
+    // Shared with the app's account reads: one a second for the player, whoever asks. A read up to a second old
+    // may be from before a placement or a payout landed: what landed since it began is added to it.
+    const s = await this.chain.accounts.get(player, 1_000);
+    const p = s.player;
     if (!p) return null;
-    const v = { at: Date.now(), balance: p.balance, allowance: p.session.allowance, key: new Uint8Array(getAddressEncoder().encode(p.session.key)), validUntil: p.session.validUntil };
+    let [balance, allowance] = [p.balance, p.session.allowance];
+    for (const x of this.since.get(player) ?? []) {
+      if (x.at <= s.at) continue;
+      balance += x.balance;
+      allowance += x.allowance;
+    }
+    const v = { at: Date.now(), balance, allowance, key: new Uint8Array(getAddressEncoder().encode(p.session.key)), validUntil: p.session.validUntil };
     remember(this.players, player, v, 20_000);
     return v;
   }
@@ -129,11 +150,9 @@ export class SolanaSequencer {
     if (receivedAt > openAt + this.cfg.lateMs) return bad("Too late for that second", bet);
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(stroke)));
     if (!digest.every((b, i) => b === piece.strokeHash[i])) return bad("Stroke does not match", bet);
-    const [priceOk, acct] = await Promise.all([
-      verifyPrice(this.engine.domain, this.engine.signer, this.cfg.marketName, piece.priceSeen, piece.priceTime, msg.priceSig),
-      this.account(piece.player).catch(() => null),
-    ]);
-    if (!priceOk) return bad("Price seen is not the engine's", bet);
+    // The price's signature first, here, for nothing: a piece anyone could make up is never read from the chain for.
+    if (!(await verifyPrice(this.engine.domain, this.engine.signer, this.cfg.marketName, piece.priceSeen, piece.priceTime, msg.priceSig))) return bad("Price seen is not the engine's", bet);
+    const acct = await this.account(piece.player).catch(() => null);
     if (!acct || acct.validUntil * 1000n <= BigInt(now)) return bad("No session", bet);
     if (!ed25519.verify(sig, pieceBytes(piece), acct.key)) return bad("Not signed by your session", bet);
     const held = this.pending.get(piece.player) ?? 0n;
@@ -273,6 +292,7 @@ export class SolanaSequencer {
             c.balance -= placed.staked;
             c.allowance -= placed.staked;
           }
+          this.moved(p.player, -placed.staked, -placed.staked);
           for (const s of placed.sections) this.settler.watch(e.bet, p.player, p.unit, { second: openAt + s.second * 1000, lo: s.lo, hi: s.hi, stake: s.stake, rung: s.rung });
           this.notify.placed({ betId: e.bet, player: p.player, drawing: String(p.drawing), index: p.index, openAt: BigInt(openAt), staked: placed.staked, fee: placed.fee, refunded: placed.refunded, sections: placed.sections, tx: sent.signature });
         } catch (err) {

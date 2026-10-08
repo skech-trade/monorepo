@@ -7,12 +7,14 @@
 import {
   type Address,
   appendTransactionMessageInstructions,
+  assertAccountExists,
   type Base64EncodedWireTransaction,
   compressTransactionMessageUsingAddressLookupTables,
   createKeyPairSignerFromBytes,
   createDefaultRpcTransport,
   createSolanaRpcFromTransport,
   createTransactionMessage,
+  fetchEncodedAccounts,
   getBase64Decoder,
   getBase64EncodedWireTransaction,
   getBase64Encoder,
@@ -31,7 +33,12 @@ import {
 } from "@solana/kit";
 import { fetchAddressLookupTable } from "@solana-program/address-lookup-table";
 import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from "@solana-program/compute-budget";
+import { decodeToken, findAssociatedTokenPda, TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import {
+  decodeGame,
+  decodeMarket,
+  decodePlayer,
+  decodePool,
   fetchGame,
   fetchMarket,
   fetchMaybePlayer,
@@ -55,6 +62,7 @@ import {
 } from "@skech/contracts/solana/sdk";
 import { remember } from "../limits";
 import type { SolanaConfig } from "./config";
+import { Accounts, type Snapshot } from "./accounts";
 import { Budget, budgeted } from "./budget";
 import { Confirmations, type Sent } from "./confirm";
 
@@ -103,6 +111,8 @@ export class SolanaChain {
   readonly confirmations: Confirmations;
   /** What every request to the RPC waits on (budget.ts). */
   readonly budget: Budget;
+  /** Each player's accounts, read at most once a second however many ask (accounts.ts). */
+  readonly accounts = new Accounts((wallet) => this.snapshot(wallet));
 
   constructor(readonly cfg: SolanaConfig, private readonly log: (s: string) => void) {
     this.budget = new Budget(cfg.rpcPerSec, log);
@@ -268,6 +278,21 @@ export class SolanaChain {
   async player(wallet: Address): Promise<Player | null> {
     const a = await fetchMaybePlayer(this.rpc, await playerAddress(wallet, this.cfg.deployment.program));
     return a.exists ? a.data : null;
+  }
+  /** The game's account and the market's difficulty, in one request. */
+  async terms(): Promise<[Game, number]> {
+    const [game, market] = await fetchEncodedAccounts(this.rpc, [this.cfg.deployment.game, this.cfg.deployment.market]);
+    assertAccountExists(game);
+    assertAccountExists(market);
+    return [decodeGame(game).data, decodeMarket(market).data.difficulty];
+  }
+  /** A player's game account, the pool and the USDC account in their wallet, in one request: see `accounts`. */
+  async snapshot(wallet: Address): Promise<Omit<Snapshot, "at">> {
+    const d = this.cfg.deployment;
+    const [pda, [ata]] = await Promise.all([playerAddress(wallet, d.program), findAssociatedTokenPda({ mint: d.usdcMint, owner: wallet, tokenProgram: TOKEN_PROGRAM_ADDRESS })]);
+    const [player, pool, token] = await fetchEncodedAccounts(this.rpc, [pda, d.pool, ata]);
+    assertAccountExists(pool);
+    return { player: player.exists ? decodePlayer(player).data : null, pool: decodePool(pool).data, token: token.exists ? decodeToken(token).data : null };
   }
   async lamports(): Promise<bigint> {
     return (await this.rpc.getBalance(this.signer.address).send()).value;

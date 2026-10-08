@@ -71,7 +71,7 @@ server.settler = settler;
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
 // The difficulty and the terms live on chain: follow them, and tell every app when they change.
 setInterval(() => {
-  void Promise.all([chain.game(), chain.difficulty()]).then(([g, d]) => {
+  void chain.terms().then(([g, d]) => {
     const changed = d !== sequencer.difficulty || json(g.config) !== json(game.config);
     if (d !== sequencer.difficulty) log(`difficulty is now ${d}`);
     setTerms(g, d);

@@ -11,7 +11,7 @@
  */
 import type { Server as BunServer, ServerWebSocket } from "bun";
 import { type Address, address, createNoopSigner, getBase16Decoder, type Instruction } from "@solana/kit";
-import { fetchMaybeToken, findAssociatedTokenPda, getApproveInstruction, getCreateAssociatedTokenIdempotentInstruction, TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
+import { fetchMaybeToken, findAssociatedTokenPda, getApproveInstruction, getCreateAssociatedTokenIdempotentInstruction, TOKEN_PROGRAM_ADDRESS, type Token } from "@solana-program/token";
 import { getDepositInstruction, getRevokeSessionInstruction, getSetSessionInstruction, getWithdrawInstruction, playerAddress } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
 import type { SolanaChain } from "./chain";
@@ -45,7 +45,7 @@ export class SolanaServer {
   settler: SolanaSettler | null = null;
   /** Transactions per player, counted from their account's signatures: fetched on demand, then kept up to date. */
   private sweeping = new Set<Address>();
-  private activity = new Map<Address, { at: number; txs: number; newest: string | null; recent: { signature: string; time: number | null }[] }>();
+  private activity = new Map<Address, { at: number; txs: number; newest: string | null; recent: { signature: string; time: number | null }[]; partial: boolean }>();
 
   constructor(
     private readonly cfg: SolanaConfig,
@@ -149,9 +149,11 @@ export class SolanaServer {
     for (const ws of this.byPlayer.get(player) ?? []) ws.send(text);
   }
 
-  private async sendAccount(player: Address, only?: ServerWebSocket<Data>) {
+  /** The player's account, no older than `maxAgeMs` (0: read after now), to `only` or to every socket watching them. */
+  private async sendAccount(player: Address, only?: ServerWebSocket<Data>, maxAgeMs = 0, missingMs = maxAgeMs) {
     try {
-      const [p, pool, wallet] = await Promise.all([this.chain.player(player), this.chain.pool(), this.walletUsdc(player)]);
+      const { player: p, pool, token } = await this.chain.accounts.get(player, maxAgeMs, missingMs);
+      const wallet = this.walletUsdc(token);
       const now = BigInt(Math.floor(Date.now() / 1000));
       const owed = p && p.iouShares > 0n ? (p.iouShares * (pool.iouIndexAt + pool.iouRate * (now - pool.iouTimeAt > 0n ? now - pool.iouTimeAt : 0n))) / 10n ** 18n : 0n;
       const msg = {
@@ -170,12 +172,10 @@ export class SolanaServer {
   }
 
   /** The USDC in the player's own wallet, and how much of it the game may sweep in. */
-  private async walletUsdc(player: Address) {
-    const [ata] = await findAssociatedTokenPda({ mint: this.cfg.deployment.usdcMint, owner: player, tokenProgram: TOKEN_PROGRAM_ADDRESS });
-    const t = await fetchMaybeToken(this.chain.rpc, ata);
-    if (!t.exists) return { usdc: 0n, approved: 0n };
-    const approved = t.data.delegate.__option === "Some" && t.data.delegate.value === this.cfg.deployment.game ? t.data.delegatedAmount : 0n;
-    return { usdc: t.data.amount, approved };
+  private walletUsdc(t: Token | null) {
+    if (!t) return { usdc: 0n, approved: 0n };
+    const approved = t.delegate.__option === "Some" && t.delegate.value === this.cfg.deployment.game ? t.delegatedAmount : 0n;
+    return { usdc: t.amount, approved };
   }
 
   /** Every message, checked (wire.ts) before it is handled; whatever goes wrong in handling it is answered, never thrown. */
@@ -210,7 +210,8 @@ export class SolanaServer {
         let set = this.byPlayer.get(player);
         if (!set) this.byPlayer.set(player, (set = new Set()));
         set.add(ws);
-        return void this.sendAccount(player, ws);
+        // A second-old read will do; an address with no game account is answered from one up to 30 s old.
+        return void this.sendAccount(player, ws, 1_000, 30_000);
       }
       case "account":
         if (ws.data.player) return void this.sendAccount(ws.data.player, ws);
@@ -282,8 +283,8 @@ export class SolanaServer {
     const wallet = createNoopSigner(player);
     const playerPda = await playerAddress(player, d.program);
     const [ata] = await findAssociatedTokenPda({ mint: d.usdcMint, owner: player, tokenProgram: TOKEN_PROGRAM_ADDRESS });
-    const [p, held] = await Promise.all([this.chain.player(player), fetchMaybeToken(this.chain.rpc, ata)]);
-    const inWallet = held.exists ? held.data.amount : 0n;
+    const { player: p, token: held } = await this.chain.accounts.get(player, 1_000);
+    const inWallet = held ? held.amount : 0n;
     const min = this.cfg.minMoveE6;
     const ixs: Instruction[] = [];
     let units = 60_000;
@@ -299,7 +300,7 @@ export class SolanaServer {
         // Optionally, a standing approval: USDC that lands in the wallet is swept into the balance by itself. Only on
         // the token account the wallet has: one opened for it would be rent it could close and keep.
         const approve = big(msg.approve);
-        if (approve !== null && approve > 0n && held.exists) {
+        if (approve !== null && approve > 0n && held) {
           ixs.push(getApproveInstruction({ source: ata, delegate: d.game, owner: wallet, amount: approve }));
           approved = true;
           units = 90_000;
@@ -321,7 +322,7 @@ export class SolanaServer {
         if (!p || p.balance < amount) throw new Error("Not that much in your balance");
         if (amount < min && amount !== p.balance) throw new Error(`At least ${usdc(min)} USDC, or all of it`);
         const [toAta] = await findAssociatedTokenPda({ mint: d.usdcMint, owner: to, tokenProgram: TOKEN_PROGRAM_ADDRESS });
-        if (!(to === player ? held : await fetchMaybeToken(this.chain.rpc, toAta)).exists) ixs.push(getCreateAssociatedTokenIdempotentInstruction({ payer: me, ata: toAta, owner: to, mint: d.usdcMint }));
+        if (!(to === player ? held : (await fetchMaybeToken(this.chain.rpc, toAta)).exists)) ixs.push(getCreateAssociatedTokenIdempotentInstruction({ payer: me, ata: toAta, owner: to, mint: d.usdcMint }));
         ixs.push(getWithdrawInstruction({ authority: wallet, game: d.game, player: playerPda, to: toAta, vault: d.vault, usdcMint: d.usdcMint, tokenProgram: TOKEN_PROGRAM_ADDRESS, amount }));
         units = 80_000;
         break;
@@ -338,12 +339,21 @@ export class SolanaServer {
 
   private async countActivity(player: Address) {
     const pda = await playerAddress(player, this.cfg.deployment.program);
-    const c = this.activity.get(player) ?? { at: 0, txs: 0, newest: null, recent: [] };
-    if (Date.now() - c.at > 10_000) {
+    const explorer = this.cfg.net.explorer("address", pda);
+    // An address nobody here watches is asked about cheaply: not at all while it has no game account (known for
+    // 30 s at a time), and one page of its history, every 30 s at most.
+    const watched = this.byPlayer.has(player);
+    if (!watched && !(await this.chain.accounts.get(player, 1_000, 30_000)).player) return { txs: 0, recent: [], explorer, counting: false, progress: 1 };
+    let c = this.activity.get(player);
+    if (Date.now() - (c?.at ?? 0) > (watched ? 10_000 : 30_000)) {
+      // Counted only in part before: counted again from the start.
+      if (!c || c.partial) c = { at: 0, txs: 0, newest: null, recent: [], partial: false };
       // Newer signatures than we had, page by page: every transaction that touched the player's account.
+      const pages = watched ? 20 : 1;
       let before: string | undefined;
+      let more = false;
       const fresh: { signature: string; time: number | null }[] = [];
-      for (let page = 0; page < 20; page++) {
+      for (let page = 0; page < pages; page++) {
         const sigs = await this.chain.rpc
           .getSignaturesForAddress(pda, { limit: 1000, ...(before ? { before: before as never } : {}), ...(c.newest ? { until: c.newest as never } : {}) })
           .send()
@@ -351,13 +361,16 @@ export class SolanaServer {
         fresh.push(...sigs.map((s) => ({ signature: s.signature as string, time: s.blockTime === null ? null : Number(s.blockTime) })));
         if (sigs.length < 1000) break;
         before = sigs.at(-1)!.signature;
+        more = !watched && page === pages - 1;
       }
       c.txs += fresh.length;
-      if (fresh.length) c.newest = fresh[0].signature;
+      // Where a count in part stopped is not where the next may start: it is not kept.
+      if (fresh.length && !more) c.newest = fresh[0].signature;
+      c.partial = more;
       c.recent = [...fresh, ...c.recent].slice(0, 20);
       c.at = Date.now();
       remember(this.activity, player, c, 20_000);
     }
-    return { txs: c.txs, recent: c.recent, explorer: this.cfg.net.explorer("address", pda), counting: false, progress: 1 };
+    return { txs: c!.txs, recent: c!.recent, explorer, counting: c!.partial, progress: c!.partial ? 0 : 1 };
   }
 }
