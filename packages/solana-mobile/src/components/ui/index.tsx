@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { XIcon } from "lucide-react-native";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Platform, Pressable, type PressableProps, ScrollView, Switch as RNSwitch, Text, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Pressable, type PressableProps, ScrollView, Switch as RNSwitch, Text, useWindowDimensions, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { G, Path } from "react-native-svg";
 import { useDark } from "@/lib/theme";
@@ -68,7 +68,8 @@ export function Sheet({ open, onClose, title, description, children, scroll = tr
   const Body = scroll ? ScrollView : View;
   return (
     <Modal animationType="none" onRequestClose={onClose} statusBarTranslucent transparent visible={shown}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} className="flex-1 justify-end">
+      {/* Padding on Android too: inside a Modal, drawn edge to edge, the window is not resized for the keyboard, so it would cover the field. */}
+      <KeyboardAvoidingView behavior="padding" className="flex-1 justify-end">
         <Animated.View className="absolute inset-0 bg-black/30" style={{ opacity: a }}>
           <Pressable accessibilityLabel="Close" className="flex-1" onPress={onClose} />
         </Animated.View>
