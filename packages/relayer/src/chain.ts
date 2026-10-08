@@ -131,6 +131,8 @@ export class ChainClient {
   readonly ledger = new Ledger();
   /** The base fee as last seen, and when. */
   private baseFee: bigint | null = null;
+  /** The latest block's number, from following the base fee, and when it was seen. */
+  private head: { number: bigint; at: number } | null = null;
   /** Basis points over the model per kind of call, widened when a limit proved short. */
   private slack = new Map<Shape["kind"], bigint>();
   private sends = 0;
@@ -145,7 +147,10 @@ export class ChainClient {
       this.gasStats.throttled++;
       if (throttled++ % 20 === 0) log(`rpc: ${redact(cfg.rpcUrl)} is rate limiting (${method}); waiting it out. A private RPC in MONAD_RPC_URL, or a higher plan, avoids this`);
     });
-    this.pub = createPublicClient({ chain: this.chain, transport });
+    // Reads made together (an account's balance, session, IOUs and nonce; the pool and the fees) are one eth_call
+    // through Multicall3, not one request each: a batch of JSON-RPC calls still counts each against the limit. A chain
+    // without Multicall3 (anvil) reads them one by one.
+    this.pub = createPublicClient({ chain: this.chain, transport, batch: { multicall: true } });
     this.wallet = createWalletClient({ chain: this.chain, transport, account: this.account });
     this.nonces = new Nonces(this.pub, this.account.address);
   }
@@ -161,6 +166,7 @@ export class ChainClient {
     try {
       const block = await this.pub.getBlock({ blockTag: "latest" });
       if (block.baseFeePerGas !== null && block.baseFeePerGas !== undefined) this.baseFee = block.baseFeePerGas;
+      this.head = { number: block.number, at: Date.now() };
     } catch (e) {
       this.log(`base fee: ${String((e as Error).message ?? e).split("\n")[0]}`);
     }
@@ -178,6 +184,12 @@ export class ChainClient {
   }
 
   /* ---- reads ---- */
+
+  /** The latest block's number: the one the base fee came with if it is under `maxAgeMs` old, else asked for. */
+  async blockNumber(maxAgeMs = 2_500): Promise<bigint> {
+    if (this.head && Date.now() - this.head.at <= maxAgeMs) return this.head.number;
+    return this.pub.getBlockNumber();
+  }
 
   read<T>(fn: string, args: unknown[] = [], address: Address = this.cfg.game, abi: Abi = GAME_ABI) {
     return this.pub.readContract({ address, abi, functionName: fn, args }) as Promise<T>;

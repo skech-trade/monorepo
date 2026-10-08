@@ -24,7 +24,9 @@ app ──ws /ws──> relayer ──eth_sendRawTransactionSync──> SkechGam
   proposed block. Nothing is asked of the node between deciding to send and sending: the gas limit comes
   from `src/gas.ts` and the base fee is followed in the background. Nonces are taken and transactions signed
   one at a time; a send that times out is waited on by its hash, its bytes sent again, never sent again under
-  a new nonce (both could land). A nonce that went unused is filled once every other is accounted for.
+  a new nonce (both could land). A nonce that went unused is filled once every other is accounted for. Reads made
+  together (an account's balance, session, IOUs and nonce) are one `eth_call` through Multicall3, and the activity
+  count follows the block the base fee was read with rather than asking for its own.
 - `src/rpc.ts`: Monad's public RPC allows 15 requests a second and turns the rest away with error -32011,
   which viem does not retry. This waits it out (five tries, under 2.5 s), so a throttled send goes again
   with the same bytes instead of failing and losing its nonce. Set `MONAD_TESTNET_RPC_URL` (or `MONAD_MAINNET_RPC_URL`) to a private RPC for
