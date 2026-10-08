@@ -66,6 +66,8 @@ export const scfg = {
   /** Priority fee, micro-lamports per compute unit: a fixed one, or what recent blocks paid to write the pool, capped. */
   priorityFixed: env("SOLANA_PRIORITY_MICROLAMPORTS") ? Number(env("SOLANA_PRIORITY_MICROLAMPORTS")) : null,
   priorityMax: Number(env("SOLANA_PRIORITY_MAX_MICROLAMPORTS") ?? (net.cluster === "mainnet-beta" ? 2_000_000 : 50_000)),
+  /** Requests a second the relayer asks of its RPC, all told (budget.ts): under the plan's limit, which bills per request on mainnet. */
+  rpcPerSec: Math.max(1, Number(env("SOLANA_RPC_RPS") ?? 15) || 15),
   /** Bets settled in one transaction: two accounts each, 32 bytes a key, in 1232 bytes. */
   betsPerSettle: 12,
 };

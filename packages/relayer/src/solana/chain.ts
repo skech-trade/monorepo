@@ -10,7 +10,8 @@ import {
   type Base64EncodedWireTransaction,
   compressTransactionMessageUsingAddressLookupTables,
   createKeyPairSignerFromBytes,
-  createSolanaRpc,
+  createDefaultRpcTransport,
+  createSolanaRpcFromTransport,
   createTransactionMessage,
   getBase64Decoder,
   getBase64EncodedWireTransaction,
@@ -54,6 +55,7 @@ import {
 } from "@skech/contracts/solana/sdk";
 import { remember } from "../limits";
 import type { SolanaConfig } from "./config";
+import { Budget, budgeted } from "./budget";
 import { Confirmations, type Sent } from "./confirm";
 
 type Blockhash = { blockhash: Parameters<typeof setTransactionMessageLifetimeUsingBlockhash>[0]["blockhash"]; lastValidBlockHeight: bigint };
@@ -99,9 +101,12 @@ export class SolanaChain {
   stats = { sent: 0, landed: 0, failed: 0, expired: 0, rebroadcasts: 0 };
   /** Every transaction in flight, looked for in one request. */
   readonly confirmations: Confirmations;
+  /** What every request to the RPC waits on (budget.ts). */
+  readonly budget: Budget;
 
   constructor(readonly cfg: SolanaConfig, private readonly log: (s: string) => void) {
-    this.rpc = createSolanaRpc(cfg.rpcUrl);
+    this.budget = new Budget(cfg.rpcPerSec, log);
+    this.rpc = createSolanaRpcFromTransport(budgeted(createDefaultRpcTransport({ url: cfg.rpcUrl }), this.budget, cfg.rpcUrl));
     this.confirmations = new Confirmations(
       {
         statuses: (signatures, searchTransactionHistory) =>
