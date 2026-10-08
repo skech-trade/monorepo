@@ -50,9 +50,28 @@ const OPEN_BY_MS = 900;
 const CLOSE_AFTER_MS = 600;
 const CHAIN_ANSWER_MS = 8000;
 /** The chain's name for a drawing: 64 bits of the line's id. */
+// A sha256 in JavaScript for every bet on every price batch was a thousand hashes a second: each line's is kept.
+const drawingIds = new Map<string, bigint>();
 const drawingIdOf = (line: string) => {
-  const h = sha256(new TextEncoder().encode(line));
-  return new DataView(h.buffer, h.byteOffset).getBigUint64(0, true);
+  let id = drawingIds.get(line);
+  if (id === undefined) {
+    const h = sha256(new TextEncoder().encode(line));
+    id = new DataView(h.buffer, h.byteOffset).getBigUint64(0, true);
+    if (drawingIds.size > 2000) drawingIds.clear();
+    drawingIds.set(line, id);
+  }
+  return id;
+};
+/** The first bar at or after `t`, by halving: bars are a second apart and in order. */
+const firstBarFrom = (bars: { t: number }[], t: number) => {
+  let lo = 0,
+    hi = bars.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].t < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 };
 /** Whether this build plays for real money: a way to sign in. Without one it plays for practice, as the web does without a game. */
 const forReal = hasAuth || Platform.OS === "android";
@@ -254,6 +273,7 @@ export function InkScreen() {
     if (!lib) return;
     let asked = "";
     let pendingId = 0;
+    let lastFeatures: { key: string; f: ReturnType<typeof features> } = { key: "", f: null as unknown as ReturnType<typeof features> };
     // The newest map shown: the maker finishes a map before starting the next, so one a second or two behind still
     // comes in, and is better than none on a slow phone.
     let shown = 0;
@@ -281,7 +301,10 @@ export function InkScreen() {
         return;
       }
       const at = Math.floor((nowMs - OPEN_AFTER_MS) / 1000) * 1000;
-      const f = features(g.bars, at);
+      // The market's features, once a second rather than every 100ms tick: only the second's map uses them.
+      const featureKey = `${at}:${g.bars.at(-1)?.t}`;
+      if (featureKey !== lastFeatures.key) lastFeatures = { key: featureKey, f: features(g.bars, at) };
+      const f = lastFeatures.f;
       if (!f) return;
       const want = stepFor(f.sigma, f.price);
       if (!g.drawing) {
@@ -427,7 +450,7 @@ export function InkScreen() {
     let changed = false;
     for (let i = 0; i < g.bets.length; i++) {
       let bet = g.bets[i];
-      const key = keyOf(drawingIdOf(bet.group ?? bet.id), pieceIndexOf(bet.id));
+      const key = chainRef.current.real ? keyOf(drawingIdOf(bet.group ?? bet.id), pieceIndexOf(bet.id)) : "";
       const onChain = chainRef.current.real ? chainBets.current.has(key) : false;
       if (bet.status === "opening" && onChain) {
         if (nowMs >= bet.openAt + CHAIN_ANSWER_MS) {
@@ -454,8 +477,9 @@ export function InkScreen() {
         changed = true;
       }
       if (bet.status === "live") {
-        const from = Math.min(...bet.cells.filter((d) => d.status === "live").map((d) => d.t));
-        for (let k = 0; k < bars.length; k++) {
+        let from = Infinity;
+        for (const d of bet.cells) if (d.status === "live" && d.t < from) from = d.t;
+        for (let k = firstBarFrom(bars, from); k < bars.length; k++) {
           const bar = bars[k];
           if (bar.t < from) continue;
           const before = bet;

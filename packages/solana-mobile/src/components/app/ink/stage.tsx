@@ -1,5 +1,6 @@
 import { BlendMode, Canvas, ClipOp, matchFont, PaintStyle, Picture, Skia, StrokeCap, StrokeJoin, TileMode, type SkCanvas, type SkFont, type SkPaint, type SkPath, type SkPicture } from "@shopify/react-native-skia";
-import { type RefObject, useEffect, useRef } from "react";
+import { grouped } from "@/lib/money";
+import { memo, type RefObject, useEffect, useMemo, useRef } from "react";
 import { type LayoutChangeEvent, Platform, View } from "react-native";
 import { Gesture, GestureDetector, State } from "react-native-gesture-handler";
 import { useReducedMotion, useSharedValue } from "react-native-reanimated";
@@ -78,7 +79,7 @@ const height = (m: number) => Math.min(1, Math.max(0, Math.log2(m) / 7));
 
 /** Show the maximum return per section, rounded down to a tenth. */
 export const fmtMultiple = (m: number) => `${Math.floor(m * 10 + 1e-8) / 10}×`;
-const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
+const fmtPrice = (p: number, cents: boolean) => grouped(p, cents ? 2 : 0);
 
 export type Placed = string | { stop: string } | null;
 const whyOf = (r: Placed) => (r && typeof r === "object" ? r.stop : r);
@@ -153,7 +154,11 @@ const EMPTY = (() => {
   return r.finishRecordingAsPicture();
 })();
 
-export function Stage({
+/*
+  Memoised: the screen around it re-renders on every price batch and preview, and the stage draws from refs, not
+  props, so it has nothing to do then.
+*/
+export const Stage = memo(function Stage({
   game,
   onPlace,
   onPreview,
@@ -187,7 +192,15 @@ export function Stage({
     const W = () => size.current.w;
     const H = () => size.current.h;
     const phone = () => W() < 640;
-    const layout = () => drawingLayout(W(), H(), game.current.marketStep);
+    // Asked for thousands of times a frame (every x(), y(), nowX()…): made again only when what it is made from changes.
+    let laid: { w: number; h: number; step: number; it: ReturnType<typeof drawingLayout> } | null = null;
+    const layout = () => {
+      const w = W(),
+        h = H(),
+        step = game.current.marketStep;
+      if (!laid || laid.w !== w || laid.h !== h || laid.step !== step) laid = { w, h, step, it: drawingLayout(w, h, step) };
+      return laid.it;
+    };
     const nowX = () => layout().nowX;
     const pxMs = () => layout().pxMs;
     const pitchY = CHART_STEP_PX;
@@ -443,7 +456,9 @@ export function Stage({
       if (!centre) centre = p;
       const off = (p - centre) / g.step;
       const rowsOnScreen = (plotBottom() - plotTop()) / pitchY;
-      if (!pen) centre += (p - centre) * ease(Math.abs(off) > rowsOnScreen * 0.3 ? 0.0077 : Math.abs(off) > rowsOnScreen * 0.12 ? 0.00183 : 0.00036);
+      // The view follows the price: within ~0.6s when it is near the middle, ~0.2s further out, at once near the edge.
+      // (It was ~2.8s near the middle, and the tiles lagged the price for seconds.)
+      if (!pen) centre += (p - centre) * ease(Math.abs(off) > rowsOnScreen * 0.3 ? 0.02 : Math.abs(off) > rowsOnScreen * 0.12 ? 0.005 : 0.0016);
       const fl = g.field;
       if (fl && (map.field !== fl || map.pen !== gPen() || map.width !== w || map.height !== h || map.step !== g.step)) paintMap(fl);
       const nx = nowX();
@@ -719,19 +734,24 @@ export function Stage({
     };
   }, [game, picture]);
 
-  const pan = Gesture.Pan()
-    .minDistance(0)
-    .shouldCancelWhenOutside(false)
-    .runOnJS(true)
-    .onBegin((e) => handlers.current?.down(e.x, e.y))
-    .onUpdate((e) => handlers.current?.move(e.x, e.y))
-    .onEnd((e) => handlers.current?.up(e.x, e.y))
-    // A tap never moves far enough to activate the pan: it ends as failed, and is the finger lifting all the same.
-    // Only the system taking the touch back (a notification pulled down, say) is a cancel.
-    .onFinalize((e) => {
-      if (e.state === State.CANCELLED) handlers.current?.cancel();
-      else handlers.current?.up(e.x, e.y);
-    });
+  // Made once: a new gesture each render had the gesture handler reconfigure natively, up to 40 times a second.
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(0)
+        .shouldCancelWhenOutside(false)
+        .runOnJS(true)
+        .onBegin((e) => handlers.current?.down(e.x, e.y))
+        .onUpdate((e) => handlers.current?.move(e.x, e.y))
+        .onEnd((e) => handlers.current?.up(e.x, e.y))
+        // A tap never moves far enough to activate the pan: it ends as failed, and is the finger lifting all the same.
+        // Only the system taking the touch back (a notification pulled down, say) is a cancel.
+        .onFinalize((e) => {
+          if (e.state === State.CANCELLED) handlers.current?.cancel();
+          else handlers.current?.up(e.x, e.y);
+        }),
+    [],
+  );
 
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height: h } = e.nativeEvent.layout;
@@ -748,4 +768,4 @@ export function Stage({
       </View>
     </GestureDetector>
   );
-}
+});
