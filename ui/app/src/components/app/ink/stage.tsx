@@ -163,15 +163,14 @@ export function Stage({
     const el = canvas.current!;
     const screen = el.getContext("2d")!;
     /*
-      Layers, so the ink can sit over the chart: the chart is painted on the
+      A layer, so the ink can sit over the chart: the chart is painted on the
       canvas, the ink on a layer of its own (its spent ink is rubbed out
-      there without touching the chart), and the multiples on another, laid
-      over the ink. The pen and what hits paid go on top of all of it.
+      there without touching the chart), laid over it. The multiples, the pen
+      and what hits paid go on top, straight onto the canvas. With no ink on
+      the screen the layer is not drawn at all: each one is a full-screen copy.
     */
     const inkLayer = document.createElement("canvas");
-    const labelLayer = document.createElement("canvas");
     const inkCtx = inkLayer.getContext("2d")!;
-    const labelCtx = labelLayer.getContext("2d")!;
     let c = screen;
     const onLayer = (layer: HTMLCanvasElement, ctx: CanvasRenderingContext2D) => {
       if (layer.width !== el.width || layer.height !== el.height) { layer.width = el.width; layer.height = el.height; }
@@ -602,7 +601,6 @@ export function Stage({
       }
       const nx = nowX();
 
-      onLayer(inkLayer, inkCtx);
       /*
         The ink first, so it can be softened and rubbed out before anything
         else is drawn. Ink is solid while it is in play; ink that is not
@@ -623,6 +621,9 @@ export function Stage({
         }
         renderedGroups = [...groups.values()];
       }
+      // No pen and no drawing on the chart (a hit or a miss is always in one): no ink, and no layer to clear and lay over.
+      const inked = !!pen || renderedGroups.length > 0;
+      if (inked) onLayer(inkLayer, inkCtx);
       for (const group of renderedGroups) {
         if (group.id !== pen?.drawing) {
           // The whole line faint, as ink too soon is while drawing, then solid wherever it is in play:
@@ -652,13 +653,15 @@ export function Stage({
       // Keep settled cells in the mask; deleting misses tears holes in the stroke.
       // Ink the price has passed is spent: it ends at the price line. Faded
       // over the chart behind it, it read as a smudge, not as ink.
-      c.save();
-      c.globalCompositeOperation = "destination-out";
-      c.fillStyle = "#000";
-      c.fillRect(0, 0, nx, h);
-      c.restore();
+      if (inked) {
+        c.save();
+        c.globalCompositeOperation = "destination-out";
+        c.fillStyle = "#000";
+        c.fillRect(0, 0, nx, h);
+        c.restore();
+      }
       // Ink the price missed turns red as the price passes it, and fades, as a hit glows green.
-      for (const bet of g.bets) {
+      if (inked) for (const bet of g.bets) {
         const misses = bet.cells.filter((q) => q.status === "miss" && at - (q.t + 1000) < 2200);
         if (!misses.length) continue;
         const pad = (bet.edgeCells ?? 0) * bet.step * INK_CELL;
@@ -672,7 +675,7 @@ export function Stage({
         c.restore();
       }
       // Where the price ran through the ink, it glows green for a moment: there, and nowhere else.
-      for (const bet of g.bets) {
+      if (inked) for (const bet of g.bets) {
         const hits = bet.cells.filter((q) => q.status === "hit" && at - (q.t + 1000) < 2200);
         if (!hits.length) continue;
         if (glowLayer.width !== el.width || glowLayer.height !== el.height) {
@@ -747,48 +750,6 @@ export function Stage({
         tile.opacity += (visible - tile.opacity) * ease(0.012);
       }
       const underPen = tip ? tiles.find(tile => { const b = tileBox(tile); return tile.rung && tip.x >= b.x0 - 2 && tip.x <= b.x0 + b.w + 2 && tip.y >= b.y0 - 2 && tip.y <= b.y0 + b.h + 2; }) : undefined;
-
-      // The multiples, over the ink.
-      onLayer(labelLayer, labelCtx);
-      if (tiles.length) {
-        c.save();
-        c.beginPath();
-        c.rect(0, plotTop(), w, plotBottom() - plotTop());
-        c.clip();
-        if (underPen) {
-          const b = tileBox(underPen);
-          roundRect(c, b.x0 - 1, b.y0 - 1, b.w + 2, b.h + 2, phone() ? 10 : 13);
-          c.fillStyle = rgba(pal.ink, 0.14);
-          c.fill();
-          c.strokeStyle = rgba(pal.ink);
-          c.lineWidth = 1.5;
-          c.stroke();
-        }
-        c.textAlign = "center";
-        c.textBaseline = "middle";
-        const size = phone() ? 11 : 14;
-        for (const tile of tiles) {
-          if (tile.opacity < 0.01) continue;
-          const b = tileBox(tile);
-          const k = reducedMotion.matches ? 1 : Math.min(1, (ms - tile.changed) / 260);
-          const eased = k * k * (3 - 2 * k);
-          const write = (text: string, alpha: number) => {
-            if (alpha < 0.01 || !text) return;
-            const m = parseFloat(text);
-            c.font = `${m >= 8 ? 600 : 500} ${size}px ${SANS}`;
-            c.globalAlpha = tile.opacity * alpha;
-            c.fillStyle = rgba(mix(pal!.faint, pal!.ink, height(m)));
-            c.fillText(text, b.x0 + b.w / 2, b.y0 + b.h / 2 + 0.5);
-          };
-          // A changed number goes out, then the new one comes in: never both at once, which read as a smudge.
-          if (tile.was !== tile.text && eased < 1) {
-            if (eased < 0.5) write(tile.was, 1 - eased * 2);
-            else write(tile.text, eased * 2 - 1);
-          } else write(tile.text, 1);
-        }
-        c.globalAlpha = 1;
-        c.restore();
-      }
 
       c = screen;
       // The tiles themselves, under everything but the page: bluer where a hit pays more.
@@ -905,12 +866,54 @@ export function Stage({
       c.fillStyle = rgba(pal.muted);
       for (let s = 0; s <= VIEW_SECONDS; s += 5) c.fillText(s ? `${s}s` : "Now", nx + s * 1000 * pxMs(), axisY + 14);
 
-      // The ink over the chart, and the multiples over the ink.
-      c.save();
-      c.setTransform(1, 0, 0, 1, 0, 0);
-      c.drawImage(inkLayer, 0, 0);
-      c.drawImage(labelLayer, 0, 0);
-      c.restore();
+      // The ink over the chart.
+      if (inked) {
+        c.save();
+        c.setTransform(1, 0, 0, 1, 0, 0);
+        c.drawImage(inkLayer, 0, 0);
+        c.restore();
+      }
+
+      // The multiples, over the ink.
+      if (tiles.length) {
+        c.save();
+        c.beginPath();
+        c.rect(0, plotTop(), w, plotBottom() - plotTop());
+        c.clip();
+        if (underPen) {
+          const b = tileBox(underPen);
+          roundRect(c, b.x0 - 1, b.y0 - 1, b.w + 2, b.h + 2, phone() ? 10 : 13);
+          c.fillStyle = rgba(pal.ink, 0.14);
+          c.fill();
+          c.strokeStyle = rgba(pal.ink);
+          c.lineWidth = 1.5;
+          c.stroke();
+        }
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        const size = phone() ? 11 : 14;
+        for (const tile of tiles) {
+          if (tile.opacity < 0.01) continue;
+          const b = tileBox(tile);
+          const k = reducedMotion.matches ? 1 : Math.min(1, (ms - tile.changed) / 260);
+          const eased = k * k * (3 - 2 * k);
+          const write = (text: string, alpha: number) => {
+            if (alpha < 0.01 || !text) return;
+            const m = parseFloat(text);
+            c.font = `${m >= 8 ? 600 : 500} ${size}px ${SANS}`;
+            c.globalAlpha = tile.opacity * alpha;
+            c.fillStyle = rgba(mix(pal!.faint, pal!.ink, height(m)));
+            c.fillText(text, b.x0 + b.w / 2, b.y0 + b.h / 2 + 0.5);
+          };
+          // A changed number goes out, then the new one comes in: never both at once, which read as a smudge.
+          if (tile.was !== tile.text && eased < 1) {
+            if (eased < 0.5) write(tile.was, 1 - eased * 2);
+            else write(tile.text, eased * 2 - 1);
+          } else write(tile.text, 1);
+        }
+        c.globalAlpha = 1;
+        c.restore();
+      }
       // The pen: a soft ring around the nib, and the nib.
       if (tip) {
         c.beginPath();
