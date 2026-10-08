@@ -128,8 +128,14 @@ sudo chown root:root /opt/skech && sudo chmod 755 /opt/skech
 sudo install -m 755 -o root -g root /tmp/backup-relayer.sh /usr/local/sbin/skech-backup-relayer
 sudo install -m 644 /tmp/*.service /tmp/*.timer /etc/systemd/system/ && sudo systemctl daemon-reload
 sudo systemctl enable -q --now skech-backup.timer
-# Restart if a reload fails: once, the running Caddy is one whose admin API was on localhost:2019.
-sudo install -m 644 /tmp/Caddyfile /etc/caddy/Caddyfile && (sudo systemctl reload caddy || sudo systemctl restart caddy)
+# Caddy only when its routes changed: every socket through it is the price of a reload (eased by stream_close_delay),
+# and most deploys change none. Restart if a reload fails: once, the running Caddy is one whose admin API was on
+# localhost:2019. A Caddy that is not running is started either way.
+if ! sudo cmp -s /tmp/Caddyfile /etc/caddy/Caddyfile; then
+  sudo install -m 644 /tmp/Caddyfile /etc/caddy/Caddyfile && (sudo systemctl reload caddy || sudo systemctl restart caddy)
+elif ! systemctl is-active -q caddy; then
+  sudo systemctl restart caddy
+fi
 sudo systemctl reset-failed skech-engine skech-relayer skech-relayer-solana 2>/dev/null || true
 sudo systemctl restart skech-engine skech-relayer
 if [ -f /etc/skech/solana ]; then sudo systemctl enable -q skech-relayer-solana; sudo systemctl restart skech-relayer-solana; fi
