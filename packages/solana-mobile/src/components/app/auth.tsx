@@ -50,7 +50,8 @@ const transact: typeof Transact = (...args) => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return (require("@solana-mobile/mobile-wallet-adapter-protocol") as { transact: typeof Transact }).transact(...args);
 };
-const IDENTITY = { name: "skech", uri: "https://skech.trade", icon: "favicon.ico" };
+// www, not the bare domain: that redirects, and a wallet checks this site's .well-known/assetlinks.json for this app and its key.
+const IDENTITY = { name: "skech", uri: "https://www.skech.trade", icon: "icon.png" };
 const MWA_KEY = "skech:mwa";
 type Saved = { address: string; authToken: string; cluster: string };
 const b64ToBase58 = (b64: string) => getAddressDecoder().decode(Uint8Array.from(Buffer.from(b64, "base64")));
@@ -154,6 +155,7 @@ function Publish({ children }: { children: ReactNode }) {
       sendCode: async (e) => {
         try {
           const r = await signInWithEmail({ email: e.trim() });
+          console.info("sign-in: a code went out by email, sign-in", r.flowId);
           setFlow({ id: r.flowId, by: "email" });
           return null;
         } catch (err) {
@@ -163,6 +165,7 @@ function Publish({ children }: { children: ReactNode }) {
       sendSms: async (phone) => {
         try {
           const r = await signInWithSms({ phoneNumber: phone });
+          console.info("sign-in: a code went out by text, sign-in", r.flowId);
           setFlow({ id: r.flowId, by: "sms" });
           return null;
         } catch (err) {
@@ -177,6 +180,9 @@ function Publish({ children }: { children: ReactNode }) {
           setFlow(null);
           return null;
         } catch (err) {
+          console.warn("sign-in: the code was not accepted", err);
+          // Coinbase answers a wrong code with a bare 401, and every send starts a new sign-in with its own code: say which one counts.
+          if ((err as { statusCode?: number }).statusCode === 401) return `That code didn't match. Use the one in the newest ${flow.by === "sms" ? "text" : "email"}, or tap Resend code.`;
           return String((err as Error).message ?? err);
         }
       },

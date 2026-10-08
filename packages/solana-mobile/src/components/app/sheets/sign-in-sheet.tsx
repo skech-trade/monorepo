@@ -1,6 +1,7 @@
 import { LockIcon, MailIcon, PhoneIcon, WalletIcon, XIcon } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, Modal, Pressable, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccount } from "@/components/app/auth";
 import { useColors } from "@/components/ui";
@@ -131,8 +132,8 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
 
   return (
     <Modal animationType="none" onRequestClose={onClose} statusBarTranslucent transparent visible={shown}>
-      {/* Padding on Android too: inside a Modal, drawn edge to edge, the window is not resized for the keyboard, so it would cover the field. */}
-      <KeyboardAvoidingView behavior="padding" className="flex-1 justify-end">
+      {/* keyboard-controller's: React Native's own misreads the keyboard inside a Modal on Android, which hid the field. */}
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: "flex-end" }}>
         <Animated.View className="absolute inset-0 bg-black/30" style={{ opacity: a }}>
           <Pressable accessibilityLabel="Close" className="flex-1" onPress={onClose} />
         </Animated.View>
@@ -159,10 +160,12 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
                 }}
                 value={code}
               />
+              {/* Why the code was refused: without it the boxes just emptied, as if asking again. */}
+              {error ? <Text className="-mt-1 text-center text-[14px] text-destructive-foreground">{error}</Text> : null}
               <Pressable className={cn("h-[46px] items-center justify-center rounded-full bg-brand", (code.length !== 6 || busy) && "opacity-40")} disabled={code.length !== 6 || !!busy} onPress={() => void verify(code)}>
                 {busy === "verify" ? <ActivityIndicator color="#fff" /> : <Text className="font-medium text-[16px] text-white">Continue</Text>}
               </Pressable>
-              <Pressable className="items-center py-1" onPress={() => void run("resend", () => (step.to.includes("@") ? me.sendCode(email) : me.sendSms(e164())))}>
+              <Pressable className="items-center py-1" disabled={!!busy} onPress={() => void run("resend", () => (step.to.includes("@") ? me.sendCode(email) : me.sendSms(e164())))}>
                 <Text className="text-[15px] text-brand">{busy === "resend" ? "Sending…" : "Resend code"}</Text>
               </Pressable>
               <Pressable className="items-center" onPress={() => setStep(step.to.includes("@") ? { kind: "email" } : { kind: "phone" })}>
@@ -180,7 +183,7 @@ export function SignInSheet({ open, onClose }: { open: boolean; onClose: () => v
                   keyboardType="email-address"
                   label="Email address"
                   onChangeText={setEmail}
-                  onSubmitEditing={() => emailOk && void run("email", () => me.sendCode(email)).then((why) => !why && setStep({ kind: "code", to: email.trim() }))}
+                  onSubmitEditing={() => emailOk && !busy && void run("email", () => me.sendCode(email)).then((why) => !why && setStep({ kind: "code", to: email.trim() }))}
                   placeholder="name@example.com"
                   returnKeyType="go"
                   textContentType="emailAddress"
