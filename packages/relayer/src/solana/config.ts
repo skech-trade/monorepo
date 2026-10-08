@@ -56,8 +56,11 @@ export const scfg = {
   lateMs: 200,
   /** How far ahead of now a piece's opening second may be. */
   aheadMs: 1500,
-  /** Sweep IOUs, deposits and fees this often. */
-  sweepEveryMs: 15_000,
+  /**
+   * Sweep IOUs, deposits and fees this often, in full. A wallet is swept at once when its app says USDC landed in it,
+   * or when it approves the game; IOUs and fees can wait a few minutes.
+   */
+  sweepEveryMs: 300_000,
   collectAboveE6: 1_000_000n,
   /** The least a deposit or withdrawal the relayer pays for may move, USDC e6 (a withdrawal of the whole balance always goes): the app's least deposit. */
   minMoveE6: 1_000_000n,

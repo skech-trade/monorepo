@@ -14,6 +14,7 @@ import {
   createDefaultRpcTransport,
   createSolanaRpcFromTransport,
   createTransactionMessage,
+  type EncodedAccount,
   fetchEncodedAccounts,
   getBase64Decoder,
   getBase64EncodedWireTransaction,
@@ -97,6 +98,8 @@ export function customCode(err: unknown): number | null {
 
 export class SolanaChain {
   readonly rpc: Rpc<SolanaRpcApi>;
+  /** The same RPC, for the sweep's reads: they wait behind everything players are waiting on. */
+  readonly sweepRpc: Rpc<SolanaRpcApi>;
   signer!: KeyPairSigner;
   private table: Record<Address, Address[]> = {};
   private hash: Blockhash | null = null;
@@ -116,7 +119,9 @@ export class SolanaChain {
 
   constructor(readonly cfg: SolanaConfig, private readonly log: (s: string) => void) {
     this.budget = new Budget(cfg.rpcPerSec, log);
-    this.rpc = createSolanaRpcFromTransport(budgeted(createDefaultRpcTransport({ url: cfg.rpcUrl }), this.budget, cfg.rpcUrl));
+    const http = createDefaultRpcTransport({ url: cfg.rpcUrl });
+    this.rpc = createSolanaRpcFromTransport(budgeted(http, this.budget, cfg.rpcUrl));
+    this.sweepRpc = createSolanaRpcFromTransport(budgeted(http, this.budget, cfg.rpcUrl, "sweep"));
     this.confirmations = new Confirmations(
       {
         statuses: (signatures, searchTransactionHistory) =>
@@ -285,6 +290,14 @@ export class SolanaChain {
     assertAccountExists(game);
     assertAccountExists(market);
     return [decodeGame(game).data, decodeMarket(market).data.difficulty];
+  }
+  /** Accounts in as few requests as `getMultipleAccounts` allows, 100 to one: null for one that is not there. */
+  async many<T>(addresses: Address[], decode: (a: EncodedAccount) => T, rpc: Rpc<SolanaRpcApi> = this.rpc): Promise<(T | null)[]> {
+    const out: (T | null)[] = [];
+    for (let i = 0; i < addresses.length; i += 100) {
+      for (const a of await fetchEncodedAccounts(rpc, addresses.slice(i, i + 100))) out.push(a.exists ? decode(a) : null);
+    }
+    return out;
   }
   /** A player's game account, the pool and the USDC account in their wallet, in one request: see `accounts`. */
   async snapshot(wallet: Address): Promise<Omit<Snapshot, "at">> {
