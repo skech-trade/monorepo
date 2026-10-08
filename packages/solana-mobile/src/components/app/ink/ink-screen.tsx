@@ -513,10 +513,11 @@ export function InkScreen() {
           // Ink the price passed by: what it staked, shown as lost there, in red, as a hit shows what it paid.
           const missNow = bet.cells.filter((d, kk) => d.status === "miss" && before.cells[kk].status !== "miss");
           if (missNow.length && nowMs - (bar.t + 1000) < 3000) {
-            const lost = Math.floor(missNow.reduce((a, d) => a + bet.perUnit * (isArea(bet.model) ? d.area : 1), 0) * 100 + 1e-8) / 100;
-            const lo = Math.min(...missNow.map((d) => d.lo));
-            const hi = Math.max(...missNow.map((d) => d.hi));
-            if (lost > 0) g.fx.push({ kind: "miss", t: missNow[0].t + 500, price: (lo + hi) / 2, born: performance.now(), text: `\u2212${money(lost)}`, loss: true, line: bet.group ?? bet.id });
+            // One small red amount per dot, at that dot: what it cost. At most 8 a second, so a long miss stays readable.
+            for (const d of missNow.slice(0, 8)) {
+              const lost = Math.floor(bet.perUnit * (isArea(bet.model) ? d.area : 1) * 100 + 1e-8) / 100;
+              if (lost > 0) g.fx.push({ kind: "miss", t: d.t + 500, price: (d.lo + d.hi) / 2, born: performance.now(), text: `\u2212${money(lost)}`, loss: true, line: bet.group ?? bet.id });
+            }
             if (performance.now() - missFelt.current > 700) {
               missFelt.current = performance.now();
               feel("miss");
@@ -872,10 +873,10 @@ export function InkScreen() {
         <View className={cn("absolute z-20", overWon ? "inset-x-0 items-center" : "right-4")} key={over.key} pointerEvents="none" style={{ bottom: bottom + 78 }}>
           <Arrive motion={overBig ? MOTION.cardBig : overWon ? MOTION.cardIn : MOTION.cardSoft}>
             <View className={cn("border-[0.5px] bg-raised", overWon ? "items-center rounded-[20px] px-[22px] py-2.5" : "items-end rounded-2xl px-[18px] py-[9px]", overBig ? "border-success-foreground" : "border-border")} style={raised}>
-              {/* Just the round's result: profit or loss, and how much. */}
+              {/* Just the round's result: a win shows everything that came back, a loss what it lost. */}
               <Text className={cn("text-muted-foreground", overWon ? "text-[13px]" : "text-[12px]")}>{overWon ? "Profit" : overNet < 0 ? "Loss" : "Even"}</Text>
               <Text className={cn("font-bold", overWon ? "text-success-foreground" : overNet < 0 ? "text-destructive-foreground" : "text-foreground", overBig ? "text-[32px]" : overWon ? "text-[26px]" : "text-[18px] font-semibold")} style={{ fontVariant: ["tabular-nums"] }}>
-                {signed(overNet)}
+                {overWon ? `+${money(over.won)}` : signed(overNet)}
               </Text>
             </View>
           </Arrive>
