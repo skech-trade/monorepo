@@ -160,6 +160,7 @@ export class RelayerClient {
     const sock = new WebSocket(this.url);
     this.ws = sock;
     sock.onopen = () => {
+      console.info(`[relayer] connected to ${this.url}`);
       this.backoff = 500;
       this.connected = true;
       if (this.player) this.send({ type: "watch", player: this.player });
@@ -173,9 +174,11 @@ export class RelayerClient {
         return;
       }
       if (m.type === "hello") this.hello = m;
+      trace(m);
       this.emit(m);
     };
-    sock.onclose = () => {
+    sock.onclose = (e) => {
+      if (!this.stopped) console.warn(`[relayer] connection closed (${e.code}${e.reason ? ` ${e.reason}` : ""}); trying again in ${this.backoff}ms`);
       if (this.ws === sock) this.connected = false;
       if (this.stopped || this.ws !== sock) return;
       setTimeout(() => this.connect(), this.backoff);
@@ -223,4 +226,35 @@ export function useRelayer(player: string | null, enabled: boolean) {
 function fail(kind: string, at: "build" | "sign" | "submit", why: string): { ok: false; why: string } {
   console.warn(`wallet transaction: ${kind} failed at ${at}:`, why);
   return { ok: false, why };
+}
+
+/**
+ * What the relayer says about this player's pieces and money, in the log: on a phone in someone's hand this is the
+ * only way to see why a line was refused or never landed. Prices and the chart's stream are left out; they are many.
+ */
+function trace(m: Incoming) {
+  switch (m.type) {
+    case "hello":
+      console.info(`[relayer] hello: ${m.cluster} ${m.label}, game ${m.game}, difficulty ${m.difficulty}, relayer ${m.relayer}`);
+      break;
+    case "ack":
+      if (m.ok) console.info(`[relayer] piece ${m.drawing}:${m.index} taken${m.betId ? `, bet ${m.betId}` : ""}`);
+      else console.warn(`[relayer] piece ${m.drawing}:${m.index} refused: ${m.why}`);
+      break;
+    case "placed":
+      console.info(`[relayer] placed ${m.drawing}:${m.index} as bet ${m.betId}: staked ${m.staked}, fee ${m.fee}, refunded ${m.refunded}, ${m.sections.length} sections, tx ${m.tx}`);
+      break;
+    case "refused":
+      console.warn(`[relayer] piece ${m.drawing}:${m.index} not placed on chain: ${m.why}${m.tx ? `, tx ${m.tx}` : ""}`);
+      break;
+    case "settled":
+      console.info(`[relayer] settled bet ${m.betId}: hits ${m.hitMask}, misses ${m.missMask}, paid ${m.paid}, owed ${m.owed}, tx ${m.tx}`);
+      break;
+    case "account":
+      console.info(`[relayer] account: balance ${m.balance}, session ${m.session ? `${m.session.key} until ${m.session.validUntil}, allowance ${m.session.allowance}` : "none"}`);
+      break;
+    case "error":
+      if (m.why) console.warn(`[relayer] error: ${m.why}`);
+      break;
+  }
 }

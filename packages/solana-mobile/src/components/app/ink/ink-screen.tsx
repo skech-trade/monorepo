@@ -90,6 +90,7 @@ function sendPiece(ch: Chain, { piece, wire }: ReturnType<typeof pieceFor>, stro
   void (async () => {
     try {
       const sig = key.sign(pieceBytes(piece));
+      console.info(`[ink] sending piece ${wire.drawing}:${piece.index}: opens ${piece.openAt}, ${piece.sections.length} sections, ${piece.perDot} per dot`);
       const ack = await ch.client.request({ type: "piece", piece: wire, sessionSig: hexOf(sig), priceSig, stroke: hexOf(stroke) }, (m): m is Extract<Incoming, { type: "ack" }> => m.type === "ack" && m.drawing === wire.drawing && m.index === piece.index, 10_000);
       if (!ack || !ack.ok) fail(ack?.why ?? "No answer. Your money is back.");
     } catch (e) {
@@ -381,7 +382,7 @@ export function InkScreen() {
         setReturnedInk({ id: sent.id, amount: cents(sent.stakeUsd) });
         updateTotals();
       }
-      if (__DEV__) console.warn(`[ink] piece ${sent.id} not placed: ${why}`);
+      console.warn(`[ink] piece ${sent.id} not placed: ${why}`);
     },
     [updateTotals, resend],
   );
