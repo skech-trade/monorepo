@@ -44,6 +44,8 @@ export type RefusedMsg = { type: "refused"; betId?: string; player: string; draw
 export type SettledMsg = { type: "settled"; betId: string; player: string; hitMask: number; missMask: number; paid: string; owed: string; closed: boolean; tx: string };
 export type AckMsg = { type: "ack"; ok: boolean; betId?: string; why?: string; drawing?: string; index?: number };
 export type ActivityMsg = { type: "activity"; player: string | null; txs: number; recent: { signature: string; time: number | null }[]; explorer?: string; counting: boolean; progress: number };
+/** What the wallet signs and the relayer pays for. */
+export type Kind = "session" | "deposit" | "withdraw" | "revoke";
 export type BuiltMsg = { type: "built"; kind: string; id?: string; tx?: string; ok?: false; why?: string };
 export type SubmittedMsg = { type: "submitted"; id: string; kind?: string; ok: boolean; tx?: string; why?: string };
 export type Incoming =
@@ -116,18 +118,35 @@ export class RelayerClient {
    * A transaction the wallet signs and the relayer pays for: built there, signed here by `sign` (Coinbase's
    * embedded wallet or a Mobile Wallet Adapter wallet), sent there. What went wrong, if anything.
    */
-  async transact(kind: "session" | "deposit" | "withdraw" | "revoke", params: Record<string, unknown>, sign: (base64: string) => Promise<string>): Promise<{ ok: true; tx: string } | { ok: false; why: string }> {
-    const built = await this.request({ type: "build", kind, player: this.player, ...params }, (m): m is BuiltMsg => m.type === "built" && m.kind === kind, 15_000);
-    if (!built?.id || !built.tx) return { ok: false, why: built?.why ?? "The relayer did not answer" };
-    let signed: string;
+  async transact(kind: Kind, params: Record<string, unknown>, sign: (base64: string) => Promise<string>): Promise<{ ok: true; tx: string } | { ok: false; why: string }> {
+    return this.transactAll([{ kind, params }], async ([t]) => [await sign(t)]);
+  }
+
+  /**
+   * Several, signed together and sent in order: a wallet on the phone opens once for all of them, not once each,
+   * which otherwise reads as the wallet never handing back. Stops at the first that fails.
+   */
+  async transactAll(steps: { kind: Kind; params: Record<string, unknown> }[], signAll: (base64s: string[]) => Promise<string[]>): Promise<{ ok: true; tx: string } | { ok: false; why: string }> {
+    const built: BuiltMsg[] = [];
+    for (const { kind, params } of steps) {
+      const b = await this.request({ type: "build", kind, player: this.player, ...params }, (m): m is BuiltMsg => m.type === "built" && m.kind === kind, 15_000);
+      if (!b?.id || !b.tx) return { ok: false, why: b?.why ?? "The relayer did not answer" };
+      built.push(b);
+    }
+    let signed: string[];
     try {
-      signed = await sign(built.tx);
+      signed = await signAll(built.map((b) => b.tx!));
     } catch (e) {
       return { ok: false, why: String((e as Error).message ?? e) || "Not signed" };
     }
-    const done = await this.request({ type: "submit", id: built.id, tx: signed, ...(params.approve ? { approve: true } : {}) }, (m): m is SubmittedMsg => m.type === "submitted" && m.id === built.id, 60_000);
-    if (!done) return { ok: false, why: "No answer from the chain" };
-    return done.ok && done.tx ? { ok: true, tx: done.tx } : { ok: false, why: done.why ?? "Not sent" };
+    let last = "";
+    for (const [i, b] of built.entries()) {
+      const done = await this.request({ type: "submit", id: b.id, tx: signed[i], ...(steps[i].params.approve ? { approve: true } : {}) }, (m): m is SubmittedMsg => m.type === "submitted" && m.id === b.id, 60_000);
+      if (!done) return { ok: false, why: "No answer from the chain" };
+      if (!done.ok || !done.tx) return { ok: false, why: done.why ?? "Not sent" };
+      last = done.tx;
+    }
+    return { ok: true, tx: last };
   }
 
   /** Follow one player's account and bets. */

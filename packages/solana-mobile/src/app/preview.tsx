@@ -26,6 +26,7 @@ export default function Preview() {
     email: "swayam@ns.com",
     signOut: () => undefined,
     signTransaction: async (t) => t,
+    signTransactions: async (ts) => ts,
     sendCode: async () => null,
     sendSms: async () => null,
     verify: async () => null,

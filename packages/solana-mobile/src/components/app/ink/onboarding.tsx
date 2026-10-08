@@ -34,12 +34,13 @@ export function useOnboarding(live: number): { step: Step; setupError: string | 
   else if (!chain.sessionOk) step = "setup";
 
   // The drawing key registers by itself, once, the moment there is money to draw with; a failure shows the card.
+  // Not for a wallet on the phone: that would open the wallet unasked, so the card asks first.
   const tried = useRef(false);
   useEffect(() => {
-    if (step !== "setup" || tried.current || chain.registering || !chain.key) return;
+    if (step !== "setup" || tried.current || chain.registering || !chain.key || me.kind === "wallet") return;
     tried.current = true;
     void chain.enableSession().then((why) => why && setSetupError(why));
-  }, [step, chain]);
+  }, [step, chain, me.kind]);
   const retrySetup = () => {
     setSetupError(null);
     void chain.enableSession().then((why) => why && setSetupError(why));
@@ -74,13 +75,17 @@ export function Pill({ children, onPress, top }: { children: React.ReactNode; on
 export function Onboarding({ step, setupError, retrySetup, top }: ReturnType<typeof useOnboarding> & { top: number }) {
   const gate = useGate();
   const chain = useChain();
+  const me = useAccount();
+  const wallet = me.kind === "wallet";
   if (step === null || step === "signin" || step === "connecting") return null;
-  if (step === "setup" && setupError) {
+  if (step === "setup" && (setupError || wallet)) {
     return (
       <View className="absolute inset-0 z-20 items-center justify-center px-4" pointerEvents="box-none">
         <View className="w-full max-w-[360px] rounded-[28px] bg-raised p-6" style={raised}>
           <Text className="font-semibold text-[22px] text-foreground">One last step.</Text>
-          <Text className="mt-1.5 text-[15px] text-muted-foreground">Let this phone place your drawings.</Text>
+          <Text className="mt-1.5 text-[15px] text-muted-foreground">
+            {wallet ? "Approve once in your wallet, and this phone places your drawings without opening it each time." : "Let this phone place your drawings."}
+          </Text>
           <Button className="mt-5" disabled={chain.registering} onPress={retrySetup}>
             {chain.registering ? (
               <View className="flex-row items-center gap-2">
@@ -88,10 +93,10 @@ export function Onboarding({ step, setupError, retrySetup, top }: ReturnType<typ
                 <Text className="font-semibold text-base text-primary-foreground">Getting ready…</Text>
               </View>
             ) : (
-              "Allow"
+              wallet ? "Approve in wallet" : "Allow"
             )}
           </Button>
-          <Text className="mt-3 text-center text-destructive-foreground text-sm">That didn&rsquo;t go through. Try again.</Text>
+          {setupError ? <Text className="mt-3 text-center text-destructive-foreground text-sm">That didn&rsquo;t go through. Try again.</Text> : null}
         </View>
       </View>
     );

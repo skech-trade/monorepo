@@ -34,6 +34,8 @@ export type Account = {
   signOut: () => void;
   /** Sign a transaction (base64, the relayer's), returning it signed (base64). */
   signTransaction: (base64: string) => Promise<string>;
+  /** Several at once, in order: a wallet on the phone signs them all in one visit rather than opening once each. */
+  signTransactions: (base64s: string[]) => Promise<string[]>;
   /** Coinbase: send a one-time code to an email or a phone (E.164); then `verify` it. What went wrong, or null. */
   sendCode: (email: string) => Promise<string | null>;
   sendSms: (phone: string) => Promise<string | null>;
@@ -65,6 +67,9 @@ export const AccountContext = createContext<Account>({
   signTransaction: async () => {
     throw new Error("Not signed in");
   },
+  signTransactions: async () => {
+    throw new Error("Not signed in");
+  },
   sendCode: async () => "Sign-in is not set up in this build",
   sendSms: async () => "Sign-in is not set up in this build",
   verify: async () => "Sign-in is not set up in this build",
@@ -87,8 +92,8 @@ function useMobileWallet() {
       return String((e as Error).message ?? e) || "The wallet said no";
     }
   }, []);
-  const sign = useCallback(
-    async (base64: string) => {
+  const signAll = useCallback(
+    async (base64s: string[]) => {
       if (!saved) throw new Error("No wallet connected");
       return transact(async (wallet) => {
         const auth = await wallet.reauthorize({ auth_token: saved.authToken, identity: IDENTITY }).catch(() => wallet.authorize({ identity: IDENTITY, chain: CHAIN }));
@@ -97,17 +102,18 @@ function useMobileWallet() {
           writeJson(MWA_KEY, s);
           setSaved(s);
         }
-        const { signed_payloads } = await wallet.signTransactions({ payloads: [base64] });
-        return signed_payloads[0];
+        const { signed_payloads } = await wallet.signTransactions({ payloads: base64s });
+        return signed_payloads;
       });
     },
     [saved],
   );
+  const sign = useCallback(async (base64: string) => (await signAll([base64]))[0], [signAll]);
   const disconnect = useCallback(() => {
     storage.delete(MWA_KEY);
     setSaved(null);
   }, []);
-  return { saved, connect, sign, disconnect };
+  return { saved, connect, sign, signAll, disconnect };
 }
 
 /** Reads Coinbase's hooks. Only ever mounted inside their provider. */
@@ -151,6 +157,13 @@ function Publish({ children }: { children: ReactNode }) {
       signTransaction: async (base64) => {
         if (coinbase) return (await signSolanaTransaction({ solanaAccount: solanaAddress!, transaction: base64 })).signedTransaction;
         return mwa.sign(base64);
+      },
+      signTransactions: async (base64s) => {
+        if (!coinbase) return mwa.signAll(base64s);
+        // Coinbase signs in the app without asking, so one at a time costs nothing.
+        const out: string[] = [];
+        for (const t of base64s) out.push((await signSolanaTransaction({ solanaAccount: solanaAddress!, transaction: t })).signedTransaction);
+        return out;
       },
       sendCode: async (e) => {
         try {
@@ -206,6 +219,7 @@ function WalletOnly({ children }: { children: ReactNode }) {
       email: null,
       signOut: mwa.disconnect,
       signTransaction: mwa.sign,
+      signTransactions: mwa.signAll,
       sendCode: async () => "Email sign-in is not set up in this build",
       sendSms: async () => "Phone sign-in is not set up in this build",
       verify: async () => "Email sign-in is not set up in this build",
