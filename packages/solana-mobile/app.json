@@ -11,8 +11,12 @@
       "bundleIdentifier": "trade.skech.app",
       "supportsTablet": false,
       "infoPlist": {
-        "NSCameraUsageDescription": "To scan an address to withdraw to."
-      }
+        "NSCameraUsageDescription": "To scan an address to withdraw to.",
+        "NSFaceIDUsageDescription": "To confirm withdrawals and protect your skech keys."
+      },
+      "associatedDomains": [
+        "applinks:www.skech.trade"
+      ]
     },
     "android": {
       "package": "trade.skech.app",
@@ -24,7 +28,8 @@
         "android.permission.CAMERA",
         "android.permission.VIBRATE",
         "android.permission.INTERNET",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.USE_BIOMETRIC"
       ],
       "intentFilters": [
         {
@@ -52,14 +57,20 @@
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.FOREGROUND_SERVICE_MICROPHONE"
       ],
-      "versionCode": 1
+      "versionCode": 1,
+      "allowBackup": false
     },
     "web": {
       "output": "static"
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "To confirm withdrawals and protect your skech keys."
+        }
+      ],
       "expo-web-browser",
       "expo-asset",
       "expo-font",
@@ -68,6 +79,12 @@
         {
           "cameraPermission": "To scan an address to withdraw to.",
           "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "To confirm withdrawals and protect your skech keys."
         }
       ],
       "./plugins/with-release-signing",
