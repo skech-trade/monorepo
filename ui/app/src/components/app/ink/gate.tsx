@@ -2,24 +2,24 @@
 
 import dynamic from "next/dynamic";
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
-import { hasAuth } from "@/components/app/auth";
+import { useSignIn } from "@/components/app/auth";
 import { track } from "@/lib/analytics";
 
 /**
  * The way to money while the game plays on: tap the game without a balance
- * and this opens, signed in or not. Signed out it is Coinbase's sign-in;
+ * and this opens, signed in or not. Signed out it is Privy's sign-in;
  * signed in, the deposit sheet (deposit-modal.tsx); from the account menu,
  * the withdrawal (withdraw-sheet.tsx).
  *
- * The three sheets are always mounted, as the deposit sheet has to be to
+ * The two sheets are always mounted, as the deposit sheet has to be to
  * open itself when a deposit lands, but their code (the QR code, the
- * camera's scanner, Coinbase's panel) is not in the page's first load: each
- * comes in its own chunk once the page is up.
+ * camera's scanner) is not in the page's first load: each comes in its own
+ * chunk once the page is up. Privy's panel is mounted by auth.tsx, likewise
+ * after the page.
  */
 
 const DepositModal = dynamic(() => import("./deposit-modal").then((m) => m.DepositModal), { ssr: false });
 const WithdrawSheet = dynamic(() => import("./withdraw-sheet").then((m) => m.WithdrawSheet), { ssr: false });
-export const SignInModal = dynamic(() => import("@coinbase/cdp-react/components/SignInModal").then((m) => m.SignInModal), { ssr: false });
 
 /** `"tap"`: opened because a tap on the game could not be played. Those are counted: see FOUNDERS_AFTER. */
 type Gate = { openDeposit: (why?: "tap" | "short") => void; openSignIn: (from?: string) => void; openWithdraw: () => void };
@@ -50,7 +50,7 @@ const writeTaps = (n: number) => {
 
 export function GateProvider({ children }: { children: ReactNode }) {
   const [deposit, setDeposit] = useState(false);
-  const [signIn, setSignIn] = useState(false);
+  const signIn = useSignIn();
   // Read once, at start: on the server there is no storage and it is 0; the sheet is closed there anyway.
   const [taps, setTaps] = useState(readTaps);
   const openDeposit = useCallback((why?: "tap" | "short") => {
@@ -64,8 +64,8 @@ export function GateProvider({ children }: { children: ReactNode }) {
   }, []);
   const openSignIn = useCallback((from = "button") => {
     track("sign_in_opened", { from });
-    setSignIn(true);
-  }, []);
+    signIn();
+  }, [signIn]);
   const [withdraw, setWithdraw] = useState(false);
   const openWithdraw = useCallback(() => setWithdraw(true), []);
   const gate = useMemo(() => ({ openDeposit, openSignIn, openWithdraw }), [openDeposit, openSignIn, openWithdraw]);
@@ -82,11 +82,6 @@ export function GateProvider({ children }: { children: ReactNode }) {
         stuck={taps >= FOUNDERS_AFTER}
       />
       <WithdrawSheet onOpenChange={setWithdraw} open={withdraw} />
-      {hasAuth ? (
-        <SignInModal open={signIn} setIsOpen={setSignIn}>
-          <span hidden />
-        </SignInModal>
-      ) : null}
     </GateCtx.Provider>
   );
 }

@@ -12,9 +12,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
-    "@coinbase/cdp-core": "^0.0.126",
-    "@coinbase/cdp-hooks": "^0.0.126",
-    "@coinbase/cdp-react": "^0.0.126",
+    "@privy-io/react-auth": "^3.48.0",
     "@sentry/nextjs": "^11.1.0",
     "@skech/core": "workspace:*",
     "class-variance-authority": "^0.7.1",
