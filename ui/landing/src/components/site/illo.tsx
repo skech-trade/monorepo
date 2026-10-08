@@ -1,9 +1,13 @@
-import Image from "next/image";
+import Image, { getImageProps, type StaticImageData } from "next/image";
 import { cn } from "@/lib/utils";
 import heroLeft from "../../../public/assets/illo/hero-left.png";
 import heroLeftDark from "../../../public/assets/illo/hero-left-dark.png";
 import heroRightDark from "../../../public/assets/illo/hero-right-dark.png";
 import heroRight from "../../../public/assets/illo/hero-right.png";
+import heroLeftWebp from "../../../public/assets/illo/hero-left.webp";
+import heroLeftDarkWebp from "../../../public/assets/illo/hero-left-dark.webp";
+import heroRightDarkWebp from "../../../public/assets/illo/hero-right-dark.webp";
+import heroRightWebp from "../../../public/assets/illo/hero-right.webp";
 import heroPhone from "../../../public/assets/illo/mobile-hero.png";
 import cta from "../../../public/assets/illo/cta-scene.png";
 import band from "../../../public/assets/illo/band-cast.png";
@@ -19,6 +23,14 @@ import sceneStepsDark from "../../../public/assets/illo/scene-steps-dark.png";
 import sceneExampleDark from "../../../public/assets/illo/scene-example-dark.png";
 import sceneRedrawDark from "../../../public/assets/illo/scene-redraw-dark.png";
 import sceneFaqDark from "../../../public/assets/illo/scene-faq-dark.png";
+import sceneStepsWebp from "../../../public/assets/illo/scene-steps.webp";
+import sceneExampleWebp from "../../../public/assets/illo/scene-example.webp";
+import sceneRedrawWebp from "../../../public/assets/illo/scene-redraw.webp";
+import sceneFaqWebp from "../../../public/assets/illo/scene-faq.webp";
+import sceneStepsDarkWebp from "../../../public/assets/illo/scene-steps-dark.webp";
+import sceneExampleDarkWebp from "../../../public/assets/illo/scene-example-dark.webp";
+import sceneRedrawDarkWebp from "../../../public/assets/illo/scene-redraw-dark.webp";
+import sceneFaqDarkWebp from "../../../public/assets/illo/scene-faq-dark.webp";
 import { IllustrationPalette } from "./illustration-palette";
 import styles from "./illo.module.css";
 
@@ -30,10 +42,11 @@ import styles from "./illo.module.css";
  * filter while keeping the blue, yellow, green and red fills at full opacity.
  * These small palette PNGs bypass lossy optimisation, which otherwise adds
  * colour noise and fringes that become visible when the neutrals are remapped.
+ * The hero and section scenes also come as lossless WebP, the same pixels at
+ * about half the bytes (`bun run assets` makes them), with the PNG kept for a
+ * browser that cannot read it.
  */
 const SLOTS = {
-  heroLeft,
-  heroRight,
   cta,
   band,
   steps,
@@ -43,11 +56,56 @@ const SLOTS = {
 } as const;
 
 const SECTION_SCENES = {
-  steps: { light: sceneSteps, dark: sceneStepsDark },
-  example: { light: sceneExample, dark: sceneExampleDark },
-  redraw: { light: sceneRedraw, dark: sceneRedrawDark },
-  faq: { light: sceneFaq, dark: sceneFaqDark },
+  steps: { light: [sceneSteps, sceneStepsWebp], dark: [sceneStepsDark, sceneStepsDarkWebp] },
+  example: { light: [sceneExample, sceneExampleWebp], dark: [sceneExampleDark, sceneExampleDarkWebp] },
+  redraw: { light: [sceneRedraw, sceneRedrawWebp], dark: [sceneRedrawDark, sceneRedrawDarkWebp] },
+  faq: { light: [sceneFaq, sceneFaqWebp], dark: [sceneFaqDark, sceneFaqDarkWebp] },
 } as const;
+
+const HERO = {
+  left: { light: [heroLeft, heroLeftWebp], dark: [heroLeftDark, heroLeftDarkWebp] },
+  right: { light: [heroRight, heroRightWebp], dark: [heroRightDark, heroRightDarkWebp] },
+} as const;
+
+/** What a browser takes in place of art it will not show: a transparent pixel, in the page, so nothing is fetched. */
+const NOTHING = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+/** Below the flanks' breakpoint (illo.module.css), where a phone shows its own scene instead. */
+const PHONE = "(max-width: 47.999rem)";
+
+/*
+ * One raw illustration: the WebP, or the PNG where WebP cannot be read.
+ *
+ * Lazy unless it is art the first screen opens on, and a lazy image that CSS
+ * hides is never fetched: the dark art waits for dark mode. `skip` is for art
+ * that is hidden at some widths but needed at once at the others, so cannot be
+ * lazy: under that media query the browser takes `NOTHING` instead.
+ */
+function Art({
+  art: [png, webp],
+  className,
+  first = false,
+  skip,
+}: {
+  art: readonly [StaticImageData, StaticImageData];
+  className: string;
+  first?: boolean;
+  skip?: string;
+}) {
+  const { props } = getImageProps({
+    alt: "",
+    fetchPriority: first ? "high" : undefined,
+    loading: first ? "eager" : "lazy",
+    src: png,
+    unoptimized: true,
+  });
+  return (
+    <picture className={styles.picture}>
+      {skip ? <source media={skip} srcSet={NOTHING} /> : null}
+      <source srcSet={webp.src} type="image/webp" />
+      <img {...props} alt="" className={className} />
+    </picture>
+  );
+}
 
 export function SectionScene({
   name,
@@ -59,18 +117,8 @@ export function SectionScene({
   return (
     <span aria-hidden="true" className={cn(styles.sectionScene, className)}>
       {/* Recolour before browser scaling, so ink edges stay smooth at any size. */}
-      <Image
-        alt=""
-        className={cn(styles.sectionArtwork, styles.sectionLight)}
-        src={SECTION_SCENES[name].light}
-        unoptimized
-      />
-      <Image
-        alt=""
-        className={cn(styles.sectionArtwork, styles.sectionDark)}
-        src={SECTION_SCENES[name].dark}
-        unoptimized
-      />
+      <Art art={SECTION_SCENES[name].light} className={cn(styles.sectionArtwork, styles.sectionLight)} />
+      <Art art={SECTION_SCENES[name].dark} className={cn(styles.sectionArtwork, styles.sectionDark)} />
     </span>
   );
 }
@@ -121,14 +169,17 @@ export function Spot({
  *
  * Both are in the markup and CSS picks one, rather than branching on a media
  * query in JavaScript: the art is above the fold, and a layout that waits for
- * hydration to decide what to paint shows the wrong one first.
+ * hydration to decide what to paint shows the wrong one first. Each is in a
+ * <picture> that hands the other widths a blank, so a phone never downloads
+ * the flanks and a wide screen never downloads the phone's scene.
  */
 export function HeroScene() {
+  const { props: phone } = getImageProps({ alt: "", fetchPriority: "high", loading: "eager", quality: 96, sizes: "20rem", src: heroPhone });
   return (
     <div aria-hidden="true" className={styles.scene}>
       <IllustrationPalette />
-      <Flank slot="heroLeft" side="left" />
-      <Flank slot="heroRight" side="right" />
+      <Flank side="left" />
+      <Flank side="right" />
       {/*
         The one illustration here that is optimised rather than served raw.
         The others are small palette PNGs where Next's lossy pass adds fringes
@@ -139,32 +190,19 @@ export function HeroScene() {
         `quality` is up at 96 because the art is flat colour with hard edges,
         which is exactly what a default-quality encode smears.
       */}
-      <Image
-        alt=""
-        className={cn(styles.image, styles.legacyImage, styles.phoneArt)}
-        fetchPriority="high"
-        loading="eager"
-        quality={96}
-        sizes="20rem"
-        src={heroPhone}
-      />
+      <picture className={styles.picture}>
+        <source media="(min-width: 48rem)" srcSet={NOTHING} />
+        <img {...phone} alt="" className={cn(styles.image, styles.legacyImage, styles.phoneArt)} />
+      </picture>
     </div>
   );
 }
 
-function Flank({
-  slot,
-  side,
-}: {
-  slot: "heroLeft" | "heroRight";
-  side: "left" | "right";
-}) {
-  const s = SLOTS[slot];
-  const dark = side === "left" ? heroLeftDark : heroRightDark;
+function Flank({ side }: { side: "left" | "right" }) {
   return (
     <span className={cn(styles.flank, side === "left" ? styles.left : styles.right)}>
-      <Image alt="" className={cn(styles.sectionArtwork, styles.sectionLight)} fetchPriority="high" loading="eager" src={s} unoptimized />
-      <Image alt="" className={cn(styles.sectionArtwork, styles.sectionDark)} fetchPriority="high" loading="eager" src={dark} unoptimized />
+      <Art art={HERO[side].light} className={cn(styles.sectionArtwork, styles.sectionLight)} first skip={PHONE} />
+      <Art art={HERO[side].dark} className={cn(styles.sectionArtwork, styles.sectionDark)} />
       <span className={cn(styles.accent, styles.accentSquare)} />
       <span className={cn(styles.accent, styles.accentDot)} />
       <span className={cn(styles.accent, styles.accentDash)} />

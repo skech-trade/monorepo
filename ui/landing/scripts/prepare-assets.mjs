@@ -106,3 +106,16 @@ const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${ICON}" height=
 </svg>`;
 await sharp(Buffer.from(iconSvg)).png().toFile("src/app/icon.png");
 console.log(`wrote src/app/icon.png (${ICON}x${ICON}, drawn)`);
+
+// The hero and section illustrations, as lossless WebP beside their PNGs: the
+// same pixels (colour under transparency included, which the dark-mode filter
+// reads) at about half the bytes. The page offers the WebP and keeps the PNG
+// for a browser that cannot read it (src/components/site/illo.tsx).
+const ILLO = `${DIR}/illo`;
+const ART = ["hero-left", "hero-right", "scene-steps", "scene-example", "scene-redraw", "scene-faq"];
+for (const name of ART.flatMap((n) => [n, `${n}-dark`])) {
+  const out = await sharp(`${ILLO}/${name}.png`)
+    .webp({ lossless: true, effort: 6, exact: true })
+    .toFile(`${ILLO}/${name}.webp`);
+  console.log(`wrote illo/${name}.webp (${Math.round(out.size / 1024)}kb)`);
+}
