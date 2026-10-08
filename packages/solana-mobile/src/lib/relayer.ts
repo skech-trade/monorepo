@@ -44,6 +44,8 @@ export type RefusedMsg = { type: "refused"; betId?: string; player: string; draw
 export type SettledMsg = { type: "settled"; betId: string; player: string; hitMask: number; missMask: number; paid: string; owed: string; closed: boolean; tx: string };
 export type AckMsg = { type: "ack"; ok: boolean; betId?: string; why?: string; drawing?: string; index?: number };
 export type ActivityMsg = { type: "activity"; player: string | null; txs: number; recent: { signature: string; time: number | null }[]; explorer?: string; counting: boolean; progress: number };
+/** What the wallet signs and the relayer pays for. */
+export type Kind = "session" | "deposit" | "withdraw" | "revoke";
 export type BuiltMsg = { type: "built"; kind: string; id?: string; tx?: string; ok?: false; why?: string };
 export type SubmittedMsg = { type: "submitted"; id: string; kind?: string; ok: boolean; tx?: string; why?: string };
 export type Incoming =
@@ -113,21 +115,38 @@ export class RelayerClient {
   }
 
   /**
-   * A transaction the wallet signs and the relayer pays for: built there, signed here by `sign` (Coinbase's
+   * A transaction the wallet signs and the relayer pays for: built there, signed here by `sign` (Privy's
    * embedded wallet or a Mobile Wallet Adapter wallet), sent there. What went wrong, if anything.
    */
-  async transact(kind: "session" | "deposit" | "withdraw" | "revoke", params: Record<string, unknown>, sign: (base64: string) => Promise<string>): Promise<{ ok: true; tx: string } | { ok: false; why: string }> {
-    const built = await this.request({ type: "build", kind, player: this.player, ...params }, (m): m is BuiltMsg => m.type === "built" && m.kind === kind, 15_000);
-    if (!built?.id || !built.tx) return { ok: false, why: built?.why ?? "The relayer did not answer" };
-    let signed: string;
-    try {
-      signed = await sign(built.tx);
-    } catch (e) {
-      return { ok: false, why: String((e as Error).message ?? e) || "Not signed" };
+  async transact(kind: Kind, params: Record<string, unknown>, sign: (base64: string) => Promise<string>): Promise<{ ok: true; tx: string } | { ok: false; why: string }> {
+    return this.transactAll([{ kind, params }], async ([t]) => [await sign(t)]);
+  }
+
+  /**
+   * Several, signed together and sent in order: a wallet on the phone opens once for all of them, not once each,
+   * which otherwise reads as the wallet never handing back. Stops at the first that fails.
+   */
+  async transactAll(steps: { kind: Kind; params: Record<string, unknown> }[], signAll: (base64s: string[]) => Promise<string[]>): Promise<{ ok: true; tx: string } | { ok: false; why: string }> {
+    const built: BuiltMsg[] = [];
+    for (const { kind, params } of steps) {
+      const b = await this.request({ type: "build", kind, player: this.player, ...params }, (m): m is BuiltMsg => m.type === "built" && m.kind === kind, 15_000);
+      if (!b?.id || !b.tx) return fail(kind, "build", b?.why ?? "The relayer did not answer");
+      built.push(b);
     }
-    const done = await this.request({ type: "submit", id: built.id, tx: signed, ...(params.approve ? { approve: true } : {}) }, (m): m is SubmittedMsg => m.type === "submitted" && m.id === built.id, 60_000);
-    if (!done) return { ok: false, why: "No answer from the chain" };
-    return done.ok && done.tx ? { ok: true, tx: done.tx } : { ok: false, why: done.why ?? "Not sent" };
+    let signed: string[];
+    try {
+      signed = await signAll(built.map((b) => b.tx!));
+    } catch (e) {
+      return fail(steps.map((x) => x.kind).join("+"), "sign", String((e as Error).message ?? e) || "Not signed");
+    }
+    let last = "";
+    for (const [i, b] of built.entries()) {
+      const done = await this.request({ type: "submit", id: b.id, tx: signed[i], ...(steps[i].params.approve ? { approve: true } : {}) }, (m): m is SubmittedMsg => m.type === "submitted" && m.id === b.id, 60_000);
+      if (!done) return fail(steps[i].kind, "submit", "No answer from the chain");
+      if (!done.ok || !done.tx) return fail(steps[i].kind, "submit", done.why ?? "Not sent");
+      last = done.tx;
+    }
+    return { ok: true, tx: last };
   }
 
   /** Follow one player's account and bets. */
@@ -141,6 +160,7 @@ export class RelayerClient {
     const sock = new WebSocket(this.url);
     this.ws = sock;
     sock.onopen = () => {
+      console.info(`[relayer] connected to ${this.url}`);
       this.backoff = 500;
       this.connected = true;
       if (this.player) this.send({ type: "watch", player: this.player });
@@ -154,9 +174,11 @@ export class RelayerClient {
         return;
       }
       if (m.type === "hello") this.hello = m;
+      trace(m);
       this.emit(m);
     };
-    sock.onclose = () => {
+    sock.onclose = (e) => {
+      if (!this.stopped) console.warn(`[relayer] connection closed (${e.code}${e.reason ? ` ${e.reason}` : ""}); trying again in ${this.backoff}ms`);
       if (this.ws === sock) this.connected = false;
       if (this.stopped || this.ws !== sock) return;
       setTimeout(() => this.connect(), this.backoff);
@@ -198,4 +220,41 @@ export function useRelayer(player: string | null, enabled: boolean) {
   }, [client, player, enabled]);
   const own = player && account && account.player === player ? account : null;
   return { client, hello, account: own, connected };
+}
+
+/** A wallet transaction that did not go through, said in the log as well: the screen only has room for a line. */
+function fail(kind: string, at: "build" | "sign" | "submit", why: string): { ok: false; why: string } {
+  console.warn(`wallet transaction: ${kind} failed at ${at}:`, why);
+  return { ok: false, why };
+}
+
+/**
+ * What the relayer says about this player's pieces and money, in the log: on a phone in someone's hand this is the
+ * only way to see why a line was refused or never landed. Prices and the chart's stream are left out; they are many.
+ */
+function trace(m: Incoming) {
+  switch (m.type) {
+    case "hello":
+      console.info(`[relayer] hello: ${m.cluster} ${m.label}, game ${m.game}, difficulty ${m.difficulty}, relayer ${m.relayer}`);
+      break;
+    case "ack":
+      if (m.ok) console.info(`[relayer] piece ${m.drawing}:${m.index} taken${m.betId ? `, bet ${m.betId}` : ""}`);
+      else console.warn(`[relayer] piece ${m.drawing}:${m.index} refused: ${m.why}`);
+      break;
+    case "placed":
+      console.info(`[relayer] placed ${m.drawing}:${m.index} as bet ${m.betId}: staked ${m.staked}, fee ${m.fee}, refunded ${m.refunded}, ${m.sections.length} sections, tx ${m.tx}`);
+      break;
+    case "refused":
+      console.warn(`[relayer] piece ${m.drawing}:${m.index} not placed on chain: ${m.why}${m.tx ? `, tx ${m.tx}` : ""}`);
+      break;
+    case "settled":
+      console.info(`[relayer] settled bet ${m.betId}: hits ${m.hitMask}, misses ${m.missMask}, paid ${m.paid}, owed ${m.owed}, tx ${m.tx}`);
+      break;
+    case "account":
+      console.info(`[relayer] account: balance ${m.balance}, session ${m.session ? `${m.session.key} until ${m.session.validUntil}, allowance ${m.session.allowance}` : "none"}`);
+      break;
+    case "error":
+      if (m.why) console.warn(`[relayer] error: ${m.why}`);
+      break;
+  }
 }

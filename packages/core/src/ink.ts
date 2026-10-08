@@ -342,6 +342,8 @@ export function open(bet: InkBet, lib: Library, bars: Bar[]): InkBet {
 export function openOn(bet: InkBet, fl: Field): InkBet | null {
   const size = bet.step * (bet.cell ?? CELL);
   if (fl.openAt !== bet.openAt || (fl.edgeCells ?? 0) !== (bet.edgeCells ?? 0) || Math.abs(fl.step - size) > size * 1e-9) return null;
+  // Only bands can be priced on a map made without each row's chance: anything else is opened the long way.
+  if (!fl.chance.length && !isRounded(bet.model)) return null;
   // A bounded worker map cannot price ink beyond its range. Use direct
   // path pricing instead of silently voiding an otherwise payable section.
   const pad = (bet.edgeCells ?? 0) * size;

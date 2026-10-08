@@ -1,5 +1,6 @@
 import { BlendMode, Canvas, ClipOp, matchFont, PaintStyle, Picture, Skia, StrokeCap, StrokeJoin, TileMode, type SkCanvas, type SkFont, type SkPaint, type SkPath, type SkPicture } from "@shopify/react-native-skia";
-import { type RefObject, useEffect, useRef } from "react";
+import { grouped } from "@/lib/money";
+import { memo, type RefObject, useEffect, useMemo, useRef } from "react";
 import { type LayoutChangeEvent, Platform, View } from "react-native";
 import { Gesture, GestureDetector, State } from "react-native-gesture-handler";
 import { useReducedMotion, useSharedValue } from "react-native-reanimated";
@@ -19,7 +20,7 @@ import { tracePricePath } from "./price-path";
  * the money; this owns the picture and the pen. The pen is a finger: a pan that starts the moment it lands.
  */
 
-export type Fx = { kind: "hit" | "placed" | "drop"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean };
+export type Fx = { kind: "hit" | "miss" | "placed" | "drop"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean };
 export type Preview = { multipleLow: number; multipleHigh: number; units: number; cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[]; keyboard?: boolean };
 
 export type Game = {
@@ -54,14 +55,31 @@ const PALETTES: Record<"light" | "dark", Palette> = {
   light: { ink: hex("#2e5bff"), fg: hex("#000000"), bg: hex("#ffffff"), muted: hex("#6c6c70"), faint: hex("#aeaeb2"), up: hex("#34c759"), down: hex("#ff3b30"), dark: false },
   dark: { ink: hex("#6f92ff"), fg: hex("#ffffff"), bg: hex("#000000"), muted: hex("#98989f"), faint: hex("#636366"), up: hex("#30d158"), down: hex("#ff453a"), dark: true },
 };
-const color = (c: Rgb, a = 1) => Skia.Color(`rgba(${c[0]},${c[1]},${c[2]},${a})`);
+/*
+  Colours, text widths and a font's metrics are asked for hundreds of times a frame, each a string parsed or a call
+  across to native; on a cheap phone that alone was most of a frame. Kept once made. Alpha in hundredths, so a fade
+  makes a hundred colours, not one a frame.
+*/
+/** A frame costing more than this on the JS thread marks a slow phone; there the stage draws at half rate while the pen is up. */
+const SLOW_FRAME_MS = 6;
+const HALF_RATE_MS = 30;
+const colors = new Map<string, ReturnType<typeof Skia.Color>>();
+const color = (c: Rgb, a = 1) => {
+  const k = `${c[0]},${c[1]},${c[2]},${Math.round(a * 100) / 100}`;
+  let v = colors.get(k);
+  if (!v) {
+    if (colors.size > 5000) colors.clear();
+    colors.set(k, (v = Skia.Color(`rgba(${k})`)));
+  }
+  return v;
+};
 const mix = (a: Rgb, b: Rgb, k: number): Rgb => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k].map(Math.round) as Rgb;
 /** How far up the ladder a multiple is, 0 at 1× to 1 at 128×. */
 const height = (m: number) => Math.min(1, Math.max(0, Math.log2(m) / 7));
 
 /** Show the maximum return per section, rounded down to a tenth. */
 export const fmtMultiple = (m: number) => `${Math.floor(m * 10 + 1e-8) / 10}×`;
-const fmtPrice = (p: number, cents: boolean) => p.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
+const fmtPrice = (p: number, cents: boolean) => grouped(p, cents ? 2 : 0);
 
 export type Placed = string | { stop: string } | null;
 const whyOf = (r: Placed) => (r && typeof r === "object" ? r.stop : r);
@@ -94,10 +112,27 @@ const rrect = (x: number, y: number, w: number, h: number, r: number) => {
   return Skia.RRectXY(Skia.XYWHRect(x, y, w, h), rr, rr);
 };
 /** Text centred on `x`, its middle on `y`, as the web's canvas draws with textAlign centre and textBaseline middle. */
+const widths = new Map<SkFont, Map<string, number>>();
+const middles = new Map<SkFont, number>();
+/** How wide `s` is in `f`, measured once. */
+function measure(f: SkFont, s: string) {
+  let byText = widths.get(f);
+  if (!byText) widths.set(f, (byText = new Map()));
+  let w = byText.get(s);
+  if (w === undefined) {
+    if (byText.size > 2000) byText.clear();
+    byText.set(s, (w = f.measureText(s).width));
+  }
+  return w;
+}
 function text(c: SkCanvas, s: string, x: number, y: number, f: SkFont, col: Float32Array, align: "center" | "left" = "center") {
-  const w = f.measureText(s).width;
-  const m = f.getMetrics();
-  c.drawText(s, align === "center" ? x - w / 2 : x, y - (m.ascent + m.descent) / 2, paintOf(col), f);
+  const w = measure(f, s);
+  let mid = middles.get(f);
+  if (mid === undefined) {
+    const m = f.getMetrics();
+    middles.set(f, (mid = (m.ascent + m.descent) / 2));
+  }
+  c.drawText(s, align === "center" ? x - w / 2 : x, y - mid, paintOf(col), f);
 }
 const layerPaint = (alpha = 1, blend?: BlendMode) => {
   const p = Skia.Paint();
@@ -119,7 +154,11 @@ const EMPTY = (() => {
   return r.finishRecordingAsPicture();
 })();
 
-export function Stage({
+/*
+  Memoised: the screen around it re-renders on every price batch and preview, and the stage draws from refs, not
+  props, so it has nothing to do then.
+*/
+export const Stage = memo(function Stage({
   game,
   onPlace,
   onPreview,
@@ -153,7 +192,15 @@ export function Stage({
     const W = () => size.current.w;
     const H = () => size.current.h;
     const phone = () => W() < 640;
-    const layout = () => drawingLayout(W(), H(), game.current.marketStep);
+    // Asked for thousands of times a frame (every x(), y(), nowX()…): made again only when what it is made from changes.
+    let laid: { w: number; h: number; step: number; it: ReturnType<typeof drawingLayout> } | null = null;
+    const layout = () => {
+      const w = W(),
+        h = H(),
+        step = game.current.marketStep;
+      if (!laid || laid.w !== w || laid.h !== h || laid.step !== step) laid = { w, h, step, it: drawingLayout(w, h, step) };
+      return laid.it;
+    };
     const nowX = () => layout().nowX;
     const pxMs = () => layout().pxMs;
     const pitchY = CHART_STEP_PX;
@@ -305,16 +352,26 @@ export function Stage({
     };
     handlers.current = { down, move, up, cancel };
 
+    /* A stroke's path is in its own units, so it is the same every frame: made once, again only as it grows. */
+    const strokePaths = new WeakMap<Stroke, { n: number; rt: number; rp: number; path: SkPath }>();
+    const pathOf = (st: Stroke) => {
+      let made = strokePaths.get(st);
+      if (!made || made.n !== st.pts.length || made.rt !== st.rt || made.rp !== st.rp) {
+        const path = Skia.Path.Make();
+        const pts = st.pts;
+        path.moveTo(pts[0].t / st.rt, pts[0].p / st.rp);
+        for (let i = 1; i < pts.length - 1; i++) path.lineTo(pts[i].t / st.rt, pts[i].p / st.rp);
+        const end = pts[pts.length - 1];
+        path.lineTo(end.t / st.rt + (pts.length === 1 ? 1e-3 : 0), end.p / st.rp);
+        strokePaths.set(st, (made = { n: pts.length, rt: st.rt, rp: st.rp, path }));
+      }
+      return made.path;
+    };
     /** A stroke, in ink: drawn in its own units, where the pen is round, and scaled onto the screen. */
     const ink = (c: SkCanvas, st: Stroke, col: Float32Array, grow = 0) => {
       const a = st.rt * pxMs();
       const d = (-st.rp * pitchY) / game.current.step;
-      const path = Skia.Path.Make();
-      const pts = st.pts.map((q) => ({ u: q.t / st.rt, v: q.p / st.rp }));
-      path.moveTo(pts[0].u, pts[0].v);
-      for (let i = 1; i < pts.length - 1; i++) path.lineTo(pts[i].u, pts[i].v);
-      const end = pts[pts.length - 1];
-      path.lineTo(end.u + (pts.length === 1 ? 1e-3 : 0), end.v);
+      const path = pathOf(st);
       c.save();
       c.translate(x(st.t0), y(st.p0));
       c.scale(a, d);
@@ -351,16 +408,38 @@ export function Stage({
     let renderedGroups: { id: string; stroke: Stroke; cells: Cell[]; edgeCells: number; step: number }[] = [];
     let raf = 0;
     let previousFrame = performance.now();
+    // How the stage keeps up, in the log every 5s: frames drawn and what a frame costs on the JS thread.
+    const perf = { since: performance.now(), frames: 0, ms: 0, worst: 0 };
+    /*
+      What a frame has been costing, smoothed. A phone where it costs more than SLOW_FRAME_MS draws at half the rate while
+      the pen is up: the chart scrolls a little less smoothly, and the JS thread is free for the pen, the odds map
+      and the money. The pen, when down, always gets every frame.
+    */
+    let cost = 0;
+    let drawnAt = 0;
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const w = W(),
         h = H();
       const g = game.current;
       if (!g || !w) return;
+      const t0 = performance.now();
+      if (!pen && cost > SLOW_FRAME_MS && t0 - drawnAt < HALF_RATE_MS) return;
+      drawnAt = t0;
       const recorder = Skia.PictureRecorder();
       const c = recorder.beginRecording(Skia.XYWHRect(0, 0, w, h));
       draw(c, w, h, g);
       picture.value = recorder.finishRecordingAsPicture();
+      const took = performance.now() - t0;
+      cost += (took - cost) * 0.1;
+      perf.frames++;
+      perf.ms += took;
+      perf.worst = Math.max(perf.worst, took);
+      if (t0 - perf.since >= 5000) {
+        const secs = (t0 - perf.since) / 1000;
+        console.info(`[perf] stage: ${(perf.frames / secs).toFixed(1)} fps, ${(perf.ms / perf.frames).toFixed(1)}ms a frame (worst ${perf.worst.toFixed(1)}), ${((perf.ms / (secs * 1000)) * 100).toFixed(0)}% of the JS thread`);
+        Object.assign(perf, { since: t0, frames: 0, ms: 0, worst: 0 });
+      }
     };
     const draw = (c: SkCanvas, w: number, h: number, g: Game) => {
       at = now(g);
@@ -377,7 +456,9 @@ export function Stage({
       if (!centre) centre = p;
       const off = (p - centre) / g.step;
       const rowsOnScreen = (plotBottom() - plotTop()) / pitchY;
-      if (!pen) centre += (p - centre) * ease(Math.abs(off) > rowsOnScreen * 0.3 ? 0.0077 : Math.abs(off) > rowsOnScreen * 0.12 ? 0.00183 : 0.00036);
+      // The view follows the price: within ~0.6s when it is near the middle, ~0.2s further out, at once near the edge.
+      // (It was ~2.8s near the middle, and the tiles lagged the price for seconds.)
+      if (!pen) centre += (p - centre) * ease(Math.abs(off) > rowsOnScreen * 0.3 ? 0.02 : Math.abs(off) > rowsOnScreen * 0.12 ? 0.005 : 0.0016);
       const fl = g.field;
       if (fl && (map.field !== fl || map.pen !== gPen() || map.width !== w || map.height !== h || map.step !== g.step)) paintMap(fl);
       const nx = nowX();
@@ -387,7 +468,7 @@ export function Stage({
       const py = y(p);
       const tagFont = font(600, 12);
       const tagText = fmtPrice(g.displayPrice || latest, true);
-      const tagW = tagFont.measureText(tagText).width + 20;
+      const tagW = measure(tagFont, tagText) + 20;
       const tagX = phone() ? nx - 12 - tagW : nx + 12;
       const tag = { x0: tagX, x1: tagX + tagW, y0: py - 12, y1: py + 12 };
       const tileBox = (tile: Tile) => {
@@ -603,11 +684,23 @@ export function Stage({
           if (e.text) {
             const alpha = Math.max(0, Math.min(1, 1.6 - age * 1.6));
             const f = font(700, e.big ? 17 : 15);
-            const tw = f.measureText(e.text).width + 24;
+            const tw = measure(f, e.text) + 24;
             const cx = Math.min(w - tw / 2 - 8, Math.max(tw / 2 + 8, ex));
             const cy = ey - 62 - (still.current ? 0 : age * 24);
             c.drawRRect(rrect(cx - tw / 2, cy - 14, tw, 28, 14), paintOf(e.loss ? color(pal.down, alpha) : color(pal.up, alpha)));
-            text(c, e.text, cx, cy + 0.5, f, Skia.Color(`rgba(255,255,255,${alpha})`));
+            text(c, e.text, cx, cy + 0.5, f, color([255, 255, 255], alpha));
+          }
+        } else if (e.kind === "miss") {
+          // A miss: a red ring shrinking away where the price passed, and what it cost floating up, smaller than a win.
+          c.drawCircle(ex, ey, (still.current ? 14 : 22 - age * 10) , paintOf(color(pal.down, 0.45 * (1 - age)), 1.5));
+          if (e.text) {
+            const alpha = Math.max(0, Math.min(1, 1.5 - age * 1.5));
+            const f = font(600, 13);
+            const tw = measure(f, e.text) + 18;
+            const cx = Math.min(w - tw / 2 - 8, Math.max(tw / 2 + 8, ex));
+            const cy = ey - 40 - (still.current ? 0 : age * 18);
+            c.drawRRect(rrect(cx - tw / 2, cy - 12, tw, 24, 12), paintOf(color(pal.down, 0.9 * alpha)));
+            text(c, e.text, cx, cy + 0.5, f, color([255, 255, 255], alpha));
           }
         } else if (e.kind === "drop") {
           const life = Math.min(1, (ms - e.born) / 520);
@@ -626,7 +719,7 @@ export function Stage({
         if (age >= 1) flash = null;
         else {
           const f = font(600, 12);
-          const tw = f.measureText(flash.text).width + 22;
+          const tw = measure(f, flash.text) + 22;
           const fx = Math.min(w - tw / 2 - 8, Math.max(tw / 2 + 8, flash.x));
           c.drawRRect(rrect(fx - tw / 2, flash.y - 46, tw, 28, 14), paintOf(color(pal.fg, 0.95 * (1 - age * age))));
           text(c, flash.text, fx, flash.y - 31.5, f, color(pal.bg, 1 - age * age));
@@ -641,19 +734,24 @@ export function Stage({
     };
   }, [game, picture]);
 
-  const pan = Gesture.Pan()
-    .minDistance(0)
-    .shouldCancelWhenOutside(false)
-    .runOnJS(true)
-    .onBegin((e) => handlers.current?.down(e.x, e.y))
-    .onUpdate((e) => handlers.current?.move(e.x, e.y))
-    .onEnd((e) => handlers.current?.up(e.x, e.y))
-    // A tap never moves far enough to activate the pan: it ends as failed, and is the finger lifting all the same.
-    // Only the system taking the touch back (a notification pulled down, say) is a cancel.
-    .onFinalize((e) => {
-      if (e.state === State.CANCELLED) handlers.current?.cancel();
-      else handlers.current?.up(e.x, e.y);
-    });
+  // Made once: a new gesture each render had the gesture handler reconfigure natively, up to 40 times a second.
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(0)
+        .shouldCancelWhenOutside(false)
+        .runOnJS(true)
+        .onBegin((e) => handlers.current?.down(e.x, e.y))
+        .onUpdate((e) => handlers.current?.move(e.x, e.y))
+        .onEnd((e) => handlers.current?.up(e.x, e.y))
+        // A tap never moves far enough to activate the pan: it ends as failed, and is the finger lifting all the same.
+        // Only the system taking the touch back (a notification pulled down, say) is a cancel.
+        .onFinalize((e) => {
+          if (e.state === State.CANCELLED) handlers.current?.cancel();
+          else handlers.current?.up(e.x, e.y);
+        }),
+    [],
+  );
 
   const onLayout = (e: LayoutChangeEvent) => {
     const { width, height: h } = e.nativeEvent.layout;
@@ -670,4 +768,4 @@ export function Stage({
       </View>
     </GestureDetector>
   );
-}
+});

@@ -14,8 +14,16 @@
     },
     "android": {
       "package": "trade.skech.app",
-      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#ffffff" },
-      "permissions": ["android.permission.CAMERA", "android.permission.VIBRATE"]
+      "adaptiveIcon": { "foregroundImage": "./assets/adaptive-icon.png", "backgroundColor": "#2A62DD" },
+      "permissions": ["android.permission.CAMERA", "android.permission.VIBRATE"],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "https", "host": "www.skech.trade", "pathPrefix": "/app-link" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": { "output": "static" },
     "plugins": [

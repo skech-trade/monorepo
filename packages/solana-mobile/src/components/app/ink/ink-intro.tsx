@@ -21,9 +21,9 @@ import { useDark } from "@/lib/theme";
 /* A zigzag down the screen, from off its top left to off its bottom, in a 1000 by 1000 box. */
 const SCRIBBLE =
   "M -120 60 C 300 -60, 900 40, 1120 140 C 900 300, 300 200, -120 360 C 300 520, 800 380, 1120 560 C 800 760, 200 600, -120 780 C 300 980, 800 860, 1120 1000 C 900 1120, 500 1060, 400 1160";
-/** How long the pen takes to ink the screen over, and the ink to drain away, in ms. */
-const IN_MS = 1000;
-const OUT_MS = 1100;
+/** How long the pen takes to ink the screen over, and the ink to drain away, in ms: slow enough to follow the pen. */
+const IN_MS = 2250;
+const OUT_MS = 2475;
 /** How thick the ink is at its thinnest and when the screen is covered, in the box's units. */
 const THIN = 60;
 const THICK = 390;
@@ -35,8 +35,9 @@ const PEN_H = 459;
 const PEN_SIZE = 110;
 const PEN_HEIGHT = (PEN_SIZE * PEN_H) / PEN_W;
 
-/** The longest the ink holds for live prices before it drains anyway, in ms. */
-const MAX_HOLD_MS = 8000;
+/** The longest the name holds, once the screen is inked over, before the ink drains anyway: prices or sign-in still
+ *  on their way show up in the game instead of keeping everyone on the name. In ms. */
+const MAX_HOLD_MS = 1800;
 
 /*
   Whether the game has live prices to show. The ink holds, covering the screen, until it does, so the way in never
@@ -150,7 +151,7 @@ export function InkIntro() {
     const start = Date.now();
     let timer: ReturnType<typeof setTimeout>;
     const wait = () => {
-      if (!ready && Date.now() - start <= MAX_HOLD_MS) {
+      if (!ready && Date.now() - start <= 500 + MAX_HOLD_MS) {
         timer = setTimeout(wait, 100);
         return;
       }
@@ -168,7 +169,7 @@ export function InkIntro() {
     const t = info.timestamp - startAt.value;
     time.value = t;
     // When the ink starts to drain: once it has covered the screen and the prices are in.
-    if (drainAt.value < 0 && t >= IN_MS && (live.value || t > MAX_HOLD_MS)) {
+    if (drainAt.value < 0 && t >= IN_MS && (live.value || t > IN_MS + MAX_HOLD_MS)) {
       drainAt.value = t;
       scheduleOnRN(setDraining, true);
     }

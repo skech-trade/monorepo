@@ -1,6 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
-import { ArrowUpRightIcon, CheckIcon, SendIcon } from "lucide-react-native";
+import { ArrowUpRightIcon, CheckIcon, SendIcon } from "@/components/ui/icons";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Linking, Pressable, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Circle, Path, Rect } from "react-native-svg";

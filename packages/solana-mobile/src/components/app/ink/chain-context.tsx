@@ -1,6 +1,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "@/components/app/auth";
-import { type Account, type Hello, type RelayerClient, useRelayer } from "@/lib/relayer";
+import { type Account, type Hello, type Kind, type RelayerClient, useRelayer } from "@/lib/relayer";
 import { forgetSessionKey, sessionKey, type SessionKey } from "@/lib/session";
 
 /**
@@ -89,38 +89,62 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     return s.key === key.address && Number(s.validUntil) * 1000 > now + 3_600_000 && BigInt(s.allowance) > 0n;
   }, [account, key, now]);
 
-  const enableSession = useCallback(async (): Promise<string | null> => {
-    if (!player || !hello) return "Not connected";
+  /** The session's transaction: a key this phone keeps, allowed to place drawings for a while. Makes the key if there is none. */
+  const sessionStep = useCallback(async () => {
     let k = key;
     if (!k) {
-      try {
-        k = await sessionKey();
-        setKey(k);
-      } catch {
-        return "This phone can't keep a key. Try again.";
-      }
+      k = await sessionKey();
+      setKey(k);
+    }
+    const validUntil = String(Math.floor(Date.now() / 1000) + SESSION_DAYS * 86_400);
+    return { kind: "session" as const, params: { key: k.address, validUntil, allowance: SESSION_ALLOWANCE.toString(), approve: APPROVE.toString() } };
+  }, [key]);
+
+  const enableSession = useCallback(async (): Promise<string | null> => {
+    if (!player || !hello) return "Not connected";
+    let step: Awaited<ReturnType<typeof sessionStep>>;
+    try {
+      step = await sessionStep();
+    } catch {
+      return "This phone can't keep a key. Try again.";
     }
     setRegistering(true);
     try {
-      const validUntil = String(Math.floor(Date.now() / 1000) + SESSION_DAYS * 86_400);
-      const r = await client.transact("session", { key: k.address, validUntil, allowance: SESSION_ALLOWANCE.toString(), approve: APPROVE.toString() }, me.signTransaction);
+      const r = await client.transact(step.kind, step.params, me.signTransaction);
       if (!r.ok) return r.why;
       client.send({ type: "account" });
       return null;
     } finally {
       setRegistering(false);
     }
-  }, [player, hello, key, client, me.signTransaction]);
+  }, [player, hello, sessionStep, client, me.signTransaction]);
 
   const deposit = useCallback(
     async (usdc: number): Promise<string | null> => {
       if (!player || !hello) return "Not connected";
       const amount = BigInt(Math.round(usdc * 1e6));
       if (amount <= 0n) return "Nothing to deposit";
-      const r = await client.transact("deposit", { amount: amount.toString() }, me.signTransaction);
-      return r.ok ? null : r.why;
+      const steps: { kind: Kind; params: Record<string, unknown> }[] = [{ kind: "deposit", params: { amount: amount.toString() } }];
+      // A wallet on the phone with no session yet signs that too, in the same visit: otherwise it opens again for it
+      // the moment the money lands, which reads as the wallet never handing back.
+      if (me.kind === "wallet" && !sessionOk) {
+        try {
+          steps.push(await sessionStep());
+        } catch {
+          // No key on this phone: deposit anyway, and the setup card asks again.
+        }
+      }
+      const both = steps.length > 1;
+      if (both) setRegistering(true);
+      try {
+        const r = await client.transactAll(steps, me.signTransactions);
+        if (r.ok && both) client.send({ type: "account" });
+        return r.ok ? null : r.why;
+      } finally {
+        if (both) setRegistering(false);
+      }
     },
-    [player, hello, client, me.signTransaction],
+    [player, hello, client, me.kind, me.signTransactions, sessionOk, sessionStep],
   );
 
   const withdraw = useCallback(
@@ -139,7 +163,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
 
   /*
     USDC that lands in the wallet is on its way in. With the session's standing approval the relayer sweeps it in
-    by itself; the app asks it to look now rather than on its next round. With no approval left, a Coinbase wallet
+    by itself; the app asks it to look now rather than on its next round. With no approval left, a Privy wallet
     signs the deposit without asking, as on the web; a wallet on the phone would prompt, so the sheet offers it.
   */
   const wallet = account ? Number(account.wallet.usdc) / 1e6 : null;
@@ -166,7 +190,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     pending.current = ask;
     setAdding(wallet);
     if (approved >= wallet) client.send({ type: "sweep" });
-    else if (me.kind === "coinbase") {
+    else if (me.kind === "privy") {
       ask.signing = true;
       void deposit(wallet).then((why) => {
         ask.signing = false;

@@ -1,6 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import { LinearGradient } from "expo-linear-gradient";
-import { ActivityIcon, ArrowUpRightIcon, CheckIcon, CopyIcon, LogOutIcon, MoonIcon, SunIcon } from "lucide-react-native";
+import { ActivityIcon, ArrowUpRightIcon, CheckIcon, CopyIcon, LogOutIcon, MoonIcon, SunIcon } from "@/components/ui/icons";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
