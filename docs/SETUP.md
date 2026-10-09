@@ -60,7 +60,9 @@ Check it took: the live page's JavaScript must not contain `localhost:3102`.
 - [ ] A monthly budget alert (about $15)
 
 **Sentry:** alert rules for new issues, and for the relayer's `low-sol`, `not-oracle` and `engine-signer`
-reports (players can't play while any of them fires).
+reports (players can't play while any of them fires). On mainnet, also the gas keeper's `keeper-failed`,
+`keeper-usdc-short` and `keeper-cap` (it could not buy SOL back), and `keeper-swap` and `keeper-cold` (it moved
+money) to see each one.
 
 **PostHog:** filter internal and test users, with your own wallet in the filter.
 
@@ -181,8 +183,31 @@ store's copy.
   approval (licences per country, age and region gating). Internal testing does not.
 
 - **Hand the program to a multisig.** The deployer is the program's upgrade authority and the game's admin.
-  On mainnet, transfer both to a Squads multisig straight after the deploy, and own the treasury's USDC
-  account with it (`SOLANA_TREASURY`); only the relayer's key, the oracle, sits on the box.
+  On mainnet, transfer both to a Squads multisig straight after the deploy; only the relayer's key, the
+  oracle, sits on the box.
+- **Fees to the relayer, and its gas from them.** Deploy with `SOLANA_TREASURY` set to the relayer's address
+  (`solana address -k <relayer keypair>`): the treasury is then the relayer's own USDC account, and the fees it
+  collects land there. Its gas keeper (`packages/relayer/src/solana/keeper.ts`) buys its SOL back with them through
+  Jupiter, and sends what piles up over a cap to a cold wallet (the multisig). The treasury of a game already set up
+  changes only by its admin's `set_treasury` (then `bun run deploy:solana --skip-program` rewrites the deployment).
+  In the env file `infra/deploy.sh --env` ships:
+
+  ```bash
+  KEEPER_ENABLED=1
+  KEEPER_DRY_RUN=1                  # the first day: it logs what it would do, with the quote; then remove it
+  KEEPER_JUPITER_API_KEY=<from developers.jup.ag/portal>
+  KEEPER_SOL_FLOOR=0.1
+  KEEPER_SOL_TARGET=0.3
+  KEEPER_DAILY_CAP_USDC=30          # the default: 0.2 SOL cost 22 USDC on 2026-10-09; raise it if SOL rises
+  KEEPER_COLD_WALLET=<the multisig's address>
+  KEEPER_USDC_CAP=100
+  KEEPER_USDC_KEEP=20
+  ```
+
+  `bun packages/relayer/scripts/keeper-quote.ts 0.2` shows what a top-up costs now, read only. Then
+  `ssh skech curl -s localhost:3104/status` shows it under `keeper`: `enabled`, `dryRun`, the relayer's `sol` and
+  `usdc`, `lastSwapAt`, `swappedToday` and `lastError`; `journalctl -u skech-relayer-solana | grep keeper` what it
+  decided. Fund the relayer with SOL to start: the keeper buys only once fees have come in.
 - **Shorten the web session.** A browser-held session key is allowed $100,000 for 7 days; about a day, and
   an allowance near the balance, is enough.
 - **Enforce the CSP.** It runs report-only; switch it to enforced once Sentry shows no reports.

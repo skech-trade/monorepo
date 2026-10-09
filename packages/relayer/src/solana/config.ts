@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { address } from "@solana/kit";
 import { deploymentFile, type SolanaDeployment, solanaNetwork, solanaRpc } from "@skech/contracts/solana/sdk";
 import { root } from "../env";
 
@@ -31,6 +32,57 @@ function keyBytes(): Uint8Array {
 const rpcUrl = solanaRpc(process.env, net);
 const engineSigner = env("RELAYER_ENGINE_SIGNER");
 if (engineSigner && !/^0x[0-9a-fA-F]{40}$/.test(engineSigner)) throw new Error(`RELAYER_ENGINE_SIGNER is not an address: ${engineSigner}`);
+/** An amount in SOL or USDC ("0.3"), in its smallest unit: exact, never through a float. */
+function amount(name: string, fallback: string, decimals: number): bigint {
+  const v = env(name) ?? fallback;
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(v);
+  if (!m || (m[2] ?? "").length > decimals) throw new Error(`${name} is not an amount with at most ${decimals} decimals: ${v}`);
+  return BigInt(m[1]) * 10n ** BigInt(decimals) + BigInt((m[2] ?? "").padEnd(decimals, "0"));
+}
+function whole(name: string, fallback: number, least: number, most = Number.MAX_SAFE_INTEGER): number {
+  const v = Number(env(name) ?? fallback);
+  if (!Number.isInteger(v) || v < least || v > most) throw new Error(`${name} is ${env(name)}: a whole number from ${least} to ${most}`);
+  return v;
+}
+function flag(name: string): boolean {
+  const v = env(name) ?? "0";
+  if (v !== "0" && v !== "1") throw new Error(`${name} is ${v}: 1 or 0`);
+  return v === "1";
+}
+
+/**
+ * The gas keeper (keeper.ts): the relayer's SOL topped up from the USDC fees that land in its wallet, and USDC over a
+ * cap sent to a cold wallet. Off unless KEEPER_ENABLED=1; off mainnet, or with KEEPER_DRY_RUN=1, it only says what it
+ * would do.
+ */
+function keeper() {
+  const cold = env("KEEPER_COLD_WALLET");
+  const k = {
+    enabled: flag("KEEPER_ENABLED"),
+    dryRun: flag("KEEPER_DRY_RUN"),
+    everyMs: whole("KEEPER_EVERY_MS", 300_000, 10_000),
+    solFloor: amount("KEEPER_SOL_FLOOR", "0.1", 9),
+    solTarget: amount("KEEPER_SOL_TARGET", "0.3", 9),
+    /** Jupiter's Metis swap API, the one that quotes ExactOut (keeper.ts). */
+    jupiterUrl: (env("KEEPER_JUPITER_URL") ?? "https://api.jup.ag/swap/v1").replace(/\/+$/, ""),
+    jupiterKey: env("KEEPER_JUPITER_API_KEY") ?? null,
+    slippageBps: whole("KEEPER_SLIPPAGE_BPS", 50, 1, 500),
+    minIntervalMs: whole("KEEPER_MIN_INTERVAL_MS", 3_600_000, 60_000),
+    dailyCapE6: amount("KEEPER_DAILY_CAP_USDC", "30", 6),
+    reserveE6: amount("KEEPER_USDC_RESERVE", "0", 6),
+    coldWallet: cold ? address(cold) : null,
+    capE6: amount("KEEPER_USDC_CAP", "100", 6),
+    keepE6: amount("KEEPER_USDC_KEEP", "20", 6),
+    /** The most one transfer to the cold wallet moves: a balance read wrong never sends it all. */
+    coldMaxE6: amount("KEEPER_COLD_MAX_USDC", "1000", 6),
+  };
+  if (k.solTarget <= k.solFloor) throw new Error("KEEPER_SOL_TARGET must be above KEEPER_SOL_FLOOR");
+  if (k.keepE6 >= k.capE6) throw new Error("KEEPER_USDC_KEEP must be below KEEPER_USDC_CAP");
+  if (k.dailyCapE6 === 0n || k.coldMaxE6 === 0n) throw new Error("KEEPER_DAILY_CAP_USDC and KEEPER_COLD_MAX_USDC must be above 0");
+  if (!/^https?:\/\/[^/]+/.test(k.jupiterUrl)) throw new Error(`KEEPER_JUPITER_URL is not a URL: ${k.jupiterUrl}`);
+  return k;
+}
+
 const compute = JSON.parse(readFileSync(join(root, "packages/contracts/solana/snapshots/compute.json"), "utf8")) as Record<string, number>;
 
 export const scfg = {
@@ -73,5 +125,6 @@ export const scfg = {
   rpcPerSec: Math.max(1, Number(env("SOLANA_RPC_RPS") ?? 15) || 15),
   /** Bets settled in one transaction: two accounts each, 32 bytes a key, in 1232 bytes. */
   betsPerSettle: 12,
+  keeper: keeper(),
 };
 export type SolanaConfig = typeof scfg;
