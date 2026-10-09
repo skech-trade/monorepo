@@ -19,7 +19,9 @@ if [ -n "$(git status --porcelain -- .)" ]; then
   exit 1
 fi
 
-scp -q Caddyfile backup-relayer.sh systemd/*.service systemd/*.timer "$HOST:/tmp/"
+# Into a directory of their own, emptied first: a unit left in /tmp by an older run is not installed again.
+ssh "$HOST" 'rm -rf /tmp/skech-infra && mkdir -m 700 /tmp/skech-infra'
+scp -q Caddyfile backup-relayer.sh systemd/*.service systemd/*.timer "$HOST:/tmp/skech-infra/"
 # Quoted for the far side: ssh joins its arguments into one string for the remote shell, so a domain
 # that is two names ("a.example.com, 1-2-3-4.sslip.io", which is what Caddy wants to serve both) was
 # split on the space and its second half run as a command.
@@ -41,8 +43,8 @@ dnf install -y -q gcc rsync tar unzip python3 >/dev/null
 
 # Who is who. skech builds: it owns the toolchains and /home/skech/src, where deploy.sh copies the source
 # and compiles it, and it cannot sudo. What runs is copied from there into /opt/skech, owned by root, and
-# runs as a user of its own that can write none of it: skech-engine holds the oracle's key, skech-relayer
-# (both relayers) the relayers' keys, and neither can read the other's.
+# runs as a user of its own that can write none of it: skech-engine holds the engine's key, skech-relayer
+# the relayer's, and neither can read the other's.
 id skech &>/dev/null || useradd --system --create-home --home-dir /home/skech --shell /bin/bash skech
 for u in skech-engine skech-relayer; do
   id "$u" &>/dev/null || useradd --system --no-create-home --home-dir /nonexistent --shell /sbin/nologin "$u"
@@ -59,7 +61,7 @@ sudo -u skech -H BUN_VERSION="$BUN_VERSION" bash -euc '
   [ -x ~/.cargo/bin/cargo ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --no-modify-path
   [ "$(~/.bun/bin/bun --version 2>/dev/null)" = "$BUN_VERSION" ] || curl -fsSL https://bun.sh/install | bash -s "bun-v$BUN_VERSION" >/dev/null
 '
-# The relayers run bun as users with no home: a root-owned copy of skech's, where they can reach it.
+# The relayer runs bun as a user with no home: a root-owned copy of skech's, where it can reach it.
 [ "$(/usr/local/bin/bun --version 2>/dev/null)" = "$BUN_VERSION" ] || install -m 755 -o root -g root /home/skech/.bun/bin/bun /usr/local/bin/bun
 
 if [ "$(/usr/local/bin/caddy version 2>/dev/null | cut -d' ' -f1)" != "v$CADDY_VERSION" ]; then
@@ -72,16 +74,26 @@ if [ "$(/usr/local/bin/caddy version 2>/dev/null | cut -d' ' -f1)" != "v$CADDY_V
 fi
 id caddy &>/dev/null || useradd --system --home-dir /var/lib/caddy --create-home --shell /sbin/nologin caddy
 install -d -o root -g root /etc/caddy
-install -m 644 /tmp/Caddyfile /etc/caddy/Caddyfile
+install -m 644 /tmp/skech-infra/Caddyfile /etc/caddy/Caddyfile
 echo "SKECH_DOMAIN=$DOMAIN" > /etc/caddy/env
 
-install -m 755 -o root -g root /tmp/backup-relayer.sh /usr/local/sbin/skech-backup-relayer
-install -m 644 /tmp/*.service /tmp/*.timer /etc/systemd/system/
+# Once, from when Monad had a relayer of its own (skech-relayer, on :3103): stopped, disabled and its unit removed.
+# deploy.sh moves its state files into the backups.
+if [ -e /etc/systemd/system/skech-relayer.service ]; then
+  systemctl disable -q --now skech-relayer || true
+  rm -f /etc/systemd/system/skech-relayer.service
+  systemctl reset-failed skech-relayer 2>/dev/null || true
+fi
+rm -f /etc/skech/solana
+
+install -m 755 -o root -g root /tmp/skech-infra/backup-relayer.sh /usr/local/sbin/skech-backup-relayer
+install -m 644 /tmp/skech-infra/*.service /tmp/skech-infra/*.timer /etc/systemd/system/
+rm -rf /tmp/skech-infra
 systemctl daemon-reload
 systemctl enable caddy
 # Restart, not reload: an older Caddy's admin API was on localhost:2019, and the new unit reloads through the socket.
 systemctl restart caddy
-systemctl enable skech-engine skech-relayer
+systemctl enable skech-engine skech-relayer-solana
 systemctl enable --now skech-backup.timer
 echo "setup done: bun $(/usr/local/bin/bun --version), $(sudo -u skech /home/skech/.cargo/bin/cargo --version), caddy $(/usr/local/bin/caddy version | cut -d' ' -f1), serving $DOMAIN"
 REMOTE
