@@ -9,7 +9,7 @@ crate-type = ["cdylib", "lib"]
 name = "skech"
 
 [features]
-default = []
+default = ["no-idl"]
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
