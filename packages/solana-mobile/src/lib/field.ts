@@ -2,7 +2,7 @@ import { type Features, type Field, fieldJob, type Library, setDifficulty } from
 import { INK_EDGE_CELLS } from "@skech/core/ink";
 
 /**
- * The map of the odds, made a few milliseconds at a time. On the web it is made in a worker; a phone has no
+ * The map of multiples, made a few milliseconds at a time. On the web it is made in a worker; a phone has no
  * workers, and made in one go it would take the JavaScript thread from the pen for a third of a second, every
  * second. So `fieldJob` lays the paths over the map in slices, a slice a frame, each under `SLICE_MS`, and the
  * map is ready well inside its second while the pen and the chart keep every frame.

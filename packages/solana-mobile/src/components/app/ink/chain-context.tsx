@@ -43,7 +43,7 @@ export type Chain = {
 export const ChainContext = createContext<Chain | null>(null);
 
 const SESSION_DAYS = 7;
-/** How much a session may stake in all before it must be registered again: $100,000. */
+/** How much a session may put in, in all, before it must be registered again: $100,000. */
 const SESSION_ALLOWANCE = 100_000_000_000n;
 /** How much USDC landing in the wallet the game may sweep in without asking again: $1,000,000. */
 const APPROVE = 1_000_000_000_000n;

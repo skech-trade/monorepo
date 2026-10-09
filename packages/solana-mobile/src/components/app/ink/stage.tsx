@@ -412,7 +412,7 @@ export const Stage = memo(function Stage({
     const perf = { since: performance.now(), frames: 0, ms: 0, worst: 0 };
     /*
       What a frame has been costing, smoothed. A phone where it costs more than SLOW_FRAME_MS draws at half the rate while
-      the pen is up: the chart scrolls a little less smoothly, and the JS thread is free for the pen, the odds map
+      the pen is up: the chart scrolls a little less smoothly, and the JS thread is free for the pen, the multiples map
       and the money. The pen, when down, always gets every frame.
     */
     let cost = 0;

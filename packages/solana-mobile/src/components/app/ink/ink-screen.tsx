@@ -33,7 +33,7 @@ import { Onboarding, Pill, useOnboarding } from "./onboarding";
 import { type Game, type Placed, type Preview, Stage } from "./stage";
 import { WalletButton } from "./wallet-button";
 
-/** How old a map of the odds may be, in ms past its second, and still be shown. */
+/** How old a map of multiples may be, in ms past its second, and still be shown. */
 const STALE_MAP_MS = 3500;
 
 /**
@@ -874,7 +874,7 @@ export function InkScreen() {
         <View className={cn("absolute z-20", overWon ? "inset-x-0 items-center" : "right-4")} key={over.key} pointerEvents="none" style={{ bottom: bottom + 78 }}>
           <Arrive motion={overBig ? MOTION.cardBig : overWon ? MOTION.cardIn : MOTION.cardSoft}>
             <View className={cn("border-[0.5px] bg-raised", overWon ? "items-center rounded-[20px] px-[22px] py-2.5" : "items-end rounded-2xl px-[18px] py-[9px]", overBig ? "border-success-foreground" : "border-border")} style={raised}>
-              {/* Just the round's result: a win shows everything that came back, a loss what it lost. */}
+              {/* Just the round's result: a profit shows everything that came back, a loss what it lost. */}
               <Text className={cn("text-muted-foreground", overWon ? "text-[13px]" : "text-[12px]")}>{overWon ? "Profit" : overNet < 0 ? "Loss" : "Even"}</Text>
               <Text className={cn("font-bold", overWon ? "text-success-foreground" : overNet < 0 ? "text-destructive-foreground" : "text-foreground", overBig ? "text-[32px]" : overWon ? "text-[26px]" : "text-[18px] font-semibold")} style={{ fontVariant: ["tabular-nums"] }}>
                 {overWon ? `+${money(over.won)}` : signed(overNet)}

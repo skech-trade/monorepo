@@ -340,8 +340,8 @@ function sounds(kind: Feel, detail?: Detail) {
   One thing at a time. Hits, misses and pieces landing come in bursts (the price runs through a stroke and several
   land in the same second), and played together they smear into noise and a motor that never stops. So every
   moment goes through one queue and plays after the last has had its say, the most important first. A burst of
-  one kind becomes one, the biggest of it. Whatever waited too long to still mean something is dropped, and a win
-  doesn't wait behind a hit. The finger is the exception: a tap is heard and felt the instant it lands.
+  one kind becomes one, the biggest of it. Whatever waited too long to still mean something is dropped, and a round's
+  result doesn't wait behind a hit. The finger is the exception: a tap is heard and felt the instant it lands.
 */
 /** `run`: correct calls in a row before this one. */
 type Detail = { multiple?: number; run?: number; ratio?: number };

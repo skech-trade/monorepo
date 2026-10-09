@@ -11,7 +11,7 @@ import { readJson, writeJson } from "./storage";
  *
  * Dollars you cannot lose, so the numbers read the way real ones will. The
  * same engine runs on the server once there is money in it; until then the
- * only thing at stake is the balance in the corner.
+ * only thing on the line is the balance in the corner.
  */
 
 export type Brush = "fine" | "medium" | "wide";
