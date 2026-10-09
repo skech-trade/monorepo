@@ -100,6 +100,7 @@ Nothing reads a database. The `DATABASE_URL` some `.env.local` files still carry
 |---|---|---|
 | balances, bets, IOUs, fees | on chain: the Solana program's accounts | not possible to lose |
 | bets placed but not yet settled | `/var/lib/skech-relayer/.relayer-state.solana-<cluster>.<game>.json` | survives restarts and deploys; backed up every 15 minutes (below) |
+| the gas keeper's last swap and the day's USDC swapped | `/var/lib/skech-relayer/.relayer-state.keeper.solana-<cluster>.json` | the day's cap and the hour between swaps start over; backed up with the above |
 | sign-in, wallet | Coinbase CDP | Coinbase keeps it |
 | session key | the player's browser, IndexedDB | the player signs in again |
 | settings, practice money, scoreboard | the player's browser, local and session storage | per device on purpose |
