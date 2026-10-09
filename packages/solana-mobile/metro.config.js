@@ -31,6 +31,8 @@ uniwindConfig.resolver.resolveRequest = (context, moduleName, platform) => {
     const here = { ...context, originModulePath: path.join(__dirname, 'index.js') }
     return next ? next(here, moduleName, platform) : context.resolveRequest(here, moduleName, platform)
   }
+  // Material Symbols: unused, ~3 MB of fonts; see stubs/material-symbols.js.
+  if (moduleName === '@expo-google-fonts/material-symbols') return { type: 'sourceFile', filePath: path.join(__dirname, 'stubs', 'material-symbols.js') }
   if (moduleName === 'jose') return context.resolveRequest({ ...context, unstable_conditionNames: ['browser'] }, moduleName, platform)
   return next ? next(context, moduleName, platform) : context.resolveRequest(context, moduleName, platform)
 }
