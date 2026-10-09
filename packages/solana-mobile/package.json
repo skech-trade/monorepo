@@ -19,6 +19,8 @@
   "main": "./index.js",
   "version": "1.0.0",
   "dependencies": {
+    "@dicebear/core": "^10.7.0",
+    "@dicebear/styles": "^10.6.0",
     "@ethersproject/shims": "^5.8.0",
     "@expo/metro-runtime": "~55.0.6",
     "@noble/curves": "^1.9.7",
