@@ -1,5 +1,8 @@
 # skech
 
+> **Monad archive.** This branch keeps skech as it ran on Monad, for reference. It is not deployed and `main` does
+> not merge it. See [MONAD-ARCHIVE.md](MONAD-ARCHIVE.md).
+
 Bun-workspaces monorepo.
 
 ## Layout
