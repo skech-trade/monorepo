@@ -1,7 +1,7 @@
 // Draft for legal review before launch.
 import type { Metadata } from "next";
 import { A, Contact, Em, LegalPage, type LegalSection, List, P } from "@/components/site/legal";
-import { CONTACT_EMAIL, DELETE_DAYS, DELETE_SUBJECT, LEGAL_NAME, mailto } from "@/lib/legal";
+import { CONTACT_EMAIL, DELETE_DAYS, DELETE_SUBJECT, mailto } from "@/lib/legal";
 
 const DESCRIPTION = "How to delete your skech account, on the web or Android, and what deleting it removes.";
 
@@ -119,7 +119,7 @@ export default function DeleteAccountPage() {
       contents={false}
       lead={
         <>
-          How to delete your skech account, for both the web app and the Android app, published by {LEGAL_NAME}. It takes
+          How to delete your skech account, for both the web app and the Android app. It takes
           two steps.
         </>
       }

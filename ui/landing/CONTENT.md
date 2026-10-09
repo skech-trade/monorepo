@@ -247,7 +247,7 @@ something the user does, so it folds into step 3.
 of the product and it is still tempting to lead with it; it is third because
 that is when you actually do it.
 
-**"Leverage" is surfaced here**, against the §4 ban, on Swayam's instruction —
+**"Leverage" is surfaced here**, against the §4 ban, on the owner's instruction —
 the canvas header shows `5×` too, so hiding the word in one place while showing
 the number in another was incoherent. The §4 replacement still governs the
 body copy: the card says "trade like $500", never "5× leverage".
