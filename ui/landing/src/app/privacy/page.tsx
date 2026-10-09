@@ -1,7 +1,6 @@
 // Draft for legal review before launch.
 import type { Metadata } from "next";
 import { A, Contact, Em, LegalPage, type LegalSection, List, P } from "@/components/site/legal";
-import { COUNTRY, LEGAL_NAME } from "@/lib/legal";
 
 const DESCRIPTION = "What skech collects, why, who else sees it, and how to have it deleted.";
 
@@ -19,8 +18,8 @@ const SECTIONS: LegalSection[] = [
     body: (
       <>
         <P>
-          skech is published by <Em>{LEGAL_NAME}</Em>, based in {COUNTRY}. &ldquo;We&rdquo; and &ldquo;us&rdquo; in
-          this policy mean {LEGAL_NAME}.
+          &ldquo;We&rdquo; and &ldquo;us&rdquo; in this policy mean <Em>skech</Em>, the team that runs this website, the
+          web app and the Android app.
         </P>
         <P>
           skech is a Bitcoin price prediction game. You draw where you think Bitcoin&rsquo;s price goes over the next few
@@ -283,7 +282,7 @@ const SECTIONS: LegalSection[] = [
     title: "International transfers",
     body: (
       <P>
-        We are based in {COUNTRY}. Our providers process data in the United States, India and other countries, which may
+        Our providers process data in the United States, India and other countries, which may
         have different data protection laws from yours. Where the law requires it, we rely on safeguards such as standard
         contractual clauses.
       </P>
@@ -304,7 +303,7 @@ const SECTIONS: LegalSection[] = [
     title: "Contact",
     body: (
       <P>
-        Questions or requests: <Contact />. {LEGAL_NAME}, {COUNTRY}.
+        Questions or requests: <Contact />.
       </P>
     ),
   },
