@@ -1,6 +1,6 @@
 # Turning on sign-in
 
-The web app signs in with Privy: email, SMS, Google or Apple, and an Ethereum
+The web app signs in with Privy: email, SMS, Google or Apple, and a Solana
 wallet Privy makes for each player on their first sign-in. The code is done;
 what is left is in Privy's dashboard, and none of it can be done from here.
 
@@ -31,9 +31,11 @@ has to be on here as well.
 
 ## 3. Turn on the wallet
 
-Embedded wallets: **Ethereum** on. The app creates one on sign-in for anyone
-without a wallet, and signs with it silently: the app turns Privy's
-confirmation screens off in code, whatever the dashboard says.
+Embedded wallets: **Solana** on. The app creates one on sign-in for every
+player (those who signed in when the game was on Monad, and so have an Ethereum
+wallet, included), and signs the relayer's transactions with it silently: the
+app turns Privy's confirmation screens off in code, whatever the dashboard says.
+Ethereum wallets are no longer made; the old ones can stay on.
 
 ## Checking it worked
 

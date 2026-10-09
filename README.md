@@ -51,7 +51,7 @@ Both apps use fixed default ports for `dev` and `start`:
 - Landing: http://localhost:3100
 - App: http://localhost:3101
 - Engine: ws://localhost:3102/ws (`ENGINE_PORT`; the app reads `NEXT_PUBLIC_ENGINE_URL`)
-- Relayer: ws://localhost:3103/ws (`RELAYER_PORT`; the app reads `NEXT_PUBLIC_RELAYER_URL`)
+- Relayer: ws://localhost:3103/ws (`RELAYER_PORT`), Monad's. The web app plays on Solana: it reads `NEXT_PUBLIC_RELAYER_URL`, by default the box's `wss://api.skech.trade/solana/ws`
 
 Stop an existing server before restarting it. Keep `http://localhost:3101`
 in your Coinbase CDP development project's allowed origins.
