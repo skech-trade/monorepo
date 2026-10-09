@@ -20,7 +20,7 @@ import { THEME_BOOT } from "@/lib/theme-boot";
   an outside wallet. Google and Apple sign-in are a redirect, which no directive here covers. For Solana it
   lists the clusters' public RPCs, which its SDK falls back to with none of ours configured: the one of the
   cluster the game is on. The app itself reads the chain only through the relayer.
-*/
+*/ 
 
 const PRIVY_FRAMES = ["https://auth.privy.io", "https://verify.walletconnect.com", "https://verify.walletconnect.org"];
 const PRIVY_CONNECT = ["https://auth.privy.io", "https://*.rpc.privy.systems", "wss://relay.walletconnect.com", "wss://relay.walletconnect.org", "wss://www.walletlink.org", "https://explorer-api.walletconnect.com"];
