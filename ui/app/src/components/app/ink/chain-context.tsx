@@ -2,27 +2,27 @@
 
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { reportError, track } from "@/lib/analytics";
-import { type Address, bytesToHex, type Hex } from "viem";
-import { RECEIVE_WITH_AUTHORIZATION_TYPES, TYPES } from "@skech/core/chain";
-import { useAccount } from "@/components/app/auth";
-import { domain, gameNonce, onChain, GAME, usdcBalance, usdcDomain } from "@/lib/chain";
-import { type Account, type Hello, type Incoming, RelayerClient, useRelayer } from "@/lib/relayer";
+import { hasAuth, useAccount } from "@/components/app/auth";
+import { type Account, type Hello, RelayerClient, useRelayer } from "@/lib/relayer";
 import { canHoldSession, forgetSessionKey, sessionKey, type SessionKey } from "@/lib/session";
 
 /**
- * Real money, when there is a game on chain and someone signed in: the
- * relayer, the player's account on the game, and the session key that signs
- * their ink. Everything a wallet has to sign goes through here, and there is
- * little of it: a session once, a permit per deposit, a withdrawal.
+ * Real money, on Solana, once someone has signed in: the relayer, the
+ * player's account in the game, and the session key that signs their ink,
+ * as on the phone (packages/solana-mobile/src/components/app/ink/chain-context.tsx).
+ * Everything the wallet signs goes through here, and there is little of it:
+ * one session (which also lets USDC that lands in the wallet be swept in),
+ * a deposit when there is no approval left to sweep on, and a withdrawal.
+ * The relayer builds each transaction and pays its fee; the browser only signs.
  *
- * Without a game configured, or signed out, `real` is false and the game
- * plays for practice money as it always has.
+ * Signed out, or with no way to sign in, `real` is false and the game plays
+ * for practice money as it always has.
  */
 
 export type Chain = {
-  /** Playing for real: on chain, signed in, connected. */
+  /** Playing for real: signed in and connected. */
   real: boolean;
-  player: Address | null;
+  player: string | null;
   client: RelayerClient;
   hello: Hello | null;
   account: Account | null;
@@ -31,21 +31,21 @@ export type Chain = {
   key: SessionKey | null;
   /** Whether the key on chain is this browser's, and still good for an hour. */
   sessionOk: boolean;
-  /** Register this browser's key, with one signature from the wallet. */
+  /** Register this browser's key, and the standing approval for deposits, with one signature from the wallet. */
   enableSession: () => Promise<string | null>;
   registering: boolean;
-  /** USDC in, on an EIP-3009 authorization: one signature, no allowance. */
+  /** USDC from the wallet into the balance now, on a signature: for when there is no approval left to sweep on. */
   deposit: (usdc: number) => Promise<string | null>;
-  /** Send `usdc` from the balance to `to`: the transaction on success, or why not, in the relayer's words. */
-  withdraw: (usdc: number, to: Address) => Promise<{ tx: string } | { why: string }>;
-  /** USDC sitting in the wallet on its way in, as last read; null before the first read. */
+  /** Send `usdc` from the balance to `to` (a Solana address): the transaction on success, or why not, in the relayer's words. */
+  withdraw: (usdc: number, to: string) => Promise<{ tx: string } | { why: string }>;
+  /** USDC sitting in the wallet on its way in, as the relayer last said; null before it has. */
   wallet: number | null;
+  /** How much of the wallet's USDC the game may sweep in without asking. */
+  approved: number;
   /** What is being moved into the balance right now, if anything. */
   adding: number | null;
   /** The last deposit that landed this visit: how much, and when. The deposit sheet says so. */
   landed: { amount: number; at: number } | null;
-  /** The wallet's own USDC, read when asked. */
-  walletUsdc: () => Promise<bigint>;
   /** What the app owes the player's own reckoning: the balance the relayer last said, in USDC, moved by what has happened since. */
   balance: number;
   /** Move the local balance by `usdc` until the relayer says otherwise. */
@@ -59,19 +59,24 @@ const Ctx = createContext<Chain | null>(null);
 const SESSION_DAYS = 7;
 /** How much a session may stake in all before it must be registered again: $100,000. */
 const SESSION_ALLOWANCE = 100_000_000_000n;
-const deadline = () => BigInt(Math.floor(Date.now() / 1000) + 300);
-/** How often the wallet is looked at for USDC to move in, and how long to leave it after a move fails. */
-const SWEEP_MS = 4000;
-/** The longest it is left while the wallet keeps coming back empty. */
-const SWEEP_MAX_MS = 15_000;
-/** The least USDC moved in at once, in dollars: under it, a deposit costs more gas than it is worth. */
+/** How much USDC landing in the wallet the game may sweep in without asking again: $1,000,000. */
+const APPROVE = 1_000_000_000_000n;
+/** The least USDC moved in at once, in dollars, as the relayer has it. */
 export const MIN_DEPOSIT = 1;
+/** How often the relayer is asked about the wallet while USDC may be on its way, and the longest it is left. */
+const LOOK_MS = 4000;
+const LOOK_MAX_MS = 15_000;
+/** How long USDC in the wallet may take to move in before the app stops waiting on it. */
+const SWEEP_WAIT_MS = 30_000;
+/** How long after that, or after a deposit that did not go through, it asks again. */
 const SWEEP_BACKOFF_MS = 30_000;
+
+const why = (e: unknown) => String((e as Error).message ?? e);
 
 export function ChainProvider({ children }: { children: ReactNode }) {
   const me = useAccount();
-  const player = (onChain && me.signedIn ? me.address : null) as Address | null;
-  const { client, hello, account, connected } = useRelayer(player, onChain);
+  const player = hasAuth && me.signedIn ? me.address : null;
+  const { client, hello, account, connected } = useRelayer(player, hasAuth);
   const [key, setKey] = useState<SessionKey | null>(null);
   const [registering, setRegistering] = useState(false);
   /** What has happened since the relayer last said the balance, against that word: forgotten when it speaks again. */
@@ -79,7 +84,7 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!onChain || !canHoldSession()) return;
+    if (!hasAuth || !canHoldSession()) return;
     let live = true;
     void sessionKey().then((k) => live && setKey(k), () => undefined);
     return () => {
@@ -112,18 +117,10 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   // The relayer's latest word, for async code that must know whether it has spoken since it started.
   const saidRef = useRef(said);
   const nudgeRef = useRef(nudge);
-  const accountRef = useRef(account);
   useEffect(() => {
     saidRef.current = said;
     nudgeRef.current = nudge;
-    accountRef.current = account;
-  }, [said, nudge, account]);
-  // The game nonce as the relayer last sent it with the account, so signing starts at once; read from the chain only
-  // if it has not come. Every call that uses one up goes through the relayer, which sends the account again after.
-  const nonceFor = useCallback(async (who: Address) => {
-    const a = accountRef.current;
-    return a?.nonce != null && a.player.toLowerCase() === who.toLowerCase() ? BigInt(a.nonce) : gameNonce(who);
-  }, []);
+  }, [said, nudge]);
 
   // A session is good for an hour at least: checked against a clock that ticks now and then.
   useEffect(() => {
@@ -131,13 +128,13 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer);
   }, []);
   const sessionOk = useMemo(() => {
-    if (!account || !key) return false;
-    const s = account.session;
-    return s.x.toLowerCase() === key.x.toLowerCase() && s.y.toLowerCase() === key.y.toLowerCase() && Number(s.validUntil) * 1000 > now + 3_600_000 && BigInt(s.allowance) > 0n;
+    const s = account?.session;
+    if (!s || !key) return false;
+    return s.key === key.address && Number(s.validUntil) * 1000 > now + 3_600_000 && BigInt(s.allowance) > 0n;
   }, [account, key, now]);
 
   const enableSession = useCallback(async (): Promise<string | null> => {
-    if (!player || !domain || !hello) return "Not connected";
+    if (!player || !hello) return "Not connected";
     let k = key;
     if (!k) {
       try {
@@ -149,169 +146,167 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     }
     setRegistering(true);
     try {
-      const nonce = await nonceFor(player);
-      const validUntil = BigInt(Math.floor(Date.now() / 1000) + SESSION_DAYS * 86_400);
-      const dl = deadline();
-      const message = { player, kind: 1, key: "0x0000000000000000000000000000000000000000", x: k.x, y: k.y, validUntil, allowance: SESSION_ALLOWANCE, nonce, deadline: dl };
-      const sig = await me.signTypedData({ domain, types: { Session: [...TYPES.Session] }, primaryType: "Session", message });
-      if (!sig) return "Not signed";
-      const r = await client.request({ type: "session", ...message, sig }, (m): m is Extract<Incoming, { type: "session-set" }> => m.type === "session-set", 30_000);
-      if (!r) return "No answer";
+      // The key, allowed to place drawings for a week; and the standing approval that sweeps USDC in as it lands.
+      const validUntil = String(Math.floor(Date.now() / 1000) + SESSION_DAYS * 86_400);
+      const r = await client.transact("session", { key: k.address, validUntil, allowance: SESSION_ALLOWANCE.toString(), approve: APPROVE.toString() }, me.signTransaction);
       if (!r.ok) {
-        track("drawing_key_failed", { why: r.why ?? "refused" });
-        return r.why ?? "Could not get ready";
+        track("drawing_key_failed", { why: r.why.slice(0, 120) });
+        return r.why;
       }
       track("drawing_key_ready");
       client.send({ type: "account" });
       return null;
     } catch (e) {
-      track("drawing_key_failed", { why: String((e as Error).message ?? e).slice(0, 120) });
+      track("drawing_key_failed", { why: why(e).slice(0, 120) });
       reportError(e, { flow: "drawing_key" });
-      return String((e as Error).message ?? e);
+      return why(e);
     } finally {
       setRegistering(false);
     }
-  }, [player, hello, key, me, client, nonceFor]);
+  }, [player, hello, key, me.signTransaction, client]);
 
   const deposit = useCallback(
     async (usdc: number): Promise<string | null> => {
-      if (!player || !hello || !GAME) return "Not connected";
-      const value = BigInt(Math.round(usdc * 1e6));
-      if (value <= 0n) return "Nothing to deposit";
+      if (!player || !hello) return "Not connected";
+      const amount = BigInt(Math.round(usdc * 1e6));
+      if (amount <= 0n) return "Nothing to deposit";
       try {
-        // Move this USDC to the game, good for ten minutes, under a nonce nobody else will ever pick.
-        const nonce = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
-        const validBefore = BigInt(Math.floor(Date.now() / 1000) + 600);
-        const message = { from: player, to: GAME, value, validAfter: 0n, validBefore, nonce };
-        const sig = await me.signTypedData({ domain: await usdcDomain(), types: { ReceiveWithAuthorization: [...RECEIVE_WITH_AUTHORIZATION_TYPES.ReceiveWithAuthorization] }, primaryType: "ReceiveWithAuthorization", message });
-        if (!sig) return "Not signed";
-        const r = await client.request({ type: "deposit", owner: player, amount: value, validAfter: 0n, validBefore, nonce, sig }, (m): m is Extract<Incoming, { type: "deposited" }> => m.type === "deposited", 30_000);
-        if (!r || !r.ok) {
-          track("deposit_failed", { amount: usdc, why: r ? (r.why ?? "refused") : "no answer" });
-          return r ? (r.why ?? "Could not add") : "No answer";
+        const r = await client.transact("deposit", { amount: amount.toString() }, me.signTransaction);
+        if (!r.ok) {
+          track("deposit_failed", { amount: usdc, why: r.why.slice(0, 120) });
+          return r.why;
         }
         track("deposit_completed", { amount: usdc });
         return null;
       } catch (e) {
-        track("deposit_failed", { amount: usdc, why: String((e as Error).message ?? e).slice(0, 120) });
+        track("deposit_failed", { amount: usdc, why: why(e).slice(0, 120) });
         reportError(e, { flow: "deposit", amount: usdc });
-        return String((e as Error).message ?? e);
+        return why(e);
       }
     },
-    [player, hello, me, client],
+    [player, hello, client, me.signTransaction],
   );
 
   const withdraw = useCallback(
-    async (usdc: number, to: Address): Promise<{ tx: string } | { why: string }> => {
-      if (!player || !domain) return { why: "Not connected" };
-      const value = BigInt(Math.round(usdc * 1e6));
-      if (value <= 0n) return { why: "Nothing to withdraw" };
+    async (usdc: number, to: string): Promise<{ tx: string } | { why: string }> => {
+      if (!player) return { why: "Not connected" };
+      const amount = BigInt(Math.round(usdc * 1e6));
+      if (amount <= 0n) return { why: "Nothing to withdraw" };
       try {
-        const nonce = await nonceFor(player);
-        const dl = deadline();
-        const message = { player, amount: value, to, nonce, deadline: dl };
-        const sig = await me.signTypedData({ domain, types: { Withdraw: [...TYPES.Withdraw] }, primaryType: "Withdraw", message });
-        if (!sig) return { why: "Not signed" };
         const before = saidRef.current;
-        const r = await client.request({ type: "withdraw", ...message, sig }, (m): m is Extract<Incoming, { type: "withdrawn" }> => m.type === "withdrawn", 45_000);
-        if (!r || !r.ok) {
-          track("withdraw_failed", { amount: usdc, why: r ? (r.why ?? "refused") : "no answer" });
-          return { why: r ? (r.why ?? "Could not withdraw") : "No answer" };
+        const r = await client.transact("withdraw", { amount: amount.toString(), to }, me.signTransaction);
+        if (!r.ok) {
+          track("withdraw_failed", { amount: usdc, why: r.why.slice(0, 120) });
+          return { why: r.why };
         }
         track("withdraw_completed", { amount: usdc });
-        // As with deposits: the balance drops before the sheet says "sent", counted here only if the relayer's
-        // new figure has not arrived, so it can never be taken off twice.
+        // The relayer sends the new balance before it answers; counted here only if that has not arrived, so it
+        // can never be taken off twice.
         if (saidRef.current === before) nudgeRef.current(-usdc);
-        return { tx: r.tx ?? "" };
+        return { tx: r.tx };
       } catch (e) {
-        track("withdraw_failed", { amount: usdc, why: String((e as Error).message ?? e).slice(0, 120) });
+        track("withdraw_failed", { amount: usdc, why: why(e).slice(0, 120) });
         reportError(e, { flow: "withdraw", amount: usdc });
-        return { why: String((e as Error).message ?? e) };
+        return { why: why(e) };
       }
     },
-    [player, me, client, nonceFor],
+    [player, client, me.signTransaction],
   );
 
-  const walletUsdc = useCallback(() => (player ? usdcBalance(player) : Promise.resolve(0n)), [player]);
-
   /*
-    The wallet is this game's own, made at sign-in, so USDC that lands in it is
-    on its way in: moved into the balance at once, with one signature the
-    wallet makes without asking. The player sees one address and one balance.
+    The wallet is this game's own, made at sign-in, so USDC that lands in it is on its way in. The relayer says
+    what is in it with the account; nothing tells it when USDC arrives, so it is asked every few seconds, less
+    often the longer the wallet stays empty, and not at all while the page is hidden: it is asked again the moment
+    the page is back, which is when someone who went to send it from elsewhere returns.
   */
-  const [wallet, setWallet] = useState<number | null>(null);
-  const [adding, setAdding] = useState<number | null>(null);
-  const [landed, setLanded] = useState<{ amount: number; at: number } | null>(null);
+  const wallet = account ? Number(account.wallet.usdc) / 1e6 : null;
+  const approved = account ? Number(account.wallet.approved) / 1e6 : 0;
   const live = Boolean(player && hello && connected);
+  const walletRef = useRef(wallet);
+  useEffect(() => {
+    walletRef.current = wallet;
+  }, [wallet]);
   useEffect(() => {
     if (!live) return;
-    let alive = true;
-    let busy = false;
-    let pausedUntil = 0;
-    /*
-      Every few seconds while USDC may be on its way, then less often the longer the wallet stays empty, and not at
-      all while the page is hidden: it is looked at again the moment the page is back, which is when someone who
-      went to send it from elsewhere returns.
-    */
-    let wait = SWEEP_MS;
+    let wait = LOOK_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const look = async () => {
+    const look = () => {
       clearTimeout(timer);
-      if (busy || document.hidden) return;
-      if (Date.now() >= pausedUntil) await sweep();
-      if (alive && !document.hidden) timer = setTimeout(() => void look(), wait);
+      if (document.hidden) return;
+      client.send({ type: "account" });
+      wait = (walletRef.current ?? 0) >= MIN_DEPOSIT ? LOOK_MS : Math.min(LOOK_MAX_MS, wait * 1.5);
+      timer = setTimeout(look, wait);
     };
     const back = () => {
       if (document.hidden) return;
-      wait = SWEEP_MS;
-      void look();
+      wait = LOOK_MS;
+      look();
     };
     document.addEventListener("visibilitychange", back);
-    const sweep = async () => {
-      busy = true;
-      try {
-        const held = Number(await usdcBalance(player!)) / 1e6;
-        if (!alive) return;
-        setWallet(held);
-        if (held < MIN_DEPOSIT) {
-          wait = Math.min(SWEEP_MAX_MS, wait * 1.5);
-          return;
-        }
-        wait = SWEEP_MS;
-        setAdding(held);
-        const before = saidRef.current;
-        const why = await deposit(held);
-        if (!alive) return;
-        setAdding(null);
-        if (why) {
-          pausedUntil = Date.now() + SWEEP_BACKOFF_MS;
-          if (process.env.NODE_ENV !== "production") console.warn(`[chain] could not move ${held} USDC in: ${why}`);
-          return;
-        }
-        setWallet(0);
-        // The balance must hold the deposit before the sheet says "added", or the next tap would find the old one
-        // and open the sheet again. The relayer sends it first; if it has not arrived yet, count it here. Only then:
-        // counted after its word came, it would be counted twice.
-        if (saidRef.current === before) nudgeRef.current(held);
-        setLanded({ amount: held, at: Date.now() });
-      } catch {
-        if (alive) setAdding(null);
-      } finally {
-        busy = false;
-      }
-    };
-    void look();
+    timer = setTimeout(look, LOOK_MS);
     return () => {
-      alive = false;
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", back);
     };
-  }, [live, player, deposit]);
+  }, [live, client]);
 
-  // A key that is not the chain's is replaced on enable.
+  /*
+    With the session's standing approval the relayer sweeps it in by itself; the app asks it to look now rather
+    than on its next round. With no approval left, the wallet signs the deposit without asking. The player sees
+    one address and one balance.
+  */
+  const [adding, setAdding] = useState<number | null>(null);
+  const [landed, setLanded] = useState<{ amount: number; at: number } | null>(null);
+  const pending = useRef<{ amount: number; before: string | null; signing: boolean } | null>(null);
+  const pausedUntil = useRef(0);
+  const [again, setAgain] = useState(0);
+  // A sweep that failed, or never emptied the wallet: stop saying "Adding", and look again in a while.
+  const giveUp = useCallback(() => {
+    pending.current = null;
+    setAdding(null);
+    pausedUntil.current = Date.now() + SWEEP_BACKOFF_MS;
+    setTimeout(() => setAgain((n) => n + 1), SWEEP_BACKOFF_MS);
+  }, []);
+  useEffect(() => {
+    if (!live || wallet === null || wallet < MIN_DEPOSIT || Date.now() < pausedUntil.current) return;
+    // One on its way for what is there now. USDC that arrived since is asked for again, all of it.
+    const p = pending.current;
+    if (p && (p.signing || p.amount === wallet)) return;
+    const ask = { amount: wallet, before: saidRef.current, signing: false };
+    pending.current = ask;
+    setAdding(wallet);
+    if (approved >= wallet) client.send({ type: "sweep" });
+    else {
+      ask.signing = true;
+      void deposit(wallet).then((no) => {
+        ask.signing = false;
+        if (pending.current !== ask) return;
+        if (no) {
+          if (process.env.NODE_ENV !== "production") console.warn(`[chain] could not move ${wallet} USDC in: ${no}`);
+          giveUp();
+        } else setAgain((n) => n + 1);
+      });
+    }
+  }, [live, wallet, approved, client, deposit, again, giveUp]);
+  useEffect(() => {
+    if (adding === null) return;
+    const timer = setTimeout(giveUp, SWEEP_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [adding, giveUp]);
+  // Landed: the wallet emptied into the balance. The balance must hold it before the sheet says "added", or the
+  // next tap would find the old one: counted here only if the relayer's new word has not come.
+  useEffect(() => {
+    const p = pending.current;
+    if (!p || wallet === null || wallet >= MIN_DEPOSIT) return;
+    pending.current = null;
+    setAdding(null);
+    if (saidRef.current === p.before) nudgeRef.current(p.amount);
+    setLanded({ amount: p.amount, at: Date.now() });
+  }, [wallet]);
+
   const value = useMemo<Chain>(
-    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, walletUsdc, wallet, adding, landed, balance, nudge, resync }),
-    [live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, walletUsdc, wallet, adding, landed, balance, nudge, resync],
+    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync }),
+    [live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -326,12 +321,12 @@ const OFF: Chain = {
   connected: false,
   key: null,
   sessionOk: false,
-  enableSession: async () => "No game on chain",
+  enableSession: async () => "Not signed in",
   registering: false,
-  deposit: async () => "No game on chain",
-  withdraw: async () => ({ why: "No game on chain" }),
-  walletUsdc: async () => 0n,
+  deposit: async () => "Not signed in",
+  withdraw: async () => ({ why: "Not signed in" }),
   wallet: null,
+  approved: 0,
   adding: null,
   landed: null,
   balance: 0,
@@ -342,5 +337,3 @@ const OFF: Chain = {
 export function useChain(): Chain {
   return useContext(Ctx) ?? OFF;
 }
-
-export type { Hex };

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { hasAuth, useAccount } from "@/components/app/auth";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { onChain } from "@/lib/chain";
 import { cn } from "@/lib/utils";
 import { POINT_PRICES } from "@skech/core/odds";
 import { useChain } from "./chain-context";
@@ -14,11 +13,11 @@ import feedback from "./drawing-feedback.module.css";
 /**
  * The way in for someone new: sign in, deposit USDC, draw. One card over the
  * chart, one step at a time, gone once there is money to draw with.
- * Without a game configured the app plays for practice and none of it shows.
+ * Without a way to sign in the app plays for practice and none of it shows.
  */
 
-/** Whether this build plays for real money: a game to play on, and a way to sign in. */
-export const forReal = onChain && hasAuth;
+/** Whether this build plays for real money: a way to sign in. The game is the relayer's to name. */
+export const forReal = hasAuth;
 
 export type Step = "signin" | "connecting" | "deposit" | "setup" | null;
 
