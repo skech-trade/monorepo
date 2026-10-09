@@ -44,7 +44,7 @@ You can lose what you put in. Only use money you can afford to lose.
 **Phone screenshots** (2–8, 1080×1920 or similar): taken from a phone, see the end of this file.
 
 **Category:** Finance. **Tags:** cryptocurrency, Bitcoin, price prediction.
-**Contact email:** `[support@…]`. **Website:** `https://www.skech.trade`.
+**Contact email:** `team@skech.trade`. **Website:** `https://www.skech.trade`.
 **Privacy policy:** `https://www.skech.trade/privacy`.
 
 ## App content (Policy → App content)

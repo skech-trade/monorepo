@@ -104,7 +104,7 @@ export function InkControls({ pen, amount, onPen, onAmount, bottom }: { pen: Bru
             </Pressable>
           ))}
         </View>
-        <Text className="mt-3 px-2 pb-2 text-[12px] text-muted-foreground">A hit pays it times its multiple.</Text>
+        <Text className="mt-3 px-2 pb-2 text-[12px] text-muted-foreground">A correct call returns it times its multiple.</Text>
       </Popover>
     </View>
   );
@@ -129,7 +129,7 @@ export function DepositButton({ onDeposit }: { onDeposit: (amount: number) => vo
       <Popover anchor={at ?? { top: 0, right: 12 }} onClose={() => setAt(null)} open={at !== null} width={DEPOSIT_MENU}>
         <View className="p-2.5">
           <Text className="font-semibold text-[17px] text-foreground">Add practice money</Text>
-          <Text className="mt-1 text-[14px] text-muted-foreground">It lands in your balance at once. Every point you draw is paid for from there, and every hit paid into it.</Text>
+          <Text className="mt-1 text-[14px] text-muted-foreground">It lands in your balance at once. Every point you draw is paid for from there, and every correct call paid into it.</Text>
           <View className="flex-row gap-1.5 pt-3">
             {DEPOSITS.map((a) => (
               <Pressable

@@ -18,7 +18,7 @@ the servers read. [`.env.example`](../.env.example) documents each.
 | `ENGINE_SENTRY_DSN`, `RELAYER_SENTRY_DSN` | errors from the box | set |
 | `ENGINE_BAND_BPS` | how far Coinbase may be from Binance or Kraken, in bp. Blank: 15 | leave blank |
 | `SKECH_SOLANA_CLUSTER` | `devnet` | **new: add** (part 4) |
-| `SOLANA_RELAYER_SECRET_KEY` | the relayer's keypair, the 64 bytes as JSON: `~/.config/solana/skech-devnet-relayer.json` on Swayam's machine (`3hNNKV…Ge9s`). It is also the devnet game's oracle | **new: add** (part 4) |
+| `SOLANA_RELAYER_SECRET_KEY` | the relayer's keypair, the 64 bytes as JSON: `~/.config/solana/skech-devnet-relayer.json` on the owner's machine (`3hNNKV…Ge9s`). It is also the devnet game's oracle | **new: add** (part 4) |
 | `SOLANA_DEVNET_RPC_URL` | a devnet RPC (the public one rate-limits) | **new: add** (part 4) |
 | `SOLANA_RPC_RPS` | requests a second the relayer asks of that RPC, all told. Blank: 15. Set it under the plan's limit | optional (part 4) |
 

@@ -17,21 +17,21 @@ function useSuccessInk() {
 }
 
 /**
- * This session's wins: what they came to, how they built up, and the best of them. Only what was won is shown,
- * as a casino's win meter does; the balance is the full picture. Opened from the number beside the balance. The
+ * This session's returns: what they came to, how they built up, and the best of them. Only what came back is
+ * shown here; the balance is the full picture, losses and all. Opened from the number beside the balance. The
  * web's scoreboard (ui/app/src/components/app/ink/scoreboard-sheet.tsx).
  */
 export function ScoreboardSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const s = useScoreboard();
   const all = usePractice();
   const rounds = s.rounds.length;
-  const wins = s.rounds.filter((r) => r.won > r.cost);
+  const ahead = s.rounds.filter((r) => r.won > r.cost);
   // From the first round to the last: pure, and what the session actually spanned.
   const minutes = rounds ? Math.max(1, Math.round((s.lastAt - Math.min(...s.rounds.map((r) => r.at))) / 60_000)) : 0;
   return (
     <Sheet description={rounds ? `${rounds} ${rounds === 1 ? "round" : "rounds"} over ${minutes} min` : "Nothing yet. Draw ahead of the price."} onClose={onClose} open={open} title="This session">
       <View className="gap-1 rounded-[18px] bg-muted px-4 pt-4 pb-3">
-        <Text className="text-[13px] text-muted-foreground">Won this session</Text>
+        <Text className="text-[13px] text-muted-foreground">Earned this session</Text>
         <Pop k={s.won}>
           <Text className={cn("font-bold text-[40px]", s.won > 0 ? "text-success-foreground" : "text-foreground")} style={[figures, { letterSpacing: -0.8, lineHeight: 46 }]}>
             {s.won > 0 ? `+${money(s.won)}` : money(0)}
@@ -39,31 +39,31 @@ export function ScoreboardSheet({ open, onClose }: { open: boolean; onClose: () 
         </Pop>
         {s.streak >= 2 ? (
           <View className="mt-1 self-start rounded-full bg-brand/12 px-2.5 py-0.5">
-            <Text className="font-semibold text-[13px] text-brand">{s.streak} wins in a row</Text>
+            <Text className="font-semibold text-[13px] text-brand">{s.streak} profitable rounds running</Text>
           </View>
         ) : null}
         {rounds >= 2 ? <Line s={s} /> : null}
       </View>
 
       <View className="flex-row flex-wrap gap-2">
-        <Stat label="Wins" value={s.wins ? String(s.wins) : "–"} />
-        <Stat label="Best hit" value={s.best ? fmtMultiple(s.best) : "–"} />
-        <Stat good={s.biggest > 0} label="Biggest win" value={s.biggest > 0 ? signed(s.biggest) : "–"} />
-        <Stat label="Streak now" value={s.streak ? String(s.streak) : "–"} />
-        <Stat label="Best streak" value={s.bestStreak ? String(s.bestStreak) : "–"} />
-        <Stat label="Hits" value={s.hits ? String(Math.round(s.hits)) : "–"} />
+        <Stat label="Rounds in profit" value={s.wins ? String(s.wins) : "–"} />
+        <Stat label="Best call" value={s.best ? fmtMultiple(s.best) : "–"} />
+        <Stat good={s.biggest > 0} label="Best round" value={s.biggest > 0 ? signed(s.biggest) : "–"} />
+        <Stat label="Run now" value={s.streak ? String(s.streak) : "–"} />
+        <Stat label="Longest run" value={s.bestStreak ? String(s.bestStreak) : "–"} />
+        <Stat label="Correct calls" value={s.hits ? String(Math.round(s.hits)) : "–"} />
       </View>
 
-      {wins.length ? (
+      {ahead.length ? (
         <View className="gap-1.5">
-          <Text className="px-1 text-[13px] text-muted-foreground">Your wins</Text>
+          <Text className="px-1 text-[13px] text-muted-foreground">Rounds in profit</Text>
           <View className="overflow-hidden rounded-[18px] bg-muted">
-            {wins.slice(0, 25).map((r, i) => {
+            {ahead.slice(0, 25).map((r, i) => {
               const n = Math.round((r.won - r.cost) * 100) / 100;
               return (
                 <View className={cn("flex-row items-center justify-between gap-3 px-4 py-3", i > 0 && "border-border border-t")} key={r.id}>
                   <View className="min-w-0 flex-1">
-                    <Text className="font-medium text-[15px] text-foreground">{r.best >= 10 ? "Big win" : "Won"}</Text>
+                    <Text className="font-medium text-[15px] text-foreground">{r.best >= 10 ? "Strong call" : "Profit"}</Text>
                     <Text className="text-[13px] text-muted-foreground" numberOfLines={1} style={figures}>
                       {new Date(r.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {money(r.cost)}
                       {r.best ? ` · best ${fmtMultiple(r.best)}` : ""}
@@ -81,7 +81,7 @@ export function ScoreboardSheet({ open, onClose }: { open: boolean; onClose: () 
 
       {all.bestHit || all.bestStreak ? (
         <Text className="px-1 text-[13px] text-muted-foreground" style={figures}>
-          All time: best hit {all.bestHit ? fmtMultiple(all.bestHit) : "–"}, best streak {all.bestStreak}
+          All time: best call {all.bestHit ? fmtMultiple(all.bestHit) : "–"}, longest run {all.bestStreak}
         </Text>
       ) : null}
 
@@ -122,7 +122,7 @@ function Pop({ k, children }: { k: number; children: ReactNode }) {
 }
 
 /**
- * What was won in total after each round, from zero: it only climbs. One series, so no legend: the card's
+ * What came back in total after each round, from zero: it only climbs. One series, so no legend: the card's
  * title names it. A finger on it reads a round.
  */
 function Line({ s }: { s: Scoreboard }) {
@@ -158,14 +158,14 @@ function Line({ s }: { s: Scoreboard }) {
       <Text accessibilityLiveRegion="polite" className="h-5 text-[13px] text-muted-foreground" numberOfLines={1} style={figures}>
         {at !== null ? (
           <>
-            Round {at}: {round > 0 ? <Text className="text-success-foreground">+{money(round)}</Text> : "no win"}, {money(pts[at])} won so far
+            Round {at}: {round > 0 ? <Text className="text-success-foreground">+{money(round)}</Text> : "nothing back"}, {money(pts[at])} earned so far
           </>
         ) : (
-          "Your winnings, round by round"
+          "Your earnings, round by round"
         )}
       </Text>
       <Animated.View
-        accessibilityLabel={`Winnings after each of ${pts.length - 1} rounds, ${money(last)} in all`}
+        accessibilityLabel={`Earnings after each of ${pts.length - 1} rounds, ${money(last)} in all`}
         accessible
         onLayout={(e: LayoutChangeEvent) => setW(e.nativeEvent.layout.width)}
         onMoveShouldSetResponder={() => true}

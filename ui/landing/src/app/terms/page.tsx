@@ -1,7 +1,7 @@
 // Draft for legal review before launch.
 import type { Metadata } from "next";
 import { A, Contact, Em, LegalPage, type LegalSection, List, P } from "@/components/site/legal";
-import { COUNTRY, EXCLUDED_JURISDICTIONS, GOVERNING_LAW, IOU_GROWTH, LEGAL_NAME, PROFIT_FEE, STAKE_FEE } from "@/lib/legal";
+import { IOU_GROWTH, PROFIT_FEE, STAKE_FEE } from "@/lib/legal";
 
 const DESCRIPTION = "The rules for using skech: who can play, how it works, what it costs, and what can go wrong.";
 
@@ -19,7 +19,7 @@ const SECTIONS: LegalSection[] = [
     body: (
       <>
         <P>
-          These terms are an agreement between you and <Em>{LEGAL_NAME}</Em>, based in {COUNTRY}. They cover this website,
+          These terms are an agreement between you and <Em>skech</Em>, the team that runs it. They cover this website,
           the web app (app.skech.trade) and the skech Android app.
         </P>
         <P>By using skech, you agree to them. If you do not agree, do not use skech.</P>
@@ -39,7 +39,7 @@ const SECTIONS: LegalSection[] = [
             You must be <Em>18 or older</Em>.
           </li>
           <li>
-            You must not be in, or a resident of, a place where skech is not offered: {EXCLUDED_JURISDICTIONS.join(", ")}.
+            You must not be in, or a resident of, a place where using skech is against the law. You are responsible for knowing the law where you are.
           </li>
           <li>You must not be on a sanctions list, or acting for someone who is.</li>
           <li>You must use skech for yourself, not on behalf of someone else.</li>
@@ -92,8 +92,7 @@ const SECTIONS: LegalSection[] = [
     body: (
       <List>
         <li>skech uses USDC, a dollar stablecoin.</li>
-        <li>The web app runs on Monad testnet.</li>
-        <li>The Android app runs on Solana devnet now, and will move to Solana mainnet.</li>
+        <li>skech runs on Solana: devnet now, and Solana mainnet later.</li>
         <li>
           <Em>On a testnet or devnet, USDC is a test token with no value.</Em> Balances there may be reset at any time.
         </li>
@@ -299,8 +298,8 @@ const SECTIONS: LegalSection[] = [
     title: "Governing law",
     body: (
       <P>
-        These terms are governed by the laws of {GOVERNING_LAW}. Disputes go to its courts, unless the law where you live
-        gives you the right to use your local courts.
+        Disputes about these terms go to the courts that have jurisdiction over skech, unless the law where you live gives
+        you the right to use your local courts. Nothing in these terms takes away rights that law gives you.
       </P>
     ),
   },
@@ -309,7 +308,7 @@ const SECTIONS: LegalSection[] = [
     title: "Contact",
     body: (
       <P>
-        Questions, or a bug to report: <Contact />. {LEGAL_NAME}, {COUNTRY}.
+        Questions, or a bug to report: <Contact />.
       </P>
     ),
   },

@@ -6,7 +6,7 @@
 const [
   url = "http://localhost:3000/",
   w = "1440",
-  axePath = "/private/tmp/claude-501/-Users-viveksahu-Documents-skech-monorepo/c99ced80-0c50-4ce6-9698-eee5dfcf516c/scratchpad/axe.min.js",
+  axePath = "axe.min.js",
 ] = process.argv.slice(2);
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";

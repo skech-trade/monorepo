@@ -390,7 +390,7 @@ const SPARKLES = [
 
 /** The deposit landed: how much, what the balance is now, and the way back to the game. */
 function Landed({ amount, balance, onStart }: { amount: number; balance: number; onStart: () => void }) {
-  // Money in is the best news the app has: a till and a bright chord, felt as well as heard.
+  // Money in is the best news the app has: two rising chimes over a soft chord, felt as well as heard.
   useEffect(() => {
     feel("cash");
   }, []);
@@ -431,7 +431,7 @@ function Landed({ amount, balance, onStart }: { amount: number; balance: number;
 
   return (
     <View className="items-center gap-4 pt-2">
-      {/* The landing page's closing scene: the pen drawing a line up to a winning candle. Sparkles pop around it. */}
+      {/* The landing page's closing scene: the pen drawing a line up to a rising candle. Sparkles pop around it. */}
       <View className="pt-2" style={{ width: sceneW, height: sceneH + 8 }}>
         <Animated.View
           style={{
