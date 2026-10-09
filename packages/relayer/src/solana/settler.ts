@@ -67,6 +67,8 @@ export class SolanaSettler {
   private saved: string | null = null;
   /** Bets whose every band is decided but that the program keeps until their piece's placing window is over. */
   private closing = new Map<Address, { player: Address; due: number; tries: number }>();
+  /** The smallest part of an IOU the program pays out (the game's minRedeem, USDC e6); set from the chain. */
+  minRedeem = 0n;
   stats = { bars: 0, settled: 0, redeemed: 0n, swept: 0n, collected: 0n };
   /** How long after its opening second a piece may still be placed, from the game's config. */
   placeGraceMs = 3_000;
@@ -326,12 +328,15 @@ export class SolanaSettler {
             continue;
           }
           if (left === 0n) continue;
+          // The program pays part of an IOU only if that part is at least minRedeem: below it, and short of the
+          // whole, it refuses (NothingToRedeem), and asking again each sweep only spends fees.
+          const owed = (p.iouShares * index) / 10n ** 18n;
+          if (left < owed && left < this.minRedeem) continue;
           // The redeemer's cut goes to the relayer's own account in the game.
           const ix = getRedeemInstruction({ caller: this.chain.signer, game: d.game, pool: d.pool, holder: await playerAddress(holder, d.program), callerPlayer: await playerAddress(this.chain.signer.address, d.program), shares: ALL });
           const s = await this.chain.send(`redeem ${holder}`, [ix], 30_000);
           if (!s.err) this.notify.account(holder);
-          const due = (p.iouShares * index) / 10n ** 18n;
-          left = due < left ? left - due : 0n;
+          left = owed < left ? left - owed : 0n;
         }
       }
       if (pool.houseShares > 0n && left > 0n) await this.chain.send("redeem house", [getRedeemHouseInstruction({ game: d.game, pool: d.pool })], 30_000);
