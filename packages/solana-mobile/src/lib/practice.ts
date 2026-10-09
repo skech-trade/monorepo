@@ -99,6 +99,13 @@ export function setPractice(patch: Partial<Practice> | ((s: Practice) => Partial
   for (const l of listeners) l();
 }
 
+/** Back to a new phone's: balance, settings, history. Held in memory as well, so clearing storage alone would be written back. */
+export function resetPractice() {
+  current = DEFAULTS;
+  writeJson(KEY, current);
+  for (const l of listeners) l();
+}
+
 function subscribe(fn: () => void) {
   listeners.add(fn);
   return () => void listeners.delete(fn);

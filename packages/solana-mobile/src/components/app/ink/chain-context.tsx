@@ -22,6 +22,8 @@ export type Chain = {
   sessionOk: boolean;
   /** Register this phone's key, and the standing approval for deposits, with one signature from the wallet. */
   enableSession: () => Promise<string | null>;
+  /** Throw this phone's key away, from the secure store and from here: an account is being deleted. */
+  forgetKey: () => Promise<void>;
   registering: boolean;
   /** USDC from the wallet into the balance now, on a signature: for when there is no approval left to sweep on. */
   deposit: (usdc: number) => Promise<string | null>;
@@ -99,6 +101,11 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     const validUntil = String(Math.floor(Date.now() / 1000) + SESSION_DAYS * 86_400);
     return { kind: "session" as const, params: { key: k.address, validUntil, allowance: SESSION_ALLOWANCE.toString(), approve: APPROVE.toString() } };
   }, [key]);
+  // Whoever signs in next gets a new key, made by sessionStep and registered afresh.
+  const forgetKey = useCallback(async () => {
+    setKey(null);
+    await forgetSessionKey();
+  }, []);
 
   const enableSession = useCallback(async (): Promise<string | null> => {
     if (!player || !hello) return "Not connected";
@@ -219,8 +226,8 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   }, [wallet]);
 
   const value = useMemo<Chain>(
-    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync }),
-    [live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync],
+    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, forgetKey, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync }),
+    [live, player, client, hello, account, connected, key, sessionOk, enableSession, forgetKey, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync],
   );
   return <ChainContext.Provider value={value}>{children}</ChainContext.Provider>;
 }
