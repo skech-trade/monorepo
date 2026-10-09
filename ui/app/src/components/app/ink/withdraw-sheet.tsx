@@ -2,11 +2,10 @@
 
 import { ArrowLeftIcon, ArrowUpRightIcon, CheckIcon, ClipboardPasteIcon, ScanLineIcon, SendIcon, XIcon } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import type { Address } from "viem";
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { toastManager } from "@/components/ui/toast";
-import { CHAIN_ID, explorer, GAME, NETWORK, USDC } from "@/lib/chain";
+import { explorerTx, NETWORK } from "@/lib/chain";
 import { type Destination, parseDestination } from "@/lib/destination";
 import { feel, haptic } from "@/lib/feel";
 import { shortAddress } from "@/lib/market";
@@ -45,7 +44,7 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
   const [toText, setToText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState<{ amount: number; to: Address; tx: string } | null>(null);
+  const [sent, setSent] = useState<{ amount: number; to: string; tx: string } | null>(null);
   const openRef = useRef(open);
   useEffect(() => {
     openRef.current = open;
@@ -56,19 +55,21 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
   const amount = all ? available : Number.isFinite(typed) ? typed : 0;
   const amountError = amountText === "" && !all ? null : amount <= 0 ? "Enter an amount" : amount < 0.01 ? "At least $0.01" : amount > available + 1e-9 ? "More than your balance" : null;
 
-  const parsed = toText.trim() ? parseDestination(toText, USDC) : null;
+  const label = chain.hello?.label ?? NETWORK.label;
+  const usdc = chain.hello?.usdc ?? NETWORK.usdc;
+  const parsed = toText.trim() ? parseDestination(toText, usdc, label) : null;
   const dest: Destination | null = parsed && "address" in parsed ? parsed : null;
+  // The game's own accounts take no USDC a player sends: base58, so compared exactly.
+  const contracts = [chain.hello?.program, chain.hello?.game, chain.hello?.lookupTable, usdc].filter(Boolean);
   const toError = !parsed
     ? null
     : "error" in parsed
       ? parsed.error
-      : dest!.chainId && dest!.chainId !== CHAIN_ID
-        ? `That code is for another network. Send only to an address on ${NETWORK.label}.`
-        : chain.player && dest!.address.toLowerCase() === chain.player.toLowerCase()
-          ? "That's your deposit address: it would land straight back in your balance."
-          : [GAME, USDC].some((c) => c && c.toLowerCase() === dest!.address.toLowerCase())
-            ? "That's a contract, not a wallet. Money sent there is lost."
-            : null;
+      : chain.player === dest!.address
+        ? "That's your deposit address: it would land straight back in your balance."
+        : contracts.includes(dest!.address)
+          ? "That's a contract, not a wallet. Money sent there is lost."
+          : null;
   const ready = !amountError && amount > 0 && dest !== null && !toError;
 
   const reset = () => {
@@ -102,7 +103,7 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
   };
   const take = (text: string) => {
     setToText(text.trim());
-    const d = parseDestination(text, USDC);
+    const d = parseDestination(text, usdc, label);
     // A code that names an amount fills it in, unless one is already typed.
     if ("address" in d && d.amount && !amountText) {
       setAll(false);
@@ -143,7 +144,7 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
       >
         <div aria-hidden="true" className="h-[5px] w-9 self-center rounded-full bg-faint sm:hidden" />
         {step === "done" && sent ? (
-          <Done balance={available} onPlay={() => close(false)} sent={sent} />
+          <Done balance={available} cluster={chain.hello?.cluster} onPlay={() => close(false)} sent={sent} />
         ) : (
           <>
             <div className="flex items-center gap-2">
@@ -154,7 +155,7 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
               ) : null}
               <div className="flex min-w-0 flex-1 flex-col">
                 <DialogTitle className="font-semibold text-[24px] leading-tight tracking-[-0.02em]">{step === "scan" ? "Scan an address" : step === "review" ? "Check and send" : "Withdraw"}</DialogTitle>
-                <DialogDescription className="text-[14px] text-muted-foreground">USDC on {NETWORK.label}</DialogDescription>
+                <DialogDescription className="text-[14px] text-muted-foreground">USDC on {label}</DialogDescription>
               </div>
               <IconButton label="Close" onClick={() => close(false)}>
                 <XIcon className="size-[15px]" strokeWidth={2.4} />
@@ -170,7 +171,7 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
                 }}
               />
             ) : step === "review" && dest ? (
-              <Review address={dest.address} after={Math.max(0, available - (all ? available : amount))} amount={all ? available : amount} busy={busy} error={error} onSend={() => void send()} />
+              <Review address={dest.address} label={label} after={Math.max(0, available - (all ? available : amount))} amount={all ? available : amount} busy={busy} error={error} onSend={() => void send()} />
             ) : (
               <>
                 {/* How much: typed big, or a share of the balance. */}
@@ -219,7 +220,7 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
                       autoCorrect="off"
                       className="figures h-10 min-w-0 flex-1 bg-transparent text-[16px] outline-none placeholder:text-muted-foreground"
                       onChange={(e) => take(e.target.value)}
-                      placeholder="Address (0x…)"
+                      placeholder="Solana address"
                       spellCheck={false}
                       value={toText}
                     />
@@ -237,7 +238,7 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
                     </button>
                   </div>
                   <p className={cn("min-h-5 px-1 text-[13px] leading-snug", toError || error ? "text-destructive-foreground" : "text-muted-foreground")}>
-                    {toError ?? error ?? (dest ? `Sending to ${shortAddress(dest.address)} on ${NETWORK.label}` : `Only an address on ${NETWORK.label}. Anything else may be lost.`)}
+                    {toError ?? error ?? (dest ? `Sending to ${shortAddress(dest.address)} on ${label}` : `Only an address on ${label}. Anything else may be lost.`)}
                   </p>
                 </div>
 
@@ -253,7 +254,7 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
   );
 }
 
-function Review({ amount, address, after, busy, error, onSend }: { amount: number; address: Address; after: number; busy: boolean; error: string | null; onSend: () => void }) {
+function Review({ amount, address, label, after, busy, error, onSend }: { amount: number; address: string; label: string; after: number; busy: boolean; error: string | null; onSend: () => void }) {
   return (
     <div className="flex flex-col gap-4 motion-safe:animate-[row-in_260ms_cubic-bezier(.2,.8,.2,1)_both]">
       <div className="flex flex-col items-center gap-1 pt-1 text-center">
@@ -263,7 +264,7 @@ function Review({ amount, address, after, busy, error, onSend }: { amount: numbe
         <span className="figures max-w-full break-all rounded-[14px] bg-foreground/[0.06] px-3 py-2 text-[14px] leading-snug">{address}</span>
       </div>
       <dl className="divide-y divide-border rounded-[18px] border border-border px-4">
-        <Row label="Network">{NETWORK.label}</Row>
+        <Row label="Network">{label}</Row>
         <Row label="Fee">Free</Row>
         <Row label="Arrives in">A few seconds</Row>
         <Row label="Left to play with">{money(after)}</Row>
@@ -279,7 +280,7 @@ function Review({ amount, address, after, busy, error, onSend }: { amount: numbe
 }
 
 /** Sent: what, where, the proof, and then the people behind the game: thanks, feedback, come back. */
-function Done({ sent, balance, onPlay }: { sent: { amount: number; to: Address; tx: string }; balance: number; onPlay: () => void }) {
+function Done({ sent, cluster, balance, onPlay }: { sent: { amount: number; to: string; tx: string }; cluster?: string; balance: number; onPlay: () => void }) {
   return (
     <div className="flex flex-col items-center gap-4 pt-2 text-center">
       <span className="flex size-16 items-center justify-center rounded-full bg-success/15 text-success-foreground motion-safe:animate-[landed-pop_560ms_cubic-bezier(.2,1.6,.35,1)_both]">
@@ -289,10 +290,10 @@ function Done({ sent, balance, onPlay }: { sent: { amount: number; to: Address; 
         <DialogTitle className="font-semibold text-[24px] leading-tight tracking-[-0.02em]">{money(sent.amount)} is on its way</DialogTitle>
         <DialogDescription className="text-[14px] text-muted-foreground">
           to <span className="figures text-foreground">{shortAddress(sent.to)}</span>
-          {explorer && sent.tx ? (
+          {sent.tx ? (
             <>
               {" · "}
-              <a className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-2 hover:underline" href={`${explorer}/tx/${sent.tx}`} rel="noopener noreferrer" target="_blank">
+              <a className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-2 hover:underline" href={explorerTx(sent.tx, cluster)} rel="noopener noreferrer" target="_blank">
                 View transaction <ArrowUpRightIcon className="size-3.5" />
               </a>
             </>
