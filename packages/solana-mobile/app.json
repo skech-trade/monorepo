@@ -88,7 +88,9 @@
         }
       ],
       "./plugins/with-release-signing",
-      "./plugins/with-gradle-memory"
+      "./plugins/with-gradle-properties",
+      "./plugins/with-unbundled-barcode",
+      "./plugins/with-english-only"
     ],
     "experiments": {
       "typedRoutes": false

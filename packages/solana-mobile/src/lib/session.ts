@@ -1,7 +1,7 @@
 import { ed25519 } from "@noble/curves/ed25519";
 import { getAddressDecoder } from "@solana/kit";
 import * as SecureStore from "expo-secure-store";
-import { Ed } from "react-native-quick-crypto";
+import { platformSigner } from "../../modules/skech-ed25519/src";
 
 /**
  * The session key: an Ed25519 key the app makes once and keeps in the phone's secure store (the Keychain on
@@ -42,13 +42,17 @@ export async function sessionKey(): Promise<SessionKey> {
 
 /**
  * Every tap and every 150ms of a stroke signs a piece, on the JS thread. In JavaScript (noble, on Hermes's slow
- * BigInt) a signature takes 5-20ms on a cheap phone, a dropped frame each time; natively it is well under one.
- * Ed25519 is deterministic, so the native signer is used only once it gives noble's signature byte for byte.
+ * BigInt) a signature takes 5-20ms on a cheap phone, a dropped frame each time; the platform's own Ed25519
+ * (Android 13 and up) takes well under one. Ed25519 is deterministic, so it is used only once it gives noble's
+ * signature byte for byte.
  */
 function nativeSigner(priv: Uint8Array): ((message: Uint8Array) => Uint8Array) | null {
   try {
-    const ed = new Ed("ed25519", {});
-    const sign = (message: Uint8Array) => new Uint8Array(ed.signSync(message, priv));
+    const sign = platformSigner(priv);
+    if (!sign) {
+      console.info("[session] no platform Ed25519 here: signing in JS");
+      return null;
+    }
     const probe = new TextEncoder().encode("skech session key check");
     const native = sign(probe);
     const noble = ed25519.sign(probe, priv);
