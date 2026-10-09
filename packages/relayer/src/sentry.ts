@@ -1,6 +1,6 @@
 /**
  * Sentry for the relayer: a crash, and the few failures that cost a player something (a piece not placed,
- * a second not settled, the sweep, the state file, running low on MON), each with the log lines before it.
+ * a second not settled, the sweep, the state file, running low on SOL), each with the log lines before it.
  *
  * Off unless RELAYER_SENTRY_DSN is set, and off outside systemd (it sets INVOCATION_ID) unless
  * RELAYER_SENTRY_DEV=1, so a laptop never spends the plan. Imported first by index.ts, so a throw at
@@ -16,7 +16,7 @@ const onBox = process.env.INVOCATION_ID !== undefined;
 if (dsn && (onBox || process.env.RELAYER_SENTRY_DEV === "1")) {
   Sentry.init({
     dsn,
-    environment: onBox ? (process.env.SKECH_NETWORK?.trim() || "testnet") : "development",
+    environment: onBox ? (process.env.SKECH_SOLANA_CLUSTER?.trim() || "devnet") : "development",
     // No user, no cookies, no bodies: an RPC call's body is a signed transaction.
     dataCollection: { userInfo: false, cookies: false, httpBodies: [] },
     maxBreadcrumbs: 200,

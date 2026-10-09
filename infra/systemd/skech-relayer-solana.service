@@ -20,7 +20,7 @@ StateDirectoryMode=0750
 Environment=RELAYER_STATE_DIR=/var/lib/skech-relayer
 CacheDirectory=skech-relayer
 Environment=HOME=/var/cache/skech-relayer XDG_CACHE_HOME=/var/cache/skech-relayer BUN_RUNTIME_TRANSPILER_CACHE_PATH=/var/cache/skech-relayer
-ExecStart=/usr/local/bin/bun packages/relayer/src/solana/index.ts
+ExecStart=/usr/local/bin/bun packages/relayer/src/index.ts
 Restart=always
 RestartSec=2
 LimitNOFILE=65536

@@ -46,7 +46,7 @@ export const scfg = {
   keyBytes: keyBytes(),
   deployment,
   libPath: env("SKECH_LIB") ?? join(root, "packages", "core", "src", "dots-lib.bin"),
-  /** Where the state file goes: packages/relayer, or the box's /var/lib/skech-relayer, beside the Monad relayer's. */
+  /** Where the state file goes: packages/relayer, or the box's /var/lib/skech-relayer. */
   stateDir: env("RELAYER_STATE_DIR") ?? join(root, "packages", "relayer"),
   market: 0,
   marketName: "BTC-USD",

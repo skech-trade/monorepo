@@ -60,9 +60,6 @@ export const RATES: Record<string, [number, number]> = {
   account: [10, 2],
   watch: [5, 0.5],
   activity: [3, 0.2],
-  session: [3, 0.05],
-  deposit: [3, 0.1],
-  withdraw: [3, 0.1],
   build: [5, 0.2],
   submit: [5, 0.2],
   sweep: [3, 0.1],
@@ -135,8 +132,8 @@ export function clientIp(req: Request, peer: string | undefined): string {
 }
 
 /**
- * What the relayer pays for on a wallet's say (a session, a deposit, a withdrawal; on Solana, the rent of the
- * accounts they open): a few an hour for one wallet and a few more from one address, whichever connection asks.
+ * What the relayer pays for on a wallet's say (a session, a deposit, a withdrawal, and the rent of the accounts
+ * they open): a few an hour for one wallet and a few more from one address, whichever connection asks.
  */
 export class Sponsor {
   private byIp = new Map<string, Bucket>();

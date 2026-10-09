@@ -6,11 +6,9 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
-    "build": "bun build --target bun --outdir dist src/index.ts src/solana/index.ts src/field.worker.ts",
+    "build": "bun build --target bun --outdir dist src/index.ts src/field.worker.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "dev:solana": "bun --watch src/solana/index.ts",
-    "start:solana": "bun src/solana/index.ts"
+    "test": "bun test"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

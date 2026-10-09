@@ -1,8 +1,8 @@
 /**
  * What an app may send, checked before anything reads it: a JSON object, a `type` this relayer knows, and every
  * field it goes on to read of the right type, length and range, arrays bounded. A message that fails is answered
- * with why, in the reply its sender is waiting for; nothing an app sends can throw. Both relayers' messages are
- * here. What only a handler can check (a signature, a balance, the grid) is still checked there.
+ * with why, in the reply its sender is waiting for; nothing an app sends can throw. What only a handler can check
+ * (a signature, a balance, the grid) is still checked there.
  */
 import { HORIZON, MAX_SECTIONS } from "@skech/core/chain";
 
@@ -28,17 +28,11 @@ export const int =
   (min: number, max: number): Rule =>
   (v) =>
     Number.isInteger(v) && (v as number) >= min && (v as number) <= max ? pass : fault;
-/** 0x hex: exactly `bytes` long, or up to `most` bytes. */
-export const hex =
-  (bytes: number | null, most = bytes ?? 0): Rule =>
-  (v) =>
-    typeof v === "string" && /^0x([0-9a-fA-F]{2})*$/.test(v) && (bytes === null ? v.length <= 2 + most * 2 : v.length === 2 + bytes * 2) ? pass : fault;
 /** Hex with or without its 0x, as the phone sends bytes. */
 export const bytes =
   (n: number | null, most = n ?? 0): Rule =>
   (v) =>
     typeof v === "string" && /^(0x)?([0-9a-fA-F]{2})*$/.test(v) && (n === null ? v.replace(/^0x/, "").length <= most * 2 : v.replace(/^0x/, "").length === n * 2) ? pass : fault;
-export const address = hex(20);
 /** A Solana address as text: base58, 32 to 44 characters. Whether it decodes is the handler's to say. */
 export const base58: Rule = (v) => (typeof v === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v) ? pass : fault);
 export const text =
@@ -75,43 +69,8 @@ export const object =
     return pass;
   };
 
-/** A wallet's signature: 65 bytes from a key, longer from a smart account (ERC-1271, ERC-6492). */
-const walletSig = hex(null, 4096);
 /** A stroke's bytes: 33 of header and up to 2,048 points of 12. */
 const STROKE_BYTES = 33 + 2048 * 12;
-
-export const MONAD: Record<string, Spec> = {
-  hello: {},
-  account: {},
-  watch: { player: address },
-  activity: { player: optional(address) },
-  piece: {
-    piece: object({
-      player: address,
-      drawing: uint,
-      index: int(0, 0xffffffff),
-      market: int(0, 255),
-      difficulty: int(0, 100),
-      openAt: uint,
-      perDot: uint,
-      unit: uint,
-      priceSeen: uint,
-      priceTime: uint,
-      sections: list(object({ second: int(1, HORIZON), lo: uint, hi: uint, stake: uint }), MAX_SECTIONS, 1),
-      strokeHash: hex(32),
-    }),
-    sessionSig: hex(null, 65),
-    priceSig: hex(65),
-    stroke: hex(null, STROKE_BYTES),
-  },
-  session: { player: address, kind: oneOf(0, 1), key: address, x: hex(32), y: hex(32), validUntil: uint, allowance: uint, deadline: uint, sig: walletSig },
-  // An EIP-3009 authorization, or an EIP-2612 permit for tokens without it.
-  deposit: (m): Record<string, Rule> =>
-    m.nonce !== undefined
-      ? { owner: address, amount: uint, validAfter: uint, validBefore: uint, nonce: hex(32), sig: walletSig }
-      : { owner: address, amount: uint, deadline: uint, v: int(0, 255), r: hex(32), s: hex(32) },
-  withdraw: { player: address, amount: uint, to: address, deadline: uint, sig: walletSig },
-};
 
 export const SOLANA: Record<string, Spec> = {
   hello: {},
@@ -168,18 +127,12 @@ export function read(raw: string | Buffer, specs: Record<string, Spec>): { msg: 
   return { msg: msg as Message };
 }
 
-/** A refusal in the reply the sender of `msg` waits for: an ack for a piece, `session-set` for a session, and so on. */
+/** A refusal in the reply the sender of `msg` waits for: an ack for a piece, `built` for a build, and so on. */
 export function refusal(msg: Record<string, unknown> | null, why: string): Record<string, unknown> {
   const piece = isObject(msg?.piece) ? msg.piece : null;
   switch (msg?.type) {
     case "piece":
       return { type: "ack", ok: false, why, index: typeof piece?.index === "number" ? piece.index : undefined, drawing: typeof piece?.drawing === "string" ? piece.drawing.slice(0, 32) : undefined };
-    case "session":
-      return { type: "session-set", ok: false, why };
-    case "deposit":
-      return { type: "deposited", ok: false, why };
-    case "withdraw":
-      return { type: "withdrawn", ok: false, why };
     case "build":
       return { type: "built", kind: typeof msg.kind === "string" ? msg.kind.slice(0, 16) : undefined, ok: false, why };
     case "submit":
