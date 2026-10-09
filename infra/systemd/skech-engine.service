@@ -10,7 +10,7 @@ StartLimitBurst=50
 # Its own user: it holds the oracle's key, and nothing else on the box needs to read it.
 User=skech-engine
 Group=skech-engine
-# Run from the repo root so the engine finds packages/contracts/deployments/<chain>.json.
+# Run from the repo root, where it finds the .env.local it reads (the box has none: its env is engine.env).
 WorkingDirectory=/opt/skech
 EnvironmentFile=/etc/skech/engine.env
 # Sentry reports only where this is set; a laptop has none (packages/engine/README.md).

@@ -2,15 +2,15 @@
 
 Rust WebSocket server, and skech's price oracle. It streams every BTC-USD
 trade on Coinbase to the app, each checked against Binance and Kraken and
-signed by the engine's wallet as EIP-712 typed data, which
-`packages/contracts/evm` checks on chain. The app shows the price that was signed.
+signed by the engine's wallet as EIP-712 typed data, which the relayer checks
+before it places a piece drawn at that price. The app shows the price that was signed.
 
 ```
 Coinbase ─wss + REST─┐  the price, and 10 min of history
 Binance ───wss───────┤  attesters: sign Coinbase if one of them is within the band of it,
 Kraken ────wss───────┘             else their median if they are within the band of each other,
                                    else (no two venues agree, or none heard) sign nothing
-                     └──> engine ──ws://…:3102/ws──> app ──tx(price, time, signature)──> SkechPrice
+                     └──> engine ──ws://…:3102/ws──> app ──piece(price, time, signature)──> relayer
 ```
 
 Every source is a venue's public WebSocket, one connection each, pushing each
@@ -32,21 +32,24 @@ its feed is written to Kraken's v2 API but has not run live.
 
 ```bash
 bun run dev:engine        # from the repo root; or: cargo run --release -- --dev
-cargo test                # includes the vector the contract tests recover
+cargo test                # includes the vector the EVM contracts' tests recover, and the fixed domain
 ```
 
 It reads the repo root `.env.local`. Variables already in the environment win.
 
-Without `ENGINE_PRIVATE_KEY`, or with no game deployed on the chain, the engine refuses to start: it would
-sign with a throwaway wallet, or for the zero address, and no game would take its prices. `--dev` (which
-`bun run dev:engine` passes) lets it go on anyway, except on mainnet.
+Without `ENGINE_PRIVATE_KEY` the engine refuses to start: it would sign with a throwaway wallet, and no relayer
+set to its signer (`RELAYER_ENGINE_SIGNER`) would take its prices. `--dev` (which `bun run dev:engine` passes)
+lets it go on anyway.
+
+It signs under one fixed EIP-712 domain: `name` "skech", `version` "1", `chainId` 10143 and `verifyingContract`
+`0xd7cE3AADC704caF2D16319D1D25d01024cC5fdF0`. That is the domain it signed under when the game ran on Monad
+testnet, kept byte for byte now that the game is on Solana alone, so every price signs exactly as it did and
+checks out wherever it is checked. Nothing is read for it: no chain, no RPC, no deployment file, no env.
+`src/quote.rs` has the constants, and a test that the domain separator has not moved.
 
 | Env | Default | |
 |---|---|---|
 | `ENGINE_PRIVATE_KEY` | required; a throwaway wallet with `--dev` | Hex key the engine signs with |
-| `SKECH_NETWORK` | `testnet` | Picks the chain for the EIP-712 domain: 10143, or 143 for `mainnet` |
-| `ENGINE_CHAIN_ID` | from `SKECH_NETWORK` | Override for anvil; may not name the other network |
-| `ENGINE_VERIFYING_CONTRACT` | the game in `packages/contracts/deployments/<chain>.json`; `0x000…0` with `--dev` | EIP-712 domain: the deployed `SkechGame` proxy |
 | `ENGINE_BAND_BPS` | `15` (0.15%) | How close two venues must be to agree on a price |
 | `ENGINE_HOST` | `127.0.0.1` | Where it listens. On the box Caddy is the way in; `0.0.0.0` to reach a laptop's engine from a phone |
 | `ENGINE_PORT` | `3102` | |
@@ -64,7 +67,7 @@ signs what it saw; a client cannot ask it to sign anything.
 ```jsonc
 // 1. on connect: the signer, and an eth_signTypedData_v4 payload minus the message
 { "type": "hello", "signer": "0x…", "typedData": {
-    "domain": { "name": "skech", "version": "1", "chainId": 31337, "verifyingContract": "0x…" },
+    "domain": { "name": "skech", "version": "1", "chainId": 10143, "verifyingContract": "0xd7cE3AADC704caF2D16319D1D25d01024cC5fdF0" },
     "primaryType": "Price",
     "types": { "EIP712Domain": [ … ], "Price": [
       { "name": "market", "type": "string" }, { "name": "price", "type": "uint256" }, { "name": "time", "type": "uint64" } ] } } }
@@ -87,8 +90,7 @@ signs what it saw; a client cannot ask it to sign anything.
 - `price` has 8 decimals and is sent as a string, because it is a `uint256`
   and JavaScript numbers lose precision past 2^53. `time` is Coinbase's, in ms.
 - `signature` is 65 bytes, r‖s‖v, with v 27 or 28 and s in the low half.
-- The chain id and contract are inside the signed domain, so a price signed
-  for one chain or contract does not verify on another.
+- The domain is fixed (above), whichever Solana cluster the game is on.
 
 Check a price in the app:
 
@@ -97,9 +99,9 @@ import { verifyTypedData } from "viem";
 await verifyTypedData({ ...hello.typedData, address: hello.signer, message: m.message, signature: m.signature });
 ```
 
-On chain, a piece of ink carries `message.price`, `message.time` and `signature` as the price the
-player saw, and `SkechGame` checks it against this signer (see `packages/contracts/evm`). The relayer
-(`packages/relayer`) signs quotes and bars with the same key.
+A piece of ink carries `message.price`, `message.time` and `signature` as the price the player saw, and the
+relayer (`packages/relayer`) checks it against this signer before it places the piece. The Solana program takes
+the relayer's word for it, as its oracle.
 
 ## Notes
 
@@ -123,7 +125,7 @@ player saw, and `SkechGame` checks it against this signer (see `packages/contrac
   still be missed; the chart carries the price flat through them.
 - A panic ends the process (`panic = "abort"`): a feed that died must not
   leave a server up, serving nothing.
-- Keep `ENGINE_PRIVATE_KEY` in a wallet that holds nothing: a contract trusts
+- Keep `ENGINE_PRIVATE_KEY` in a wallet that holds nothing: the relayer trusts
   its prices, so it should have no other job.
 - The box's clock must be kept (chrony, on by default on Amazon Linux): a
   Coinbase trade more than 2 s off it is not signed.
