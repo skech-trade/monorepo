@@ -2,6 +2,7 @@ import { useLocalSearchParams } from "expo-router";
 import { Text, View } from "react-native";
 import { type Account, AccountContext } from "@/components/app/auth";
 import { type Chain, ChainContext, useChain } from "@/components/app/ink/chain-context";
+import { DeleteAccountSheet } from "@/components/app/sheets/delete-account-sheet";
 import { DepositSheet } from "@/components/app/sheets/deposit-sheet";
 import { ScoreboardSheet } from "@/components/app/sheets/scoreboard-sheet";
 import { TransactionsSheet } from "@/components/app/sheets/transactions-sheet";
@@ -9,7 +10,7 @@ import { WithdrawSheet } from "@/components/app/sheets/withdraw-sheet";
 
 /**
  * Development only: the signed-in sheets with a stand-in account, to compare against the web's, screen by screen.
- * skech://preview?sheet=deposit|withdraw|transactions|scoreboard. Renders nothing in a release build.
+ * skech://preview?sheet=deposit|withdraw|transactions|scoreboard|delete. Renders nothing in a release build.
  */
 const ADDRESS = "6d5aJ8Q3wVbTzq2sR4n7hKc9Xy1LmPe8fGu3Wd710b";
 
@@ -78,6 +79,7 @@ export default function Preview() {
         <WithdrawSheet onClose={close} open={sheet === "withdraw"} />
         <TransactionsSheet onClose={close} open={sheet === "transactions"} />
         <ScoreboardSheet onClose={close} open={sheet === "scoreboard"} />
+        <DeleteAccountSheet onClose={close} onWithdraw={close} open={sheet === "delete"} />
       </ChainContext.Provider>
     </AccountContext.Provider>
   );

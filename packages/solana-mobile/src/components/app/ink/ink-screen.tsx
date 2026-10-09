@@ -154,13 +154,14 @@ function ToggleRow({ title, detail, checked, onChange }: { title: string; detail
   );
 }
 
-function NavRow({ children, trailing, onPress }: { children: string; trailing?: React.ReactNode; onPress: () => void }) {
+/** A row that leads somewhere; a destructive one, red and without the chevron, does something instead. */
+function NavRow({ children, trailing, onPress, destructive }: { children: string; trailing?: React.ReactNode; onPress: () => void; destructive?: boolean }) {
   const c = useColors();
   return (
-    <Pressable className="min-h-[52px] flex-row items-center gap-3 px-4" onPress={onPress} style={({ pressed }) => ({ backgroundColor: pressed ? "rgba(127,127,127,0.12)" : "transparent" })}>
-      <Text className="flex-1 text-[17px] text-foreground">{children}</Text>
+    <Pressable accessibilityRole="button" className="min-h-[52px] flex-row items-center gap-3 px-4" onPress={onPress} style={({ pressed }) => ({ backgroundColor: pressed ? "rgba(127,127,127,0.12)" : "transparent" })}>
+      <Text className={cn("flex-1 text-[17px]", destructive ? "text-destructive-foreground" : "text-foreground")}>{children}</Text>
       {trailing}
-      <ChevronRightIcon color={c.faint} size={16} />
+      {destructive ? null : <ChevronRightIcon color={c.faint} size={16} />}
     </Pressable>
   );
 }
@@ -979,6 +980,30 @@ export function InkScreen() {
             How it works
           </NavRow>
         </View>
+        {/* The account's way out, both kinds: signing out here as in the bar's menu, and deleting it, which the stores ask for in the app. */}
+        {me.signedIn ? (
+          <View className="overflow-hidden rounded-[14px] bg-muted">
+            <NavRow
+              destructive
+              onPress={() => {
+                setSettingsOpen(false);
+                me.signOut();
+              }}
+            >
+              Sign out
+            </NavRow>
+            <View className="mx-4 h-px bg-border" />
+            <NavRow
+              destructive
+              onPress={() => {
+                setSettingsOpen(false);
+                gate.openDeleteAccount();
+              }}
+            >
+              Delete account
+            </NavRow>
+          </View>
+        ) : null}
       </Sheet>
 
       <Sheet description={`Predict where Bitcoin goes next: draw it on the chart. ${forReal ? `Real USDC, on the live price, on ${chain.hello?.label ?? "Solana"}.` : "Practice money, on the live price."}`} onClose={() => setHelp(false)} open={help} title="How it works">
