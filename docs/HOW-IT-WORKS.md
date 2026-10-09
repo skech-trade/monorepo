@@ -7,7 +7,7 @@ It is practice money for now: $1,000 in the browser, no sign-in needed.
 | --- | --- |
 | The screen | `ui/app/src/components/app/ink/` |
 | The live price | `packages/engine` (Rust), read by `ui/app/src/lib/engine.ts` |
-| The game on chain | `packages/contracts/evm/src/SkechGame.sol`, `SkechIOU.sol`, `SkechRevenue.sol`, `SkechLadder.sol` |
+| The game on chain | `packages/contracts/solana/programs/skech/src/` (Anchor, on Solana) |
 | Pricing and sending pieces to the chain | `packages/relayer` (Bun) |
 | What the app signs, and the ladder in integers | `packages/core/src/chain.ts` |
 | The browser's drawing key, the relayer, real money on screen | `ui/app/src/lib/session.ts`, `lib/relayer.ts`, `components/app/ink/chain-context.tsx` |
@@ -27,8 +27,8 @@ Nothing is priced twice.
   The browser talks only to the engine.
 - The engine keeps the last ten minutes of trades, backfilled from Coinbase's REST API when it starts,
   and sends them to the app on connect to seed the chart.
-- Each live trade comes signed by the engine's wallet as EIP-712 typed data, bound to one chain and one
-  contract, so a contract can take the price a trade was placed at (`packages/contracts/evm`).
+- Each live trade comes signed by the engine's wallet as EIP-712 typed data, under one fixed domain, so the
+  relayer can check the price a piece was drawn at before it places it (`packages/engine/src/quote.rs`).
 - The engine passes on Coinbase's heartbeat every second. Five seconds with no message at all and the socket is reopened.
 - Each trade is folded into the bar of its second: high, low, close.
 - A second with no trade is closed at the last price once it is 600 ms old.
@@ -281,8 +281,8 @@ reprices a saved drawing.
 
 ## 11. On chain
 
-Signed in, with a game deployed on the network `SKECH_NETWORK` names (testnet, or mainnet), the same
-drawing is played for USDC on Monad. On testnet the USDC is free from Circle's faucet, and the app says
+Signed in, with a game deployed on the cluster `SKECH_SOLANA_CLUSTER` names (devnet for now), the same
+drawing is played for USDC on Solana. On devnet the USDC is free from Circle's faucet, and the app says
 so where it asks for a deposit. Nothing about the pricing changes; what changes is who vouches for what.
 
 ### The grid
@@ -293,114 +293,103 @@ step), bands sit on it, and every band is judged one unit wider each way (`gridS
 the same, and the chain judges exactly what was priced. The replay (`check-ink-area.ts`) runs on the
 same grid.
 
-### Three contracts
+### The program
 
-ERC-1967 proxies (UUPS), on Monad testnet (chain 10143), Foundry 1.8 with `network = "monad"`.
+One Anchor program, `skech` (`packages/contracts/solana`; its README has the details). Its accounts are
+all addresses of the program:
 
-- **`SkechGame`** holds every player's USDC balance, their session key, every piece placed, the price
-  by the second, and the pool. The house never holds the players' money: every stake goes into one
-  pool, and every hit is paid from it. The difficulty is set here, per market (`setDifficulty`), and the
-  ladder is computed here (`SkechLadder`, the same integers as `chain.ts`), so the engine cannot pay a
-  band more than its chance earns at the difficulty on chain.
-- **`SkechRevenue`** is where the house's take goes: a share of every stake as it is placed (2% on
-  Monad testnet since 2026-09-29; a fresh deployment starts at 4%), and 10% of the profit on every hit.
-  Both are the admin's to set (`setConfig`). Nothing else. `collectFees` moves it there; a treasurer takes it out.
-- **`SkechIOU`** is what the game owes when the pool cannot pay a hit at once: an ERC-20, one share
-  worth one USDC when it started and rising by a fixed amount every block (0.1% a day at 300 ms
-  blocks; `setRate` changes it from then on). Shares transfer like any token and carry their basis,
-  what was owed when they were issued. Anyone may hand a holder's shares back to the game once the
-  pool can pay (`redeem`), and is paid 10% of the growth for it; a holder redeeming their own pays
-  nothing. The house is never owed: its 10% of a profit is taken after the player is paid, from
-  what the pool has left, and goes without the rest. The game counts what it owes (`owed()`, the
-  IOUs' basis).
+- **`Game`** holds the terms, the oracle and the USDC vault. The house never holds the players' money.
+- **`Pool`**: every stake goes into one pool, and every hit is paid from it. The house's take is counted
+  here too: 4% of every stake as it is placed, and 10% of the profit on every hit, both the admin's to
+  set (`set_config`). `collect_fees` moves it to the treasury. Nothing else.
+- **`Market`** and **`Bars`**: each market's difficulty, and a ring of its last 240 seconds of price. The
+  ladder is computed in the program (`ladder.rs`, the same integers as `chain.ts`, checked row for row
+  against `@skech/core`), so the oracle cannot pay a band more than its chance earns at the difficulty on
+  chain.
+- **`Player`**, one per wallet: its USDC balance, its session key, and the IOUs it holds. An IOU is what the
+  game owes when the pool cannot pay a hit at once: shares worth one USDC when they started and rising at a
+  fixed rate, carrying their basis, what was owed when they were issued. Anyone may hand a holder's shares
+  back once the pool can pay (`redeem`), and is paid 10% of the growth for it; a holder redeeming their own
+  pays nothing. The house is never owed: its 10% of a profit is taken after the player is paid, from what
+  the pool has left, and goes without the rest.
+- **`Bet`**, one per piece: its bands until each is decided. It is then closed, its rent back to the relayer.
 
-### On Solana
-
-The same game as an Anchor program (`packages/contracts/solana`, its README has every difference): one
-piece a transaction, an Ed25519 session key, the oracle signing the transaction instead of the quote.
-The price is kept for the last 240 seconds, and a second's bar may be posted up to 200 s after it; a
-band whose second was never posted by then is given back in full by `expire`, which anyone may send,
-as on Monad. A bet is closed, its rent back, once every band is decided and its piece can no longer be
-placed. The terms are Monad's, and a redeemer's cut is theirs on both chains.
+The EVM contracts the game was first written as (`packages/contracts/evm`) are kept in the repo, not
+deployed or used; the conformance cases (`packages/contracts/conformance`) still play both, so the two agree
+on every payout, fee, refund and refusal.
 
 ### What goes on chain, and who signs it
 
 | Thing | Signed by | Says |
 | --- | --- | --- |
-| A **piece** of a drawing | the player's session key | the bands (second, price from, price to, on the grid), what each stakes, what a dot costs, the second it opens on, the price on the screen and when, the difficulty shown, the stroke's hash |
-| A **quote** | the oracle (the engine's key) | for every piece opening on one second: when it was received, the market's price and momentum then, and each band's chance in billionths |
-| A **price** | the engine | the price the player saw, as the engine already signs every trade |
-| A **bar** | the oracle | one second of the price: the close before it, its high, low and close |
+| A **piece** of a drawing | the player's session key (Ed25519, checked by the Ed25519 precompile over the piece as it sits in `place`) | the bands (second, price from, width, on the grid), what each stakes, what a dot costs, the second it opens on, the price on the screen and when, the difficulty shown, the stroke's hash |
+| A **quote** | the oracle (the relayer's key), by signing the `place` transaction | when the piece was received, the market's price and momentum then, and each band's chance in billionths |
+| A **price** | the engine, as EIP-712 typed data | the price the player saw, as the engine already signs every trade; the relayer checks it before it places the piece |
+| A **bar** | the oracle, by signing the transaction | one second of the price: the close before it, its high, low and close |
 
 The chance is measured off chain, on the paths, as before; it cannot be measured on chain. The
-rung is computed on chain from the chance, the difficulty and the momentum. One `place`
-transaction carries every piece that opens on a second, from every player; a piece that cannot
-go in is refused with a reason and the rest go in. `postBarAndSettle`, one a second, records the
-bar and settles every band in it: a band is hit if the second's range, from the close before to
-its high and low, reaches it, one unit wider each way, the rule of section 5.
+rung is computed on chain from the chance, the difficulty and the momentum. Each piece is its own
+`place` transaction: transactions that write different accounts run in parallel, and a placement writes
+only the player's account, their new bet and the pool. A piece that cannot go in fails with its reason.
+`post_bar_and_settle` records a second's bar with the first dozen bets that have ink in it, and the rest
+settle on it in parallel: a band is hit if the second's range, from the close before to its high and low,
+reaches it, one unit wider each way, the rule of section 5.
 
 ### Timing, and why it cannot be gamed
 
-- A piece must reach the engine before its opening second, give or take 200 ms (`lateMs`, on
-  chain); the engine signs when it received it, and the contract refuses anything later. The app
+- A piece must reach the relayer before its opening second, give or take 200 ms (`late_ms`, on
+  chain); the oracle vouches for when it received it, and the program refuses anything later. The app
   computes the opening second from `now + 200 ms`, so a piece drawn at the end of a second opens on
   the one after and is never late.
-- The `place` transaction must land within 3 s of the opening second (`placeGraceMs`); a band
+- The `place` transaction must land within 3 s of the opening second (`place_grace_ms`); a band
   whose second is already posted is refused and its stake not taken.
 - The price a player saw must be no older than 15 s and no newer than the receipt.
-- A piece is named by its player, drawing and index: sent twice, it is refused as a replay.
-- Everything is EIP-712 under the game's domain, so nothing signed for one chain or one contract
-  verifies on another. High-`s` signatures are refused on both curves.
+- A bar may be posted up to 200 s after its second. A band whose second was never posted by then is given
+  back in full by `expire`, which anyone may send.
+- A piece is named by its player, drawing and index, and its bet lives at the one address that names: sent
+  twice, it is refused as a replay.
+- A piece is signed under the game's domain (SHA-256 of `skech/v1`, the program id and the cluster), so
+  nothing signed for one deployment or cluster verifies on another.
 
 ### Sessions
 
-A session key signs pieces; nothing else. The browser makes a P-256 key with WebCrypto, non-extractable,
-kept in IndexedDB: it will sign but never hand over the key. Registering it takes one signature from the
-wallet (`Session`: the key, an expiry, an allowance of stake) and is sent by the relayer; drawing then
-takes no prompts at all. Monad checks P-256 natively (the precompile at `0x100`), so a piece costs about
-what an Ethereum signature does. Ethereum keys are sessions too, for bots. A session cannot withdraw:
-withdrawals need the wallet, by transaction or by a signed `Withdraw` the relayer sends. Deposits are an
-EIP-3009 authorization on USDC, the signature x402 pays with: one signature, no allowance, a random nonce so
-any number can be in flight, and only the game can carry it out (`depositWithAuthorization`; a permit
-deposit stays for tokens without it). USDC that lands in the player's wallet is moved in by itself, so a
-player sees one address and one balance. Players never hold MON.
+A session key signs pieces; nothing else. It is an Ed25519 key the app keeps on the device. Registering it,
+an expiry and an allowance of stake, is one transaction the wallet signs and the relayer pays for (the relayer
+builds it, the wallet signs, the relayer sends exactly what it built); drawing then takes no prompts at all.
+A session cannot withdraw: withdrawals need the wallet. Deposits are a `deposit` the wallet signs, or a `sweep`
+on a standing approval, so USDC that lands in the player's wallet is moved in by itself and a player sees one
+address and one balance. Players never hold SOL: the relayer pays every fee and every rent.
 
 ### The relayer
 
-`packages/relayer`: prices what players draw with `@skech/core`, on the map of the opening second,
-350 ms into it; signs the quote; sends `place`. Six hundred milliseconds after each second ends it signs
-the bar and sends `postBarAndSettle` for the bets with ink in it. Every fifteen seconds it redeems IOUs
-the pool can pay and collects fees. It sends with Monad's `eth_sendRawTransactionSync`, keeps its own
-nonce, follows the base fee in the background, and sets every gas limit from the call's shape instead
-of estimating it: Monad charges the gas limit, not what is used, and reports the limit as used, so the
-limit has to be right before sending and every unit over it is money. The coefficients (a piece, a band,
-a byte of stroke, a bar, a bet, a hit, an IOU) are measured by `packages/contracts/evm/test/GasModel.t.sol`
-in the worst state each can meet, at Monad's prices, and kept in `snapshots/GasModel.json`; the relayer
-adds the transaction's own cost, 5%, and room for Monad's storage pages. For a settle it first works out,
-with the contract's arithmetic, which bets hit and which the pool cannot pay, since it posts the bar
-itself. Only the calls that reach Circle's USDC are estimated. It keeps 12 MON at least: Monad holds 10
-of every account in reserve. On Monad testnet (2026-09-29) the chain's own estimates came to 87–90% of
-the limits sent for placements and 80–84% for settles, and none was ever short.
+`packages/relayer`: checks each piece as it arrives (the session's signature, the engine's price, the
+balance), prices it with `@skech/core` on the map of the opening second, 350 ms into it, and sends it in its
+own `place`, signed as fee payer and oracle. When a second ends it posts the bar and settles the bets with
+ink in it. Every five minutes, when nothing is due, it redeems IOUs the pool can pay, sweeps in USDC from
+wallets that approved it, and collects the fees. Compute limits come from
+`packages/contracts/solana/snapshots/compute.json`, measured in LiteSVM; the priority fee follows what recent
+blocks paid to write the pool, capped; every request to the RPC waits on one budget, sends first. Its README
+has the rest.
 
 ### Fees and the pool, by the numbers
 
-A half-dot at 10¢ with a 50% chance at difficulty 40, with the 2% stake fee: fair 2.080×, rung 2×.
-Placed: 5¢ leaves the balance, 0.1¢ (2%) is the house's, 4.9¢ joins the pool. Hit: 10¢ gross, 5¢
-profit, 0.5¢ (10%) the house's, 9.5¢ to the balance, paid from the pool. Missed: the 4.9¢ stays in the
+A half-dot at 10¢ with a 50% chance at difficulty 40, with the 4% stake fee: fair 2.080×, rung 2×.
+Placed: 5¢ leaves the balance, 0.2¢ (4%) is the house's, 4.8¢ joins the pool. Hit: 10¢ gross, 5¢
+profit, 0.5¢ (10%) the house's, 9.5¢ to the balance, paid from the pool. Missed: the 4.8¢ stays in the
 pool for the next hit. With the pool empty, the 9.5¢ is owed as IOU and paid off as others lose.
 
 ### Running it
 
 ```bash
-bun run deploy:contracts                 # ENGINE_PRIVATE_KEY from .env.local deploys; writes deployments/10143.json and the env values
-bun run dev                              # engine, relayer, app
-bun packages/relayer/scripts/e2e.ts      # the whole thing on anvil, with a scripted player
-forge test                               # in packages/contracts/evm: 45 tests, the accounting invariant among them
+bun run deploy:solana                    # the program on devnet, from .env.local; writes deployments/solana-devnet.json
+bun run dev                              # engine, relayer, app, landing
+bun packages/relayer/scripts/e2e-solana.ts   # the whole game on a local validator, with a scripted player
+bun run solana:test                      # in packages/contracts: the program in LiteSVM, every attack refused among it
 ```
 
 ## Before mainnet
 
 - Retrain the library on recent days, and watch live hit rates against priced ones.
-- Split the oracle's key from the relayer's, and the admin from both; put the admin behind a multisig.
+- Give the admin and the program's upgrade authority to a multisig, apart from the oracle's key on the box.
 - Watch the pool: IOUs are the plan for a shortfall, not for a run.
 - Get legal advice: this is a fixed-odds bet on a price.
