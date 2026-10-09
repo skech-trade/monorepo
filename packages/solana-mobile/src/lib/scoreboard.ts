@@ -88,7 +88,7 @@ export function useScoreboard(): Scoreboard {
   return useSyncExternalStore(subscribe, scoreboard, () => EMPTY);
 }
 
-/** What was won in total after each round, oldest first, from zero: the session's line, which only climbs. */
+/** What came back in total after each round, oldest first, from zero: the session's line, which only climbs. */
 export function curve(s: Scoreboard): number[] {
   const out = [0];
   for (const r of [...s.rounds].reverse()) out.push(cents(out.at(-1)! + r.won));
