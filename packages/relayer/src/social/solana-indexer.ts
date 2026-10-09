@@ -3,11 +3,12 @@
  * one, and those this one made while the social service was down. Solana keeps only a stroke's hash: what is read
  * from the chain counts in the numbers, but a drawing's shape comes only from the relayer that placed it.
  *
- * Read by the pool's address: placements and settlements write it, the bar posted every second does not.
- *
- * - Live: `logsSubscribe` on the pool. A transaction's logs come with it, so following the game costs no request a
- *   transaction.
- * - Catch-up, every minute and on every reconnect: the signatures since the last one counted. Those the socket
+ * - Live: `logsSubscribe` on the program. A transaction's logs come with it, so following the game costs no request a
+ *   transaction. Not on the pool: a placement loads the pool through the lookup table, and the RPC's `mentions`
+ *   filter does not see addresses loaded that way (it missed every placement). A program id is never in a lookup
+ *   table. That brings the bar posted every second too: its logs are looked over for the two events and dropped.
+ * - Catch-up, every 30 s and on every reconnect, by the pool's address (`getSignaturesForAddress` does count
+ *   addresses from lookup tables): the signatures since the last one counted. Those the socket
  *   already brought, failed ones, and ones already in the database are passed over; the rest are fetched.
  * - Backfill, once, newest first, back to SOCIAL_BACKFILL_DAYS: a page of signatures and a `getTransaction` each.
  *
@@ -19,10 +20,15 @@ import { getPlacedEventDecoder, getSettledEventDecoder, PLACED_EVENT_DISCRIMINAT
 import type { PublicDrawing } from "@skech/core/social";
 import { remember } from "../limits";
 import { Budget } from "../solana/budget";
-import type { SocialStore } from "./store";
+import type { Placement, Settlement, SocialStore } from "./store";
 
-export type IndexerConfig = { cluster: string; program: string; game: string; pool: string; rpcUrl: string; wsUrl: string; rps: number; backfillDays: number };
+/** `testPlays`: the standalone service's test hook (worker.ts, POST /test/placed); never set by the relayer. */
+export type IndexerConfig = { cluster: string; program: string; game: string; pool: string; rpcUrl: string; wsUrl: string; rps: number; backfillDays: number; testPlays?: boolean };
 export type Changed = (drawing: PublicDrawing | null, kind: "placed" | "settled", event: string) => void;
+/** A stroke a player's app sent for a bet before its placement was read: given with the placement, and checked. */
+export type StrokeFor = (bet: string) => string | undefined;
+/** News, told from memory before the database is written: whether it was (false: the piece is not in memory). */
+export type Live = (e: { placement: Placement } | { settlement: Settlement }, event: string) => boolean;
 type SignatureRow = { signature: string; err: unknown; blockTime: number | null };
 export type GameEvent = { name: "placed"; data: PlacedEvent } | { name: "settled"; data: SettledEvent };
 
@@ -71,7 +77,9 @@ export class SolanaIndexer {
   private ws: WebSocket | null = null;
   private stopped = false;
   private catching: Promise<void> | null = null;
-  stats = { live: 0, fetched: 0, skipped: 0, backfilled: 0 };
+  stats = { live: 0, notices: 0, fetched: 0, skipped: 0, backfilled: 0 };
+  /** The last game event the socket brought: its signature, when it was heard, and when it was told to the apps. */
+  last: { signature: string; heardAt: number; toldAt: number; writtenAt: number } | null = null;
 
   constructor(
     private readonly cfg: IndexerConfig,
@@ -79,6 +87,8 @@ export class SolanaIndexer {
     private readonly changed: Changed,
     private readonly status: (counting: boolean, progress: number) => void,
     private readonly log: (message: string) => void,
+    private readonly strokeFor: StrokeFor = () => undefined,
+    private readonly live: Live = () => false,
   ) {
     this.budget = new Budget(Math.max(0.2, cfg.rps), log, Date.now, Math.max(1, Math.ceil(cfg.rps)), Math.random, "SOCIAL_RPC_RPS");
   }
@@ -88,7 +98,7 @@ export class SolanaIndexer {
     this.listen();
     await this.catchUp();
     void this.backfill();
-    const timer = setInterval(() => void this.catchUp(), 60_000);
+    const timer = setInterval(() => void this.catchUp(), 30_000);
     timer.unref?.();
   }
 
@@ -126,18 +136,31 @@ export class SolanaIndexer {
 
   /* ---- counting a transaction ---- */
 
-  private async ingest(signature: string, logs: readonly string[], at: number) {
-    for (const ev of gameEvents(logs, this.cfg.program)) {
+  /**
+   * A transaction's events: news first (`live`, from memory, at once), then the database. What `live` could not
+   * place (a piece from before this service started) is read back from the database and told from there.
+   */
+  private async ingest(signature: string, logs: readonly string[], at: number): Promise<number> {
+    const events = gameEvents(logs, this.cfg.program);
+    for (const ev of events) {
       if (ev.name === "placed") {
         const p = ev.data;
-        const drawing = await this.store.place({ betId: p.bet, player: p.player, drawing: p.drawing.toString(), openAt: p.openAt, staked: p.staked, unit: p.unit, sections: p.sections.map((s) => ({ second: s.second, lo: s.lo.toString(), hi: s.hi.toString(), stake: s.stake.toString(), rung: s.rung })), tx: signature });
-        if (Number(p.openAt) > Date.now() - NEWS_MS) this.changed(drawing, "placed", `${signature}:${p.bet}`);
+        const placement: Placement = { betId: p.bet, player: p.player, drawing: p.drawing.toString(), openAt: p.openAt, staked: p.staked, unit: p.unit, strokeHash: Buffer.from(p.strokeHash).toString("hex"), stroke: this.strokeFor(p.bet), sections: p.sections.map((s) => ({ second: s.second, lo: s.lo.toString(), hi: s.hi.toString(), stake: s.stake.toString(), rung: s.rung })), tx: signature };
+        const news = Number(p.openAt) > Date.now() - NEWS_MS;
+        const told = news && this.live({ placement }, `${signature}:${p.bet}`);
+        const drawing = await this.store.place(placement, told);
+        if (news && !told) this.changed(drawing, "placed", `${signature}:${p.bet}`);
       } else {
         const s = ev.data;
-        const drawing = await this.store.settle({ betId: s.bet, player: s.player, hitMask: s.hitMask, missMask: s.missMask, expiredMask: s.expiredMask, paid: s.paid, owed: s.owed, tx: signature, at });
-        if (at > Date.now() - NEWS_MS) this.changed(drawing, "settled", `${signature}:${s.bet}:${s.hitMask}:${s.missMask}`);
+        const settlement: Settlement = { betId: s.bet, player: s.player, hitMask: s.hitMask, missMask: s.missMask, expiredMask: s.expiredMask, paid: s.paid, owed: s.owed, tx: signature, at };
+        const event = `${signature}:${s.bet}:${s.hitMask}:${s.missMask}`;
+        const news = at > Date.now() - NEWS_MS;
+        const told = news && this.live({ settlement }, event);
+        const drawing = await this.store.settle(settlement, told);
+        if (news && !told) this.changed(drawing, "settled", event);
       }
     }
+    return events.length;
   }
 
   /** One signature from history: fetched only if nothing has counted it yet. */
@@ -173,7 +196,7 @@ export class SolanaIndexer {
     let opened = false;
     ws.onopen = () => {
       opened = true;
-      ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "logsSubscribe", params: [{ mentions: [this.cfg.pool] }, { commitment: "confirmed" }] }));
+      ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "logsSubscribe", params: [{ mentions: [this.cfg.program] }, { commitment: "confirmed" }] }));
       // Whatever happened while the socket was down.
       void this.catchUp();
     };
@@ -191,10 +214,23 @@ export class SolanaIndexer {
       }
       const v = msg.method === "logsNotification" ? msg.params?.result?.value : undefined;
       if (!v || typeof v.signature !== "string") return;
-      remember(this.heard, v.signature, true, 20_000);
+      this.stats.notices++;
       if (v.err || !Array.isArray(v.logs)) return;
-      this.stats.live++;
-      void this.ingest(v.signature, v.logs, Date.now()).catch((err) => this.log(`live: ${said(err)}`));
+      // Most are the bar posted each second, whose one event is the bar: gameEvents reads only the two it wants.
+      if (!v.logs.some((l) => l.startsWith("Program data: "))) return;
+      remember(this.heard, v.signature, true, 20_000);
+      const heardAt = Date.now();
+      // The news is told before ingest's first wait (from memory); the database write follows.
+      const writing = this.ingest(v.signature, v.logs, heardAt);
+      const toldAt = Date.now();
+      void writing.then(
+        (n) => {
+          if (!n) return;
+          this.stats.live++;
+          this.last = { signature: v.signature, heardAt, toldAt, writtenAt: Date.now() };
+        },
+        (err) => this.log(`live: ${said(err)}`),
+      );
     };
     ws.onclose = () => {
       if (this.ws !== ws || this.stopped) return;

@@ -24,7 +24,10 @@ if (!process.env.SOCIAL_DATABASE_URL) throw new Error("SOCIAL_DATABASE_URL is no
 
 const limits = indexerLimits();
 log(`${net.label}: game ${d.game}, pool ${d.pool}, ${rpcUrl === net.rpc ? "the public RPC" : "a private RPC"} at ${limits.rps}/s, history back ${limits.backfillDays} days`);
-const bridge = new SocialBridge({ cluster: net.cluster, program: d.program, game: d.game, pool: d.pool, rpcUrl, wsUrl, ...limits }, log);
+// SOCIAL_TEST_PLAYS=1: plays made up in memory over POST /test/placed, for testing the live feed with no wallet.
+const testPlays = process.env.SOCIAL_TEST_PLAYS === "1";
+if (testPlays) log("SOCIAL_TEST_PLAYS: POST /test/placed is on (from this machine only); nothing it makes reaches the database");
+const bridge = new SocialBridge({ cluster: net.cluster, program: d.program, game: d.game, pool: d.pool, rpcUrl, wsUrl, ...limits, testPlays }, log);
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {

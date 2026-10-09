@@ -9,7 +9,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
 import { encodeStroke } from "@skech/core/chain";
-import { SocialStore, type Placement } from "./store";
+import { SocialStore, strokeHashOf, type Placement } from "./store";
 
 const url = process.env.SOCIAL_TEST_DATABASE_URL;
 const usable = !!url && new URL(url).pathname.endsWith("_test");
@@ -83,6 +83,30 @@ describe.skipIf(!usable)("social store (Postgres)", () => {
     const filled = await store.place(piece({ betId: "bet4", drawing: "2", tx: "txD", stroke }));
     expect(filled?.pieces[0].stroke?.pts).toHaveLength(2);
     expect(await store.place(piece({ betId: "bet4", drawing: "2", tx: "txD", stroke }))).toBeNull();
+  });
+
+  test("a stroke from a player's app is kept only if it hashes to the chain's, once", async () => {
+    const stroke = encodeStroke({ t0: T0, p0: 60_000, rt: 300, rp: 5, from: 0, pts: [{ t: 0, p: 0 }, { t: 400, p: 1 }] });
+    const other = encodeStroke({ t0: T0, p0: 60_000, rt: 300, rp: 5, from: 0, pts: [{ t: 0, p: 0 }, { t: 400, p: 9 }] });
+    expect((await store.stroke("bet5", stroke)).result).toBe("unknown");
+    // From the chain: the hash, no stroke. An app's stroke that is not that one is not kept with it.
+    const placed = await store.place(piece({ betId: "bet5", drawing: "6", tx: "txF", strokeHash: strokeHashOf(stroke), stroke: other }));
+    expect(placed?.pieces[0].stroke).toBeNull();
+    expect((await store.stroke("bet5", other)).result).toBe("mismatch");
+    const kept = await store.stroke("bet5", stroke);
+    expect(kept.result).toBe("kept");
+    expect(kept.drawing?.pieces[0].stroke?.pts).toHaveLength(2);
+    expect((await store.stroke("bet5", stroke)).result).toBe("had");
+    // With the right one at once, it is kept with the placement.
+    const at = await store.place(piece({ betId: "bet6", drawing: "7", tx: "txG", strokeHash: strokeHashOf(stroke), stroke }));
+    expect(at?.pieces[0].stroke?.pts).toHaveLength(2);
+  });
+
+  test("a chosen Dylan avatar is kept, and cleared back to the address's", async () => {
+    expect((await store.edit(C, "dylan_fan", "", undefined, `${C}:4`)).avatarSeed).toBe(`${C}:4`);
+    expect((await store.edit(C, "dylan_fan", "", undefined)).avatarSeed).toBe(`${C}:4`);
+    expect((await store.board("all", null, false)).find((r) => r.profile.player === C)?.profile.avatarSeed).toBe(`${C}:4`);
+    expect((await store.edit(C, "dylan_fan", "", undefined, null)).avatarSeed).toBeNull();
   });
 
   test("profiles: names are unique, bios kept, avatars as bytes", async () => {

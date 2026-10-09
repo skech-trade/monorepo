@@ -6,15 +6,25 @@ import type { Stroke } from "./ink";
  * millionths, as decimal strings.
  */
 export type SocialWindow = "24h" | "7d" | "30d" | "all";
-export type PlayerProfile = { player: string; username: string | null; bio: string; avatar: boolean; joinedAt: number; followers: number; following: number };
+/**
+ * `avatar`: a picture they uploaded. `avatarSeed`: the Dylan avatar they chose (avatar.ts); without one, their
+ * address is its seed, so everyone has a face.
+ */
+export type PlayerProfile = { player: string; username: string | null; bio: string; avatar: boolean; avatarSeed: string | null; joinedAt: number; followers: number; following: number };
 export type PlayerStats = { staked: string; settledStake: string; paid: string; owed: string; pnl: string; drawings: number; completed: number; wins: number; biggest: string };
 export type DrawingPiece = { betId: string; stroke: Stroke | null; sections: { second: number; lo: string; hi: string; stake: string; rung: number }[]; openAt: number; unit: string; hitMask: number; missMask: number; expiredMask?: number };
 export type PublicDrawing = { id: string; player: string; profile: PlayerProfile; at: number; updatedAt: number; stake: string; settledStake: string; paid: string; owed: string; pnl: string; complete: boolean; pieces: DrawingPiece[]; tx: string };
 export type LeaderboardRow = { rank: number; profile: PlayerProfile; stats: PlayerStats };
 export type SocialActivity = { id: string; kind: "placed" | "settled"; drawing: string; player: string; profile: PlayerProfile; at: number; amount: string; complete: boolean };
 export type ProfileResponse = { profile: PlayerProfile; stats: PlayerStats; drawings: PublicDrawing[]; next: string | null; curve: { at: number; pnl: string }[]; badges: string[]; following: boolean };
-export type SocialSnapshot = { type: "snapshot"; drawings: PublicDrawing[]; activity: SocialActivity[]; counting: boolean; progress: number };
-export type SocialMessage = SocialSnapshot | { type: "drawing"; drawing: PublicDrawing; activity?: SocialActivity } | { type: "profile"; profile: PlayerProfile } | { type: "status"; counting: boolean; progress: number };
+/** `playing`: who is playing now, most recent first (a piece in the last 30 s, or a drawing still in play). */
+export type SocialSnapshot = { type: "snapshot"; drawings: PublicDrawing[]; activity: SocialActivity[]; playing: PlayerProfile[]; counting: boolean; progress: number };
+export type SocialMessage =
+  | SocialSnapshot
+  | { type: "drawing"; drawing: PublicDrawing; activity?: SocialActivity }
+  | { type: "profile"; profile: PlayerProfile }
+  | { type: "presence"; playing: PlayerProfile[] }
+  | { type: "status"; counting: boolean; progress: number };
 /** What a signed action asks: the service answers it with a challenge for the wallet to sign. */
 export type SocialAction = "profile" | "follow";
 export type SocialChallenge = { token: string; message: string };
@@ -34,6 +44,17 @@ export const looksLikePlayer = (value: unknown): value is string => typeof value
 /* ---- what a profile may say: the service checks it, and the app says the same before asking ---- */
 
 export const USERNAME = /^[a-z][a-z0-9_]{2,23}$/;
+/**
+ * A chosen Dylan avatar's seed: the player's address and a number (`<address>:<n>`, what the app offers), or any
+ * short seed of safe characters.
+ */
+export const AVATAR_SEED = /^[1-9A-HJ-NP-Za-km-z]{32,44}:\d{1,6}$|^[A-Za-z0-9_-]{1,32}$/;
+export const avatarSeedOf = (profile: Pick<PlayerProfile, "player" | "avatarSeed">) => profile.avatarSeed ?? profile.player;
+export function avatarSeedProblem(seed: unknown): string | null {
+  return seed === null || (typeof seed === "string" && AVATAR_SEED.test(seed)) ? null : "Choose one of the avatars offered";
+}
+/** The longest stroke a piece may carry, as the relayer takes it: a header and 2,048 points. */
+export const STROKE_BYTES = 33 + 2048 * 12;
 export const BIO_MAX = 160;
 /** Names that would read as the game speaking. */
 const RESERVED = new Set(["admin", "administrator", "skech", "skech_trade", "support", "help", "official", "moderator", "mod", "staff", "team", "system", "root", "oracle", "relayer", "house", "null", "undefined"]);

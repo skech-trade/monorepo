@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BIO_MAX, cleanBio, looksLikePlayer, playerHue, playerName, usernameProblem, windowStart } from "./social";
+import { avatarSeedOf, avatarSeedProblem, BIO_MAX, cleanBio, looksLikePlayer, playerHue, playerName, usernameProblem, windowStart } from "./social";
 
 describe("social", () => {
   test("usernames: lowercase, 3 to 24, a letter first, nothing reserved", () => {
@@ -32,6 +32,14 @@ describe("social", () => {
     const hue = playerHue("EQmnM7EP6ewPvjq81cCKmcKKzXFi5WGuciHfDtTCpyxF");
     expect(hue).toBeGreaterThanOrEqual(0);
     expect(hue).toBeLessThan(360);
+  });
+
+  test("avatar seeds: the address and a number, or a short safe word; none is the address", () => {
+    const a = "EQmnM7EP6ewPvjq81cCKmcKKzXFi5WGuciHfDtTCpyxF";
+    for (const ok of [`${a}:0`, `${a}:123456`, "pen", "ink_maker-7", null]) expect(avatarSeedProblem(ok)).toBeNull();
+    for (const bad of [`${a}:1234567`, `${a}:x`, "a".repeat(33), "<svg>", "x y", "", "seed\n", "0x" + "f".repeat(64), 5, undefined]) expect(avatarSeedProblem(bad)).not.toBeNull();
+    expect(avatarSeedOf({ player: a, avatarSeed: null })).toBe(a);
+    expect(avatarSeedOf({ player: a, avatarSeed: `${a}:3` })).toBe(`${a}:3`);
   });
 
   test("windows", () => {

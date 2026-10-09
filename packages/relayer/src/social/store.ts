@@ -6,19 +6,27 @@
  * Every query is a tagged template: Bun sends each value as a bound parameter, never as text in the statement.
  * Money is NUMERIC, exact; it crosses the API as decimal strings.
  */
+import { createHash } from "node:crypto";
 import { SQL } from "bun";
 import { decodeStroke } from "@skech/core/chain";
 import type { Stroke } from "@skech/core/ink";
 import { windowStart, type DrawingPiece, type LeaderboardRow, type PlayerProfile, type PlayerStats, type ProfileResponse, type PublicDrawing, type SocialActivity, type SocialWindow } from "@skech/core/social";
 
 export type Section = DrawingPiece["sections"][number];
-export type Placement = { betId: string; player: string; drawing: string; openAt: bigint; staked: bigint; unit: bigint; stroke?: string; sections: Section[]; tx: string };
+/**
+ * `strokeHash`: SHA-256 of the stroke's bytes as the chain keeps it (hex), from the Placed event. `stroke`: those bytes
+ * (0x hex), from the relayer or the player's app: kept only if they hash to it.
+ */
+export type Placement = { betId: string; player: string; drawing: string; openAt: bigint; staked: bigint; unit: bigint; strokeHash?: string; stroke?: string; sections: Section[]; tx: string };
 /** `expiredMask`: bands given back because their second can no longer be posted; their refund is in `paid`. */
 export type Settlement = { betId: string; player: string; hitMask: number; missMask: number; expiredMask?: number; paid: bigint; owed: bigint; tx: string; at?: number };
 export type Avatar = { mime: string; bytes: Uint8Array };
 
 type PieceRow = { id: string; drawing: string; player: string; at: string; updated: string; stake: string; settled_stake: string; paid: string; owed: string; hit_mask: string; miss_mask: string; expired_mask: string; geometry: DrawingPiece | string; tx: string };
-type ProfileRow = { player: string; username: string | null; bio: string; joined: string; avatar: boolean; followers: string; following: string };
+type ProfileRow = { player: string; username: string | null; bio: string; avatar_seed: string | null; joined: string; avatar: boolean; followers: string; following: string };
+/** The stroke's hash as the program keeps it: SHA-256 of its bytes, lowercase hex. */
+export const strokeHashOf = (stroke: string) => createHash("sha256").update(Buffer.from(stroke.replace(/^0x/, ""), "hex")).digest("hex");
+export type StrokeResult = "kept" | "had" | "unknown" | "mismatch";
 
 /** The most players one player may follow: a table nobody can grow without end. */
 export const MOST_FOLLOWS = 2_000;
@@ -40,17 +48,24 @@ const parseGeometry = (g: DrawingPiece | string): DrawingPiece => (typeof g === 
 
 export class SocialStore {
   readonly sql: SQL;
-  private ingestion: Promise<unknown> = Promise.resolve();
+  /** Writes waiting, by bet: one bet's in order, different bets' side by side (the pool has four connections). */
+  private ingestion = new Map<string, Promise<unknown>>();
   private boardCache = new Map<string, { until: number; rows: LeaderboardRow[] }>();
 
   constructor(url: string, readonly scope: string) {
-    this.sql = new SQL(url, { max: 4, connectionTimeout: 10, idleTimeout: 30, maxLifetime: 1800 });
+    // No prepared statements: through Supabase's pooler, Bun's named statements had answers go to the wrong query, or
+    // to none (it waited for ever while the server sat idle). Every value is still a bound parameter.
+    this.sql = new SQL(url, { max: 4, connectionTimeout: 10, idleTimeout: 60, maxLifetime: 1800, prepare: false });
   }
 
-  /** One write at a time, in order: a settlement never overtakes its placement. */
-  private serial<T>(run: () => Promise<T>): Promise<T> {
-    const result = this.ingestion.then(run);
-    this.ingestion = result.catch(() => undefined);
+  /** One bet's writes one at a time, in order: a settlement never overtakes its placement. */
+  private serial<T>(bet: string, run: () => Promise<T>): Promise<T> {
+    const result = (this.ingestion.get(bet) ?? Promise.resolve()).then(run);
+    const tail = result.catch(() => undefined);
+    this.ingestion.set(bet, tail);
+    void tail.then(() => {
+      if (this.ingestion.get(bet) === tail) this.ingestion.delete(bet);
+    });
     return result;
   }
 
@@ -58,8 +73,10 @@ export class SocialStore {
     const sql = this.sql;
     await sql`CREATE SCHEMA IF NOT EXISTS skech_social`;
     await sql`CREATE TABLE IF NOT EXISTS skech_social.social_profiles (player TEXT PRIMARY KEY, username TEXT UNIQUE, bio TEXT NOT NULL DEFAULT '', joined BIGINT NOT NULL)`;
+    await sql`ALTER TABLE skech_social.social_profiles ADD COLUMN IF NOT EXISTS avatar_seed TEXT`;
     await sql`CREATE TABLE IF NOT EXISTS skech_social.social_avatars (player TEXT PRIMARY KEY, mime TEXT NOT NULL, bytes BYTEA NOT NULL, updated BIGINT NOT NULL)`;
     await sql`CREATE TABLE IF NOT EXISTS skech_social.social_pieces (id TEXT PRIMARY KEY, drawing TEXT NOT NULL, player TEXT NOT NULL, at BIGINT NOT NULL, updated BIGINT NOT NULL, stake NUMERIC NOT NULL, settled_stake NUMERIC NOT NULL DEFAULT 0, paid NUMERIC NOT NULL DEFAULT 0, owed NUMERIC NOT NULL DEFAULT 0, hit_mask BIGINT NOT NULL DEFAULT 0, miss_mask BIGINT NOT NULL DEFAULT 0, expired_mask BIGINT NOT NULL DEFAULT 0, geometry JSONB NOT NULL, tx TEXT NOT NULL)`;
+    await sql`ALTER TABLE skech_social.social_pieces ADD COLUMN IF NOT EXISTS stroke_hash TEXT`;
     await sql`CREATE INDEX IF NOT EXISTS social_pieces_player_at ON skech_social.social_pieces(player, at DESC)`;
     await sql`CREATE INDEX IF NOT EXISTS social_pieces_drawing ON skech_social.social_pieces(drawing)`;
     await sql`CREATE INDEX IF NOT EXISTS social_pieces_updated ON skech_social.social_pieces(updated DESC)`;
@@ -106,19 +123,34 @@ export class SocialStore {
     await this.sql`INSERT INTO skech_social.social_profiles (player, joined) VALUES (${player}, ${at}) ON CONFLICT (player) DO UPDATE SET joined = LEAST(skech_social.social_profiles.joined, excluded.joined)`;
   }
   async profile(player: string): Promise<PlayerProfile> {
-    const [row] = (await this.sql`
-      SELECT p.player, p.username, p.bio, p.joined,
+    return (await this.profiles([player])).get(player)!;
+  }
+  /** Several players' profiles in one query (the database can be a quarter of a second away). */
+  async profiles(players: string[]): Promise<Map<string, PlayerProfile>> {
+    const out = new Map<string, PlayerProfile>();
+    if (!players.length) return out;
+    const rows = (await this.sql`
+      SELECT p.player, p.username, p.bio, p.avatar_seed, p.joined,
         EXISTS (SELECT 1 FROM skech_social.social_avatars a WHERE a.player = p.player) AS avatar,
         (SELECT COUNT(*) FROM skech_social.social_follows WHERE target = p.player) AS followers,
         (SELECT COUNT(*) FROM skech_social.social_follows WHERE player = p.player) AS following
-      FROM skech_social.social_profiles p WHERE p.player = ${player}`) as ProfileRow[];
-    return { player, username: row?.username ?? null, bio: row?.bio ?? "", avatar: Boolean(row?.avatar), joinedAt: Number(row?.joined ?? 0), followers: Number(row?.followers ?? 0), following: Number(row?.following ?? 0) };
+      FROM skech_social.social_profiles p WHERE p.player IN ${this.sql(players)}`) as ProfileRow[];
+    const found = new Map(rows.map((r) => [r.player, r]));
+    for (const player of players) {
+      const row = found.get(player);
+      out.set(player, { player, username: row?.username ?? null, bio: row?.bio ?? "", avatar: Boolean(row?.avatar), avatarSeed: row?.avatar_seed ?? null, joinedAt: Number(row?.joined ?? 0), followers: Number(row?.followers ?? 0), following: Number(row?.following ?? 0) });
+    }
+    return out;
   }
-  /** A new name and bio, and a new avatar (or none, null; or the same, undefined). Throws on a name someone has. */
-  async edit(player: string, username: string, bio: string, avatar: Avatar | null | undefined): Promise<PlayerProfile> {
+  /**
+   * A new name and bio; a new picture (or none, null; or the same, undefined); a Dylan avatar's seed (null for their
+   * address's; undefined, the same). Throws on a name someone has.
+   */
+  async edit(player: string, username: string, bio: string, avatar: Avatar | null | undefined, avatarSeed?: string | null): Promise<PlayerProfile> {
     await this.sql.begin(async (tx) => {
       await tx`INSERT INTO skech_social.social_profiles (player, joined) VALUES (${player}, ${Date.now()}) ON CONFLICT (player) DO NOTHING`;
       await tx`UPDATE skech_social.social_profiles SET username = ${username}, bio = ${bio} WHERE player = ${player}`;
+      if (avatarSeed !== undefined) await tx`UPDATE skech_social.social_profiles SET avatar_seed = ${avatarSeed} WHERE player = ${player}`;
       if (avatar === null) await tx`DELETE FROM skech_social.social_avatars WHERE player = ${player}`;
       else if (avatar) await tx`INSERT INTO skech_social.social_avatars (player, mime, bytes, updated) VALUES (${player}, ${avatar.mime}, ${Buffer.from(avatar.bytes)}, ${Date.now()}) ON CONFLICT (player) DO UPDATE SET mime = excluded.mime, bytes = excluded.bytes, updated = excluded.updated`;
     });
@@ -155,38 +187,74 @@ export class SocialStore {
     return Boolean(row?.known);
   }
 
-  /** A piece placed: the drawing as it now stands, or null if nothing changed (seen before). */
-  place(p: Placement): Promise<PublicDrawing | null> {
-    return this.serial(() => this.placeOnce(p));
+  /**
+   * A piece placed: the drawing as it now stands, or null if nothing changed (seen before). `quiet`: the drawing is
+   * not read back (the live feed has it already), and the usual placement is one round trip.
+   */
+  place(p: Placement, quiet = false): Promise<PublicDrawing | null> {
+    return this.serial(p.betId, () => this.placeOnce(p, quiet));
   }
-  private async placeOnce(p: Placement): Promise<PublicDrawing | null> {
+  private async placeOnce(p: Placement, quiet: boolean): Promise<PublicDrawing | null> {
     const drawing = `${p.player}:${p.drawing}`;
-    const shape = geometry(p);
-    await this.ensureProfile(p.player, Number(p.openAt));
-    // A piece recovered from the chain has no stroke (only its hash is there): the relayer's copy fills it in.
-    const enriched = shape.stroke
-      ? await this.sql`UPDATE skech_social.social_pieces SET geometry = jsonb_set(geometry, '{stroke}', ${JSON.stringify(shape.stroke)}::text::jsonb) WHERE id = ${p.betId} AND geometry -> 'stroke' = 'null'::jsonb RETURNING id`
-      : [];
-    const inserted = await this.sql`INSERT INTO skech_social.social_pieces (id, drawing, player, at, updated, stake, geometry, tx) VALUES (${p.betId}, ${drawing}, ${p.player}, ${Number(p.openAt)}, ${Number(p.openAt)}, ${p.staked.toString()}, ${JSON.stringify(shape)}::text::jsonb, ${p.tx}) ON CONFLICT DO NOTHING RETURNING id`;
+    // A stroke is kept only if it is the one the chain has the hash of. The relayer's is (it checked); one from an
+    // app must prove it, against the event's hash.
+    const given = p.stroke && /^(0x)?([0-9a-f]{2})+$/i.test(p.stroke) ? strokeHashOf(p.stroke) : null;
+    const hash = p.strokeHash?.toLowerCase() ?? given;
+    const shape = geometry(given && given === hash ? p : { ...p, stroke: undefined });
+    // The profile and the piece in one statement; whether a settlement came first, with it.
+    const [first] = await this.sql`
+      WITH profile AS (
+        INSERT INTO skech_social.social_profiles (player, joined) VALUES (${p.player}, ${Number(p.openAt)})
+        ON CONFLICT (player) DO UPDATE SET joined = LEAST(skech_social.social_profiles.joined, excluded.joined) RETURNING 1
+      ), piece AS (
+        INSERT INTO skech_social.social_pieces (id, drawing, player, at, updated, stake, geometry, tx, stroke_hash)
+        VALUES (${p.betId}, ${drawing}, ${p.player}, ${Number(p.openAt)}, ${Number(p.openAt)}, ${p.staked.toString()}, ${JSON.stringify(shape)}::text::jsonb, ${p.tx}, ${hash})
+        ON CONFLICT DO NOTHING RETURNING id
+      ) SELECT (SELECT COUNT(*) FROM piece) AS inserted, (SELECT COUNT(*) FROM profile) AS profiled, EXISTS (SELECT 1 FROM skech_social.social_settlements WHERE bet = ${p.betId}) AS settled`;
+    let enriched: unknown[] = [];
+    if (!Number(first.inserted)) {
+      if (hash) await this.sql`UPDATE skech_social.social_pieces SET stroke_hash = ${hash} WHERE id = ${p.betId} AND stroke_hash IS NULL`;
+      // A piece read from the chain first has no stroke: a later copy fills it in, once.
+      if (shape.stroke) enriched = await this.sql`UPDATE skech_social.social_pieces SET geometry = jsonb_set(geometry, '{stroke}', ${JSON.stringify(shape.stroke)}::text::jsonb) WHERE id = ${p.betId} AND geometry -> 'stroke' = 'null'::jsonb AND (stroke_hash IS NULL OR stroke_hash = ${hash}) RETURNING id`;
+    }
     // A settlement can be read before its placement: count it now.
-    await this.recalculate(p.betId);
-    if (!inserted.length && !enriched.length) return null;
+    if (first.settled) await this.recalculate(p.betId);
+    if (!Number(first.inserted) && !enriched.length) return null;
     this.boardCache.clear();
-    return this.drawing(drawing);
+    return quiet ? null : this.drawing(drawing);
+  }
+
+  /**
+   * A stroke from a player's app for a piece already counted: kept if it hashes to what the chain has and the piece
+   * has none yet (the first good one wins). "unknown": the piece is not in yet.
+   */
+  stroke(betId: string, stroke: string): Promise<{ result: StrokeResult; drawing: PublicDrawing | null }> {
+    return this.serial(betId, async () => {
+      const [row] = await this.sql`SELECT drawing, stroke_hash, geometry -> 'stroke' = 'null'::jsonb AS bare, geometry FROM skech_social.social_pieces WHERE id = ${betId}`;
+      if (!row) return { result: "unknown" as const, drawing: null };
+      if (!row.stroke_hash || row.stroke_hash !== strokeHashOf(stroke)) return { result: "mismatch" as const, drawing: null };
+      if (!row.bare) return { result: "had" as const, drawing: null };
+      const g = parseGeometry(row.geometry);
+      const shape = geometry({ betId, player: "", drawing: "", openAt: BigInt(g.openAt), staked: 0n, unit: BigInt(g.unit), stroke, sections: g.sections, tx: "" });
+      if (!shape.stroke) return { result: "mismatch" as const, drawing: null };
+      const done = await this.sql`UPDATE skech_social.social_pieces SET geometry = jsonb_set(geometry, '{stroke}', ${JSON.stringify(shape.stroke)}::text::jsonb) WHERE id = ${betId} AND geometry -> 'stroke' = 'null'::jsonb RETURNING id`;
+      if (!done.length) return { result: "had" as const, drawing: null };
+      return { result: "kept" as const, drawing: await this.drawing(row.drawing as string) };
+    });
   }
 
   /** A settlement: counted once, however many times it is told. */
-  settle(s: Settlement): Promise<PublicDrawing | null> {
-    return this.serial(() => this.settleOnce(s));
+  settle(s: Settlement, quiet = false): Promise<PublicDrawing | null> {
+    return this.serial(s.betId, () => this.settleOnce(s, quiet));
   }
-  private async settleOnce(s: Settlement): Promise<PublicDrawing | null> {
+  private async settleOnce(s: Settlement, quiet: boolean): Promise<PublicDrawing | null> {
     const hit = s.hitMask >>> 0, miss = s.missMask >>> 0, expired = (s.expiredMask ?? 0) >>> 0;
     const id = `${s.tx}:${s.betId}:${hit}:${miss}:${expired}`;
     const inserted = await this.sql`INSERT INTO skech_social.social_settlements (id, bet, tx, hit_mask, miss_mask, expired_mask, paid, owed, at) VALUES (${id}, ${s.betId}, ${s.tx}, ${hit}, ${miss}, ${expired}, ${s.paid.toString()}, ${s.owed.toString()}, ${s.at ?? Date.now()}) ON CONFLICT DO NOTHING RETURNING id`;
     const drawing = await this.recalculate(s.betId);
     if (!inserted.length) return null;
     this.boardCache.clear();
-    return drawing ? this.drawing(drawing) : null;
+    return drawing && !quiet ? this.drawing(drawing) : null;
   }
 
   /** A piece's totals again from its settlements. A section decides once: a repeat cannot add to anyone's numbers. */
@@ -229,7 +297,7 @@ export class SocialStore {
   private async assemble(rows: PieceRow[]): Promise<PublicDrawing[]> {
     const groups = new Map<string, PublicDrawing>();
     const profiles = new Map<string, PlayerProfile>();
-    for (const player of new Set(rows.map((r) => r.player))) profiles.set(player, await this.profile(player));
+    for (const [player, profile] of await this.profiles([...new Set(rows.map((r) => r.player))])) profiles.set(player, profile);
     for (const row of rows) {
       let d = groups.get(row.drawing);
       if (!d) groups.set(row.drawing, (d = { id: row.drawing, player: row.player, profile: profiles.get(row.player)!, at: Number(row.at), updatedAt: Number(row.updated), stake: "0", settledStake: "0", paid: "0", owed: "0", pnl: "0", complete: true, pieces: [], tx: row.tx }));
@@ -264,23 +332,19 @@ export class SocialStore {
 
   /** The newest drawings as activity, for a feed that has heard nothing since it started. */
   async recent(limit = 30): Promise<SocialActivity[]> {
-    const ids = await this.sql`SELECT drawing FROM skech_social.social_pieces GROUP BY drawing ORDER BY MAX(updated) DESC LIMIT ${limit}`;
-    const out: SocialActivity[] = [];
-    for (const r of ids) {
-      const d = await this.drawing(r.drawing as string);
-      if (!d) continue;
-      const settled = BigInt(d.settledStake) > 0n;
-      out.push(this.activity(d, settled ? "settled" : "placed", `recent:${d.id}:${d.updatedAt}`));
-    }
+    // Two queries in all: the pieces of the newest drawings, and their players.
+    const rows = (await this.sql`SELECT * FROM skech_social.social_pieces WHERE drawing IN (SELECT drawing FROM skech_social.social_pieces GROUP BY drawing ORDER BY MAX(updated) DESC LIMIT ${limit}) ORDER BY at, id`) as PieceRow[];
+    const out = (await this.assemble(rows)).map((d) => this.activity(d, BigInt(d.settledStake) > 0n ? "settled" : "placed", `recent:${d.id}:${d.updatedAt}`));
     return out.sort((a, b) => b.at - a.at);
   }
 
   private async statistics(player: string, since: number): Promise<PlayerStats> {
-    const [money] = await this.sql`SELECT COALESCE(SUM(s.stake), 0)::text AS settled, COALESCE(SUM(s.paid), 0)::text AS paid, COALESCE(SUM(s.owed), 0)::text AS owed FROM skech_social.social_settlements s JOIN skech_social.social_pieces p ON p.id = s.bet WHERE s.counted AND p.player = ${player} AND s.at >= ${since}`;
-    const [volume] = await this.sql`SELECT COALESCE(SUM(stake), 0)::text AS staked, COUNT(DISTINCT drawing) AS drawings FROM skech_social.social_pieces WHERE player = ${player} AND at >= ${since}`;
-    const [finished] = await this.sql`
+    const moneyQ = this.sql`SELECT COALESCE(SUM(s.stake), 0)::text AS settled, COALESCE(SUM(s.paid), 0)::text AS paid, COALESCE(SUM(s.owed), 0)::text AS owed FROM skech_social.social_settlements s JOIN skech_social.social_pieces p ON p.id = s.bet WHERE s.counted AND p.player = ${player} AND s.at >= ${since}`;
+    const volumeQ = this.sql`SELECT COALESCE(SUM(stake), 0)::text AS staked, COUNT(DISTINCT drawing) AS drawings FROM skech_social.social_pieces WHERE player = ${player} AND at >= ${since}`;
+    const finishedQ = this.sql`
       SELECT COUNT(*) AS completed, COALESCE(SUM(CASE WHEN paid + owed > stake THEN 1 ELSE 0 END), 0) AS wins, GREATEST(COALESCE(MAX(paid + owed - stake), 0), 0)::text AS biggest
       FROM (SELECT drawing, SUM(stake) AS stake, SUM(settled_stake) AS settled, SUM(paid) AS paid, SUM(owed) AS owed FROM skech_social.social_pieces WHERE player = ${player} GROUP BY drawing HAVING MAX(updated) >= ${since} AND SUM(stake) = SUM(settled_stake)) d`;
+    const [[money], [volume], [finished]] = await Promise.all([moneyQ, volumeQ, finishedQ]);
     return {
       staked: volume.staked,
       settledStake: money.settled,
@@ -312,7 +376,7 @@ export class SocialStore {
       ), finishes AS (
         SELECT player, COUNT(*) AS completed, SUM(CASE WHEN paid + owed > stake THEN 1 ELSE 0 END) AS wins, MAX(paid + owed - stake) AS biggest FROM drawings WHERE stake = settled GROUP BY player
       ), ranked AS (
-        SELECT p.player, p.username, p.bio, p.joined, EXISTS (SELECT 1 FROM skech_social.social_avatars a WHERE a.player = p.player) AS avatar,
+        SELECT p.player, p.username, p.bio, p.avatar_seed, p.joined, EXISTS (SELECT 1 FROM skech_social.social_avatars a WHERE a.player = p.player) AS avatar,
           COALESCE(v.staked, 0)::text AS staked, COALESCE(e.settled, 0)::text AS settled,
           COALESCE(e.paid, 0)::text AS paid, COALESCE(e.owed, 0)::text AS owed,
           COALESCE(e.paid + e.owed - e.settled, 0)::text AS pnl,
@@ -325,7 +389,7 @@ export class SocialStore {
       ) SELECT * FROM ranked WHERE rank <= 100 OR player = ${player} ORDER BY rank`;
     const rows: LeaderboardRow[] = result.map((r: Record<string, unknown>) => ({
       rank: Number(r.rank),
-      profile: { player: String(r.player), username: (r.username as string | null) ?? null, bio: String(r.bio), joinedAt: Number(r.joined), avatar: Boolean(r.avatar), followers: 0, following: 0 },
+      profile: { player: String(r.player), username: (r.username as string | null) ?? null, bio: String(r.bio), joinedAt: Number(r.joined), avatar: Boolean(r.avatar), avatarSeed: (r.avatar_seed as string | null) ?? null, followers: 0, following: 0 },
       stats: { staked: String(r.staked), settledStake: String(r.settled), paid: String(r.paid), owed: String(r.owed), pnl: String(r.pnl), drawings: Number(r.drawings), completed: Number(r.completed), wins: Number(r.wins), biggest: String(r.biggest) },
     }));
     // A key per viewer: kept briefly, and never more than a few hundred of them.
@@ -349,15 +413,16 @@ export class SocialStore {
       [before, beforeId] = parsed as [number, string];
     }
     const ids = await this.sql`SELECT drawing, MIN(at) AS at FROM skech_social.social_pieces WHERE player = ${player} GROUP BY drawing HAVING MAX(updated) >= ${since} AND (MIN(at), drawing) < (${before}::bigint, ${beforeId}::text) ORDER BY MIN(at) DESC, drawing DESC LIMIT 21`;
-    const drawings: PublicDrawing[] = [];
-    for (const r of ids.slice(0, 20)) {
-      const d = await this.drawing(r.drawing as string);
-      if (d) drawings.push(d);
-    }
-    const profile = await this.profile(player);
-    const stats = await this.statistics(player, since);
-    const [follows] = viewer ? await this.sql`SELECT EXISTS (SELECT 1 FROM skech_social.social_follows WHERE player = ${viewer} AND target = ${player}) AS yes` : [{ yes: false }];
-    const points = await this.sql`SELECT (s.at / 60000) * 60000 AS minute, SUM(s.paid + s.owed - s.stake)::text AS pnl FROM skech_social.social_settlements s JOIN skech_social.social_pieces p ON p.id = s.bet WHERE s.counted AND p.player = ${player} AND s.at >= ${since} GROUP BY 1 ORDER BY 1`;
+    // Side by side, and the page's drawings in one query: the database can be a quarter of a second away.
+    const page = ids.slice(0, 20).map((r: { drawing: string }) => r.drawing);
+    const [pieces, profile, stats, [follows], points] = await Promise.all([
+      page.length ? (this.sql`SELECT * FROM skech_social.social_pieces WHERE drawing IN ${this.sql(page)} ORDER BY at, id` as Promise<PieceRow[]>) : Promise.resolve([] as PieceRow[]),
+      this.profile(player),
+      this.statistics(player, since),
+      viewer ? this.sql`SELECT EXISTS (SELECT 1 FROM skech_social.social_follows WHERE player = ${viewer} AND target = ${player}) AS yes` : Promise.resolve([{ yes: false }]),
+      this.sql`SELECT (s.at / 60000) * 60000 AS minute, SUM(s.paid + s.owed - s.stake)::text AS pnl FROM skech_social.social_settlements s JOIN skech_social.social_pieces p ON p.id = s.bet WHERE s.counted AND p.player = ${player} AND s.at >= ${since} GROUP BY 1 ORDER BY 1`,
+    ]);
+    const drawings = (await this.assemble(pieces)).sort((x, y) => page.indexOf(x.id) - page.indexOf(y.id));
     let total = 0n;
     const curve: ProfileResponse["curve"] = points.map((p: { minute: string; pnl: string }) => ({ at: Number(p.minute), pnl: (total += BigInt(p.pnl)).toString() }));
     const stride = Math.max(1, Math.ceil(curve.length / 120));
