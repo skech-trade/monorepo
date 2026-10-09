@@ -20,9 +20,7 @@
     "clean": "rm -rf node_modules ui/*/node_modules ui/*/.next packages/engine/target packages/contracts/evm/out packages/contracts/evm/cache packages/contracts/solana/target",
     "test": "bun run --filter '*' test",
     "dev:relayer": "bun run --filter @skech/relayer dev",
-    "deploy:contracts": "bun scripts/deploy-contracts.ts",
-    "deploy:solana": "bun scripts/deploy-solana.ts",
-    "dev:relayer:solana": "bun run --filter @skech/relayer dev:solana"
+    "deploy:solana": "bun scripts/deploy-solana.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

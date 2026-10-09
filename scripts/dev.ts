@@ -13,13 +13,14 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { chainIdFor, network } from "../packages/core/src/network";
+import { deploymentFile, type SolanaNetwork, solanaNetwork } from "../packages/contracts/solana/sdk";
 
 type Service = { name: string; color: number; cwd: string; cmd: string[]; port: number; url: string };
 
 const ENGINE_PORT = Number(process.env.ENGINE_PORT) || 3102;
-const RELAYER_PORT = Number(process.env.RELAYER_PORT) || 3103;
+const RELAYER_PORT = Number(process.env.RELAYER_SOLANA_PORT) || 3104;
 const SERVICES: Service[] = [
   { name: "engine", color: 35, cwd: "packages/engine", cmd: ["cargo", "run", "--release", "--", "--dev"], port: ENGINE_PORT, url: `ws://localhost:${ENGINE_PORT}/ws` },
   { name: "relayer", color: 34, cwd: "packages/relayer", cmd: ["bun", "run", "dev"], port: RELAYER_PORT, url: `ws://localhost:${RELAYER_PORT}/ws` },
@@ -38,28 +39,31 @@ if (unknown.length) {
 }
 let services = asked.length ? SERVICES.filter((s) => asked.includes(s.name)) : SERVICES;
 
-// SKECH_NETWORK picks the chain for everything; a bad value stops here rather than in four places.
-let chainId: number;
-let networkLabel: string;
+// SKECH_SOLANA_CLUSTER picks the cluster (devnet when blank); a bad value stops here rather than in the relayer.
+let net: SolanaNetwork;
 try {
-  networkLabel = network(process.env.SKECH_NETWORK).label;
-  chainId = chainIdFor(process.env);
+  net = solanaNetwork(process.env);
 } catch (e) {
   console.error((e as Error).message);
   process.exit(1);
 }
-// With no game on the chain the relayer has nothing to talk to: it sits out and the app plays for practice.
-const deployment = `packages/contracts/deployments/${chainId}.json`;
-const noGame = !process.env.SKECH_GAME?.trim() && !existsSync(join(root, deployment));
+// With no game on the cluster, or no key to pay its fees with, the relayer has nothing to do: it sits out and the
+// app plays for practice.
+const deployment = deploymentFile(net.cluster);
+const hasKey = !!process.env.SOLANA_RELAYER_SECRET_KEY?.trim() || !!process.env.SOLANA_RELAYER_KEYPAIR?.trim() || (net.cluster === "localnet" && existsSync(join(homedir(), ".config/solana/id.json")));
+const missing = !existsSync(join(root, deployment))
+  ? `no game on ${net.cluster} (${deployment} is missing): \x1b[1mbun run deploy:solana\x1b[0m puts one there`
+  : !hasKey
+    ? "no relayer key: set SOLANA_RELAYER_KEYPAIR (a keypair file) in .env.local"
+    : null;
 let skipped = "";
-if (noGame && services.some((s) => s.name === "relayer")) {
-  const hint = `no game on chain ${chainId} (${deployment} is missing): \x1b[1mbun run deploy:contracts\x1b[0m puts one there`;
+if (missing && services.some((s) => s.name === "relayer")) {
   if (asked.includes("relayer")) {
-    console.error(`relayer cannot start: ${hint}`);
+    console.error(`relayer cannot start: ${missing}`);
     process.exit(1);
   }
   services = services.filter((s) => s.name !== "relayer");
-  skipped = `relayer skipped: ${hint}; until then the app plays for practice`;
+  skipped = `relayer skipped: ${missing}; until then the app plays for practice`;
 }
 
 const paint = (code: number | string, text: string) => `\x1b[${code}m${text}\x1b[0m`;
@@ -67,7 +71,7 @@ const width = Math.max(...services.map((s) => s.name.length));
 const label = (s: Service) => paint(s.color, s.name.padEnd(width));
 const clock = () => paint(2, new Date().toTimeString().slice(0, 8));
 const say = (text: string) => console.log(`${clock()} ${" ".repeat(width)} ${text}`);
-say(`network: ${paint(1, networkLabel)} (chain ${chainId}), from SKECH_NETWORK`);
+say(`network: ${paint(1, net.label)}, from SKECH_SOLANA_CLUSTER`);
 if (skipped) say(paint(33, skipped));
 
 const listening = (port: number) =>
