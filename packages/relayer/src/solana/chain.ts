@@ -30,7 +30,9 @@ import {
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   type Signature,
+  signTransaction,
   type SolanaRpcApi,
+  type Transaction,
 } from "@solana/kit";
 import { fetchAddressLookupTable } from "@solana-program/address-lookup-table";
 import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from "@solana-program/compute-budget";
@@ -207,6 +209,15 @@ export class SolanaChain {
   async send(label: string, instructions: Instruction[], computeUnits: number): Promise<Sent> {
     const tx = await partiallySignTransactionMessageWithSigners(this.message(instructions, computeUnits));
     return this.broadcast(label, getBase64EncodedWireTransaction(tx), getSignatureFromTransaction(tx), this.hash!.lastValidBlockHeight);
+  }
+
+  /**
+   * A transaction built elsewhere (the keeper's swap), signed as its fee payer and sent like the relayer's own, until
+   * it lands or `lastValid` passes. It signs whatever it is given: the caller checks it first.
+   */
+  async signAndSend(label: string, tx: Transaction, lastValid: bigint): Promise<Sent> {
+    const signed = await signTransaction([this.signer.keyPair], tx);
+    return this.broadcast(label, getBase64EncodedWireTransaction(signed), getSignatureFromTransaction(signed), lastValid);
   }
 
   private async broadcast(label: string, wire: Base64EncodedWireTransaction, signature: Signature, lastValid: bigint): Promise<Sent> {
