@@ -1,3 +1,5 @@
+import { socialUrl } from "@skech/core/social";
+
 /**
  * The servers the app talks to, from the build's settings (next.config.ts): the engine's price feed and the
  * Solana relayer, which builds and pays for every transaction and reads the chain for the app, so the page
@@ -11,16 +13,7 @@ export const RELAYER_URL = process.env.NEXT_PUBLIC_RELAYER_URL || "wss://api.ske
  * The community (profiles, follows, the leaderboard, the live feed): NEXT_PUBLIC_SOCIAL_URL, or beside the relayer,
  * at /social on its host, or on port 3105 of a relayer on this machine.
  */
-export const SOCIAL_URL = (() => {
-  if (process.env.NEXT_PUBLIC_SOCIAL_URL) return process.env.NEXT_PUBLIC_SOCIAL_URL.replace(/\/+$/, "");
-  try {
-    const u = new URL(RELAYER_URL);
-    const local = ["localhost", "127.0.0.1"].includes(u.hostname);
-    return `${u.protocol === "wss:" ? "https:" : "http:"}//${u.hostname}${local ? ":3105" : u.port ? `:${u.port}` : ""}${local ? "" : "/social"}`;
-  } catch {
-    return "https://api.skech.trade/social";
-  }
-})();
+export const SOCIAL_URL = socialUrl(RELAYER_URL, process.env.NEXT_PUBLIC_SOCIAL_URL);
 
 /**
  * Reopening a dropped socket: half the wait and a random share of the other half, so a relayer that restarts

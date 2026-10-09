@@ -15,7 +15,7 @@ import { TransactionsSheet } from "./ink/transactions-sheet";
 import { PRIVATE_TEXT } from "@/lib/analytics";
 import { shortAddress } from "@/lib/market";
 import { money } from "@/lib/money";
-import { useSocial } from "@/lib/social";
+import { useSocialPick } from "@/lib/social";
 import { cn } from "@/lib/utils";
 import { CopyAddress } from "./copy";
 import { Wordmark } from "./logo";
@@ -39,8 +39,10 @@ import { ThemeToggle } from "./theme-toggle";
 export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; showTheme?: boolean } = {}) {
   const me = useAccount();
   const community = useCommunity();
-  const social = useSocial();
-  const profile = me.address ? social.profiles[me.address] : undefined;
+  // Only what the bar shows: it renders again when the count or the account's profile changes, not per message.
+  const playing = useSocialPick((s) => s.playing.length, 0);
+  const address = me.address;
+  const profile = useSocialPick((s) => (address ? s.profiles[address] : undefined), undefined);
   const chain = useChain();
   const gate = useGate();
   // On a phone's browser, not once installed: the way to the Home Screen steps, whether or not the bar is up.
@@ -57,11 +59,11 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
       </Link>
       <div className="ml-auto flex shrink-0 items-center gap-2">
         {community ? (
-          <Button aria-label={social.playing.length ? `Leaderboard and players: ${social.playing.length} playing now` : "Leaderboard and players"} className="relative size-11 rounded-full border-0 bg-secondary p-0 sm:size-11 [&_svg]:size-5" onClick={() => community.open(social.playing.length ? "activity" : "leaderboard")} size="icon" variant="secondary">
+          <Button aria-label={playing ? `Leaderboard and players: ${playing} playing now` : "Leaderboard and players"} className="relative size-11 rounded-full border-0 bg-secondary p-0 sm:size-11 [&_svg]:size-5" onClick={() => community.open(playing ? "activity" : "leaderboard")} size="icon" variant="secondary">
             <TrophyIcon />
-            {social.playing.length ? (
+            {playing ? (
               <span aria-hidden="true" className="figures absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-success px-1 font-semibold text-[11px] text-white ring-2 ring-background">
-                {social.playing.length > 99 ? "99+" : social.playing.length}
+                {playing > 99 ? "99+" : playing}
               </span>
             ) : null}
           </Button>

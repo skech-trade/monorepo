@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { avatarSeedOf, avatarSeedProblem, BIO_MAX, cleanBio, looksLikePlayer, playerHue, playerName, usernameProblem, windowStart } from "./social";
+import { applyFeed, avatarChoices, PEN_POINTS_PER_MESSAGE, penPack, penProblem, penUnpack, avatarSeedOf, avatarSeedProblem, BIO_MAX, cleanBio, EMPTY_FEED, LIVE_MS, looksLikePlayer, type PlayerProfile, playerHue, playerName, type PublicDrawing, remoteDrawings, socialMoney, socialSocketUrl, socialUrl, usernameProblem, visibleDrawings, windowStart } from "./social";
 
 describe("social", () => {
   test("usernames: lowercase, 3 to 24, a letter first, nothing reserved", () => {
@@ -40,6 +40,50 @@ describe("social", () => {
     for (const bad of [`${a}:1234567`, `${a}:x`, "a".repeat(33), "<svg>", "x y", "", "seed\n", "0x" + "f".repeat(64), 5, undefined]) expect(avatarSeedProblem(bad)).not.toBeNull();
     expect(avatarSeedOf({ player: a, avatarSeed: null })).toBe(a);
     expect(avatarSeedOf({ player: a, avatarSeed: `${a}:3` })).toBe(`${a}:3`);
+  });
+
+  test("one address for the service and one reading of its feed, web and phone", () => {
+    expect(socialUrl("wss://api.skech.trade/solana/ws")).toBe("https://api.skech.trade/social");
+    expect(socialUrl("ws://localhost:3104/ws")).toBe("http://localhost:3105");
+    expect(socialUrl("ws://10.0.2.2:3104/ws")).toBe("http://10.0.2.2:3105");
+    expect(socialUrl("wss://x/ws", "https://tunnel.example/")).toBe("https://tunnel.example");
+    expect(socialSocketUrl("https://api.skech.trade/social")).toBe("wss://api.skech.trade/social/ws");
+    const p = (player: string, username: string | null = null): PlayerProfile => ({ player, username, bio: "", avatar: false, avatarSeed: null, joinedAt: 0, followers: 0, following: 0 });
+    const d = (id: string, player: string, at: number): PublicDrawing => ({ id, player, profile: p(player), at, updatedAt: at, stake: "1", settledStake: "0", paid: "0", owed: "0", pnl: "0", complete: false, pieces: [], tx: "t" });
+    const now = 1_000_000;
+    let s = applyFeed(EMPTY_FEED, { type: "snapshot", drawings: [d("A:1", "A", now)], activity: [], playing: [p("A")], counting: false, progress: 1 }, now);
+    s = applyFeed({ ...s, connected: true }, { type: "drawing", drawing: d("B:1", "B", now) }, now);
+    expect(s.drawings.map((x) => x.id)).toEqual(["B:1", "A:1"]);
+    s = applyFeed(s, { type: "profile", profile: p("A", "pen") }, now);
+    expect(s.drawings.find((x) => x.player === "A")?.profile.username).toBe("pen");
+    expect(s.playing[0].username).toBe("pen");
+    // A bare profile in presence does not hide the fuller one.
+    s = applyFeed(s, { type: "presence", playing: [p("A"), p("B")] }, now);
+    expect(s.profiles.A.username).toBe("pen");
+    expect(remoteDrawings(s, "A", "everyone", new Set(), now).map((x) => x.player)).toEqual(["B"]);
+    expect(remoteDrawings(s, "A", "following", new Set(), now)).toEqual([]);
+    expect(visibleDrawings(s, "A", "me", new Set(), now).map((x) => x.player)).toEqual(["A"]);
+    // Drawings quiet for two minutes drop off when the next one comes.
+    s = applyFeed(s, { type: "drawing", drawing: d("C:1", "C", now + LIVE_MS + 1) }, now + LIVE_MS + 1);
+    expect(s.drawings.map((x) => x.id)).toEqual(["C:1"]);
+    expect(avatarChoices("A", 5, 2)).toEqual(["A", "A:5", "A:6"]);
+    expect(socialMoney("1250000")).toBe("$1.25");
+  });
+
+  test("the live pen: compact points, and messages checked before they are passed on", () => {
+    const pts = [{ t: 0, p: 0 }, { t: 16.4, p: 1.234 }, { t: 33, p: -2.5 }];
+    expect(penPack(pts)).toEqual([0, 0, 16, 123, 33, -250]);
+    expect(penUnpack(penPack(pts))).toEqual([{ t: 0, p: 0 }, { t: 16, p: 1.23 }, { t: 33, p: -2.5 }]);
+    expect(penProblem({ type: "pen", id: "a-1", seq: 0, pts: [0, 0], t0: 1, p0: 82000, rt: 120, rp: 0.8 })).toBeNull();
+    expect(penProblem({ type: "pen", id: "a-1", seq: 3, pts: [16, 5] })).toBeNull();
+    expect(penProblem({ type: "pen-end", id: "a-1" })).toBeNull();
+    expect(penProblem({ type: "pen", id: "a-1", seq: 0, pts: [0, 0] })).not.toBeNull();
+    expect(penProblem({ type: "pen", id: "<x>", seq: 1, pts: [] })).not.toBeNull();
+    expect(penProblem({ type: "pen", id: "a", seq: 1, pts: [1] })).not.toBeNull();
+    expect(penProblem({ type: "pen", id: "a", seq: 1, pts: [1.5, 2] })).not.toBeNull();
+    expect(penProblem({ type: "pen", id: "a", seq: 1, pts: Array(PEN_POINTS_PER_MESSAGE * 2 + 2).fill(0) })).not.toBeNull();
+    expect(penProblem({ type: "pen", id: "a", seq: -1, pts: [] })).not.toBeNull();
+    expect(penProblem(null)).not.toBeNull();
   });
 
   test("windows", () => {

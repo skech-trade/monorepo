@@ -13,7 +13,7 @@
  */
 import type { Server, ServerWebSocket } from "bun";
 import { decodeStroke } from "@skech/core/chain";
-import { avatarSeedProblem, cleanBio, socialWindows, STROKE_BYTES, usernameProblem, type PlayerProfile, type PublicDrawing, type SocialActivity, type SocialMessage, type SocialWindow } from "@skech/core/social";
+import { avatarSeedProblem, cleanBio, PEN_POINTS_PER_STROKE, PEN_STROKES_OPEN, type PenIn, type PenOut, penProblem, socialWindows, STROKE_BYTES, usernameProblem, type PlayerProfile, type PublicDrawing, type SocialActivity, type SocialMessage, type SocialWindow } from "@skech/core/social";
 import { Bucket, clientIp, Door, remember } from "../limits";
 import { AVATAR_BYTES, avatarHeaders, parseAvatar } from "./avatar";
 import { Challenges, isPlayer, Unauthorized } from "./auth";
@@ -43,7 +43,8 @@ const presence = new Presence();
 const strokes = new Map<string, { stroke: string; at: number }>();
 const clients = new Set<ServerWebSocket<Socket>>();
 const door = new Door(2_000, 8);
-type Socket = { ip: string; buffer: string[] | null };
+/** `player`: whose live pen this socket may send, once bound; `pens`: its strokes in the air, points sent and when. */
+type Socket = { ip: string; buffer: string[] | null; player: string | null; pens: Map<string, { n: number; at: number }>; rate: Bucket };
 
 /* ---- how much one address, and one wallet, may ask ---- */
 const byIp = new Map<string, { read: Bucket; write: Bucket }>();
@@ -188,6 +189,71 @@ function snapshotText() {
   return snapshot.text;
 }
 
+/* ---- the live pen: strokes as they are drawn, passed on to everyone else, kept nowhere ---- */
+const PEN_STALE_MS = 30_000;
+function pen(ws: ServerWebSocket<Socket>, raw: string | Buffer) {
+  if (!ws.data.rate.take()) return;
+  let m: PenOut;
+  try {
+    m = JSON.parse(typeof raw === "string" ? raw : raw.toString("utf8"));
+  } catch {
+    return;
+  }
+  if (!m || typeof m !== "object") return;
+  const d = ws.data;
+  if (m.type === "bind") {
+    let player: string | null = null;
+    // The standalone service's test players (SOCIAL_TEST_PLAYS), from this machine only: no wallet to sign with.
+    if (testPlays && m.test && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(d.ip) && isPlayer(m.test)) {
+      d.player = m.test;
+      ws.send(JSON.stringify({ type: "bound", player: m.test, ticket: "" } satisfies PenIn));
+      return;
+    }
+    try {
+      player = challenges ? (m.ticket ? challenges.ticketPlayer(m.ticket) : (() => {
+        const signed = challenges!.take(m.token, m.payload ?? null, m.signature);
+        return signed.action === "pen" ? signed.player : null;
+      })()) : null;
+    } catch (e) {
+      ws.send(JSON.stringify({ type: "unbound", error: String((e as Error).message ?? e).slice(0, 120) } satisfies PenIn));
+      return;
+    }
+    if (!player) {
+      ws.send(JSON.stringify({ type: "unbound", error: "Please sign again" } satisfies PenIn));
+      return;
+    }
+    d.player = player;
+    ws.send(JSON.stringify({ type: "bound", player, ticket: challenges!.ticket(player) } satisfies PenIn));
+    return;
+  }
+  // Watching needs nothing; drawing for everyone needs a player.
+  if (!d.player || penProblem(m)) return;
+  const now = Date.now();
+  for (const [id, s] of d.pens) if (now - s.at > PEN_STALE_MS) d.pens.delete(id);
+  const player = d.player;
+  let out: PenIn;
+  if (m.type === "pen-end") {
+    if (!d.pens.delete(m.id)) return;
+    out = { type: "pen-end", player, id: m.id };
+  } else if (m.type === "pen") {
+    let s = d.pens.get(m.id);
+    if (!s) {
+      if (m.seq !== 0) return;
+      // At most a few strokes in the air: the oldest is let go.
+      while (d.pens.size >= PEN_STROKES_OPEN) d.pens.delete(d.pens.keys().next().value!);
+      d.pens.set(m.id, (s = { n: 0, at: now }));
+      presence.placed(player, profileOf(player));
+      tellPresence();
+    }
+    s.n += m.pts.length / 2;
+    s.at = now;
+    if (s.n > PEN_POINTS_PER_STROKE) return;
+    out = m.seq === 0 ? { type: "pen", player, id: m.id, seq: 0, pts: m.pts, t0: m.t0, p0: m.p0, rt: m.rt, rp: m.rp, profile: profileOf(player) } : { type: "pen", player, id: m.id, seq: m.seq, pts: m.pts };
+  } else return;
+  const text = JSON.stringify(out);
+  for (const other of clients) if (other !== ws) send(other, text);
+}
+
 /* ---- requests ---- */
 class Refusal extends Error {
   constructor(message: string, readonly status = 400) {
@@ -295,9 +361,11 @@ async function post(req: Request, url: URL, ip: string): Promise<Response> {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new Refusal("Invalid request");
   if (url.pathname === "/challenge") {
     const { player, action, payload } = body;
-    if (!isPlayer(player) || (action !== "profile" && action !== "follow")) throw new Refusal("Invalid action");
+    if (!isPlayer(player) || (action !== "profile" && action !== "follow" && action !== "pen")) throw new Refusal("Invalid action");
     if (action === "profile") profileChange(payload);
-    else followChange(player, payload);
+    else if (action === "follow") followChange(player, payload);
+    // A live pen's binding says nothing but who: its payload is empty.
+    else if (payload !== null && (typeof payload !== "object" || Object.keys(payload as object).length)) throw new Refusal("Invalid action");
     return Response.json(c.issue(player, action, payload));
   }
   if (url.pathname === "/test/placed" && testPlays && !req.headers.get("origin") && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(ip)) {
@@ -362,7 +430,8 @@ async function post(req: Request, url: URL, ip: string): Promise<Response> {
 function serve(port: number) {
   return Bun.serve<Socket, never>({
     port,
-    hostname: "127.0.0.1",
+    // This machine only, behind Caddy; SOCIAL_HOST=0.0.0.0 to reach it from a phone on the same network.
+    hostname: process.env.SOCIAL_HOST || "127.0.0.1",
     maxRequestBodySize: BODY_BYTES,
     async fetch(req, server: Server<Socket>) {
       const origin = req.headers.get("origin");
@@ -383,7 +452,7 @@ function serve(port: number) {
       if (url.pathname === "/ws") {
         if (!store) return new Response("Starting", { status: 503, headers });
         if (!door.enter(ip)) return new Response("Too many connections", { status: 503, headers });
-        if (server.upgrade(req, { data: { ip, buffer: [] } })) return;
+        if (server.upgrade(req, { data: { ip, buffer: [], player: null, pens: new Map(), rate: new Bucket(40, 20) } })) return;
         door.leave(ip);
         return new Response("Expected a websocket", { status: 426, headers });
       }
@@ -421,8 +490,11 @@ function serve(port: number) {
         clients.delete(ws);
         door.leave(ws.data.ip);
       },
-      message() {},
-      maxPayloadLength: 1024,
+      message(ws, raw) {
+        pen(ws, raw);
+      },
+      // A pen message's points, at most 200 of them, and a binding's signature.
+      maxPayloadLength: 16 * 1024,
       idleTimeout: 120,
       sendPings: true,
     },
@@ -457,7 +529,7 @@ async function start(cfg: IndexerConfig) {
   }
   const port = Number(process.env.SOCIAL_PORT ?? 3105);
   const server = serve(port);
-  log(`listening on http://127.0.0.1:${server.port}; origins ${[...origins].join(", ")}`);
+  log(`listening on http://${server.hostname}:${server.port}; origins ${[...origins].join(", ")}`);
   const s = await connect(cfg, url);
   challenges = new Challenges(s.scope);
   store = s;

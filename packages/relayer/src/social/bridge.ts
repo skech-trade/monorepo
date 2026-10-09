@@ -9,7 +9,7 @@ import type { Placement, Settlement } from "./store";
 import type { IndexerConfig } from "./solana-indexer";
 
 /** What the worker is given of process.env. */
-const KEYS = ["SOCIAL_DATABASE_URL", "SOCIAL_ALLOWED_ORIGINS", "SOCIAL_PORT"] as const;
+const KEYS = ["SOCIAL_DATABASE_URL", "SOCIAL_ALLOWED_ORIGINS", "SOCIAL_PORT", "SOCIAL_HOST"] as const;
 
 export type BridgePlaced = { betId: string; player: string; drawing: string; openAt: bigint; staked: bigint; unit?: bigint; stroke?: string; sections: { second: number; lo: bigint; hi: bigint; stake: bigint; rung: number }[]; tx: string };
 export type BridgeSettled = { betId: string; player: string; hitMask: number; missMask: number; expiredMask?: number; paid: bigint; owed: bigint; tx: string };

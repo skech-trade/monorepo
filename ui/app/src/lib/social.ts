@@ -1,12 +1,36 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { PlayerProfile, PublicDrawing, SocialAction, SocialActivity, SocialChallenge, SocialMessage } from "@skech/core/social";
+import {
+  applyFeed,
+  type DrawingAudience,
+  EMPTY_FEED,
+  type FeedState,
+  feedProfile,
+  PEN_EXPIRE_MS,
+  type PenIn,
+  type PenOut,
+  type PenStart,
+  penPack,
+  penUnpack,
+  type PlayerProfile,
+  remoteDrawings as remoteOf,
+  type SocialAction,
+  type SocialActivity,
+  type SocialChallenge,
+  type SocialMessage,
+  socialSocketUrl,
+  type StrokeBody,
+  visibleDrawings,
+} from "@skech/core/social";
 import { jitter, SOCIAL_URL, STEADY_MS } from "./endpoints";
+
+export { socialMoney, type DrawingAudience } from "@skech/core/social";
 
 /**
  * The community, from the social service (packages/relayer/src/social): requests, signed actions, and one live
- * stream for the page, kept outside React so the canvas can read it every frame without re-rendering anything.
+ * stream for the page, kept outside React so the canvas can read it every frame without re-rendering anything. The
+ * stream is read as the phone reads it (applyFeed in @skech/core/social): one protocol for both.
  */
 
 /**
@@ -14,7 +38,8 @@ import { jitter, SOCIAL_URL, STEADY_MS } from "./endpoints";
  * stroke only if it hashes to that. Sent once the relayer has taken the piece; nothing waits on it.
  */
 export function publishStroke(betId: string, stroke: string) {
-  void fetch(`${SOCIAL_URL}/stroke`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ betId, stroke }), keepalive: true }).catch(() => undefined);
+  const body: StrokeBody = { betId, stroke };
+  void fetch(`${SOCIAL_URL}/stroke`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), keepalive: true }).catch(() => undefined);
 }
 
 export async function socialRequest<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
@@ -64,26 +89,26 @@ export async function avatarFrom(file: File): Promise<string> {
   throw new Error("This picture could not be made small enough");
 }
 
-/** `playing`: who is playing now, most recent first. */
-export type SocialState = { connected: boolean; counting: boolean; progress: number; drawings: PublicDrawing[]; activity: SocialActivity[]; playing: PlayerProfile[]; profiles: Record<string, PlayerProfile> };
-const EMPTY: SocialState = { connected: false, counting: false, progress: 0, drawings: [], activity: [], playing: [], profiles: {} };
-let current = EMPTY;
+export type SocialState = FeedState;
+let current: FeedState = EMPTY_FEED;
 const listeners = new Set<() => void>();
 const activityListeners = new Set<(activity: SocialActivity) => void>();
-/** Profiles kept for the page: the newest few hundred, and everyone drawing now. */
-function publish(next: SocialState) {
-  const keys = Object.keys(next.profiles);
-  if (keys.length > 500) {
-    const keep = new Set([...keys.slice(-400), ...next.drawings.map((d) => d.player), ...next.playing.map((p) => p.player), ...(viewer ? [viewer] : [])]);
-    next.profiles = Object.fromEntries(Object.entries(next.profiles).filter(([key]) => keep.has(key)));
-  }
+/**
+ * The canvas reads `current` straight away; React hears of it at most once a frame, however many messages came:
+ * a busy feed never re-renders the page more often than it paints.
+ */
+let told = 0;
+function publish(next: FeedState) {
   current = next;
-  for (const listener of listeners) listener();
+  if (told) return;
+  told = requestAnimationFrame(() => {
+    told = 0;
+    for (const listener of listeners) listener();
+  });
 }
 /** A profile as it now is, everywhere it shows: after "Edit profile" saves, with no reload. */
 export function cacheProfile(profile: PlayerProfile) {
-  const swap = <T extends { player: string; profile: PlayerProfile }>(x: T) => (x.player === profile.player ? { ...x, profile } : x);
-  publish({ ...current, profiles: { ...current.profiles, [profile.player]: profile }, drawings: current.drawings.map(swap), activity: current.activity.map(swap), playing: current.playing.map((p) => (p.player === profile.player ? profile : p)) });
+  publish(feedProfile(current, profile));
 }
 export const socialSnapshot = () => current;
 export const onSocialActivity = (listener: (activity: SocialActivity) => void) => {
@@ -98,51 +123,35 @@ const subscribe = (listener: () => void) => {
     listeners.delete(listener);
   };
 };
-export const useSocial = () => useSyncExternalStore(subscribe, socialSnapshot, () => EMPTY);
-
-/** Drawings on the live feed that moved in the last two minutes: no older ones are kept. */
-const LIVE_MS = 120_000;
+export const useSocial = () => useSyncExternalStore(subscribe, socialSnapshot, () => EMPTY_FEED);
+/** One thing from the feed (a count, a profile): the component renders again only when that changes. */
+export function useSocialPick<T>(pick: (s: FeedState) => T, fallback: T): T {
+  return useSyncExternalStore(subscribe, () => pick(current), () => fallback);
+}
 
 /** The page's one stream: reconnects with a growing, jittered wait, as the relayer's socket does. */
 export function connectSocial() {
   let stopped = false, socket: WebSocket | null = null, retry: ReturnType<typeof setTimeout> | null = null, backoff = 500, openedAt = 0;
   const connect = () => {
     if (stopped) return;
-    const url = new URL(`${SOCIAL_URL}/ws`);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(socialSocketUrl(SOCIAL_URL));
     socket = ws;
     ws.onopen = () => {
       openedAt = Date.now();
       publish({ ...current, connected: true });
+      if (penPlayer) bindAgain(ws);
     };
     ws.onmessage = (event) => {
-      let message: SocialMessage;
+      let message: SocialMessage | PenIn;
       try {
         message = JSON.parse(String(event.data));
       } catch {
         return;
       }
-      if (message.type === "snapshot") {
-        const profiles = { ...current.profiles };
-        for (const d of message.drawings) profiles[d.player] = d.profile;
-        for (const a of message.activity) profiles[a.player] ??= a.profile;
-        for (const p of message.playing ?? []) profiles[p.player] ??= p;
-        publish({ ...current, drawings: message.drawings.slice(0, 80), activity: message.activity.slice(0, 60), playing: message.playing ?? [], profiles, counting: message.counting, progress: message.progress });
-      } else if (message.type === "drawing") {
-        const d = message.drawing;
-        const drawings = [d, ...current.drawings.filter((x) => x.id !== d.id && x.updatedAt > Date.now() - LIVE_MS)].slice(0, 80);
-        const activity = message.activity ? [message.activity, ...current.activity.filter((x) => x.id !== message.activity!.id)].slice(0, 60) : current.activity;
-        publish({ ...current, drawings, activity, profiles: { ...current.profiles, [d.player]: d.profile } });
-        if (message.activity) for (const listener of activityListeners) listener(message.activity);
-      } else if (message.type === "profile") {
-        const p = message.profile;
-        publish({ ...current, profiles: { ...current.profiles, [p.player]: p }, drawings: current.drawings.map((d) => (d.player === p.player ? { ...d, profile: p } : d)), activity: current.activity.map((a) => (a.player === p.player ? { ...a, profile: p } : a)), playing: current.playing.map((x) => (x.player === p.player ? p : x)) });
-      } else if (message.type === "presence") {
-        const profiles = { ...current.profiles };
-        for (const p of message.playing) if (p.username || p.avatar || p.avatarSeed || !profiles[p.player]) profiles[p.player] = p;
-        publish({ ...current, playing: message.playing, profiles });
-      } else if (message.type === "status") publish({ ...current, counting: message.counting, progress: message.progress });
+      if (message.type === "pen" || message.type === "pen-end" || message.type === "bound" || message.type === "unbound") return heardPen(message);
+      publish(applyFeed(current, message));
+      if (message.type === "drawing") confirmed(message.drawing.player, message.drawing.pieces);
+      if (message.type === "drawing" && message.activity) for (const listener of activityListeners) listener(message.activity);
     };
     ws.onclose = () => {
       if (socket !== ws || stopped) return;
@@ -154,16 +163,16 @@ export function connectSocial() {
     ws.onerror = () => ws.close();
   };
   connect();
+  liveSocket = () => (socket?.readyState === WebSocket.OPEN ? socket : null);
   return () => {
     stopped = true;
+    liveSocket = () => null;
     if (retry) clearTimeout(retry);
     socket?.close();
     publish({ ...current, connected: false });
   };
 }
 
-/** Whose ink is drawn on the chart: everyone's, only those followed, or none but one's own. */
-export type DrawingAudience = "everyone" | "following" | "me";
 let audience: DrawingAudience = "everyone";
 let viewer: string | null = null;
 let following = new Set<string>();
@@ -175,15 +184,9 @@ export function setDrawingAudience(value: DrawingAudience) {
   audience = value;
 }
 /** Other players' drawings on the chart now. */
-export function remoteDrawings() {
-  if (audience === "me" || !current.connected) return [];
-  return current.drawings.filter((d) => d.player !== viewer && d.updatedAt > Date.now() - LIVE_MS && (audience === "everyone" || following.has(d.player)));
-}
+export const remoteDrawings = () => remoteOf(current, viewer, audience, following);
 /** Every drawing the chart may label, the viewer's own included. */
-export function visibleSocialDrawings() {
-  if (!current.connected) return [];
-  return current.drawings.filter((d) => d.updatedAt > Date.now() - LIVE_MS && (d.player === viewer || (audience !== "me" && (audience === "everyone" || following.has(d.player)))));
-}
+export const visibleSocialDrawings = () => visibleDrawings(current, viewer, audience, following);
 export function openPlayerProfile(player: string) {
   window.dispatchEvent(new CustomEvent("skech:profile", { detail: player }));
 }
@@ -191,10 +194,120 @@ export function openDrawing(id: string) {
   window.dispatchEvent(new CustomEvent("skech:drawing", { detail: id }));
 }
 
-/** USDC millionths as dollars, never through a float. */
-export function socialMoney(value: string, signed = false): string {
-  const amount = BigInt(value), abs = amount < 0n ? -amount : amount;
-  const rounded = (abs + 5000n) / 10_000n;
-  const dollars = rounded / 100n, cents = (rounded % 100n).toString().padStart(2, "0");
-  return `${rounded === 0n ? "" : amount < 0n ? "−" : signed ? "+" : ""}$${dollars.toLocaleString("en-US")}${cents === "00" ? "" : `.${cents}`}`;
+/* ---- the live pen: strokes as they are drawn, everyone's, display only (never money) ---- */
+
+let liveSocket: () => WebSocket | null = () => null;
+const sendOut = (m: PenOut) => liveSocket()?.send(JSON.stringify(m));
+
+/** Who this socket draws for, once their wallet has signed for it (a ticket keeps it for a day). */
+let penPlayer: string | null = null;
+let penReady = false;
+const TICKET = "skech:social:pen-ticket";
+const readTicket = (player: string) => {
+  try {
+    const t = JSON.parse(localStorage.getItem(TICKET) ?? "null") as { player: string; ticket: string } | null;
+    return t?.player === player ? t.ticket : null;
+  } catch {
+    return null;
+  }
+};
+let signer: ((message: string) => Promise<string>) | null = null;
+let testing = false;
+/**
+ * Let this player's live pen be seen: signed once (no prompt with Privy), then a ticket. Null signs out. `test`: a
+ * development test account (`?as=`), bound without a signature by a standalone service that allows it.
+ */
+export function bindPen(player: string | null, sign: ((message: string) => Promise<string>) | null, test = false) {
+  penPlayer = player;
+  signer = sign;
+  testing = test;
+  penReady = false;
+  const ws = liveSocket();
+  if (ws && player) bindAgain(ws);
+}
+function bindAgain(ws: WebSocket) {
+  const player = penPlayer;
+  if (!player) return;
+  if (testing) return ws.send(JSON.stringify({ type: "bind", test: player } satisfies PenOut));
+  const ticket = readTicket(player);
+  if (ticket) return ws.send(JSON.stringify({ type: "bind", ticket } satisfies PenOut));
+  void signed(ws, player);
+}
+async function signed(ws: WebSocket, player: string) {
+  if (!signer) return;
+  try {
+    const challenge = await socialRequest<SocialChallenge>("/challenge", { player, action: "pen", payload: {} });
+    const signature = await signer(challenge.message);
+    if (penPlayer === player && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "bind", token: challenge.token, payload: {}, signature } satisfies PenOut));
+  } catch {
+    /* Watching still works; this player's pen just is not seen live. */
+  }
+}
+
+/** Another player's stroke as it is drawn. `shown`: how many of its points are drawn yet, catching up smoothly. */
+export type LivePen = PenStart & { key: string; player: string; profile: PlayerProfile | null; pts: { t: number; p: number }[]; at: number; ended: boolean; shown: number };
+const pens = new Map<string, LivePen>();
+function heardPen(m: PenIn) {
+  if (m.type === "bound") {
+    penReady = m.player === penPlayer;
+    if (m.ticket)
+      try {
+        localStorage.setItem(TICKET, JSON.stringify({ player: m.player, ticket: m.ticket }));
+      } catch {}
+    return;
+  }
+  if (m.type === "unbound") {
+    // A ticket from before the service restarted: sign again.
+    try {
+      localStorage.removeItem(TICKET);
+    } catch {}
+    const ws = liveSocket();
+    if (ws && penPlayer) void signed(ws, penPlayer);
+    return;
+  }
+  const key = `${m.player}:${m.id}`;
+  const now = performance.now();
+  if (m.type === "pen-end") {
+    const p = pens.get(key);
+    if (p) Object.assign(p, { ended: true, at: now });
+    return;
+  }
+  let p = pens.get(key);
+  if (m.seq === 0 && m.t0 !== undefined && m.p0 !== undefined && m.rt !== undefined && m.rp !== undefined) {
+    if (pens.size >= 50) pens.delete(pens.keys().next().value!);
+    pens.set(key, (p = { key, player: m.player, profile: m.profile ?? null, t0: m.t0, p0: m.p0, rt: m.rt, rp: m.rp, pts: [], at: now, ended: false, shown: 0 }));
+  }
+  if (!p) return;
+  p.pts.push(...penUnpack(m.pts));
+  p.at = now;
+}
+/** A drawing's placed pieces came: the faint line of a pen that has lifted gives way to them. */
+function confirmed(player: string, pieces: { stroke: { t0: number } | null }[]) {
+  for (const [key, p] of pens) if (p.player === player && p.ended && pieces.some((q) => q.stroke && Math.abs(q.stroke.t0 - p.t0) <= 2)) pens.delete(key);
+}
+/** Others' strokes being drawn now, for the canvas; those quiet for PEN_EXPIRE_MS are let go. */
+export function livePens(): LivePen[] {
+  const now = performance.now();
+  for (const [key, p] of pens) if (now - p.at > PEN_EXPIRE_MS) pens.delete(key);
+  return pens.size ? [...pens.values()] : [];
+}
+
+/**
+ * This player's pen, sent as it draws: the canvas calls `penFlush` about ten times a second while the pen is down
+ * (never on a pointer move) with the stroke so far, and `penLift` when it is up. Only the new points go.
+ */
+const outgoing = { id: "", seq: 0, sent: 0 };
+export function penFlush(id: string, stroke: PenStart & { pts: readonly { t: number; p: number }[] }) {
+  if (!penReady || !liveSocket()) return;
+  if (outgoing.id !== id) Object.assign(outgoing, { id, seq: 0, sent: 0 });
+  const fresh = stroke.pts.slice(outgoing.sent, outgoing.sent + 200);
+  if (!fresh.length) return;
+  const m: PenOut = outgoing.seq === 0 ? { type: "pen", id, seq: 0, pts: penPack(fresh), t0: Math.round(stroke.t0), p0: stroke.p0, rt: stroke.rt, rp: stroke.rp } : { type: "pen", id, seq: outgoing.seq, pts: penPack(fresh) };
+  sendOut(m);
+  outgoing.seq++;
+  outgoing.sent += fresh.length;
+}
+export function penLift(id: string) {
+  if (outgoing.id === id && outgoing.seq > 0) sendOut({ type: "pen-end", id });
+  if (outgoing.id === id) outgoing.id = "";
 }

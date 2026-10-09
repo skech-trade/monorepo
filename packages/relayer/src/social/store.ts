@@ -34,15 +34,20 @@ export const MOST_FOLLOWS = 2_000;
 /** A piece's shape as the feed draws it: its stroke when the relayer saw one, else only its sections. */
 function geometry(p: Placement): DrawingPiece {
   let stroke: Stroke | null = null;
+  let from: number | undefined;
   if (p.stroke) {
     try {
       const d = decodeStroke(p.stroke as `0x${string}`);
-      if (d.rt > 0 && d.rp > 0 && d.pts.length) stroke = { t0: d.t0, p0: d.p0, rt: d.rt, rp: d.rp, pts: d.pts };
+      if (d.rt > 0 && d.rp > 0 && d.pts.length) {
+        stroke = { t0: d.t0, p0: d.p0, rt: d.rt, rp: d.rp, pts: d.pts };
+        // Which point of the drawing's stroke this piece's start at: the app joins the pieces into one line.
+        from = d.from;
+      }
     } catch {
       /* The accounting stands without a shape. */
     }
   }
-  return { betId: p.betId, stroke, sections: p.sections, openAt: Number(p.openAt), unit: p.unit.toString(), hitMask: 0, missMask: 0 };
+  return { betId: p.betId, stroke, ...(from !== undefined ? { from } : {}), sections: p.sections, openAt: Number(p.openAt), unit: p.unit.toString(), hitMask: 0, missMask: 0 };
 }
 const parseGeometry = (g: DrawingPiece | string): DrawingPiece => (typeof g === "string" ? (JSON.parse(g) as DrawingPiece) : g);
 
@@ -215,7 +220,7 @@ export class SocialStore {
     if (!Number(first.inserted)) {
       if (hash) await this.sql`UPDATE skech_social.social_pieces SET stroke_hash = ${hash} WHERE id = ${p.betId} AND stroke_hash IS NULL`;
       // A piece read from the chain first has no stroke: a later copy fills it in, once.
-      if (shape.stroke) enriched = await this.sql`UPDATE skech_social.social_pieces SET geometry = jsonb_set(geometry, '{stroke}', ${JSON.stringify(shape.stroke)}::text::jsonb) WHERE id = ${p.betId} AND geometry -> 'stroke' = 'null'::jsonb AND (stroke_hash IS NULL OR stroke_hash = ${hash}) RETURNING id`;
+      if (shape.stroke) enriched = await this.sql`UPDATE skech_social.social_pieces SET geometry = geometry || ${JSON.stringify({ stroke: shape.stroke, from: shape.from ?? 0 })}::text::jsonb WHERE id = ${p.betId} AND geometry -> 'stroke' = 'null'::jsonb AND (stroke_hash IS NULL OR stroke_hash = ${hash}) RETURNING id`;
     }
     // A settlement can be read before its placement: count it now.
     if (first.settled) await this.recalculate(p.betId);
@@ -237,7 +242,7 @@ export class SocialStore {
       const g = parseGeometry(row.geometry);
       const shape = geometry({ betId, player: "", drawing: "", openAt: BigInt(g.openAt), staked: 0n, unit: BigInt(g.unit), stroke, sections: g.sections, tx: "" });
       if (!shape.stroke) return { result: "mismatch" as const, drawing: null };
-      const done = await this.sql`UPDATE skech_social.social_pieces SET geometry = jsonb_set(geometry, '{stroke}', ${JSON.stringify(shape.stroke)}::text::jsonb) WHERE id = ${betId} AND geometry -> 'stroke' = 'null'::jsonb RETURNING id`;
+      const done = await this.sql`UPDATE skech_social.social_pieces SET geometry = geometry || ${JSON.stringify({ stroke: shape.stroke, from: shape.from ?? 0 })}::text::jsonb WHERE id = ${betId} AND geometry -> 'stroke' = 'null'::jsonb RETURNING id`;
       if (!done.length) return { result: "had" as const, drawing: null };
       return { result: "kept" as const, drawing: await this.drawing(row.drawing as string) };
     });

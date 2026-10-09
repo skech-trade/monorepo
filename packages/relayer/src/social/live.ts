@@ -20,10 +20,10 @@ type Held = { drawing: PublicDrawing; pieces: string[] };
 export const strokeHash = (stroke: string) => createHash("sha256").update(Buffer.from(stroke.replace(/^0x/, ""), "hex")).digest("hex");
 
 /** A stroke as the feed draws it, or null for bytes that are not one. */
-export function strokeShape(stroke: string): DrawingPiece["stroke"] {
+export function strokeShape(stroke: string): { stroke: NonNullable<DrawingPiece["stroke"]>; from: number } | null {
   try {
     const d = decodeStroke(stroke as `0x${string}`);
-    return d.rt > 0 && d.rp > 0 && d.pts.length ? { t0: d.t0, p0: d.p0, rt: d.rt, rp: d.rp, pts: d.pts } : null;
+    return d.rt > 0 && d.rp > 0 && d.pts.length ? { stroke: { t0: d.t0, p0: d.p0, rt: d.rt, rp: d.rp, pts: d.pts }, from: d.from } : null;
   } catch {
     return null;
   }
@@ -44,7 +44,8 @@ export class LiveBook {
     const given = p.stroke ? strokeHash(p.stroke) : null;
     const hash = p.strokeHash?.toLowerCase() ?? given;
     const id = `${p.player}:${p.drawing}`;
-    const piece: DrawingPiece = { betId: p.betId, stroke: given && given === hash ? strokeShape(p.stroke!) : null, sections: p.sections, openAt: Number(p.openAt), unit: p.unit.toString(), hitMask: 0, missMask: 0, expiredMask: 0 };
+    const shape = given && given === hash ? strokeShape(p.stroke!) : null;
+    const piece: DrawingPiece = { betId: p.betId, stroke: shape?.stroke ?? null, ...(shape ? { from: shape.from } : {}), sections: p.sections, openAt: Number(p.openAt), unit: p.unit.toString(), hitMask: 0, missMask: 0, expiredMask: 0 };
     let held = this.drawings.get(id);
     if (!held) {
       held = { drawing: { id, player: p.player, profile, at: Number(p.openAt), updatedAt: Number(p.openAt), stake: "0", settledStake: "0", paid: "0", owed: "0", pnl: "0", complete: false, pieces: [], tx: p.tx }, pieces: [] };
@@ -83,7 +84,7 @@ export class LiveBook {
     if (k.strokeHash ? k.strokeHash !== strokeHash(stroke) : !trusted) return null;
     const shape = strokeShape(stroke);
     if (!shape) return null;
-    k.piece = { ...k.piece, stroke: shape };
+    k.piece = { ...k.piece, stroke: shape.stroke, from: shape.from };
     const held = this.drawings.get(k.drawing);
     return held ? this.total(held, held.drawing.updatedAt) : null;
   }

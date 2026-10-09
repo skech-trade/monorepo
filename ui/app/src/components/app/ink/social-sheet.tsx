@@ -463,7 +463,7 @@ function EditProfile({ profile, onCancel, onSaved }: { profile: PlayerProfile; o
   const [image, setImage] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const choices = useMemo(() => [profile.player, ...avatarChoices(profile.player, page * 8 + 1, 8)], [profile.player, page]);
+  const choices = useMemo(() => avatarChoices(profile.player, page * 8 + 1), [profile.player, page]);
   const picture = image === undefined ? profile.avatar : image !== null;
   const chooseAvatar = async (file?: File) => {
     if (!file) return;

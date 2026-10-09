@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { looksLikePlayer, playerName, type PlayerProfile } from "@skech/core/social";
 import { useAccount } from "@/components/app/auth";
 import { toastManager } from "@/components/ui/toast";
-import { cacheProfile, connectSocial, onSocialActivity, setDrawingAudience, setSocialViewer, socialRequest, type DrawingAudience } from "@/lib/social";
+import { bindPen, cacheProfile, connectSocial, onSocialActivity, setDrawingAudience, setSocialViewer, socialRequest, type DrawingAudience } from "@/lib/social";
 
 /**
  * The community around the game: one live stream for the page, who the player follows, and the sheet with the
@@ -31,6 +31,10 @@ export function SocialProvider({ children }: { children: ReactNode }) {
   const [version, refresh] = useState(0);
   const open = useCallback((tab: SocialTab = "leaderboard", target?: string) => setPanel({ tab, player: target }), []);
   useEffect(() => connectSocial(), []);
+  // Others see this player's pen as it draws, once their wallet has said so (silently, with Privy).
+  const sign = me.signMessage;
+  const test = me.handle === "Test player" && process.env.NODE_ENV !== "production";
+  useEffect(() => bindPen(player, player ? sign : null, test), [player, sign, test]);
   useEffect(() => {
     if (!player) {
       setSocialViewer(null, []);

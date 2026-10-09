@@ -67,6 +67,21 @@ describe("signed challenges", () => {
     expect(c.remembered).toBe(0);
   });
 
+  test("a live pen's ticket binds again for a day, and is no challenge", () => {
+    let now = 1_000_000;
+    const c = new Challenges("s", undefined, () => now);
+    const w = wallet();
+    const ticket = c.ticket(w.player);
+    expect(c.ticketPlayer(ticket)).toBe(w.player);
+    expect(c.ticketPlayer(new Challenges("s").ticket(w.player))).toBeNull();
+    expect(c.ticketPlayer(`${ticket}x`)).toBeNull();
+    // Sealed with the same key, a ticket still cannot pass for a signed challenge, nor a challenge for a ticket.
+    expect(() => c.take(ticket, {}, w.sign("x"))).toThrow(Unauthorized);
+    expect(c.ticketPlayer(c.issue(w.player, "pen", {}).token)).toBeNull();
+    now += 86_400_001;
+    expect(c.ticketPlayer(ticket)).toBeNull();
+  });
+
   test("players are Solana addresses", () => {
     expect(isPlayer(wallet().player)).toBe(true);
     expect(isPlayer("0x0000000000000000000000000000000000000000")).toBe(false);

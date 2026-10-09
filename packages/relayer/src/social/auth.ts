@@ -57,7 +57,10 @@ export class Challenges {
     if (!body || !mac || extra !== undefined) throw new Unauthorized("Please sign again");
     const want = this.seal(body), got = Buffer.from(mac, "base64url");
     if (got.length !== want.length || !timingSafeEqual(got, want)) throw new Unauthorized("Please sign again");
-    const [player, action, hash, nonce, expires] = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as [string, SocialAction, string, string, number];
+    const sealed = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as unknown[];
+    // A ticket is sealed with the same key: its shape is not a challenge's.
+    if (!Array.isArray(sealed) || sealed.length !== 5 || typeof sealed[4] !== "number") throw new Unauthorized("Please sign again");
+    const [player, action, hash, nonce, expires] = sealed as [string, SocialAction, string, string, number];
     if (expires <= this.now()) throw new Unauthorized("That signature has expired: please sign again");
     if (payloadHash(payload) !== hash) throw new Unauthorized("Please sign again");
     if (!/^[A-Za-z0-9+/]{86}==$/.test(signature)) throw new Unauthorized("Please sign again");
@@ -76,6 +79,25 @@ export class Challenges {
     if (this.used.size >= MOST_USED) throw new Error("Try again in a moment");
     this.used.set(nonce, expires);
     return { player, action };
+  }
+
+  /**
+   * A day's pass for a socket to send a player's live pen, given once its wallet signed a "pen" challenge: binding
+   * again with it needs no signature. Good only with this process's key.
+   */
+  ticket(player: string, ms = 86_400_000): string {
+    const body = b64url(Buffer.from(JSON.stringify(["pen", player, this.now() + ms])));
+    return `${body}.${b64url(this.seal(body))}`;
+  }
+  /** The player a ticket is for, or null. */
+  ticketPlayer(ticket: unknown): string | null {
+    if (typeof ticket !== "string" || ticket.length > 300) return null;
+    const [body, mac, extra] = ticket.split(".");
+    if (!body || !mac || extra !== undefined) return null;
+    const want = this.seal(body), got = Buffer.from(mac, "base64url");
+    if (got.length !== want.length || !timingSafeEqual(got, want)) return null;
+    const [kind, player, expires] = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as [string, string, number];
+    return kind === "pen" && expires > this.now() && isPlayer(player) ? player : null;
   }
 
   /** Forget nonces past their expiry: they could not be taken again anyway. */

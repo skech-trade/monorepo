@@ -1,6 +1,6 @@
 import { Avatar, Style } from "@dicebear/core";
 import dylan from "@dicebear/styles/dylan.json" with { type: "json" };
-import { avatarSeedOf, type PlayerProfile } from "@skech/core/social";
+import { avatarSeedOf, type PlayerProfile, uploadedAvatarUrl } from "@skech/core/social";
 import { SOCIAL_URL } from "./endpoints";
 
 /**
@@ -9,11 +9,7 @@ import { SOCIAL_URL } from "./endpoints";
  *
  * Avatars: "Dylan" by Natalia Spivak, CC BY 4.0 (AVATAR_CREDIT).
  */
-export const AVATAR_CREDIT = {
-  text: "Avatars: “Dylan” by Natalia Spivak, CC BY 4.0",
-  source: "https://www.figma.com/community/file/1356575240759683500",
-  licence: "https://creativecommons.org/licenses/by/4.0/",
-};
+export { AVATAR_CREDIT, avatarChoices } from "@skech/core/social";
 
 let style: Style<unknown> | null = null;
 const made = new Map<string, string>();
@@ -30,7 +26,4 @@ export function dylanUri(seed: string): string {
 }
 
 /** A player's face: their uploaded picture, else their Dylan avatar. */
-export const faceOf = (profile: Pick<PlayerProfile, "player" | "avatar" | "avatarSeed">) => (profile.avatar ? `${SOCIAL_URL}/avatar?player=${encodeURIComponent(profile.player)}` : dylanUri(avatarSeedOf(profile)));
-
-/** The Dylan avatars offered when choosing: `<address>:<n>`, a page of them from `from`. */
-export const avatarChoices = (player: string, from: number, count = 9) => Array.from({ length: count }, (_, i) => `${player}:${from + i}`);
+export const faceOf = (profile: Pick<PlayerProfile, "player" | "avatar" | "avatarSeed">) => (profile.avatar ? uploadedAvatarUrl(SOCIAL_URL, profile.player) : dylanUri(avatarSeedOf(profile)));
