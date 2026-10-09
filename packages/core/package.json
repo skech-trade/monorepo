@@ -8,8 +8,7 @@
     "./ink": "./src/ink.ts",
     "./odds": "./src/odds.ts",
     "./chain": "./src/chain.ts",
-    "./bars": "./src/bars.ts",
-    "./network": "./src/network.ts"
+    "./bars": "./src/bars.ts"
   },
   "scripts": {
     "test": "bun test"
