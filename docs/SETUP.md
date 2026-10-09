@@ -158,14 +158,42 @@ and the embedded Solana wallet are Privy's, the same Privy app as the web. Googl
 3. To play: sign in, copy the Solana address from Deposit, get devnet USDC at faucet.circle.com (Solana Devnet)
    and send it there. It is swept into the balance by itself.
 
-Not yet done: a sign-in, a deposit and a piece on a real phone; a Solana wallet through the Mobile Wallet
-Adapter on a device; a build to hand to testers (part 7).
+Done on a Galaxy A07: Privy sign-in, a deposit, pieces placed and settled, a Solana wallet (Phantom, Solflare)
+through the Mobile Wallet Adapter.
+
+### Releasing: store builds and over-the-air updates
+
+`android/` and `ios/` are generated (`npx expo prebuild`) and not in git. Everything native lives in `app.json`
+and `plugins/`: the release signing (`with-release-signing`, reading `~/.config/skech/android-signing.properties`,
+which is the Play upload key: back up `~/.config/skech/`), Gradle's memory (`with-gradle-memory`), and the
+permissions (only camera, vibrate, internet, notifications; microphone, overlay, storage and background audio
+are blocked).
+
+Two kinds of release:
+- **Over the air (most releases).** Changes to the app's own code and images: `npx eas-cli update --channel
+  production --message "…"` from `packages/solana-mobile`. Installed apps download it in the background and run
+  it on their next launch. `EXPO_PUBLIC_*` values are baked into the update, so switching the relayer or the
+  Solana cluster (e.g. to mainnet) ships this way too.
+- **Through the store.** Anything native: a new package with native code, a new permission, the icon, the
+  Expo SDK. Raise `android.versionCode` in `app.json`, `npx expo prebuild --platform android`, then
+  `./gradlew bundleRelease` in `android/` (JDK 17) and upload `app/build/outputs/bundle/release/app-release.aab`
+  in Play Console.
+
+`runtimeVersion` is the native fingerprint, so an update only reaches builds whose native code it matches: an
+update that needs a new native build simply waits for it, rather than crashing an old one. `eas-cli fingerprint:compare`
+tells which kind a change is.
+
+Once: `npx eas-cli login`, then `npx eas-cli init` and `npx eas-cli update:configure` in `packages/solana-mobile`,
+which write the project id and the updates URL into `app.json`. Play's own app-signing SHA-256 (Play Console → App
+integrity) goes into skech.trade's `assetlinks.json` next to the upload key's, or wallets stop trusting the
+store's copy.
 
 ## 7. Before mainnet
 
-- **A build to hand out.** There is no `eas.json` and Android signs with the debug key, so the app runs only as a
-  development build tied to a laptop. Add EAS Build (or a release keystore and an iOS distribution
-  certificate), with `EXPO_PUBLIC_*` set per build, for TestFlight and Play internal testing.
+- **iOS builds.** Android ships through Play (part 6); iOS still needs an Apple distribution certificate and
+  TestFlight.
+- **Real-money gambling on Play.** Closed, open and production tracks need Google's real-money gambling
+  approval (licences per country, age and region gating). Internal testing does not.
 
 - **Split the keys.** One key is today the contracts' admin, upgrader, pauser, treasurer, oracle and relayer,
   and it sits on the box: whoever takes the box can upgrade the contracts. Give admin and upgrade to a wallet
