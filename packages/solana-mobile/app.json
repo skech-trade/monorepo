@@ -102,6 +102,13 @@
       "fallbackToCacheTimeout": 0,
       "requestHeaders": {
         "expo-channel-name": "production"
+      },
+      "url": "https://u.expo.dev/f7f49019-e32e-4d54-bbd0-aa676d7f5d5e"
+    },
+    "owner": "swayams-team",
+    "extra": {
+      "eas": {
+        "projectId": "f7f49019-e32e-4d54-bbd0-aa676d7f5d5e"
       }
     }
   }

@@ -172,20 +172,24 @@ are blocked).
 
 Two kinds of release:
 - **Over the air (most releases).** Changes to the app's own code and images: `npx eas-cli update --channel
-  production --message "…"` from `packages/solana-mobile`. Installed apps download it in the background and run
-  it on their next launch. `EXPO_PUBLIC_*` values are baked into the update, so switching the relayer or the
-  Solana cluster (e.g. to mainnet) ships this way too.
+  production --environment production --platform android --message "…"` from `packages/solana-mobile`. Installed
+  apps download it in the background and run it on their next launch. The `EXPO_PUBLIC_*` settings baked into an
+  update come from **EAS's own environment variables** (`npx eas-cli env:list production`), not the local `.env`:
+  an update without them ships with sign-in switched off. Switching the relayer or the Solana cluster (e.g. to
+  mainnet) is `eas env:update`, then an update. The app logs `[updates] …` at startup: the build's own code, or
+  which update it runs.
 - **Through the store.** Anything native: a new package with native code, a new permission, the icon, the
   Expo SDK. Raise `android.versionCode` in `app.json`, `npx expo prebuild --platform android`, then
-  `./gradlew bundleRelease` in `android/` (JDK 17) and upload `app/build/outputs/bundle/release/app-release.aab`
-  in Play Console.
+  `./gradlew clean bundleRelease` in `android/` (JDK 17) and upload `app/build/outputs/bundle/release/app-release.aab`
+  in Play Console. Build clean: Gradle otherwise reuses the last build's fingerprint, and updates then never reach
+  the build (`unzip -p <apk> assets/fingerprint` should equal `npx expo-updates fingerprint:generate --platform android`).
 
 `runtimeVersion` is the native fingerprint, so an update only reaches builds whose native code it matches: an
 update that needs a new native build simply waits for it, rather than crashing an old one. `eas-cli fingerprint:compare`
 tells which kind a change is.
 
-Once: `npx eas-cli login`, then `npx eas-cli init` and `npx eas-cli update:configure` in `packages/solana-mobile`,
-which write the project id and the updates URL into `app.json`. Play's own app-signing SHA-256 (Play Console → App
+The Expo project is `@swayams-team/skech` (its id and the updates URL are in `app.json`); `npx eas-cli login` once on
+a new machine. Don't run `eas update:configure` again: it rewrites `app.json`, duplicating every list in it. Play's own app-signing SHA-256 (Play Console → App
 integrity) goes into skech.trade's `assetlinks.json` next to the upload key's, or wallets stop trusting the
 store's copy.
 
