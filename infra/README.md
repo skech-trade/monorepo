@@ -5,7 +5,8 @@ The apps stay on Vercel and the stores, and reach it over `wss://`.
 
 ```
 app ──wss://<domain>/engine/ws───> Caddy :443 ──> engine  127.0.0.1:3102
-    └─wss://<domain>/solana/ws───>            └─> relayer 127.0.0.1:3104 ──> Solana
+    ├─wss://<domain>/solana/ws───>            ├─> relayer 127.0.0.1:3104 ──> Solana
+    └─https://<domain>/social/*──>            └─> its social service 127.0.0.1:3105 ──> Postgres (Supabase)
 ```
 
 | File | |
@@ -41,12 +42,14 @@ included).
 `setup.sh` serves the box's IP as an sslip.io name (`1.2.3.4` → `1-2-3-4.sslip.io`, which resolves back
 to it), so no DNS is needed. `SKECH_DOMAIN=api.example.com infra/setup.sh` serves a real name instead,
 once its A record points at the box. Either way ports 80 and 443 have to be open for the certificate;
-3102 and 3104 never are. The engine and the relayer listen on 127.0.0.1 only, and the security group keeps
+3102, 3104 and 3105 never are. The engine and the relayer listen on 127.0.0.1 only, and the security group keeps
 them off the internet besides.
 
 `--env` writes `/etc/skech/env` (root only, 600) from `.env.local`, keeping only what the servers read:
 the `ENGINE_*` settings and key, `RELAYER_ENGINE_SIGNER`, `RELAYER_SENTRY_DSN`, `SKECH_SOLANA_CLUSTER`, the
-relayer's Solana key (`SOLANA_RELAYER_SECRET_KEY`) and the `SOLANA_*` RPCs and fees. Nothing else in
+relayer's Solana key (`SOLANA_RELAYER_SECRET_KEY`), the `SOLANA_*` RPCs and fees, the gas keeper's `KEEPER_*`,
+and the social service's `SOCIAL_DATABASE_URL`, `SOCIAL_ALLOWED_ORIGINS`, `SOCIAL_PORT`, `SOCIAL_RPC_RPS` and
+`SOCIAL_BACKFILL_DAYS`. Nothing else in
 `.env.local` leaves this machine. Every deploy splits it in two: `/etc/skech/engine.env` (the `ENGINE_*`
 keys, readable by the engine only) and `/etc/skech/relayer.env` (the rest, readable by the relayer only).
 A deploy stops before touching anything when the box has no `SOLANA_RELAYER_SECRET_KEY` or
@@ -92,9 +95,29 @@ The web app finds them through `NEXT_PUBLIC_ENGINE_URL=wss://<domain>/engine/ws`
 `EXPO_PUBLIC_*` equivalents. The web app's origin also goes in the Privy app's allowed origins
 (`docs/PRIVY-SETUP.md`).
 
-## State, and why there is no database
+## The social service, and its database
 
-Nothing reads a database. The `DATABASE_URL` some `.env.local` files still carry was for the Lighter services, removed on 2026-09-26.
+Profiles, follows, the leaderboard and the live feed of drawings are the relayer's social service
+(`packages/relayer/src/social`): a worker inside the relayer's process, on `127.0.0.1:3105` (`SOCIAL_PORT`),
+behind Caddy's `/social/*`. It keeps them in Postgres, at `SOCIAL_DATABASE_URL` (a Supabase session pooler, with
+`sslmode=require`: `docs/SETUP.md`), in a schema of its own, `skech_social`, made at start and closed to
+Supabase's browser roles. One database is one deployment of the game: it refuses another's.
+
+- Without `SOCIAL_DATABASE_URL` there is no worker; with a database that is down it answers 503 and tries again.
+  The game never waits for it either way: the relayer only posts it messages.
+- `SOCIAL_ALLOWED_ORIGINS` is the app's origins (production and previews, comma-separated). A page from any
+  other is refused; a request with no Origin may read, and changes only what a wallet's signature says.
+- It reads the game's history from the chain itself, by the pool's address: a `logsSubscribe` for what happens
+  now, a look every minute for what it missed, and the history back `SOCIAL_BACKFILL_DAYS` (30), a transaction
+  at a time. That is in a budget of its own, `SOCIAL_RPC_RPS` (2), on the relayer's RPC: keep `SOLANA_RPC_RPS`
+  plus it under the RPC plan's limit.
+- The chain keeps only a stroke's hash: a drawing's shape is what the relayer tells the service as it places it.
+  Restoring a lost database from the chain recovers every number, not the shapes: back it up (Supabase does).
+
+The `DATABASE_URL` some `.env.local` files still carry was for the Lighter services, removed on 2026-09-26; it is
+not read.
+
+## State
 
 | State | Where | If it is lost |
 |---|---|---|
@@ -103,6 +126,7 @@ Nothing reads a database. The `DATABASE_URL` some `.env.local` files still carry
 | the gas keeper's last swap and the day's USDC swapped | `/var/lib/skech-relayer/.relayer-state.keeper.solana-<cluster>.json` | the day's cap and the hour between swaps start over; backed up with the above |
 | sign-in, wallet | Coinbase CDP | Coinbase keeps it |
 | session key | the player's browser, IndexedDB | the player signs in again |
+| profiles, avatars, follows, drawings and their results | Postgres, `skech_social` (`SOCIAL_DATABASE_URL`) | the numbers are read again from the chain; profiles, follows and drawings' shapes are not: the database's backups |
 | settings, practice money, scoreboard | the player's browser, local and session storage | per device on purpose |
 | waitlist emails | a Google Sheet, via `WAITLIST_SHEET_URL` in `ui/landing` | kept in the Sheet |
 
