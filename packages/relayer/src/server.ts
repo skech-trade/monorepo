@@ -13,6 +13,7 @@ import type { Engine } from "./engine";
 import type { PieceMsg, Placed, Refused, Sequencer } from "./sequencer";
 import type { Settled, Settler } from "./settler";
 import type { Activity } from "./activity";
+import type { SocialBridge } from "./social/bridge";
 
 type Data = { id: number; player?: Address };
 type Deps = { cfg: Config; engine: Engine; chain: ChainClient; log: (s: string) => void; status: () => Record<string, unknown> };
@@ -30,6 +31,7 @@ export class Server {
   sequencer: Sequencer | null = null;
   settler: Settler | null = null;
   activity: Activity | null = null;
+  social: SocialBridge | null = null;
 
   constructor(private readonly d: Deps) {}
 
@@ -99,11 +101,12 @@ export class Server {
   /* ---- what the sequencer and settler tell players ---- */
 
   readonly notify = {
-    placed: (p: Placed) => this.toPlayer(p.player, { type: "placed", ...p }),
+    placed: (p: Placed) => { this.toPlayer(p.player, { type: "placed", ...p }); this.social?.placed(p); },
     refused: (r: Refused) => this.toPlayer(r.player, { type: "refused", ...r }),
     settled: (s: Settled) => {
       this.sequencer?.credit(s.player, s.paid);
       this.toPlayer(s.player, { type: "settled", ...s });
+      this.social?.settled(s);
     },
     owed: (to: Address, value: bigint) => this.toPlayer(to, { type: "owed", value }),
     account: (player: Address) => void this.sendAccount(player),

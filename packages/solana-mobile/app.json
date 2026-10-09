@@ -4,12 +4,12 @@
     "slug": "skech",
     "scheme": "skech",
     "version": "0.1.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
     "ios": {
       "bundleIdentifier": "trade.skech.app",
-      "supportsTablet": false,
+      "supportsTablet": true,
       "infoPlist": { "NSCameraUsageDescription": "To scan an address to withdraw to." }
     },
     "android": {
@@ -25,6 +25,14 @@
       "expo-asset",
       "expo-font",
       "expo-audio",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose a photo for your skech profile.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
       ["expo-camera", { "cameraPermission": "To scan an address to withdraw to.", "recordAudioAndroid": false }]
     ],
     "experiments": { "typedRoutes": false }

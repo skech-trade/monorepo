@@ -7,6 +7,8 @@ import { roundedTerms as areaTerms } from "@skech/core/odds";
 import type { Tick } from "@/lib/engine";
 import { tracePricePath } from "./price-path";
 import { feel, pen as penSound } from "@/lib/feel";
+import { avatarUrl, openPlayerProfile, remoteDrawings, socialMoney, visibleSocialDrawings } from "@/lib/social";
+import { playerHue, playerName, type DrawingPiece } from "@skech/core/social";
 
 /**
  * The stage: the price so far on the left, now in the middle, and the space
@@ -328,11 +330,17 @@ export function Stage({
       const r = el.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
+    let playerTargets: { x: number; y: number; player: string }[] = [];
     const down = (e: PointerEvent) => {
       const g = game.current;
       if (e.button !== 0 || pen || !g || !price(g) || !g.field) return;
       const q = point(e);
       if (q.y < plotTop() || q.y > plotBottom()) return;
+      // Avatars become interactive behind the wait line. Ahead of it, every gesture is drawing.
+      if (q.x < waitX()) {
+        const player = playerTargets.find(target => Math.hypot(q.x - target.x, q.y - target.y) < 22);
+        if (player) { openPlayerProfile(player.player); return; }
+      }
       // Not from the grey zone before the wait line: ink there cannot be bet yet. Said, felt, not silently ignored.
       if (q.x < waitX()) {
         feel("nope");
@@ -498,6 +506,20 @@ export function Stage({
     // Clip the original round nib once against their union: independently
     // rounding each second would put visible seams back into the stroke.
     const bandCache = new WeakMap<Cell[], { pad: number; bands: Cell[] }>();
+    const remotePaths = new WeakMap<DrawingPiece, Path2D>();
+    const avatarImages = new Map<string, { image: HTMLImageElement; at: number }>();
+    let crowdAt = 0;
+    const tileCrowds = new Map<string, { players: Set<string>; stake: bigint }>();
+    const remotePath = (piece: DrawingPiece) => {
+      let path = remotePaths.get(piece);
+      if (path || !piece.stroke?.pts.length) return path;
+      const stroke = piece.stroke;
+      path = new Path2D();
+      stroke.pts.forEach((point, i) => { if (!i) path!.moveTo(point.t / stroke.rt, point.p / stroke.rp); else path!.lineTo(point.t / stroke.rt, point.p / stroke.rp); });
+      if (stroke.pts.length === 1) path.lineTo(stroke.pts[0].t / stroke.rt + .001, stroke.pts[0].p / stroke.rp);
+      remotePaths.set(piece, path);
+      return path;
+    };
     const inkInPlay = (st: Stroke, cells: Cell[], style: string, edgeCells = 0, step = game.current.step) => {
       if (!cells.length) return;
       const pad = edgeCells * step * INK_CELL;
@@ -580,8 +602,52 @@ export function Stage({
         if (map.field !== fl || map.pen !== gPen() || map.width !== w || map.height !== h || map.step !== g.step) paintMap(fl);
       }
       const nx = nowX();
+      if (ms - crowdAt > 500 && map.tiles.length) {
+        crowdAt = ms;
+        tileCrowds.clear();
+        const first = map.tiles[0];
+        const rowP = map.rowPx * g.step / pitchY;
+        for (const drawing of visibleSocialDrawings().slice(0, 40)) {
+          if (drawing.complete) continue;
+          for (const piece of drawing.pieces) piece.sections.forEach((section, index) => {
+            if (((piece.hitMask | piece.missMask) & (1 << index)) !== 0) return;
+            const sx = x(piece.openAt + section.second * 1000 + 500);
+            const col = Math.floor((sx - nx - first.left) / (first.width + 4));
+            if (col < 0) return;
+            const row = Math.floor((Number(section.lo) + Number(section.hi)) / 2e8 / rowP);
+            const id = `${col}:${row}`;
+            let crowd = tileCrowds.get(id);
+            if (!crowd) tileCrowds.set(id, crowd = { players: new Set(), stake: 0n });
+            crowd.players.add(drawing.player); crowd.stake += BigInt(section.stake);
+          });
+        }
+      }
 
       onLayer(inkLayer, inkCtx);
+      // A bounded social layer, behind the player's own ink. Geometry is cached between events.
+      const people = remoteDrawings().slice(0, phone() ? 12 : w < 1024 ? 18 : 24);
+      for (const drawing of people) {
+        const age = Math.max(0, Date.now() - drawing.updatedAt);
+        if (drawing.complete && age > 15_000) continue;
+        const alpha = drawing.complete ? .18 * Math.max(0, 1 - age / 15_000) : .26;
+        const color = `hsla(${playerHue(drawing.player)}, 55%, ${dark ? 70 : 42}%, ${alpha})`;
+        for (const piece of drawing.pieces) {
+          const st = piece.stroke, path = remotePath(piece);
+          if (!st || !path || !st.rt || !st.rp) continue;
+          c.save();
+          c.beginPath();
+          for (const section of piece.sections) {
+            const from = x(piece.openAt + section.second * 1000), to = x(piece.openAt + (section.second + 1) * 1000);
+            const pad = Number(piece.unit) / 1e8;
+            const top = y(Number(section.hi) / 1e8 + pad), bottom = y(Number(section.lo) / 1e8 - pad);
+            c.rect(from, top, to - from, bottom - top);
+          }
+          c.clip();
+          c.setTransform(dpr * st.rt * pxMs(), 0, 0, dpr * -st.rp * pitchY / g.step, dpr * x(st.t0), dpr * y(st.p0));
+          c.lineWidth = 2; c.lineCap = "round"; c.lineJoin = "round"; c.strokeStyle = color; c.stroke(path);
+          c.restore();
+        }
+      }
       /*
         The ink first, so it can be softened and rubbed out before anything
         else is drawn. Ink is solid while it is in play; ink that is not
@@ -757,13 +823,22 @@ export function Stage({
             c.font = `${m >= 8 ? 600 : 500} ${size}px ${SANS}`;
             c.globalAlpha = tile.opacity * alpha;
             c.fillStyle = rgba(mix(pal!.faint, pal!.ink, height(m)));
-            c.fillText(text, b.x0 + b.w / 2, b.y0 + b.h / 2 + 0.5);
+            c.fillText(text, b.x0 + b.w / 2, b.y0 + b.h / 2 + (tileCrowds.has(tile.id) && !phone() ? -5 : .5));
           };
           // A changed number goes out, then the new one comes in: never both at once, which read as a smudge.
           if (tile.was !== tile.text && eased < 1) {
             if (eased < 0.5) write(tile.was, 1 - eased * 2);
             else write(tile.text, eased * 2 - 1);
           } else write(tile.text, 1);
+          const crowd = tileCrowds.get(tile.id);
+          if (crowd && phone()) {
+            c.font = `500 8px ${SANS}`; c.fillStyle = rgba(pal.fg, .5); c.globalAlpha = tile.opacity; c.textAlign = "right";
+            c.fillText(`${crowd.players.size}`, b.x0 + b.w - 3, b.y0 + 7); c.textAlign = "center";
+          }
+          if (crowd && !phone() && b.w > 60) {
+            c.font = `500 10px ${SANS}`; c.fillStyle = rgba(pal.fg, .55); c.globalAlpha = tile.opacity;
+            c.fillText(`${crowd.players.size} · ${socialMoney(crowd.stake.toString())}`, b.x0 + b.w / 2, b.y0 + b.h / 2 + 11);
+          }
         }
         c.globalAlpha = 1;
         c.restore();
@@ -878,6 +953,46 @@ export function Stage({
       c.drawImage(inkLayer, 0, 0);
       c.drawImage(labelLayer, 0, 0);
       c.restore();
+      // Small owner chips and final results: no DOM or React updates on the animation path.
+      playerTargets = [];
+      const occupied: { x: number; y: number }[] = [];
+      const labelLimit = phone() ? 4 : w < 1024 ? 6 : 8;
+      for (const drawing of visibleSocialDrawings().slice(0, phone() ? 12 : w < 1024 ? 18 : 24)) {
+        if (occupied.length >= labelLimit) break;
+        const piece = drawing.pieces.find(piece => piece.stroke?.pts.length);
+        if (!piece?.stroke) continue;
+        const age = Math.max(0, Date.now() - drawing.updatedAt);
+        if (drawing.complete && age > 15_000) continue;
+        const first = piece.stroke.pts[0];
+        const ax = x(piece.stroke.t0 + first.t), ay = y(piece.stroke.p0 + first.p) - 24;
+        if (ax < 24 || ax > w - 24 || ay < plotTop() + 24 || ay > plotBottom() - 20 || occupied.some(p => Math.abs(p.x - ax) < 100 && Math.abs(p.y - ay) < 42)) continue;
+        occupied.push({ x: ax, y: ay });
+        c.save();
+        c.globalAlpha = drawing.complete ? Math.max(0, 1 - age / 15_000) : .9;
+        c.beginPath(); c.arc(ax, ay, 14, 0, Math.PI * 2); c.fillStyle = `hsl(${playerHue(drawing.player)}, 45%, ${dark ? 55 : 45}%)`; c.fill();
+        const src = avatarUrl(drawing.profile);
+        if (src) {
+          let cached = avatarImages.get(drawing.player);
+          if (!cached || Date.now() - cached.at > 60_000) {
+            if (avatarImages.size > 100) avatarImages.clear();
+            const image = new Image(); image.crossOrigin = "anonymous"; image.src = src;
+            avatarImages.set(drawing.player, cached = { image, at: Date.now() });
+          }
+          if (cached.image.complete && cached.image.naturalWidth) { c.save(); c.clip(); c.drawImage(cached.image, ax - 14, ay - 14, 28, 28); c.restore(); }
+        }
+        c.fillStyle = "white"; c.textAlign = "center"; c.font = `600 12px ${SANS}`;
+        if (!src) c.fillText(playerName(drawing.profile).slice(0, 1).toUpperCase(), ax, ay + 4);
+        c.strokeStyle = rgba(pal.bg); c.lineWidth = 2; c.stroke();
+        const text = drawing.complete ? socialMoney(drawing.pnl, true) : socialMoney(drawing.stake);
+        c.font = `600 12px ${SANS}`;
+        const wide = c.measureText(text).width + 16;
+        const right = Math.min(w - wide - 8, ax + 19);
+        roundRect(c, right, ay - 12, wide, 24, 12); c.fillStyle = rgba(pal.bg, .94); c.fill();
+        c.fillStyle = drawing.complete && BigInt(drawing.pnl) > 0n ? rgba(pal.up) : rgba(pal.fg, .8);
+        c.textAlign = "left"; c.fillText(text, right + 8, ay + 4);
+        c.restore();
+        if (ax < waitX() - 18) playerTargets.push({ x: ax, y: ay, player: drawing.player });
+      }
       // The pen: a soft ring around the nib, and the nib.
       if (tip) {
         c.beginPath();

@@ -16,5 +16,11 @@
 	handle_path /solana/* {
 		reverse_proxy 127.0.0.1:3104
 	}
+	handle_path /social/* {
+		reverse_proxy 127.0.0.1:3105
+	}
+	handle_path /social-solana/* {
+		reverse_proxy 127.0.0.1:3106
+	}
 	respond 404
 }

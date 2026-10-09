@@ -1,30 +1,33 @@
-import { useLocalSearchParams } from "expo-router";
-import { Text, View } from "react-native";
-import { type Account, AccountContext } from "@/components/app/auth";
-import { type Chain, ChainContext, useChain } from "@/components/app/ink/chain-context";
-import { DepositSheet } from "@/components/app/sheets/deposit-sheet";
-import { ScoreboardSheet } from "@/components/app/sheets/scoreboard-sheet";
-import { TransactionsSheet } from "@/components/app/sheets/transactions-sheet";
-import { WithdrawSheet } from "@/components/app/sheets/withdraw-sheet";
+import { useLocalSearchParams } from 'expo-router'
+import { Text, View } from 'react-native'
+import { type Account, AccountContext } from '@/components/app/auth'
+import { type Chain, ChainContext, useChain } from '@/components/app/ink/chain-context'
+import { DepositSheet } from '@/components/app/sheets/deposit-sheet'
+import { ScoreboardSheet } from '@/components/app/sheets/scoreboard-sheet'
+import { TransactionsSheet } from '@/components/app/sheets/transactions-sheet'
+import { WithdrawSheet } from '@/components/app/sheets/withdraw-sheet'
 
 /**
  * Development only: the signed-in sheets with a stand-in account, to compare against the web's, screen by screen.
  * skech://preview?sheet=deposit|withdraw|transactions|scoreboard. Renders nothing in a release build.
  */
-const ADDRESS = "6d5aJ8Q3wVbTzq2sR4n7hKc9Xy1LmPe8fGu3Wd710b";
+const ADDRESS = '6d5aJ8Q3wVbTzq2sR4n7hKc9Xy1LmPe8fGu3Wd710b'
 
 export default function Preview() {
-  const { sheet } = useLocalSearchParams<{ sheet?: string }>();
-  const chain = useChain();
-  if (!__DEV__) return null;
+  const { sheet } = useLocalSearchParams<{ sheet?: string }>()
+  const chain = useChain()
+  if (!__DEV__) return null
   const me: Account = {
     ready: true,
     signedIn: true,
-    kind: "coinbase",
+    kind: 'coinbase',
     address: ADDRESS,
-    handle: "swayam@ns.com",
-    email: "swayam@ns.com",
+    handle: 'swayam@ns.com',
+    email: 'swayam@ns.com',
     signOut: () => undefined,
+    signMessage: async () => {
+      throw new Error('Preview cannot sign')
+    },
     signTransaction: async (t) => t,
     sendCode: async () => null,
     sendSms: async () => null,
@@ -32,7 +35,7 @@ export default function Preview() {
     oauth: async () => null,
     connectWallet: async () => null,
     canConnectWallet: false,
-  };
+  }
   const fake: Chain = {
     ...chain,
     real: true,
@@ -44,41 +47,49 @@ export default function Preview() {
     approved: 1_000_000,
     adding: null,
     landed: null,
-    account: { player: ADDRESS, balance: "20000000", session: { key: ADDRESS, validUntil: "1790604800", allowance: "100000000000" }, owed: "0", wallet: { usdc: "0", approved: "1000000000000" } },
+    account: {
+      player: ADDRESS,
+      balance: '20000000',
+      session: { key: ADDRESS, validUntil: '1790604800', allowance: '100000000000' },
+      owed: '0',
+      wallet: { usdc: '0', approved: '1000000000000' },
+    },
     hello: chain.hello ?? {
-      type: "hello",
-      chain: "solana",
-      cluster: "devnet",
-      label: "Solana devnet",
-      program: "2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV",
-      game: "EQmnM7EP6ewPvjq81cCKmcKKzXFi5WGuciHfDtTCpyxF",
-      usdc: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
-      lookupTable: "",
-      domain: "",
-      oracle: "",
-      relayer: "",
+      type: 'hello',
+      chain: 'solana',
+      cluster: 'devnet',
+      label: 'Solana devnet',
+      program: '2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV',
+      game: 'EQmnM7EP6ewPvjq81cCKmcKKzXFi5WGuciHfDtTCpyxF',
+      usdc: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+      lookupTable: '',
+      domain: '',
+      oracle: '',
+      relayer: '',
       engineSigner: null,
-      market: { id: 0, name: "BTC-USD" },
+      market: { id: 0, name: 'BTC-USD' },
       difficulty: 40,
       lateMs: 200,
       units: null,
       terms: null,
-      faucet: "https://faucet.circle.com/",
+      faucet: 'https://faucet.circle.com/',
       activity: true,
     },
-  };
-  const close = () => undefined;
+  }
+  const close = () => undefined
   return (
     <AccountContext.Provider value={me}>
-      <ChainContext.Provider value={{ ...fake, hello: { ...fake.hello!, label: "Solana devnet", faucet: "https://faucet.circle.com/" } }}>
+      <ChainContext.Provider
+        value={{ ...fake, hello: { ...fake.hello!, label: 'Solana devnet', faucet: 'https://faucet.circle.com/' } }}
+      >
         <View className="flex-1 items-center justify-center bg-background">
           <Text className="text-muted-foreground">Preview: {sheet}</Text>
         </View>
-        <DepositSheet onClose={close} open={sheet === "deposit"} />
-        <WithdrawSheet onClose={close} open={sheet === "withdraw"} />
-        <TransactionsSheet onClose={close} open={sheet === "transactions"} />
-        <ScoreboardSheet onClose={close} open={sheet === "scoreboard"} />
+        <DepositSheet onClose={close} open={sheet === 'deposit'} />
+        <WithdrawSheet onClose={close} open={sheet === 'withdraw'} />
+        <TransactionsSheet onClose={close} open={sheet === 'transactions'} />
+        <ScoreboardSheet onClose={close} open={sheet === 'scoreboard'} />
       </ChainContext.Provider>
     </AccountContext.Provider>
-  );
+  )
 }

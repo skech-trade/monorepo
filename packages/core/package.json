@@ -9,7 +9,8 @@
     "./odds": "./src/odds.ts",
     "./chain": "./src/chain.ts",
     "./bars": "./src/bars.ts",
-    "./network": "./src/network.ts"
+    "./network": "./src/network.ts",
+    "./social": "./src/social.ts"
   },
   "scripts": {
     "test": "bun test"

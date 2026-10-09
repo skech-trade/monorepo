@@ -35,7 +35,7 @@ export type PieceWire = {
 };
 export type PieceMsg = { type: "piece"; piece: PieceWire; sessionSig: Hex; priceSig: Hex; stroke: Hex };
 
-export type Placed = { betId: Hex; player: Address; openAt: bigint; staked: bigint; fee: bigint; refunded: bigint; sections: { second: number; lo: bigint; hi: bigint; stake: bigint; rung: number }[]; tx: Hex };
+export type Placed = { betId: Hex; player: Address; openAt: bigint; staked: bigint; fee: bigint; refunded: bigint; sections: { second: number; lo: bigint; hi: bigint; stake: bigint; rung: number }[]; tx: Hex; drawing?: string; unit?: bigint; stroke?: Hex };
 export type Refused = { betId: Hex; player: Address; why: string; tx?: Hex };
 export type Notify = { placed: (p: Placed) => void; refused: (r: Refused) => void };
 
@@ -304,7 +304,8 @@ export class Sequencer {
               this.stats.placed++;
               this.debit(a.player, a.staked);
               for (const s of sections) this.settler.watch(a.betId, a.player, a.unit, { second: Number(openAt) + s.second * 1000, lo: s.lo, hi: s.hi, stake: s.stake, rung: s.rung });
-              this.notify.placed({ betId: a.betId, player: a.player, openAt, staked: a.staked, fee: a.fee, refunded: a.refunded, sections, tx: receipt.transactionHash });
+              const source = entries.find(e => e.betId === a.betId);
+              this.notify.placed({ betId: a.betId, player: a.player, openAt, staked: a.staked, fee: a.fee, refunded: a.refunded, sections, tx: receipt.transactionHash, drawing: source?.piece.drawing.toString(), unit: a.unit, stroke: source?.stroke });
             } else if (ev.name === "Refused") {
               const a = ev.args as { betId: Hex; player: Address; why: number };
               answered.add(a.betId);

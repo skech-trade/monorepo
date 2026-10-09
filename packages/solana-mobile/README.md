@@ -76,3 +76,20 @@ To learn more about developing your project with Expo, look at the following res
 - [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
 - [Uniwind documentation](https://uniwind.dev/): Learn how to style your app with Tailwind CSS.
 - [Solana documentation](https://solana.com/docs): Learn how to build on Solana.
+
+## Community and tablet layouts
+
+The Trophy button opens profiles, live drawings and leaderboards. This app uses the
+Solana social service (`EXPO_PUBLIC_SOCIAL_URL`), sharing API types with the web app.
+Profile edits and follows require a wallet signature through Coinbase or Mobile Wallet
+Adapter. The stream pauses in the background and reconnects with a fresh snapshot.
+
+Native sheets are capped at 600 points on tablets. The app supports iPad and both
+orientations; drawing geometry updates with the viewport. The community lists are
+virtualized and chart overlays use bounded cached Skia paths.
+
+The photo picker adds a native module. Rebuild the development client or release binary
+before using profile photo uploads (`npm run ios` / `npm run android`). Expo Go does not
+support the app's other required native wallet and graphics modules. See
+[infra/README.md](../../infra/README.md) for the shared Supabase/Postgres setup. Never
+put `SOCIAL_DATABASE_URL` into the Expo environment.

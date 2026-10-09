@@ -1,6 +1,6 @@
 "use client";
 
-import { ActivityIcon, ArrowUpRightIcon, LogOutIcon, SquarePlusIcon, UserIcon } from "lucide-react";
+import { ActivityIcon, ArrowUpRightIcon, LogOutIcon, SquarePlusIcon, TrophyIcon, UserIcon } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -16,6 +16,10 @@ import { CopyAddress } from "./copy";
 import { Wordmark } from "./logo";
 import { SignInButton } from "./sign-in";
 import { ThemeToggle } from "./theme-toggle";
+import { useCommunity } from "./ink/social-provider";
+import { useSocial, avatarUrl } from "@/lib/social";
+import { playerName } from "@skech/core/social";
+import { AvatarImage } from "@/components/ui/avatar";
 
 /**
  * The bar over the game: the wordmark, light or dark, the page's own button
@@ -27,6 +31,9 @@ import { ThemeToggle } from "./theme-toggle";
  */
 export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; showTheme?: boolean } = {}) {
   const me = useAccount();
+  const community = useCommunity();
+  const social = useSocial();
+  const profile = me.address ? social.profiles[me.address.toLowerCase()] : null;
   const chain = useChain();
   const gate = useGate();
   // On a phone's browser, not once installed: the way to the Home Screen steps, whether or not the bar is up.
@@ -37,21 +44,22 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   // Signed out only once Coinbase has read the saved session: before that, no Sign in to tap by mistake.
   const anonymous = hasAuth && me.ready && !me.signedIn;
   // An email or a phone number names the account; without one it is simply the wallet, and the address says which.
-  const name = me.handle && !me.handle.startsWith("0x") ? me.handle : "Your wallet";
+  const name = profile?.username ? playerName(profile) : "Your wallet";
   return (
-    <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4 pt-3 pb-2 sm:gap-3">
+    <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background px-3 pt-3 sm:px-4 pb-2 sm:gap-3">
       <Link aria-label="skech home" className="shrink-0 transition-opacity hover:opacity-70" href="/">
         <Wordmark />
       </Link>
-      <div className="ml-auto flex shrink-0 items-center gap-2">
-        {showTheme ? <ThemeToggle className="size-11 rounded-full border-0 bg-secondary sm:size-11 [&_svg]:size-5" /> : null}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+        {community ? <Button aria-label="Profiles and leaderboard" className="size-11 rounded-full border-0 bg-secondary p-0 sm:size-11 [&_svg]:size-5" size="icon" variant="secondary" onClick={() => community.open()}><TrophyIcon /></Button> : null}
+        {showTheme ? <ThemeToggle className={`${community ? "hidden sm:inline-flex " : ""}size-11 rounded-full border-0 bg-secondary sm:size-11 [&_svg]:size-5`} /> : null}
         {lead}
-        {anonymous ? <SignInButton /> : null}
+        {anonymous ? <span className={community && lead ? "hidden sm:contents" : "contents"}><SignInButton /></span> : null}
         {hasAuth && !me.ready ? <span aria-hidden="true" className="size-11 shrink-0 animate-pulse rounded-full bg-secondary" /> : null}
         {hasAuth && me.signedIn ? (
           <Menu>
             <MenuTrigger render={<Button aria-label="Your account" className="size-11 rounded-full border-0 bg-secondary p-0 sm:size-11" size="icon" variant="outline" />}>
-              {me.address ? (
+              {profile?.avatar ? <Avatar className="size-7"><AvatarImage src={avatarUrl(profile)} alt="Your avatar" /></Avatar> : me.address ? (
                 <span aria-hidden="true" className="size-7 rounded-full ring-1 ring-foreground/10" style={{ background: swatch(me.address) }} />
               ) : (
                 <Avatar className="size-9 bg-transparent">
@@ -70,6 +78,7 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
                 </div>
               </div>
               <MenuSeparator className="mx-1" />
+              {community ? <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={() => community.open("profile", me.address ?? undefined)}><UserIcon />Your profile</MenuItem> : null}
               {/* Money out lives with the account: the balance it comes from, and the way to send it. */}
               {chain.real ? (
                 <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" disabled={chain.balance <= 0} onClick={gate.openWithdraw}>

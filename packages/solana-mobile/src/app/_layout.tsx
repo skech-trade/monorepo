@@ -1,15 +1,16 @@
-import "../global.css";
+import '../global.css'
 
-import { Stack } from "expo-router";
-import { StatusBar } from "expo-status-bar";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AuthProvider } from "@/components/app/auth";
-import { GateProvider } from "@/components/app/gate";
-import { ChainProvider } from "@/components/app/ink/chain-context";
-import { initTheme } from "@/lib/theme";
+import { Stack } from 'expo-router'
+import { StatusBar } from 'expo-status-bar'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { SocialProvider } from '@/components/app/social-provider'
+import { AuthProvider } from '@/components/app/auth'
+import { GateProvider } from '@/components/app/gate'
+import { ChainProvider } from '@/components/app/ink/chain-context'
+import { initTheme } from '@/lib/theme'
 
-initTheme();
+initTheme()
 
 export default function Layout() {
   return (
@@ -18,12 +19,14 @@ export default function Layout() {
         <AuthProvider>
           <ChainProvider>
             <GateProvider>
-              <StatusBar style="auto" />
-              <Stack screenOptions={{ headerShown: false }} />
+              <SocialProvider>
+                <StatusBar style="auto" />
+                <Stack screenOptions={{ headerShown: false }} />
+              </SocialProvider>
             </GateProvider>
           </ChainProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
-  );
+  )
 }

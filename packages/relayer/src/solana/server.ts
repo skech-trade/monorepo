@@ -17,6 +17,7 @@ import type { Engine } from "../engine";
 import type { SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { Placed, Refused, SolanaPieceMsg, SolanaSequencer } from "./sequencer";
+import type { SocialBridge } from "../social/bridge";
 import type { Settled, SolanaSettler } from "./settler";
 
 type Data = { id: number; player?: Address };
@@ -114,10 +115,12 @@ export class SolanaServer {
     };
   }
 
+  social: SocialBridge | null = null;
   readonly notify = {
-    placed: (p: Placed) => this.toPlayer(p.player, { type: "placed", ...p }),
+    placed: (p: Placed) => { this.toPlayer(p.player, { type: "placed", ...p }); if (p.unit) this.social?.placed({ ...p, unit: p.unit }); },
     refused: (r: Refused) => this.toPlayer(r.player, { type: "refused", ...r }),
     settled: (s: Settled) => {
+      this.social?.settled(s);
       this.sequencer?.credit(s.player, s.paid);
       this.toPlayer(s.player, { type: "settled", ...s });
     },

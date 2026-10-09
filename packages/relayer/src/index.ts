@@ -21,6 +21,7 @@ import { Sequencer } from "./sequencer";
 import { Server } from "./server";
 import { Settler } from "./settler";
 import { redact } from "./rpc";
+import { SocialBridge } from "./social/bridge";
 
 const log = (s: string) => {
   console.error(`${new Date().toISOString().slice(11, 23)} ${s}`);
@@ -78,6 +79,7 @@ settler.profitFeeBps = BigInt(gameConfig.profitFeeBps);
 server.sequencer = sequencer;
 server.settler = settler;
 server.activity = activity;
+server.social = new SocialBridge(cfg, log);
 
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
 // The difficulty and the terms live on chain: follow them.

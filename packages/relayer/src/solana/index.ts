@@ -8,6 +8,7 @@
  *   ws://localhost:3104/ws   the mobile app connects here (EXPO_PUBLIC_RELAYER_URL)
  *   GET /health, GET /status
  */
+import { SocialBridge } from "../social/bridge";
 import { report, trail } from "../sentry";
 import { join } from "node:path";
 import { domainFor } from "@skech/contracts/solana/sdk";
@@ -43,6 +44,7 @@ scfg.lateMs = game.config.lateMs;
 const engine = new Engine(scfg.engineUrl, log);
 engine.start();
 
+const social = process.env.SOCIAL_DATABASE_URL ? SocialBridge.solana(scfg, log) : null;
 let sequencer: SolanaSequencer;
 let settler: SolanaSettler;
 const server: SolanaServer = new SolanaServer(scfg, engine, chain, domain, log, (): Record<string, unknown> => ({
@@ -54,6 +56,7 @@ const server: SolanaServer = new SolanaServer(scfg, engine, chain, domain, log, 
   pieces: sequencer.stats,
   settling: { ...settler.stats, seconds: settler.watchers() },
 }));
+server.social = social;
 settler = new SolanaSettler(scfg, engine, chain, server.notify, log, join(import.meta.dir, "..", "..", `.relayer-state.solana-${scfg.net.cluster}.${scfg.deployment.game}.json`));
 sequencer = new SolanaSequencer(scfg, engine, pricer, chain, settler, server.notify, log, domain);
 const setTerms = (g: typeof game, d: number) => {

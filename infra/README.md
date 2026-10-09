@@ -40,7 +40,7 @@ once its A record points at the box. Either way ports 80 and 443 have to be open
 
 `--env` writes `/etc/skech/env` (root:skech, 640) from `.env.local`, keeping only what the servers read:
 `SKECH_NETWORK`, `ENGINE_PRIVATE_KEY`, `ENGINE_BAND_BPS`, `ENGINE_SENTRY_DSN`, `RELAYER_PRIVATE_KEY`, `RELAYER_SHADOW_EVERY`
-and the `MONAD_*_RPC_URL`s. Nothing else in `.env.local` leaves this machine.
+the `MONAD_*_RPC_URL`s, Solana server settings, and `SOCIAL_DATABASE_URL`, `SOCIAL_ALLOWED_ORIGINS`, `SOCIAL_PORT`, `SOCIAL_SOLANA_PORT`. Nothing else in `.env.local` leaves this machine.
 
 The engine compiles on the box, which is slow the first time (several minutes, in swap) and quick after:
 `target/` stays between deploys. So do `node_modules` and the relayer's state file.
@@ -53,9 +53,38 @@ The app finds them through `NEXT_PUBLIC_ENGINE_URL=wss://<domain>/engine/ws` and
 `NEXT_PUBLIC_RELAYER_URL=wss://<domain>/relayer/ws`, set in its Vercel project. The app's origin also
 goes in the CDP project (`docs/CDP-SETUP.md`).
 
-## State, and why there is no database
+## Community database
 
-Nothing reads a database. The `DATABASE_URL` some `.env.local` files still carry was for the Lighter services, removed on 2026-09-26.
+Profiles, follows, drawing history and leaderboard accounting use Postgres. Supabase's
+[session pooler](https://supabase.com/docs/guides/database/connecting-to-postgres) on port 5432
+works with the server's IPv4 connection. Set `SOCIAL_DATABASE_URL` in root `.env.local` to
+that connection string with `sslmode=require`; the old `DATABASE_URL` is not read.
+Set `SOCIAL_ALLOWED_ORIGINS` to the app's actual production and preview origins.
+
+Each relayer starts an isolated social worker. Monad binds to loopback port 3105 and uses
+schema `skech_social`; Solana binds to 3106 and uses `skech_social_solana`. Both can use one
+Supabase project. Caddy exposes `/social/*` and `/social-solana/*`. The private schemas
+are created at startup and revoked from public, anonymous and authenticated browser roles.
+Use a server database role that can create these schemas. Keep the connection secret on the box.
+
+Run `infra/setup.sh` for the new proxy paths, then `infra/deploy.sh --env`. Configure
+`NEXT_PUBLIC_SOCIAL_URL=https://<domain>/social` on Vercel and
+`EXPO_PUBLIC_SOCIAL_URL=https://<domain>/social-solana` in the native build.
+No paid service is required by the code; choose the provider plan appropriate for usage.
+
+The indexers recover receipts after downtime without counting duplicate placements or
+settlements twice. Solana keeps only a stroke hash on chain: recovered accounting remains
+available, but stroke previews are available only when the relayer originally saved the
+stroke bytes to Postgres. Keep database backups for profiles, follows and Solana geometry.
+A schema is bound to one network and deployed game and refuses a changed deployment;
+use a separate database for another environment. A database outage does not stop the game.
+
+Lifetime earned IOUs are counted once as earnings at settlement. Historical paid/IOU
+breakdowns describe that settlement; they are not the wallet's current redeemable balance.
+Relayer transaction confirmations are recorded promptly; the indexers do not implement
+reorg rollback. Provider RPC history retention determines how far receipt recovery can reach.
+
+## State
 
 | State | Where | If it is lost |
 |---|---|---|
@@ -63,7 +92,8 @@ Nothing reads a database. The `DATABASE_URL` some `.env.local` files still carry
 | bets placed but not yet settled | `/opt/skech/packages/relayer/.relayer-state.<chain>.<game>.json` | survives restarts and deploys, not losing the box: copy it off daily |
 | sign-in, wallet | Coinbase CDP | Coinbase keeps it |
 | session key | the player's browser, IndexedDB | the player signs in again |
-| settings, practice money, scoreboard | the player's browser, local and session storage | per device on purpose |
+| profiles, follows, drawings, persistent earnings | Postgres private social schemas | receipts recover accounting; restore backups for profiles and stroke geometry |
+| settings, practice money, session scoreboard | the player's browser, local and session storage | per device on purpose |
 | waitlist emails | a Google Sheet, via `WAITLIST_SHEET_URL` in `ui/landing` | kept in the Sheet |
 
 ## On the box
