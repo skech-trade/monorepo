@@ -431,7 +431,7 @@ function Landed({ amount, balance, onStart }: { amount: number; balance: number;
 
   return (
     <View className="items-center gap-4 pt-2">
-      {/* The landing page's closing scene: the pen drawing a line up to a winning candle. Sparkles pop around it. */}
+      {/* The landing page's closing scene: the pen drawing a line up to a rising candle. Sparkles pop around it. */}
       <View className="pt-2" style={{ width: sceneW, height: sceneH + 8 }}>
         <Animated.View
           style={{

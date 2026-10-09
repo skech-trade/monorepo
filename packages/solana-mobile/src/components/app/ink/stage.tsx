@@ -691,7 +691,7 @@ export const Stage = memo(function Stage({
             text(c, e.text, cx, cy + 0.5, f, color([255, 255, 255], alpha));
           }
         } else if (e.kind === "miss") {
-          // A miss: a red ring shrinking away where the price passed, and what it cost floating up, smaller than a win.
+          // A miss: a red ring shrinking away where the price passed, and what it cost floating up, smaller than a hit's.
           c.drawCircle(ex, ey, (still.current ? 14 : 22 - age * 10) , paintOf(color(pal.down, 0.45 * (1 - age)), 1.5));
           if (e.text) {
             const alpha = Math.max(0, Math.min(1, 1.5 - age * 1.5));

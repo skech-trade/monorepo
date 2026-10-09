@@ -4,7 +4,7 @@ import Animated, { Easing, interpolate, useAnimatedStyle, useReducedMotion, useS
 
 /*
   The web's motion (drawing-feedback.module.css), on the UI thread: the round card springs in, pills arrive, the
-  market row and the dock settle in, a big win lights the edges. Each plays once as it mounts, so a new key plays
+  market row and the dock settle in, a strong round lights the edges. Each plays once as it mounts, so a new key plays
   it again. With the phone's Reduce Motion on, each is simply there, as the web's `prefers-reduced-motion` has it.
 */
 
@@ -17,9 +17,9 @@ const REST = { opacity: 1, y: 0, scale: 1 };
 
 /** The web's keyframes, from where each starts to rest: `ms`, `curve`, and on the way a `via`, `at` of the way. */
 export const MOTION = {
-  /** A win's card. */
+  /** A profit's card. */
   cardIn: { from: { opacity: 0, y: 14, scale: 0.9 }, ms: 420, curve: [0.2, 1.5, 0.4, 1] },
-  /** A big win's card, harder. */
+  /** A strong round's card, harder. */
   cardBig: { from: { opacity: 0, y: 24, scale: 0.7 }, via: { at: 0.6, opacity: 1, y: -4, scale: 1.06 }, ms: 620, curve: [0.2, 1.6, 0.35, 1] },
   /** A loss, quietly. */
   cardSoft: { from: { opacity: 0, y: 6 }, ms: 240, curve: [0, 0, 0.58, 1] },
@@ -71,7 +71,7 @@ export function Breathe({ children }: { children: ReactNode }) {
   return <Animated.View style={style}>{children}</Animated.View>;
 }
 
-/** A win's balance: a small bounce up while it is green, and back. Transformed from its right edge, where it is pinned. */
+/** The balance as money comes back: a small bounce up while it is green, and back. Transformed from its right edge, where it is pinned. */
 export function Bump({ on, children }: { on: boolean; children: ReactNode }) {
   const still = useReducedMotion();
   const scale = useSharedValue(1);
@@ -82,7 +82,7 @@ export function Bump({ on, children }: { on: boolean; children: ReactNode }) {
   return <Animated.View style={[{ transformOrigin: "right center" }, style]}>{children}</Animated.View>;
 }
 
-/** A big win lights the edges of the screen, once: up to its brightest a quarter of the way through, then gone. */
+/** A strong round lights the edges of the screen, once: up to its brightest a quarter of the way through, then gone. */
 export function Glow({ color, ms = 1300 }: { color: string; ms?: number }) {
   const still = useReducedMotion();
   const k = useSharedValue(0);

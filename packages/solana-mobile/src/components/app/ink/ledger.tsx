@@ -5,8 +5,8 @@ import { cents, money } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /*
-  What just moved the balance, under it: a stake as a light minus, a win as a green plus, money back as a
-  light plus. The newest sits right under the balance; older ones step down, lighter and smaller, and fade.
+  What just moved the balance, under it: money put in as a light minus, a return as a green plus, money back as
+  a light plus. The newest sits right under the balance; older ones step down, lighter and smaller, and fade.
 
   Pieces of one stroke go in every 150 ms, so changes of the same kind that land close together merge into
   one line that keeps counting, rather than a waterfall of dimes.
@@ -37,7 +37,7 @@ function prune() {
   if (rows.length) setTimeout(prune, 250);
 }
 
-/** Record a move of the balance. Negative is a stake. Zero is ignored. */
+/** Record a move of the balance. Negative is money put in. Zero is ignored. */
 export function addChange(amount: number, kind: Change["kind"]) {
   if (!amount || !Number.isFinite(amount)) return;
   const now = performance.now();
