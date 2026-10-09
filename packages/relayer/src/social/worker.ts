@@ -44,7 +44,7 @@ const strokes = new Map<string, { stroke: string; at: number }>();
 const clients = new Set<ServerWebSocket<Socket>>();
 const door = new Door(2_000, 8);
 /** `player`: whose live pen this socket may send, once bound; `pens`: its strokes in the air, points sent and when. */
-type Socket = { ip: string; buffer: string[] | null; player: string | null; pens: Map<string, { n: number; at: number }>; rate: Bucket };
+type Socket = { ip: string; local: boolean; buffer: string[] | null; player: string | null; pens: Map<string, { n: number; at: number }>; rate: Bucket };
 
 /* ---- how much one address, and one wallet, may ask ---- */
 const byIp = new Map<string, { read: Bucket; write: Bucket }>();
@@ -204,7 +204,7 @@ function pen(ws: ServerWebSocket<Socket>, raw: string | Buffer) {
   if (m.type === "bind") {
     let player: string | null = null;
     // The standalone service's test players (SOCIAL_TEST_PLAYS), from this machine only: no wallet to sign with.
-    if (testPlays && m.test && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(d.ip) && isPlayer(m.test)) {
+    if (testPlays && m.test && d.local && isPlayer(m.test)) {
       d.player = m.test;
       ws.send(JSON.stringify({ type: "bound", player: m.test, ticket: "" } satisfies PenIn));
       return;
@@ -347,7 +347,7 @@ async function get(url: URL): Promise<Response> {
   return Response.json({ error: "Not found" }, { status: 404 });
 }
 
-async function post(req: Request, url: URL, ip: string): Promise<Response> {
+async function post(req: Request, url: URL, ip: string, local: boolean): Promise<Response> {
   const s = store!, c = challenges!;
   if (Number(req.headers.get("content-length") ?? 0) > BODY_BYTES) throw new Refusal("Request too large", 413);
   const raw = await req.text();
@@ -368,7 +368,7 @@ async function post(req: Request, url: URL, ip: string): Promise<Response> {
     else if (payload !== null && (typeof payload !== "object" || Object.keys(payload as object).length)) throw new Refusal("Invalid action");
     return Response.json(c.issue(player, action, payload));
   }
-  if (url.pathname === "/test/placed" && testPlays && !req.headers.get("origin") && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(ip)) {
+  if (url.pathname === "/test/placed" && testPlays && !req.headers.get("origin") && local) {
     // A play made up for testing (standalone, SOCIAL_TEST_PLAYS=1): told as a placement read from the chain would
     // be, in memory only. Its stroke then comes over /stroke like any other, checked against strokeHash.
     const b = body as { player?: unknown; drawing?: unknown; betId?: unknown; openAt?: unknown; strokeHash?: unknown; unit?: unknown; sections?: unknown };
@@ -444,7 +444,10 @@ function serve(port: number) {
       headers.set("access-control-allow-headers", "Content-Type");
       headers.set("access-control-max-age", "600");
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
-      const ip = clientIp(req, server.requestIP(req)?.address);
+      const peer = server.requestIP(req)?.address;
+      const ip = clientIp(req, peer);
+      // This machine itself, not something a proxy or tunnel on it passed on (they say whom for).
+      const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(peer ?? "") && !req.headers.has("x-forwarded-for") && !req.headers.has("cf-connecting-ip") && !req.headers.has("forwarded");
       const write = req.method === "POST";
       const url = new URL(req.url);
       if (!(write && url.pathname === "/stroke" ? allowedStroke(ip) : allowed(ip, write))) return Response.json({ error: "Please slow down" }, { status: 429, headers });
@@ -452,13 +455,13 @@ function serve(port: number) {
       if (url.pathname === "/ws") {
         if (!store) return new Response("Starting", { status: 503, headers });
         if (!door.enter(ip)) return new Response("Too many connections", { status: 503, headers });
-        if (server.upgrade(req, { data: { ip, buffer: [], player: null, pens: new Map(), rate: new Bucket(40, 20) } })) return;
+        if (server.upgrade(req, { data: { ip, local, buffer: [], player: null, pens: new Map(), rate: new Bucket(40, 20) } })) return;
         door.leave(ip);
         return new Response("Expected a websocket", { status: 426, headers });
       }
       if (!store) return Response.json({ error: "Community features are starting" }, { status: 503, headers });
       try {
-        const response = req.method === "GET" ? await get(url) : write ? await post(req, url, ip) : Response.json({ error: "Method not allowed" }, { status: 405 });
+        const response = req.method === "GET" ? await get(url) : write ? await post(req, url, ip, local) : Response.json({ error: "Method not allowed" }, { status: 405 });
         for (const [k, v] of headers) if (!(k === "cache-control" && response.headers.has("cache-control"))) response.headers.set(k, v);
         return response;
       } catch (e) {
