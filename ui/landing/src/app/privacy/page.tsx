@@ -71,7 +71,7 @@ const SECTIONS: LegalSection[] = [
           </li>
         </List>
         <P>
-          All of this is recorded on a public blockchain: Monad for the web app, Solana for the Android app. Anyone can
+          All of this is recorded on a public blockchain, Solana. Anyone can
           read it, and it stays there for good. We cannot change it or delete it.
         </P>
         <P>

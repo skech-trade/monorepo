@@ -12,10 +12,10 @@ export const CONTACT_EMAIL = "team@skech.trade";
 export const EFFECTIVE_DATE = "October 2026";
 
 /**
- * The game's fees, as set on chain today. The stake fee is the admin's to set, per chain: 2% on Monad testnet since
- * 2026-09-29, 4% on the Solana devnet game. Check both against the deployed config whenever they change.
+ * The game's fees, as set on chain today. The stake fee is the admin's to set (4% on the Solana devnet game), so
+ * check it against the deployed config whenever it changes.
  */
-export const STAKE_FEE = "2% on Monad and 4% on Solana";
+export const STAKE_FEE = "4%";
 export const PROFIT_FEE = "10%";
 
 /** What an IOU grows by, at SkechIOU's current rate. */

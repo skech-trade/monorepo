@@ -92,8 +92,7 @@ const SECTIONS: LegalSection[] = [
     body: (
       <List>
         <li>skech uses USDC, a dollar stablecoin.</li>
-        <li>The web app runs on Monad testnet.</li>
-        <li>The Android app runs on Solana devnet now, and will move to Solana mainnet.</li>
+        <li>skech runs on Solana: devnet now, and Solana mainnet later.</li>
         <li>
           <Em>On a testnet or devnet, USDC is a test token with no value.</Em> Balances there may be reset at any time.
         </li>
@@ -109,7 +108,7 @@ const SECTIONS: LegalSection[] = [
       <>
         <List>
           <li>
-            <Em>A share of every stake</Em>: {STAKE_FEE} today, taken when a piece is placed.
+            <Em>{STAKE_FEE} of every stake</Em>, taken when a piece is placed.
           </li>
           <li>
             <Em>{PROFIT_FEE} of the profit on every win</Em>, taken when it is paid. It is taken only from what the pool
