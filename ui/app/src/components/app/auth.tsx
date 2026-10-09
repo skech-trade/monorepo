@@ -8,8 +8,9 @@ import type { Bridge } from "./privy";
  * Signing in.
  *
  * Privy embedded wallets: email, phone, Google or Apple, no extension to
- * install and no seed phrase to write down. The wallet is an EOA rather than
- * a smart account, so it can sign a plain message off chain.
+ * install and no seed phrase to write down. The wallet is a Solana account
+ * Privy makes at sign-in and keeps; it signs the relayer's transactions in
+ * Privy's iframe without a prompt, so a session or a deposit is one tap.
  *
  * With no app id configured the app runs signed out and everything else
  * still works, which is what the tests and screenshots use. Privy's hooks
@@ -34,7 +35,7 @@ export type Account = {
    */
   ready: boolean;
   signedIn: boolean;
-  /** The wallet's address, once there is one. */
+  /** The wallet's Solana address, base58, once there is one. */
   address: string | null;
   /** Whatever they signed in with, for the greeting. */
   handle: string | null;
@@ -42,36 +43,23 @@ export type Account = {
   email: string | null;
   signOut: () => void;
   /**
-   * Sign a plain message with the wallet.
-   *
-   * Published through this context like everything
-   * else, so a screen can ask for a signature without knowing whether
-   * Privy's provider is mounted.
+   * Sign a transaction the relayer built (base64), returning it signed (base64): a session, a deposit, a
+   * withdrawal. Published through this context like everything else, so a screen can ask for a signature
+   * without knowing whether Privy's provider is mounted.
    */
-  signMessage: (message: string) => Promise<string | null>;
-  /**
-   * Sign EIP-712 typed data with the wallet: a session, a deposit's permit,
-   * a withdrawal. The wallet signs in Privy's iframe with no prompt, so the
-   * values must be plain JSON: bigints go in as decimal strings.
-   */
-  signTypedData: (typedData: TypedDataToSign) => Promise<`0x${string}` | null>;
+  signTransaction: (base64: string) => Promise<string>;
+  /** Several, in order. */
+  signTransactions: (base64s: string[]) => Promise<string[]>;
 };
 
-export type TypedDataToSign = {
-  domain: { name: string; version: string; chainId: number; verifyingContract: `0x${string}` };
-  types: Record<string, { name: string; type: string }[]>;
-  primaryType: string;
-  message: Record<string, unknown>;
+const notSignedIn = async (): Promise<never> => {
+  throw new Error("Not signed in");
 };
-
-/** Bigints as decimal strings, all the way down: what the wallet's signer takes. */
-export const plain = (v: unknown): unknown =>
-  typeof v === "bigint" ? v.toString() : Array.isArray(v) ? v.map(plain) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, plain(x)])) : v;
 
 /** The longest the app waits for Privy to read a saved session before treating someone as signed out. */
 const READY_WITHIN_MS = 8000;
 
-const SIGNED_OUT: Account = { ready: true, signedIn: false, address: null, handle: null, email: null, signOut: () => undefined, signMessage: async () => null, signTypedData: async () => null };
+const SIGNED_OUT: Account = { ready: true, signedIn: false, address: null, handle: null, email: null, signOut: () => undefined, signTransaction: notSignedIn, signTransactions: notSignedIn };
 export const NOT_YET: Account = { ...SIGNED_OUT, ready: false };
 const Ctx = createContext<Account>(SIGNED_OUT);
 const SignInCtx = createContext<() => void>(() => undefined);

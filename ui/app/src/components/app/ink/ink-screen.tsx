@@ -5,10 +5,11 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
 import { areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
-import { betIdOf, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, strokeHash, toE6, toE8, toSections, TYPES, unitFor } from "@skech/core/chain";
-import { hashTypedData, keccak256, stringToHex, type Hex } from "viem";
-import { domain as gameDomain } from "@/lib/chain";
+import { encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor } from "@skech/core/chain";
+import { pieceBytes, type SolanaPiece } from "@skech/contracts/solana/sdk";
+import { sha256 } from "@noble/hashes/sha256";
 import { type Hello, type Incoming } from "@/lib/relayer";
+import { NETWORK } from "@/lib/chain";
 import { useChain } from "./chain-context";
 
 import { Button } from "@/components/ui/button";
@@ -71,13 +72,30 @@ const OPEN_BY_MS = 900;
 const CLOSE_AFTER_MS = 600;
 /** A piece sent to the chain and not heard of by then is let go. */
 const CHAIN_ANSWER_MS = 8000;
-/** The chain's name for a drawing: 64 bits of the line's id. */
-const drawingIdOf = (line: string) => BigInt(keccak256(stringToHex(line)).slice(0, 18));
+/** The chain's name for a drawing: 64 bits of the line's id, as the phone names it. Kept per line: it is asked for on every price batch. */
+const drawingIds = new Map<string, bigint>();
+const drawingIdOf = (line: string) => {
+  let id = drawingIds.get(line);
+  if (id === undefined) {
+    const h = sha256(new TextEncoder().encode(line));
+    id = new DataView(h.buffer, h.byteOffset).getBigUint64(0, true);
+    if (drawingIds.size > 2000) drawingIds.clear();
+    drawingIds.set(line, id);
+  }
+  return id;
+};
 /** A piece's number within its drawing, from its id `line:index`. */
 const pieceIndexOf = (id: string) => Number(id.slice(id.lastIndexOf(":") + 1));
+/**
+ * A piece's key while it is on its way: its drawing and number, as the relayer names it back. Its bet's address
+ * on chain is a program address, found by hashing until one is off the curve: known from `placed`, not worked out.
+ */
+const keyOf = (drawing: bigint | string, index: number) => `${drawing}:${index}`;
+const hexOf = (b: Uint8Array) => `0x${Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")}`;
+const bytesOf = (h: string) => Uint8Array.from((h.replace(/^0x/, "").match(/../g) ?? []).map((x) => parseInt(x, 16)));
 
 /** A piece on its way to the chain: its bet, its stake, and what it takes to send its ink again. */
-type SentPiece = { id: string; stakeUsd: number; drawing: bigint; stroke: Hex; tries: number };
+type SentPiece = { id: string; stakeUsd: number; drawing: bigint; stroke: Uint8Array; tries: number };
 /**
  * Refusals that mean nothing was placed and the same ink can go again on the
  * next second: too late for its second, a price quote that aged on the way,
@@ -90,32 +108,38 @@ const RESENDS = 2;
 const RESEND_BASE = 100_000;
 
 type Chain = ReturnType<typeof useChain>;
-/** A piece as it is signed, and as it goes on the wire, with the chain's numbers as strings. */
-function pieceFor(ch: Chain, level: number, drawing: bigint, index: number, openAt: number, perDot: number, unit: number, quote: { price: string | number; time: string | number }, sections: ReturnType<typeof toSections>, stroke: Hex) {
-  const piece = {
-    player: ch.player!,
+/**
+ * A piece as the session key signs it, and as it goes on the wire: bands in grid units, the chain's numbers as
+ * strings. Signed is the piece exactly as it sits in the program's `place` instruction (`pieceBytes`), which
+ * begins with this deployment's domain, so a signature is good for this game on this cluster only.
+ */
+function pieceFor(ch: Chain, level: number, drawing: bigint, index: number, openAt: number, perDot: number, unit: number, quote: { price: string | number; time: string | number }, sections: ReturnType<typeof toSections>, stroke: Uint8Array) {
+  const unitE8 = toE8(unit);
+  const piece: SolanaPiece = {
+    domain: bytesOf(ch.hello!.domain),
+    player: ch.player! as SolanaPiece["player"],
     drawing,
     index,
     market: ch.hello!.market.id,
     difficulty: ch.hello!.difficulty ?? level,
     openAt: BigInt(openAt),
-    perDot: toE6(perDot),
-    unit: toE8(unit),
+    perDot: Number(toE6(perDot)),
+    unit: unitE8,
     priceSeen: BigInt(quote.price),
     priceTime: BigInt(quote.time),
-    sections,
-    strokeHash: strokeHash(stroke),
+    strokeHash: sha256(stroke),
+    sections: sections.map((s) => ({ second: s.second, lo: Number(s.lo / unitE8), width: Number((s.hi - s.lo) / unitE8), stake: Number(s.stake) })),
   };
-  const wire = { ...piece, drawing: drawing.toString(), openAt: piece.openAt.toString(), perDot: piece.perDot.toString(), unit: piece.unit.toString(), priceSeen: piece.priceSeen.toString(), priceTime: piece.priceTime.toString(), sections: sections.map((s) => ({ second: s.second, lo: s.lo.toString(), hi: s.hi.toString(), stake: s.stake.toString() })) };
+  const wire = { ...piece, domain: undefined, drawing: drawing.toString(), openAt: String(openAt), unit: unitE8.toString(), priceSeen: piece.priceSeen.toString(), priceTime: piece.priceTime.toString(), strokeHash: hexOf(piece.strokeHash as Uint8Array) };
   return { piece, wire };
 }
 /** Sign a piece with the session key and send it; `fail` hears why, if the relayer turns it away. */
-function sendPiece(ch: Chain, { piece, wire }: ReturnType<typeof pieceFor>, stroke: Hex, priceSig: Hex, fail: (why: string) => void) {
+function sendPiece(ch: Chain, { piece, wire }: ReturnType<typeof pieceFor>, stroke: Uint8Array, priceSig: string, fail: (why: string) => void) {
   const { key: sessionKey, client } = ch;
   void (async () => {
     try {
-      const sig = await sessionKey!.sign(hashTypedData({ domain: gameDomain!, types: TYPES, primaryType: "Piece", message: piece }));
-      const ack = await client.request({ type: "piece", piece: wire, sessionSig: sig, priceSig, stroke }, (m): m is Extract<Incoming, { type: "ack" }> => m.type === "ack" && m.drawing === wire.drawing && m.index === piece.index, 10_000);
+      const sig = await sessionKey!.sign(pieceBytes(piece));
+      const ack = await client.request({ type: "piece", piece: wire, sessionSig: hexOf(sig), priceSig, stroke: hexOf(stroke) }, (m): m is Extract<Incoming, { type: "ack" }> => m.type === "ack" && m.drawing === wire.drawing && m.index === piece.index, 10_000);
       if (!ack || !ack.ok) fail(ack?.why ?? "No answer. Your money is back.");
     } catch (e) {
       fail(String((e as Error).message ?? e));
@@ -135,8 +159,8 @@ function lessProfitFee(bet: InkBet, before: InkBet, profitFeeBps: number): InkBe
 }
 
 /** What skech keeps, in the game's own numbers as the relayer sends them; without them, that it keeps some, and no number that could be wrong. */
-const feesLine = (config: Hello["config"] | undefined) =>
-  config ? `skech keeps ${config.feeBps / 100}% of every stake and ${config.profitFeeBps / 100}% of every win.` : "skech keeps a share of every stake and of every win.";
+const feesLine = (terms: Hello["terms"] | undefined) =>
+  terms ? `skech keeps ${terms.feeBps / 100}% of every stake and ${terms.profitFeeBps / 100}% of every win.` : "skech keeps a share of every stake and of every win.";
 
 /** A price with its cents quieter than its dollars. */
 const Price = ({ value }: { value: number }) => {
@@ -229,8 +253,10 @@ export function InkScreen() {
     chainRef.current = chain;
   });
   const real = chain.real;
-  /** Pieces sent to the chain, by the chain's name for them: which local bet each is, and what was staked. */
-  const chainBets = useRef(new Map<Hex, SentPiece>());
+  /** Pieces sent to the chain, by their drawing and number: which local bet each is, and what was staked. */
+  const chainBets = useRef(new Map<string, SentPiece>());
+  /** The chain's name for a bet (its account), once placed, to the piece's key: settlements name it that way. */
+  const betKeys = useRef(new Map<string, string>());
   /** Pieces sent again this visit: their indices, well clear of any line's own. */
   const resent = useRef(0);
   /* The paths every chance is measured on: a file of their own, fetched once. Nothing is priced until it is in. */
@@ -503,7 +529,7 @@ export function InkScreen() {
   useEffect(() => {
     gateRef.current = gate;
   }, [gate]);
-  const letGoRef = useRef<(key: Hex, why: string) => void>(() => {});
+  const letGoRef = useRef<(key: string, why: string) => void>(() => {});
   /*
     A piece turned away for a reason that placed nothing (too late for its
     second, a price that aged on the way, a new difficulty) goes again at
@@ -512,13 +538,13 @@ export function InkScreen() {
     back. A refused piece used to leave its ink faint for good: the next
     piece of the line only carries what was drawn after it.
   */
-  const resend = useCallback((key: Hex, why: string): boolean => {
+  const resend = useCallback((key: string, why: string): boolean => {
     const g = game.current;
     const ch = chainRef.current;
     const sent = chainBets.current.get(key);
     const quote = feedRef.current.quote;
     if (!sent || sent.tries >= RESENDS || !RESEND.test(why)) return false;
-    if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key || !gameDomain || !ch.sessionOk) return false;
+    if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key || !ch.sessionOk) return false;
     const i = g.bets.findIndex((b) => b.id === sent.id);
     if (i < 0 || g.bets[i].status !== "opening") return false;
     const bet = g.bets[i];
@@ -531,7 +557,7 @@ export function InkScreen() {
     if (!sections.length) return false;
     const stakeUsd = Number(stakeOf(sections)) / 1e6;
     const index = RESEND_BASE + resent.current++;
-    const next = betIdOf(ch.player, sent.drawing, index);
+    const next = keyOf(sent.drawing, index);
     const signed = pieceFor(ch, level, sent.drawing, index, openAt, bet.perUnit, unit, quote.message, sections, sent.stroke);
     chainBets.current.delete(key);
     chainBets.current.set(next, { ...sent, id: `${line}:${index}`, stakeUsd, tries: sent.tries + 1 });
@@ -546,7 +572,7 @@ export function InkScreen() {
     updateTotals();
     return true;
   }, [level, updateTotals]);
-  const letGo = useCallback((key: Hex, why: string) => {
+  const letGo = useCallback((key: string, why: string) => {
     const g = game.current;
     if (resend(key, why)) return;
     track("piece_refused", { why: why.slice(0, 120) });
@@ -656,11 +682,11 @@ export function InkScreen() {
     let changed = false;
     for (let i = 0; i < g.bets.length; i++) {
       let bet = g.bets[i];
-      const onChain = chainRef.current.real && chainRef.current.player ? chainBets.current.has(betIdOf(chainRef.current.player, drawingIdOf(bet.group ?? bet.id), pieceIndexOf(bet.id))) : false;
+      const key = chainRef.current.real ? keyOf(drawingIdOf(bet.group ?? bet.id), pieceIndexOf(bet.id)) : "";
+      const onChain = chainRef.current.real ? chainBets.current.has(key) : false;
       if (bet.status === "opening" && onChain) {
         // A piece on its way to the chain: the chain prices it, and says so through the relayer. Not heard from in time, it is let go.
         if (nowMs >= bet.openAt + CHAIN_ANSWER_MS) {
-          const key = betIdOf(chainRef.current.player!, drawingIdOf(bet.group ?? bet.id), pieceIndexOf(bet.id));
           const sent = chainBets.current.get(key);
           chainBets.current.delete(key);
           if (sent) {
@@ -699,7 +725,7 @@ export function InkScreen() {
           const prev = k > 0 && bars[k - 1].t === bar.t - 1000 ? bars[k - 1].c : undefined;
           bet = judge(bet, bar, bar.t + 1000 + CLOSE_AFTER_MS <= nowMs, prev);
           if (bet === before) continue;
-          if (chainRef.current.real) bet = lessProfitFee(bet, before, chainRef.current.hello?.config?.profitFeeBps ?? 1000);
+          if (chainRef.current.real) bet = lessProfitFee(bet, before, chainRef.current.hello?.terms?.profitFeeBps ?? 1000);
           changed = true;
           // One burst a second, however many cells of ink the price crossed in it, with what they paid together.
           const fresh2 = bet.cells.filter((d, k) => d.status === "hit" && before.cells[k].status !== "hit");
@@ -825,14 +851,14 @@ export function InkScreen() {
           return { stop: ch.balance >= POINT_PRICES.values[0] ? "Balance used up here · lower the price per dot" : "Not enough USDC in the game" };
         }
         const quote = feedRef.current.quote;
-        if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key || !gameDomain) {
+        if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key) {
           finish();
           return "Waiting for a signed price";
         }
         const drawing = drawingIdOf(line);
-        const key = betIdOf(ch.player, drawing, d.pieces);
+        const key = keyOf(drawing, d.pieces);
         const from = d.prev?.pts.length ?? 0;
-        const stroke = encodeStroke({ t0: snap.t0, p0: snap.p0, rt: snap.rt, rp: snap.rp, from, pts: snap.pts.slice(from) });
+        const stroke = bytesOf(encodeStroke({ t0: snap.t0, p0: snap.p0, rt: snap.rt, rp: snap.rp, from, pts: snap.pts.slice(from) }));
         const signed = pieceFor(ch, level, drawing, d.pieces, bet.openAt, settings.perDot, unit, quote.message, sections, stroke);
         chainBets.current.set(key, { id: bet.id, stakeUsd: charge, drawing, stroke, tries: 0 });
         ch.nudge(-charge);
@@ -882,24 +908,13 @@ export function InkScreen() {
   useEffect(() => {
     if (!real) return;
     const g = game.current;
-    const feeBps = () => chainRef.current.hello?.config?.profitFeeBps ?? 1000;
-    /*
-      The account once a burst of settlements is over, not after each one: a drawing settles a section a second,
-      and every request was a batch of chain reads and a re-render. The relayer sends it itself after a payout;
-      this is for the word after the last loss, so what nothing is waiting on is resynced.
-    */
-    let asking: ReturnType<typeof setTimeout> | undefined;
-    const askAccount = () => {
-      if (asking) return;
-      asking = setTimeout(() => {
-        asking = undefined;
-        chainRef.current.client.send({ type: "account" });
-      }, 500);
-    };
+    const feeBps = () => chainRef.current.hello?.terms?.profitFeeBps ?? 1000;
     const off = chain.client.on((m) => {
       if (m.type === "placed") {
-        const sent = chainBets.current.get(m.betId);
+        const key = keyOf(m.drawing, m.index);
+        const sent = chainBets.current.get(key);
         if (!sent) return;
+        betKeys.current.set(m.betId, key);
         const i = g.bets.findIndex((b) => b.id === sent.id);
         if (i < 0) return;
         const bet = g.bets[i];
@@ -919,9 +934,10 @@ export function InkScreen() {
           addChange(cents(sent.stakeUsd - staked), "back");
           setReturnedInk({ id: sent.id, amount: cents(sent.stakeUsd - staked) });
         }
-        chainBets.current.set(m.betId, { ...sent, stakeUsd: staked });
+        chainBets.current.set(key, { ...sent, stakeUsd: staked });
         if (!cells.length) {
-          chainBets.current.delete(m.betId);
+          chainBets.current.delete(key);
+          betKeys.current.delete(m.betId);
           const line = bet.group ?? bet.id;
           const t = tally(line, bet.placedAt);
           t.open--;
@@ -933,11 +949,12 @@ export function InkScreen() {
         // reckoning since is let go. While anything is in flight it is kept, so a stake shows the moment it goes.
         if (chainBets.current.size === 0) chainRef.current.resync();
       } else if (m.type === "refused") {
-        letGo(m.betId, m.why);
+        letGo(keyOf(m.drawing, m.index), m.why);
       } else if (m.type === "settled") {
         // The chain's word on hits and misses, where it differs from what was judged here, or before it was.
-        const sent = chainBets.current.get(m.betId);
-        if (!sent) return;
+        const key = betKeys.current.get(m.betId);
+        const sent = key ? chainBets.current.get(key) : undefined;
+        if (!sent || !key) return;
         const i = g.bets.findIndex((b) => b.id === sent.id);
         if (i < 0) return;
         const bet = g.bets[i];
@@ -978,13 +995,17 @@ export function InkScreen() {
           }
           updateTotals();
         }
-        if (decided(g.bets[i])) chainBets.current.delete(m.betId);
-        askAccount();
+        // Decided here, or closed on chain: nothing more will come for it.
+        if (decided(g.bets[i]) || m.closed) {
+          chainBets.current.delete(key);
+          betKeys.current.delete(m.betId);
+        }
+        // No account asked for here: the relayer sends it after every payout, and at least every few seconds of
+        // settlements, so what nothing is waiting on is resynced.
       }
     });
     return () => {
       off();
-      clearTimeout(asking);
     };
   }, [real, chain.client, letGo, updateTotals]);
 
@@ -1223,7 +1244,7 @@ export function InkScreen() {
         <SheetPopup className="sm:max-w-md" side="right" variant="inset">
           <SheetHeader className="px-6 pt-8">
             <SheetTitle className="font-bold text-xl">How it works</SheetTitle>
-            <SheetDescription>{forReal ? "Real money, on the live Bitcoin price." : "Practice money, on the live Bitcoin price."}</SheetDescription>
+            <SheetDescription>{forReal ? `Real money, USDC on ${chain.hello?.label ?? NETWORK.label}, on the live Bitcoin price.` : "Practice money, on the live Bitcoin price."}</SheetDescription>
           </SheetHeader>
           <SheetPanel className="flex flex-col gap-4 px-6 pb-8 text-sm leading-relaxed">
             <p>Draw ahead of the live price. One full dot at your selected pen size costs the amount under Per dot. A longer stroke costs more; retracing ink in the same drawing adds no cost. The total cost rounds up to the next cent, once per drawing.</p>
@@ -1231,7 +1252,7 @@ export function InkScreen() {
             <p>Ink is bet as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing. The drawing’s cost rounds up to the cent once, over all of it.</p>
             <p>Placing a drawing takes its stake from your balance straight away; what just moved your balance shows under it. The number beside it is what you have won: this round&rsquo;s payouts while ink is in play, this session&rsquo;s otherwise. Tap it for the scoreboard. Hits pay the moment the price touches them; the rest settles when its second closes.</p>
             <p>Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches {RULES.horizon} seconds ahead.</p>
-            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for {difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {forReal ? `${feesLine(chain.hello?.config)} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.` : "Your balance is practice money saved in this browser."}</p>
+            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for {difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {forReal ? `${feesLine(chain.hello?.terms)} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills. Your balance is USDC held by the game on Solana: deposits and withdrawals are transactions skech pays the network fee for, and each drawing is placed and settled on chain.` : "Your balance is practice money saved in this browser."}</p>
             {house && !forReal ? (
               <div className="flex flex-col gap-3 rounded-[14px] bg-muted p-4">
                 <div className="flex items-baseline justify-between">

@@ -12,6 +12,7 @@ import { useGate } from "./ink/gate";
 import { openHomeScreen, useInstallable } from "./ink/home-screen";
 import { TransactionsSheet } from "./ink/transactions-sheet";
 import { PRIVATE_TEXT } from "@/lib/analytics";
+import { shortAddress } from "@/lib/market";
 import { money } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { CopyAddress } from "./copy";
@@ -38,7 +39,7 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   // The transaction count, only from a relayer that keeps one.
   const counted = chain.real && chain.hello?.activity === true;
   // An email or a phone number names the account; without one it is simply the wallet, and the address says which.
-  const name = me.handle && !me.handle.startsWith("0x") ? me.handle : "Your wallet";
+  const name = me.handle && me.handle !== (me.address && shortAddress(me.address)) ? me.handle : "Your wallet";
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4 pt-3 pb-2 sm:gap-3">
       <Link aria-label="skech home" className="shrink-0 transition-opacity hover:opacity-70" href="/">
@@ -105,9 +106,10 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   );
 }
 
-/** Two hues from the address, so each wallet has a face of its own that stays the same everywhere. */
+/** Two hues from the address, so each wallet has a face of its own that stays the same everywhere, as on the phone. */
 function swatch(address: string) {
-  const n = parseInt(address.slice(2, 10), 16);
+  let n = 0;
+  for (let i = 0; i < 8 && i < address.length; i++) n = (n * 31 + address.charCodeAt(i)) >>> 0;
   const a = n % 360;
   const b = (a + 40 + ((n >> 9) % 80)) % 360;
   return `linear-gradient(135deg, oklch(0.72 0.14 ${a}), oklch(0.55 0.16 ${b}))`;

@@ -31,7 +31,7 @@ try {
     // On every error: which network, and whether it was opened from the Home Screen.
     initialScope: {
       tags: {
-        network: process.env.NEXT_PUBLIC_SKECH_NETWORK ?? "testnet",
+        network: process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet",
         standalone: standalone(),
       },
     },

@@ -35,7 +35,7 @@ Boost keys first if those accounts hold anything.
 
 **Privy (dashboard.privy.io), the app `cmuzqwmig01200dl8gf8j8tf2`** ([`PRIVY-SETUP.md`](PRIVY-SETUP.md)):
 - [ ] Login methods: email, SMS, Google, Apple
-- [ ] Embedded wallets: Ethereum on
+- [ ] Embedded wallets: Solana on
 - [ ] Allowed origins: `https://app.skech.trade` and `http://localhost:3101`
 
 **Vercel, the app's project, Production and Preview.** These are read when the app is built: redeploy after
@@ -44,7 +44,8 @@ changing any.
 | Variable | Value |
 |---|---|
 | `NEXT_PUBLIC_ENGINE_URL` | `wss://api.skech.trade/engine/ws` |
-| `NEXT_PUBLIC_RELAYER_URL` | `wss://api.skech.trade/solana/ws` |
+| `NEXT_PUBLIC_RELAYER_URL` | `wss://api.skech.trade/solana/ws` (the default, so it may be left unset) |
+| `NEXT_PUBLIC_SOLANA_CLUSTER` | `devnet` (the default; `mainnet-beta` once the game is there) |
 | `NEXT_PUBLIC_PRIVY_APP_ID` | `cmuzqwmig01200dl8gf8j8tf2`. Not the app secret, which the web app never needs |
 | `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_REGION` | PostHog → Settings → Project; `us` or `eu` |
 | `NEXT_PUBLIC_SENTRY_DSN` | the Sentry project `next-app` |

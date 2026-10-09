@@ -1,12 +1,10 @@
 "use client";
 
-import { type PrivyClientConfig, PrivyProvider, type User, useLogin, useLogout, usePrivy, useSignMessage, useSignTypedData, type WalletWithMetadata } from "@privy-io/react-auth";
+import { type PrivyClientConfig, PrivyProvider, type User, useLogin, useLogout, usePrivy, type WalletWithMetadata } from "@privy-io/react-auth";
+import { useCreateWallet, useSignTransaction, useWallets } from "@privy-io/react-auth/solana";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Chain } from "viem";
-import { chain } from "@/lib/chain";
-import { RPC_URL } from "@/lib/endpoints";
 import { shortAddress } from "@/lib/market";
-import { type Account, NOT_YET, plain } from "./auth";
+import { type Account, NOT_YET } from "./auth";
 
 /**
  * Privy, mounted beside the app once its chunk is in (auth.tsx). Everything
@@ -15,13 +13,11 @@ import { type Account, NOT_YET, plain } from "./auth";
 
 export type Bridge = { appId: string; asked: number; onAccount: (account: Account) => void };
 
-/*
-  The game's chain, with the RPC the page's Content-Security-Policy allows (src/proxy.ts) rather than viem's
-  default for it, so whatever Privy asks of the chain goes where everything else of ours does.
-*/
-const CHAIN = { ...chain, rpcUrls: { ...chain.rpcUrls, default: { http: [RPC_URL] } } } as Chain;
-
-/** Never Privy's own confirmation: the game asks for a signature on every session and every withdrawal. */
+/**
+ * Never Privy's own confirmation: the relayer builds every transaction and the game asks for each one itself,
+ * as the phone does. Signed this way it is the wallet signing the transaction's message in Privy's iframe, with
+ * no RPC of ours or Privy's involved: the relayer sends it.
+ */
 const SILENT = { uiOptions: { showWalletUIs: false } };
 
 const config = (dark: boolean): PrivyClientConfig => ({
@@ -34,10 +30,12 @@ const config = (dark: boolean): PrivyClientConfig => ({
     Light or dark to match the app, for the shades Privy derives and we do not set. The rest of the panel
     reads our own colours, through the variables in globals.css, so it follows the theme switch live.
   */
-  appearance: { theme: dark ? "dark" : "light", accentColor: dark ? "#6f92ff" : "#2e5bff", walletChainType: "ethereum-only" },
-  embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, showWalletUIs: false },
-  defaultChain: CHAIN,
-  supportedChains: [CHAIN],
+  appearance: { theme: dark ? "dark" : "light", accentColor: dark ? "#6f92ff" : "#2e5bff", walletChainType: "solana-only" },
+  /*
+    A Solana wallet for everyone, those who signed in when the game was on Monad included: they have an Ethereum
+    wallet, which "users-without-wallets" would count. No Ethereum wallet for anyone new.
+  */
+  embeddedWallets: { solana: { createOnLogin: "all-users" }, ethereum: { createOnLogin: "off" }, showWalletUIs: false },
 });
 
 /** Whether the app is dark right now: the `.dark` class theme-toggle.tsx sets on the root. */
@@ -62,21 +60,31 @@ export function PrivyBridge({ appId, asked, onAccount }: Bridge) {
   );
 }
 
-/** The embedded wallet Privy made for them; never a wallet they linked from elsewhere. */
+/** The Solana wallet Privy made for them; never a wallet they linked from elsewhere. */
 const embedded = (user: User | null) =>
-  user?.linkedAccounts.find((a): a is WalletWithMetadata => a.type === "wallet" && a.chainType === "ethereum" && Boolean(a.walletClientType?.startsWith("privy")))?.address ?? null;
+  user?.linkedAccounts.find((a): a is WalletWithMetadata => a.type === "wallet" && a.chainType === "solana" && Boolean(a.walletClientType?.startsWith("privy")))?.address ?? null;
+
+const fromBase64 = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+const toBase64 = (bytes: Uint8Array) => {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+};
 
 /** Reads Privy's hooks. Only ever mounted inside their provider. */
 function Publish({ asked, onAccount }: Omit<Bridge, "appId">) {
   const { ready, authenticated, user } = usePrivy();
   const { login } = useLogin();
   const { logout } = useLogout();
-  const { signMessage } = useSignMessage();
-  const { signTypedData } = useSignTypedData();
+  const { wallets } = useWallets();
+  const { signTransaction } = useSignTransaction();
+  const { createWallet } = useCreateWallet();
+  const address = embedded(user);
+  const wallet = wallets.find((w) => w.address === address) ?? null;
   // Privy's functions are new on most renders; the account is published only when what it says changes.
-  const fns = useRef({ logout, signMessage, signTypedData });
+  const fns = useRef({ logout, signTransaction, wallet });
   useEffect(() => {
-    fns.current = { logout, signMessage, signTypedData };
+    fns.current = { logout, signTransaction, wallet };
   });
 
   // Answer each sign-in asked for, once Privy can open: asked before it was ready, it opens when it is.
@@ -87,39 +95,44 @@ function Publish({ asked, onAccount }: Omit<Bridge, "appId">) {
     if (!authenticated) login();
   }, [asked, ready, authenticated, login]);
 
-  const address = embedded(user);
+  // Made at sign-in; anyone signed in without one (a session saved from the Monad game, a failed try) gets one now, once.
+  const made = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ready || !authenticated || !user || address || made.current === user.id) return;
+    made.current = user.id;
+    createWallet().catch((e) => {
+      if (process.env.NODE_ENV !== "production") console.warn("[privy] no Solana wallet made", e);
+    });
+  }, [ready, authenticated, user, address, createWallet]);
+
   const email = user?.email?.address ?? user?.google?.email ?? user?.apple?.email ?? null;
   const handle = email ?? user?.phone?.number ?? (address ? shortAddress(address) : null);
+  // Signed in is once the wallet is there to sign with: until then it is still being made.
+  const signing = Boolean(address && wallet);
   const account = useMemo<Account>(() => {
     if (!ready) return NOT_YET;
+    const sign = async (base64: string) => {
+      const w = fns.current.wallet;
+      if (!w) throw new Error("No wallet yet");
+      const { signedTransaction } = await fns.current.signTransaction({ transaction: fromBase64(base64), wallet: w, options: SILENT });
+      return toBase64(signedTransaction);
+    };
     return {
       ready,
       signedIn: authenticated,
-      address,
+      address: signing ? address : null,
       handle,
       email,
       signOut: () => void fns.current.logout(),
-      signMessage: async (message: string) => {
-        if (!address) return null;
-        const { signature } = await fns.current.signMessage({ message }, { ...SILENT, address });
-        return signature;
-      },
-      signTypedData: async (typedData) => {
-        if (!address) return null;
-        const types = {
-          EIP712Domain: [
-            { name: "name", type: "string" },
-            { name: "version", type: "string" },
-            { name: "chainId", type: "uint256" },
-            { name: "verifyingContract", type: "address" },
-          ],
-          ...typedData.types,
-        };
-        const { signature } = await fns.current.signTypedData({ domain: typedData.domain, types, primaryType: typedData.primaryType, message: plain(typedData.message) as Record<string, unknown> }, { ...SILENT, address });
-        return signature as `0x${string}`;
+      signTransaction: sign,
+      // Nothing to open or approve, so one at a time costs nothing.
+      signTransactions: async (base64s) => {
+        const out: string[] = [];
+        for (const t of base64s) out.push(await sign(t));
+        return out;
       },
     };
-  }, [ready, authenticated, address, handle, email]);
+  }, [ready, authenticated, address, signing, handle, email]);
   useEffect(() => onAccount(account), [account, onAccount]);
   return null;
 }

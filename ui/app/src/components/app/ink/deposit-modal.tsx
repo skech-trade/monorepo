@@ -32,6 +32,9 @@ export function DepositModal({ open, onOpenChange, stuck = false, onPlayable }: 
     if (playable && stuck) onPlayable?.();
   }, [playable, stuck, onPlayable]);
   const address = chain.player;
+  // The relayer's word on the network, once it has spoken: what the game is actually on.
+  const label = chain.hello?.label ?? NETWORK.label;
+  const faucet = chain.hello ? chain.hello.faucet : NETWORK.faucet;
   const { copied, copy } = useCopy(address);
   // The deposit this sheet is celebrating: the last one to land, of at least the minimum, until it is dismissed.
   const landed = chain.landed;
@@ -75,7 +78,7 @@ export function DepositModal({ open, onOpenChange, stuck = false, onPlayable }: 
                   <CloseButton onClick={() => close(false)} />
                 </div>
               </div>
-              <DialogDescription className="text-[15px] text-muted-foreground leading-[1.4]">{`Only send USDC on ${NETWORK.label}. Anything else may be lost.`}</DialogDescription>
+              <DialogDescription className="text-[15px] text-muted-foreground leading-[1.4]">{`Only send USDC on ${label}. Anything else may be lost.`}</DialogDescription>
             </div>
             {address ? (
               <>
@@ -99,7 +102,7 @@ export function DepositModal({ open, onOpenChange, stuck = false, onPlayable }: 
                   </Term>
                   <Term label="Minimum">${MIN_DEPOSIT.toFixed(2)}</Term>
                 </dl>
-                {NETWORK.faucet ? <Faucet href={NETWORK.faucet} /> : null}
+                {faucet ? <Faucet href={faucet} /> : null}
                 {chain.adding === null && chain.balance >= MIN_DEPOSIT ? (
                   // Already enough to play: the sheet is for topping up, and says so, with the way back to the game.
                   <button className="flex min-h-[54px] w-full items-center justify-center rounded-full bg-foreground font-semibold text-[17px] text-background transition-transform active:scale-[.98]" onClick={() => close(false)} type="button">
@@ -249,7 +252,7 @@ function Faucet({ href }: { href: string }) {
       <UsdcMark className="size-7 shrink-0" />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="font-semibold text-[15px]">Get free test USDC</span>
-        <span className="text-[13px] text-muted-foreground">Pick Monad Testnet, paste address</span>
+        <span className="text-[13px] text-muted-foreground">Pick Solana Devnet, paste address</span>
       </span>
       <ArrowUpRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
     </a>

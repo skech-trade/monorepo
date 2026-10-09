@@ -123,7 +123,7 @@ function load(posthog: PostHog) {
   // On every event: whether it was opened from the Home Screen, and which network.
   posthog.register({
     standalone: standalone(),
-    network: process.env.NEXT_PUBLIC_SKECH_NETWORK ?? "testnet",
+    network: process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet",
   });
   ph = posthog;
   for (const fn of waiting.splice(0)) fn(posthog);
@@ -137,11 +137,11 @@ export function track(event: Event, props?: Properties) {
   withPostHog((posthog) => posthog.capture(event, props));
 }
 
-/** Who is playing: the wallet, once signed in. Signing out starts a new anonymous visitor. */
+/** Who is playing: the wallet, once signed in, as it is (base58 is case-sensitive). Signing out starts a new anonymous visitor. */
 export function identify(address: string | null) {
-  Sentry.setUser(address ? { id: address.toLowerCase() } : null);
+  Sentry.setUser(address ? { id: address } : null);
   if (!started) return;
-  withPostHog((posthog) => (address ? posthog.identify(address.toLowerCase()) : posthog.reset()));
+  withPostHog((posthog) => (address ? posthog.identify(address) : posthog.reset()));
 }
 
 /** Something that went wrong and was caught, so it would not reach the automatic capture. */
