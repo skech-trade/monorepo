@@ -236,6 +236,11 @@ describe("the gas keeper", () => {
     expect(await dry.keeper.tick()).toBe("dry");
     expect(dry.asked.map((a) => new URL(a.url).pathname)).toEqual(["/swap/v1/quote"]);
     expect(dry.lines[0]).toContain("would buy 0.25 SOL for 27.50 USDC");
+    // Said, and quoted, once an hour.
+    dry.clock.now += 5 * 60_000;
+    expect(await dry.keeper.tick()).toBe("dry");
+    expect(dry.asked.length).toBe(1);
+    expect(dry.lines.length).toBe(1);
     const off = world({ lamports: SOL / 20n, usdc: 60n * USD, cfg: { enabled: false } });
     expect(await off.keeper.tick()).toBe("dry");
     const devnet = world({ lamports: SOL / 20n, usdc: 60n * USD, cfg: { cluster: "devnet" } });

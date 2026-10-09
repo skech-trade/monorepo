@@ -268,6 +268,8 @@ export class Keeper {
       this.say("dry", `keeper (dry run): ${sol(lamports)}, under the ${sol(c.solFloor)} floor; would buy ${sol(want)} with at most ${usd(budget)}, on mainnet`);
       return "dry";
     }
+    // A dry run's quote is only said once an hour: not asked for more often either.
+    if (!this.live && this.said?.key === "dry" && now - this.said.at < SAY_AGAIN_MS) return "dry";
     let out = want;
     let quote = await this.quote(out);
     if (BigInt(quote.otherAmountThreshold) > budget) {
