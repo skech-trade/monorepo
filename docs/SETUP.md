@@ -1,6 +1,6 @@
 # Setup
 
-What has to be set up by hand to run what is on `main`: keys, consoles, the box, the contracts. Code ships
+What has to be set up by hand to run what is on `main`: keys, consoles, the box, the Solana program. Code ships
 itself (Vercel on merge, `infra/deploy.sh` for the box); this is everything that doesn't.
 
 Do it in order: each part assumes the ones above it. [`DEPLOYING.md`](DEPLOYING.md) is how to ship once it
@@ -13,23 +13,23 @@ the servers read. [`.env.example`](../.env.example) documents each.
 
 | Variable | What | Status |
 |---|---|---|
-| `SKECH_NETWORK` | `testnet` | set |
-| `ENGINE_PRIVATE_KEY` | signs prices and bars; the contracts' admin today | set |
-| `MONAD_TESTNET_RPC_URL` | Monad RPC for the servers | set |
-| `RELAYER_PRIVATE_KEY` | pays gas. Blank: the engine's key | optional |
-| `RELAYER_ENGINE_SIGNER` | the engine key's address. The relayers ignore prices signed by anyone else | **new: add** |
+| `ENGINE_PRIVATE_KEY` | signs prices | set |
+| `RELAYER_ENGINE_SIGNER` | the engine key's address. The relayer ignores prices signed by anyone else | **new: add** |
 | `ENGINE_SENTRY_DSN`, `RELAYER_SENTRY_DSN` | errors from the box | set |
 | `ENGINE_BAND_BPS` | how far Coinbase may be from Binance or Kraken, in bp. Blank: 15 | leave blank |
-| `SKECH_SOLANA_CLUSTER` | `devnet` | **new: add** (part 5) |
-| `SOLANA_RELAYER_SECRET_KEY` | the Solana relayer's keypair, the 64 bytes as JSON: `~/.config/solana/skech-devnet-relayer.json` on the owner's machine (`3hNNKV…Ge9s`). It is also the devnet game's oracle | **new: add** (part 5) |
-| `SOLANA_DEVNET_RPC_URL` | a devnet RPC (the public one rate-limits) | **new: add** (part 5) |
-| `SOLANA_RPC_RPS` | requests a second the Solana relayer asks of that RPC, all told. Blank: 15. Set it under the plan's limit | optional (part 5) |
+| `SKECH_SOLANA_CLUSTER` | `devnet` | **new: add** (part 4) |
+| `SOLANA_RELAYER_SECRET_KEY` | the relayer's keypair, the 64 bytes as JSON: `~/.config/solana/skech-devnet-relayer.json` on the owner's machine (`3hNNKV…Ge9s`). It is also the devnet game's oracle | **new: add** (part 4) |
+| `SOLANA_DEVNET_RPC_URL` | a devnet RPC (the public one rate-limits) | **new: add** (part 4) |
+| `SOLANA_RPC_RPS` | requests a second the relayer asks of that RPC, all told. Blank: 15. Set it under the plan's limit | optional (part 4) |
 
 `RELAYER_ENGINE_SIGNER` for today's key is `0xc6377415Ee98A7b71161Ee963603eE52fF7750FC`
 (`cast wallet address --private-key $ENGINE_PRIVATE_KEY` prints it).
 
-Unused, safe to delete: `DATABASE_URL`, `LIGHTER_*`, `BOOST_*`, `FEED_URL`, `API_URL`, `TRADER_URL`, and the
-web app's old Coinbase keys. Rotate the Lighter and Boost keys first if those accounts hold anything.
+Unused, safe to delete: `DATABASE_URL`, `LIGHTER_*`, `BOOST_*`, `FEED_URL`, `API_URL`, `TRADER_URL`, the
+web app's old Coinbase keys, and what only the Monad relayer read: `SKECH_NETWORK`, `MONAD_*_RPC_URL`,
+`MONAD_RPC_URL`, `QUICK_NODE_API_KEY`, `RELAYER_PRIVATE_KEY`, `RELAYER_SHADOW_EVERY`, `ENGINE_CHAIN_ID`,
+`ENGINE_VERIFYING_CONTRACT`, `SKECH_GAME`, `SKECH_IOU`, `SKECH_REVENUE`, `SKECH_USDC`. Rotate the Lighter and
+Boost keys first if those accounts hold anything.
 
 ## 2. Consoles
 
@@ -59,7 +59,7 @@ Check it took: the live page's JavaScript must not contain `localhost:3102`.
 - [ ] The instance's CPU credits are not "Unlimited"
 - [ ] A monthly budget alert (about $15)
 
-**Sentry:** alert rules for new issues, and for the relayer's `low-mon`, `not-oracle` and `engine-signer`
+**Sentry:** alert rules for new issues, and for the relayer's `low-sol`, `not-oracle` and `engine-signer`
 reports (players can't play while any of them fires).
 
 **PostHog:** filter internal and test users, with your own wallet in the filter.
@@ -74,57 +74,37 @@ infra/deploy.sh --env     # right after: until it runs, the new units point at f
 ```
 
 Setup changes how the box runs: each service as its own user, code owned by root, `/etc/skech/env` split
-per service, the relayers' state moved to `/var/lib/skech-relayer`, backed up every 15 minutes. Do part 4
-first if the contracts are being upgraded in the same sitting: it says where these two go.
+per service, the relayer's state in `/var/lib/skech-relayer`, backed up every 15 minutes. On a box that still
+runs the Monad relayer (`skech-relayer`), the next deploy stops, disables and removes it
+([`infra/README.md`](../infra/README.md#from-the-monad-relayer)). A deploy needs the Solana keys of part 4 on
+the box: do part 4's keys first.
 
 Then check:
-- [ ] `curl https://api.skech.trade/engine/health` and `/relayer/health` answer `ok`
-- [ ] `ssh skech curl -s localhost:3103/status` shows the difficulty and no errors (`/status` is box-only now)
+- [ ] `curl https://api.skech.trade/engine/health` and `/solana/health` answer `ok`
+- [ ] `ssh skech curl -s localhost:3104/status` shows the difficulty and no errors (`/status` is box-only)
 - [ ] `ssh skech chronyc tracking`: the clock is synced. Trades more than 2 s off local time are not signed
-- [ ] `ssh skech systemctl status skech-engine skech-relayer`: memory under the units' `MemoryMax`
-  (300M and 400M, estimates)
-- [ ] The relayer wallet holds 12 MON or more (Monad keeps 10 in reserve)
+- [ ] `ssh skech systemctl status skech-engine skech-relayer-solana`: memory under the units' `MemoryMax`
+  (300M and 400M, estimates); `skech-relayer` is gone
+- [ ] The relayer wallet holds 1 SOL or more
 
-## 4. The Monad contracts
-
-The live game (`0xd7cE3AADC704caF2D16319D1D25d01024cC5fdF0`) and IOU (`0x1F90adAd727FBcaf800cf3532ce75976EAA3e820`)
-sit behind UUPS proxies. The audit's contract fixes take effect only once they are upgraded, and the new
-relayer reads the new `Settled` event, so the upgrade and the box deploy go together, with the game paused:
-
-1. **Check** from `packages/contracts`: `bun run test:check` passes, including the storage layout check.
-2. **Work out `OWED`**: the IOU basis outstanding, `SkechIOU.basisOf` summed over every address that ever
-   received IOU (the `to` of every IOU `Transfer` since block 66,645,399). It was 0 on 2026-09-29, and the relayer counted one IOU holder on 2026-10-01, so read it again. Too low
-   and `redeem` reverts; too high and only the count is off.
-3. **Pause**: `cast send $GAME 'pause()' --private-key $ENGINE_PRIVATE_KEY --rpc-url $MONAD_TESTNET_RPC_URL`.
-4. **Upgrade the game**, then the IOU, from `packages/contracts/evm`:
-   ```bash
-   PROXY=0xd7cE3AADC704caF2D16319D1D25d01024cC5fdF0 WHICH=game OWED=<sum> forge script script/Deploy.s.sol:Upgrade --broadcast --rpc-url $MONAD_TESTNET_RPC_URL --private-key $ENGINE_PRIVATE_KEY
-   PROXY=0x1F90adAd727FBcaf800cf3532ce75976EAA3e820 WHICH=iou forge script script/Deploy.s.sol:Upgrade --broadcast --rpc-url $MONAD_TESTNET_RPC_URL --private-key $ENGINE_PRIVATE_KEY
-   ```
-5. **Ship the box**: part 3.
-6. **Unpause**: `cast send $GAME 'unpause()' …`, then place one piece from the app and watch it settle.
-
-The live difficulty is 51 (set 2026-09-30). The upgraded contracts refuse anything under 50.
-
-## 5. Solana devnet
+## 4. Solana devnet
 
 The game is on devnet (2026-10-01). Every address is in `packages/contracts/deployments/solana-devnet.json`:
 
 | | |
 |---|---|
 | Program | `2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV` (upgrade authority: the deployer, `7Qfww9…Njng`) |
-| Game | `EQmnM7EP6ewPvjq81cCKmcKKzXFi5WGuciHfDtTCpyxF`, BTC-USD at difficulty 51, Monad's terms |
+| Game | `EQmnM7EP6ewPvjq81cCKmcKKzXFi5WGuciHfDtTCpyxF`, BTC-USD at difficulty 51: 4% of stakes, 10% of profit |
 | USDC | Circle's devnet mint, `4zMMC9…DncDU` |
 | Oracle and relayer | `3hNNKVAfS95A1Rqqss7xoRS8PZceQbKCS4HCfhDsGe9s`, 0.3 SOL |
 
-What is left is running its relayer on the box (`https://api.skech.trade/solana/health` answers 502 until then):
+Its relayer runs on the box:
 
 1. **Keys**: `SKECH_SOLANA_CLUSTER=devnet`, `SOLANA_RELAYER_SECRET_KEY` (the relayer keypair file's contents) and
    `SOLANA_DEVNET_RPC_URL` in the env file `infra/deploy.sh` reads (`.env.local`, or `SKECH_ENV_FILE`). If the
    RPC's plan allows fewer than 15 requests a second, set `SOLANA_RPC_RPS` below it: the relayer holds itself to
    that and backs off on a 429 (`/status` → `rpc` counts both).
-2. **Ship**: `infra/deploy.sh --env`. With both Solana keys, the Solana relayer starts beside the Monad one, at
-   `wss://api.skech.trade/solana/ws`.
+2. **Ship**: `infra/deploy.sh --env`. The relayer serves `wss://api.skech.trade/solana/ws`.
 3. **Check**: `curl https://api.skech.trade/solana/health` answers `ok`; `ssh skech curl -s localhost:3104/status`
    shows devnet, difficulty 51 and the engine connected.
 4. **SOL**: the relayer pays every fee and every bet's rent (the rent comes back when the bet settles). Keep it
@@ -135,7 +115,7 @@ it to a crawl (4% in 30 minutes). Upload straight to the validators instead, the
 `solana program deploy target/deploy/skech.so --program-id target/deploy/skech-keypair.json --url devnet` from
 `packages/contracts/solana`, then `bun run deploy:solana --skip-program`.
 
-## 6. The phone app
+## 5. The phone app
 
 `packages/solana-mobile`, its own npm project (not in the bun workspace). It signs in by email, SMS or, on
 Android, a Solana wallet on the phone (Phantom, Solflare, the Seeker's Seed Vault). The email and SMS sign-in
@@ -150,7 +130,7 @@ and the embedded Solana wallet are Privy's, the same Privy app as the web. Googl
 
 1. `packages/solana-mobile/.env` from its `.env.example`: `EXPO_PUBLIC_PRIVY_APP_ID`, `EXPO_PUBLIC_PRIVY_CLIENT_ID`
    (without both the app signs in only with a wallet on the phone) and the two URLs, which default to the box.
-   Until the Solana relayer runs there (part 5), point `EXPO_PUBLIC_RELAYER_URL` at a relayer on your machine by
+   Until the relayer runs there (part 4), point `EXPO_PUBLIC_RELAYER_URL` at a relayer on your machine by
    its network address, e.g. `ws://192.168.x.x:3104/ws` (a phone's `localhost` is the phone), with
    `RELAYER_HOST=0.0.0.0` on the relayer.
 2. `npm install` (its `.npmrc` lets Privy's pinned viem peer through), then `npx expo run:ios` or
@@ -193,17 +173,16 @@ a new machine. Don't run `eas update:configure` again: it rewrites `app.json`, d
 integrity) goes into skech.trade's `assetlinks.json` next to the upload key's, or wallets stop trusting the
 store's copy.
 
-## 7. Before mainnet
+## 6. Before mainnet
 
-- **iOS builds.** Android ships through Play (part 6); iOS still needs an Apple distribution certificate and
+- **iOS builds.** Android ships through Play (part 5); iOS still needs an Apple distribution certificate and
   TestFlight.
 - **Real-money gambling on Play.** Closed, open and production tracks need Google's real-money gambling
   approval (licences per country, age and region gating). Internal testing does not.
 
-- **Split the keys.** One key is today the contracts' admin, upgrader, pauser, treasurer, oracle and relayer,
-  and it sits on the box: whoever takes the box can upgrade the contracts. Give admin and upgrade to a wallet
-  that never touches the box (a multisig), and set `DEPLOYER_PRIVATE_KEY` for mainnet deploys, which refuse
-  the engine's and relayer's keys.
+- **Hand the program to a multisig.** The deployer is the program's upgrade authority and the game's admin.
+  On mainnet, transfer both to a Squads multisig straight after the deploy, and own the treasury's USDC
+  account with it (`SOLANA_TREASURY`); only the relayer's key, the oracle, sits on the box.
 - **Shorten the web session.** A browser-held session key is allowed $100,000 for 7 days; about a day, and
   an allowance near the balance, is enough.
 - **Enforce the CSP.** It runs report-only; switch it to enforced once Sentry shows no reports.

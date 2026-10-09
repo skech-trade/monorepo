@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy the relayers' state files (bets placed and not yet settled, per chain and game) into a timestamped
+# Copy the relayer's state files (bets placed and not yet settled, per cluster and game) into a timestamped
 # directory, and keep the newest $SKECH_BACKUP_KEEP of them. skech-backup.timer runs it every 15 minutes;
 # setup.sh installs it as /usr/local/sbin/skech-backup-relayer, so by hand: sudo skech-backup-relayer.
 #
@@ -16,7 +16,7 @@ KEEP="${SKECH_BACKUP_KEEP:-672}"
 S3="${SKECH_BACKUP_S3:-}"
 
 shopt -s nullglob
-files=("$SRC"/.relayer-*.json)
+files=("$SRC"/.relayer-state.*.json)
 if [ ${#files[@]} -eq 0 ]; then
   echo "nothing to back up in $SRC"
   exit 0

@@ -9,8 +9,8 @@ import { Ed } from "react-native-quick-crypto";
  * registers its public half against the player's wallet once, and from then on every piece of ink is signed
  * here, with no prompt. It can place pieces, up to the allowance the wallet set, and never withdraw.
  *
- * On the web it is a P-256 key WebCrypto keeps (Monad checks P-256); Solana checks Ed25519 natively, so here it is
- * Ed25519, verified by the chain's precompile over the piece exactly as it sits in the transaction.
+ * It is Ed25519, which Solana checks natively: verified by the chain's precompile over the piece exactly as it sits
+ * in the transaction.
  */
 
 const NAME = "skech.session.ed25519";

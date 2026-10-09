@@ -2,11 +2,15 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ChainClient } from "./chain";
-import type { Config } from "./config";
+import type { Address } from "@solana/kit";
 import type { Engine } from "./engine";
-import { Settler } from "./settler";
+import type { SolanaChain } from "./solana/chain";
+import type { SolanaConfig } from "./solana/config";
+import { SolanaSettler } from "./solana/settler";
 import { readState, writeAtomic } from "./state";
+
+const settlerAt = (path: string) => new SolanaSettler({} as SolanaConfig, {} as Engine, {} as SolanaChain, { settled: () => {}, owed: () => {}, account: () => {} }, () => {}, path);
+const HOLDER = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM" as Address;
 
 const dir = mkdtempSync(join(tmpdir(), "relayer-state-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -14,7 +18,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 describe("a state file", () => {
   test("round-trips, and leaves nothing beside it", () => {
     const path = join(dir, "state.json");
-    const state = { holders: ["0xabc"], posted: { "1790000000000": "8000000000000" }, note: "é ".repeat(10_000) };
+    const state = { holders: ["9WzDXwBb"], posted: { "1790000000000": "8000000000000" }, note: "é ".repeat(10_000) };
     writeAtomic(path, JSON.stringify(state));
     expect(readState<unknown>(path)).toEqual(state);
     writeAtomic(path, JSON.stringify({ holders: [] }));
@@ -44,22 +48,22 @@ describe("a state file", () => {
   test("the settler will not start on one it cannot read, rather than save over it", () => {
     const path = join(dir, "settler.json");
     writeFileSync(path, "{not json");
-    const make = () => new Settler({} as Config, {} as Engine, {} as ChainClient, { settled: () => {}, owed: () => {}, account: () => {} }, () => {}, path);
+    const make = () => settlerAt(path);
     expect(make).toThrow("cannot be read");
-    writeFileSync(path, JSON.stringify({ holders: 7, posted: {} }));
+    writeFileSync(path, JSON.stringify({ bets: [], holders: 7, posted: {} }));
     expect(make).toThrow("not state this relayer can restore");
   });
 
   test("is written again only when what it holds changed", () => {
     const path = join(dir, "idle.json");
-    const settler = new Settler({} as Config, {} as Engine, {} as ChainClient, { settled: () => {}, owed: () => {}, account: () => {} }, () => {}, path);
+    const settler = settlerAt(path);
     settler.save();
     expect(existsSync(path)).toBe(true);
     rmSync(path);
     settler.save();
     expect(existsSync(path)).toBe(false);
-    settler.owed("0x70997970c51812dc3a010c7d01b50e0d17dc79c8");
+    settler.owed(HOLDER);
     settler.save();
-    expect(readState<{ holders: string[] }>(path)?.holders).toEqual(["0x70997970c51812dc3a010c7d01b50e0d17dc79c8"]);
+    expect(readState<{ holders: string[] }>(path)?.holders).toEqual([HOLDER]);
   });
 });

@@ -1,5 +1,5 @@
 [Unit]
-Description=skech: copy the relayers' state files to /var/backups/skech-relayer
+Description=skech: copy the relayer's state files to /var/backups/skech-relayer
 # Run by skech-backup.timer.
 
 [Service]

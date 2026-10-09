@@ -4,8 +4,8 @@ import { RELAYER_URL } from "./config";
 /**
  * The Solana relayer: where the app sends what it draws, signed by the session key, and hears back what the chain
  * made of it; and where every transaction the wallet signs is built and sent, the relayer paying. One socket,
- * reopened when it drops; every message is JSON with the chain's numbers as strings. The messages are Monad's
- * (`ui/app/src/lib/relayer.ts`), with addresses in base58 and `build` / `submit` for what the wallet signs.
+ * reopened when it drops; every message is JSON with the chain's numbers as strings. The messages are in
+ * `packages/relayer/README.md`: addresses in base58, and `build` / `submit` for what the wallet signs.
  */
 
 export type Hello = {

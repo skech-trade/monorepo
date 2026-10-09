@@ -326,7 +326,7 @@ export class SolanaSettler {
             continue;
           }
           if (left === 0n) continue;
-          // The redeemer's cut, as on Monad, goes to the relayer's own account in the game.
+          // The redeemer's cut goes to the relayer's own account in the game.
           const ix = getRedeemInstruction({ caller: this.chain.signer, game: d.game, pool: d.pool, holder: await playerAddress(holder, d.program), callerPlayer: await playerAddress(this.chain.signer.address, d.program), shares: ALL });
           const s = await this.chain.send(`redeem ${holder}`, [ix], 30_000);
           if (!s.err) this.notify.account(holder);

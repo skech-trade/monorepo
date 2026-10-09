@@ -1,9 +1,8 @@
 //! The engine as an oracle: every price it streams is signed by its wallet as
-//! EIP-712 typed data, bound by the domain to one chain id and one verifying
-//! contract, so a contract can check a price came from here, for itself, on
-//! its own chain, and was not changed on the way.
+//! EIP-712 typed data, so whoever is shown a price (the relayer, an app) can
+//! check it came from here and was not changed on the way.
 
-use alloy_primitives::{Address, U256, hex};
+use alloy_primitives::{Address, U256, address, hex};
 use alloy_signer::SignerSync;
 use alloy_signer_local::PrivateKeySigner;
 use alloy_sol_types::{Eip712Domain, SolStruct, sol};
@@ -11,6 +10,16 @@ use serde_json::{Value, json};
 
 pub const NAME: &str = "skech";
 pub const VERSION: &str = "1";
+
+/// The domain every price is signed under is fixed: these two, with `NAME` and `VERSION`. They are what the engine
+/// signed under when the game ran on Monad testnet (chain 10143, its `SkechGame` proxy), kept byte for byte now that
+/// the game runs on Solana alone. Nothing is read for them any more (no RPC, no deployment file, no env), but the
+/// bytes signed must not move: the Solana relayer checks every price a player saw against the domain the engine
+/// announces before it places their piece, the apps check what they show against it, and the EVM contracts kept in
+/// `packages/contracts/evm` would still take them. Another domain is another signature for every price.
+/// `domain_is_unchanged` holds them to it.
+pub const CHAIN_ID: u64 = 10143;
+pub const VERIFYING_CONTRACT: Address = address!("0xd7cE3AADC704caF2D16319D1D25d01024cC5fdF0");
 
 sol! {
     /// What a contract rebuilds and recovers: `price` has 8 decimals, `time` is the exchange's, in ms.
@@ -110,5 +119,23 @@ mod tests {
         // RFC 6979: the same key and digest always give the same signature.
         let sig = q.sign("BTC-USD", 8_359_144_000_000, 1_790_629_278_967).unwrap();
         assert_eq!(sig, "0x4078c8f2b1604da6d60a1f986b1430ea682b15e27f1b0c18b286742f694c1b9b289c1bf1a51cddfa72479675e8751f700e607290624c342878570f57704ebf8e1c");
+    }
+
+    /// The domain the engine has always signed under, its separator as viem's `hashDomain` computes it: if this
+    /// moves, every price the engine signs stops checking out wherever it is checked.
+    #[test]
+    fn domain_is_unchanged() {
+        let domain = Eip712Domain::new(Some(NAME.into()), Some(VERSION.into()), Some(U256::from(CHAIN_ID)), Some(VERIFYING_CONTRACT), None);
+        assert_eq!(hex::encode_prefixed(domain.separator()), "0x21fa07af19a635b1098085ea3fa713978c33b145865e4a335295ef2f87563506");
+        // What a client is told it is, field for field.
+        let q = Quoter::new(KEY.parse().unwrap(), CHAIN_ID, VERIFYING_CONTRACT);
+        let d = &q.typed_data()["domain"];
+        assert_eq!(d["name"], "skech");
+        assert_eq!(d["version"], "1");
+        assert_eq!(d["chainId"], 10143);
+        assert_eq!(d["verifyingContract"], "0xd7cE3AADC704caF2D16319D1D25d01024cC5fdF0");
+        // And a price signed under it, as viem's signTypedData signs it with the same key.
+        let sig = q.sign("BTC-USD", 8_359_144_000_000, 1_790_629_278_967).unwrap();
+        assert_eq!(sig, "0x3c3a4161d6b46229652bcc5f61c4edfae578bf9920dd258d8a89447129453bc641bb92027b6cf73a2e3c279984c53c4fc7d17068d3d5bb72c1d7dc7401e172021b");
     }
 }

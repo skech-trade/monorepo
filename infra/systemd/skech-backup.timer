@@ -1,5 +1,5 @@
 [Unit]
-Description=skech: back up the relayers' state every 15 minutes
+Description=skech: back up the relayer's state every 15 minutes
 
 [Timer]
 OnCalendar=*:0/15

@@ -1,6 +1,6 @@
 /**
- * The Solana relayer's door: one WebSocket per app, the same messages as Monad's (`hello`, `watch`, `account`,
- * `piece`, `ack`, `placed`, `refused`, `settled`, `activity`), and one change for everything a wallet signs.
+ * The relayer's door: one WebSocket per app (`hello`, `watch`, `account`, `piece`, `ack`, `placed`, `refused`,
+ * `settled`, `activity`), and a build-and-submit for everything a wallet signs.
  *
  * A session, a deposit or a withdrawal is a transaction the wallet signs and the relayer pays for:
  *   app → { type: "build", kind: "session" | "deposit" | "withdraw" | "revoke", player, ... }
@@ -256,7 +256,7 @@ export class SolanaServer {
           else {
             // Whether it carried an approval is what `build` put in it, not what the app says.
             if (kind === "session" && approve) this.settler?.approve(player);
-            // The new balance first, then the answer, as on Monad.
+            // The new balance first, then the answer.
             await this.sendAccount(player);
             ws.send(json({ type: "submitted", id, kind, ok: true, tx: sent.signature }));
           }

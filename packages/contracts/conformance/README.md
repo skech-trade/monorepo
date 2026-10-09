@@ -1,6 +1,6 @@
 # Conformance
 
-One set of cases, played the same way against the Monad contracts (`evm/`) and the Solana program (`solana/`).
+One set of cases, played the same way against the EVM contracts (`evm/`, kept in the repo but not deployed) and the Solana program (`solana/`, the game).
 If the two chains ever disagree on a payout, a fee, a refund or a refusal, one of these fails.
 
 | File | What it is |
@@ -15,7 +15,7 @@ The runners check every number after every step: what each piece staked and the 
 what each settlement paid and owed, and every balance, the pool, the fees and the IOUs. The Solana runner also checks
 that every USDC in the vault is accounted for.
 
-- Monad: `evm/test/Conformance.t.sol` (the runner) and `evm/test/ConformanceCases.sol` (one test per case, generated).
+- EVM: `evm/test/Conformance.t.sol` (the runner) and `evm/test/ConformanceCases.sol` (one test per case, generated).
 - Solana: `solana/tests/src/conformance.rs`, reading `vectors.json` and running the compiled program in LiteSVM.
 
 ## Running

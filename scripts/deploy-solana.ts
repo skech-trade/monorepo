@@ -4,7 +4,7 @@
  *   bun run deploy:solana                  deploy to SKECH_SOLANA_CLUSTER (devnet when unset)
  *   bun run deploy:solana --mainnet        required as well on mainnet-beta: it spends real SOL
  *   bun run deploy:solana --skip-program   the program is already deployed: set the game up only
- *   bun run deploy:solana --set-config     also set the game's terms to the defaults (Monad's), and SOLANA_CONFIG
+ *   bun run deploy:solana --set-config     also set the game's terms to the defaults (4% of stakes, 10% of profit), and SOLANA_CONFIG
  *
  * It deploys the program (`anchor build` first), initializes the game with the deployer as admin (the program's
  * upgrade authority must be the deployer), opens BTC-USD, creates the lookup table every placement uses, and
@@ -13,7 +13,7 @@
  *   SOLANA_DEPLOYER_KEYPAIR   the deployer's keypair file (default ~/.config/solana/id.json): upgrade authority and admin
  *   SOLANA_RELAYER_KEYPAIR    the relayer's keypair file: its key is the oracle (or set SOLANA_ORACLE to an address)
  *   SOLANA_TREASURY           who owns the treasury's USDC account (default the deployer; a multisig on mainnet)
- *   DIFFICULTY                the market's difficulty, 50 to 100 (default 51, as on Monad)
+ *   DIFFICULTY                the market's difficulty, 50 to 100 (default 51)
  *   SOLANA_CONFIG             with --set-config: JSON of terms to change from the defaults, e.g. {"feeBps":300}
  *
  * On mainnet: transfer the upgrade authority and the admin to a multisig (Squads) straight after, and build with

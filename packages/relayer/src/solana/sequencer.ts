@@ -72,7 +72,7 @@ export class SolanaSequencer {
     private readonly domain: Uint8Array,
   ) {}
 
-  /** The grid units a piece may be on now, as on Monad: the market step's, or a round step near it. */
+  /** The grid units a piece may be on now: the market step's, or a round step near it. */
   units(): bigint[] | null {
     const f = features(this.engine.book.bars, Math.floor(this.engine.now() / 1000) * 1000);
     if (!f) return null;

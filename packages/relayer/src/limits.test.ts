@@ -27,18 +27,18 @@ describe("a token bucket", () => {
 });
 
 describe("a connection's rates", () => {
-  test("pieces are generous; sessions are not", () => {
+  test("pieces are generous; what a wallet signs is not", () => {
     const c = clock();
     const r = new Rates(c.now);
     let pieces = 0;
     for (let i = 0; i < 50; i++) if (r.take("piece")) pieces++;
     expect(pieces).toBe(RATES.piece[0]);
-    let sessions = 0;
-    for (let i = 0; i < 10; i++) if (r.take("session")) sessions++;
-    expect(sessions).toBe(RATES.session[0]);
+    let builds = 0;
+    for (let i = 0; i < 10; i++) if (r.take("build")) builds++;
+    expect(builds).toBe(RATES.build[0]);
     c.pass(1000);
     expect(r.take("piece")).toBe(true);
-    expect(r.take("session")).toBe(false);
+    expect(r.take("build")).toBe(false);
   });
   test("every message counts toward the whole, unknown ones too", () => {
     const c = clock();

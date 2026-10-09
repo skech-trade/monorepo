@@ -70,7 +70,7 @@ ok((await rpc.getBalance(wallet.address).send()).value === 0n, `player ${wallet.
 
 /* ---- the relayer ---- */
 
-const relayer = spawn("bun", ["packages/relayer/src/solana/index.ts"], {
+const relayer = spawn("bun", ["packages/relayer/src/index.ts"], {
   cwd: root,
   env: { ...process.env, SKECH_SOLANA_CLUSTER: "localnet", RELAYER_SOLANA_PORT: String(port), NEXT_PUBLIC_ENGINE_URL: engineUrl, SOLANA_PRIORITY_MICROLAMPORTS: "1000" },
   stdio: ["ignore", "inherit", "inherit"],

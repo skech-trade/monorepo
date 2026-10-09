@@ -67,35 +67,20 @@ fn main() {
     let _ = dotenvy::from_filename(".env.local");
     // One TLS backend for both the WebSocket and the HTTP client: ring, the only one compiled in.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    // A throwaway wallet or the zero address sign prices no game accepts, so they are for a laptop only:
-    // `bun run dev:engine` passes --dev. Anywhere else a missing key or game stops the engine here.
+    // A throwaway wallet signs prices no relayer is set to trust, so it is for a laptop only: `bun run dev:engine`
+    // passes --dev. Anywhere else a missing key stops the engine here.
     let dev = env::args().skip(1).any(|a| a == "--dev");
-    let chain_id = chain_id();
-    let fallback = |missing: &str, instead: &str| {
-        if !dev || chain_id == 143 {
-            panic!("{missing}. Only a --dev engine goes on {instead}, and never on mainnet");
-        }
-        eprintln!("{missing}: {instead}");
-    };
     let wallet = match var("ENGINE_PRIVATE_KEY") {
         Some(key) => key.parse::<PrivateKeySigner>().expect("ENGINE_PRIVATE_KEY is not a hex private key"),
-        None => {
-            fallback("ENGINE_PRIVATE_KEY is not set", "signing with a throwaway wallet");
+        None if dev => {
+            eprintln!("ENGINE_PRIVATE_KEY is not set: signing with a throwaway wallet");
             PrivateKeySigner::random()
         }
+        None => panic!("ENGINE_PRIVATE_KEY is not set. Only a --dev engine goes on, signing with a throwaway wallet"),
     };
-    // Signatures are bound to one chain and one contract. SKECH_NETWORK picks the chain, the deploy's file names the
-    // game on it. ENGINE_CHAIN_ID and ENGINE_VERIFYING_CONTRACT (or SKECH_GAME, as the relayer and app read) still win.
-    let contract = var("ENGINE_VERIFYING_CONTRACT")
-        .or_else(|| var("SKECH_GAME"))
-        .map(|a| a.parse::<Address>().expect("ENGINE_VERIFYING_CONTRACT / SKECH_GAME is not an address"))
-        .or_else(|| deployed_game(chain_id))
-        .unwrap_or_else(|| {
-            fallback(&format!("no game deployed on chain {chain_id}"), "signing for the zero address until bun run deploy:contracts puts one there");
-            Address::ZERO
-        });
-    let quoter = Arc::new(Quoter::new(wallet, chain_id, contract));
-    eprintln!("signing as {} for chain {chain_id}, contract {contract}", quoter.address());
+    // One fixed domain, the one prices have always been signed under (quote.rs says why).
+    let quoter = Arc::new(Quoter::new(wallet, quote::CHAIN_ID, quote::VERIFYING_CONTRACT));
+    eprintln!("signing as {} for chain {}, contract {}", quoter.address(), quote::CHAIN_ID, quote::VERIFYING_CONTRACT);
 
     // How close two venues must be to agree on a price, in basis points. BTC trades a few bp apart across venues
     // on a normal day; much tighter and Coinbase is overruled, or nothing signed, whenever the market moves.
@@ -110,7 +95,7 @@ fn main() {
 
     // Up once the config is read: a bad one panics on every restart, into the journal, not the Sentry plan.
     // Before the runtime, so each worker thread starts with the client bound.
-    let _sentry = sentry_init(chain_id, quoter.address());
+    let _sentry = sentry_init(quoter.address());
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -174,7 +159,7 @@ async fn serve(quoter: Arc<Quoter>, band: f64, addr: SocketAddr, max_clients: us
 /// Sentry, for what takes the engine down: a panic is sent, stack and all, before `panic = "abort"` ends the
 /// process. Off unless ENGINE_SENTRY_DSN is set, and off on a laptop (no SENTRY_ENVIRONMENT; the box's unit sets
 /// production) unless ENGINE_SENTRY_DEV=1, so `bun run dev:engine` never spends the plan.
-fn sentry_init(chain_id: u64, signer: Address) -> Option<sentry::ClientInitGuard> {
+fn sentry_init(signer: Address) -> Option<sentry::ClientInitGuard> {
     let dsn = var("ENGINE_SENTRY_DSN")?;
     let environment = var("SENTRY_ENVIRONMENT").unwrap_or_else(|| "development".into());
     if environment == "development" && var("ENGINE_SENTRY_DEV").is_none() {
@@ -185,10 +170,7 @@ fn sentry_init(chain_id: u64, signer: Address) -> Option<sentry::ClientInitGuard
     options.release = option_env!("SKECH_RELEASE").map(Into::into).or_else(|| sentry::release_name!());
     options.environment = Some(environment.into());
     let guard = sentry::init((dsn, options));
-    sentry::configure_scope(|scope| {
-        scope.set_tag("chain", chain_id);
-        scope.set_tag("signer", signer);
-    });
+    sentry::configure_scope(|scope| scope.set_tag("signer", signer));
     Some(guard)
 }
 
@@ -238,35 +220,4 @@ async fn client(mut socket: WebSocket, app: App, local: bool) {
 /// One frame to a client, or false if it is gone or has not taken it in `SEND_TIMEOUT`.
 async fn send(socket: &mut WebSocket, text: Utf8Bytes) -> bool {
     matches!(timeout(SEND_TIMEOUT, socket.send(Message::Text(text))).await, Ok(Ok(())))
-}
-
-/// The chain from SKECH_NETWORK (blank is testnet), or ENGINE_CHAIN_ID for anvil. The other network's id is refused:
-/// a leftover testnet id under mainnet would sign prices no mainnet game accepts.
-fn chain_id() -> u64 {
-    let network = var("SKECH_NETWORK").unwrap_or_else(|| "testnet".into()).to_lowercase();
-    let own = match network.as_str() {
-        "testnet" => 10143,
-        "mainnet" => 143,
-        other => panic!("SKECH_NETWORK is \"{other}\": it must be testnet or mainnet"),
-    };
-    match var("ENGINE_CHAIN_ID").map(|id| id.parse::<u64>().expect("ENGINE_CHAIN_ID is not a number")) {
-        None => own,
-        Some(id) if id == own || (id != 10143 && id != 143) => id,
-        Some(id) => panic!("ENGINE_CHAIN_ID is {id} but SKECH_NETWORK is {network}: remove ENGINE_CHAIN_ID, the network picks the chain"),
-    }
-}
-
-/// The game in packages/contracts/deployments/<chain>.json, looked for from here up to the repo root.
-fn deployed_game(chain_id: u64) -> Option<Address> {
-    let mut dir = std::env::current_dir().ok()?;
-    loop {
-        let file = dir.join("packages/contracts/deployments").join(format!("{chain_id}.json"));
-        if let Ok(text) = std::fs::read_to_string(&file) {
-            let json: serde_json::Value = serde_json::from_str(&text).ok()?;
-            return json.get("game")?.as_str()?.parse().ok();
-        }
-        if !dir.pop() {
-            return None;
-        }
-    }
 }
