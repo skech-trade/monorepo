@@ -8,6 +8,21 @@ export const ENGINE_URL = process.env.NEXT_PUBLIC_ENGINE_URL || "ws://localhost:
 export const RELAYER_URL = process.env.NEXT_PUBLIC_RELAYER_URL || "wss://api.skech.trade/solana/ws";
 
 /**
+ * The community (profiles, follows, the leaderboard, the live feed): NEXT_PUBLIC_SOCIAL_URL, or beside the relayer,
+ * at /social on its host, or on port 3105 of a relayer on this machine.
+ */
+export const SOCIAL_URL = (() => {
+  if (process.env.NEXT_PUBLIC_SOCIAL_URL) return process.env.NEXT_PUBLIC_SOCIAL_URL.replace(/\/+$/, "");
+  try {
+    const u = new URL(RELAYER_URL);
+    const local = ["localhost", "127.0.0.1"].includes(u.hostname);
+    return `${u.protocol === "wss:" ? "https:" : "http:"}//${u.hostname}${local ? ":3105" : u.port ? `:${u.port}` : ""}${local ? "" : "/social"}`;
+  } catch {
+    return "https://api.skech.trade/social";
+  }
+})();
+
+/**
  * Reopening a dropped socket: half the wait and a random share of the other half, so a relayer that restarts
  * does not get every player back in the same instant; and the wait starts short again only once a connection
  * has stayed up, so one that opens and drops at once backs off instead of hammering.
