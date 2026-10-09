@@ -37,7 +37,7 @@ import { WalletButton } from "./wallet-button";
 const STALE_MAP_MS = 3500;
 
 /**
- * skech. Draw ahead of the Bitcoin price; wherever it runs through your ink pays.
+ * skech. Predict where Bitcoin goes next by drawing it on the chart; wherever the price runs through your ink pays.
  *
  * The web's game screen (ui/app/src/components/app/ink/ink-screen.tsx), rule for rule, on the phone and on
  * Solana. The rules are `@skech/core`, the same code the relayer and the chain run. This screen keeps the
@@ -50,7 +50,7 @@ const OPEN_BY_MS = 900;
 const CLOSE_AFTER_MS = 600;
 const CHAIN_ANSWER_MS = 8000;
 /** The chain's name for a drawing: 64 bits of the line's id. */
-// A sha256 in JavaScript for every bet on every price batch was a thousand hashes a second: each line's is kept.
+// A sha256 in JavaScript for every piece on every price batch was a thousand hashes a second: each line's is kept.
 const drawingIds = new Map<string, bigint>();
 const drawingIdOf = (line: string) => {
   let id = drawingIds.get(line);
@@ -558,7 +558,7 @@ export function InkScreen() {
     updateTotals();
   }, [bars, ticks, skew, version, lib, updateTotals]);
 
-  /* Ink is bet as it is drawn: every few moments while the pen is down, the ink added since the last piece opens on the next second. */
+  /* Ink goes in as it is drawn: every few moments while the pen is down, the ink added since the last piece opens on the next second. */
   const onPlace = useCallback(
     (stroke: Stroke, line: string, done: boolean): Placed => {
       const g = game.current;
@@ -769,7 +769,7 @@ export function InkScreen() {
   const pillTop = top + 116;
   // What skech keeps, as the relayer says it; nothing numeric until it has.
   const fees = chain.hello?.terms ?? null;
-  // The balance, green and a little larger for a moment on a win, and what just moved it under it.
+  // The balance, green and a little larger for a moment when money comes back, and what just moved it under it.
   const balance = (
     <>
       <Text className="text-[12px] text-muted-foreground">Balance</Text>
@@ -821,8 +821,8 @@ export function InkScreen() {
                   {balance}
                 </View>
               )}
-              <Pressable accessibilityLabel={`Won: ${money(displayedWon)}. Open the scoreboard`} className="items-end" onPress={gate.openScoreboard}>
-                <Text className="text-[12px] text-muted-foreground">Won</Text>
+              <Pressable accessibilityLabel={`Earned: ${money(displayedWon)}. Open this session`} className="items-end" onPress={gate.openScoreboard}>
+                <Text className="text-[12px] text-muted-foreground">Earned</Text>
                 <Text className={cn("font-semibold text-[16px]", displayedWon > 0 ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
                   {displayedWon > 0 ? `+${money(displayedWon)}` : money(0)}
                 </Text>
@@ -851,7 +851,7 @@ export function InkScreen() {
                     In play <Text className="font-semibold text-foreground">{money(preview.cost)}</Text>
                   </Text>
                   <Text className="text-[14px] text-muted-foreground">
-                    Could win <Text className="font-semibold text-brand">{money(preview.high)}</Text>
+                    Could earn <Text className="font-semibold text-brand">{money(preview.high)}</Text>
                   </Text>
                 </>
               ) : (
@@ -868,7 +868,7 @@ export function InkScreen() {
         </Pill>
       ) : null}
 
-      {/* The round just over: a win springs in, in the middle; a loss is a small toast bottom right, as on the web's phone. */}
+      {/* The round just over: a profit springs in, in the middle; a loss is a small toast bottom right, as on the web's phone. */}
       {over && !preview ? (
         <View className={cn("absolute z-20", overWon ? "inset-x-0 items-center" : "right-4")} key={over.key} pointerEvents="none" style={{ bottom: bottom + 78 }}>
           <Arrive motion={overBig ? MOTION.cardBig : overWon ? MOTION.cardIn : MOTION.cardSoft}>
@@ -965,7 +965,7 @@ export function InkScreen() {
               setSettingsOpen(false);
               gate.openScoreboard();
             }}
-            trailing={board.won > 0 ? <Text className="text-success-foreground">{`+${money(board.won)} won`}</Text> : null}
+            trailing={board.won > 0 ? <Text className="text-success-foreground">{`+${money(board.won)} earned`}</Text> : null}
           >
             This session
           </NavRow>
@@ -981,12 +981,12 @@ export function InkScreen() {
         </View>
       </Sheet>
 
-      <Sheet description={forReal ? `Real money, on the live Bitcoin price, on ${chain.hello?.label ?? "Solana"}.` : "Practice money, on the live Bitcoin price."} onClose={() => setHelp(false)} open={help} title="How it works">
+      <Sheet description={`Predict where Bitcoin goes next: draw it on the chart. ${forReal ? `Real USDC, on the live price, on ${chain.hello?.label ?? "Solana"}.` : "Practice money, on the live price."}`} onClose={() => setHelp(false)} open={help} title="How it works">
         {[
-          "Draw ahead of the live price. One full dot at your selected pen size costs the amount under Per dot. A longer stroke costs more; retracing ink in the same drawing adds no cost. The total cost rounds up to the next cent, once per drawing.",
-          "Every part of your ink pays a rung of the ladder on the map, 1× up to 128× what it cost, if the price crosses it in its second. Rungs come from the chance the price reaches that spot then: near the price and soon is likely and pays little; far away pays a lot. A wider pen puts more ink, and more money, on the same spots; it never changes what a spot pays. Only solid blue ink is in play. A hit pays immediately.",
-          "Ink is bet as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing. The drawing’s cost rounds up to the cent once, over all of it.",
-          "Placing a drawing takes its stake from your balance straight away; what just moved your balance shows under it. The number beside it is what you have won: this round’s payouts while ink is in play, this session’s otherwise. Tap it for the scoreboard. Hits pay the moment the price touches them; the rest settles when its second closes.",
+          "Draw the path you think the price will take over the next seconds, ahead of the live price. One full dot at your selected pen size costs the amount under Per dot. A longer stroke costs more; retracing ink in the same drawing adds no cost. The total cost rounds up to the next cent, once per drawing.",
+          "Every part of your ink is a call on where the price will be in that second. The map shows what each spot returns if the price crosses it then, 1× up to 128× what it cost. The multiple comes from the chance the price reaches that spot: near the price and soon is likely and returns little; far away returns a lot. A wider pen puts more ink, and more money, on the same spots; it never changes what a spot returns. Only solid blue ink is in play. A correct call pays out immediately.",
+          "Your call goes in as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing. The drawing’s cost rounds up to the cent once, over all of it.",
+          "Placing a drawing takes its cost from your balance straight away; what just moved your balance shows under it. The number beside it is what you have earned: this round’s returns while ink is in play, this session’s otherwise. Tap it for the session so far. Correct calls pay out the moment the price touches them; the rest settles when its second closes.",
           `Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches ${RULES.horizon} seconds ahead.`,
         ].map((p) => (
           <Text className="text-[15px] text-foreground leading-relaxed" key={p.slice(0, 24)}>
@@ -994,9 +994,9 @@ export function InkScreen() {
           </Text>
         ))}
         <Text className="text-[15px] text-muted-foreground leading-relaxed">
-          {`Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns ${Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for ${difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. `}
+          {`Multiples are set from historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns ${Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for ${difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Calls are resolved using one-second price ranges. `}
           {forReal
-            ? `${fees ? `skech keeps ${fees.feeBps / 100}% of every stake and ${fees.profitFeeBps / 100}% of every win.` : "skech keeps a share of every stake and of every win."} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
+            ? `${fees ? `skech keeps ${fees.feeBps / 100}% of what you put in and ${fees.profitFeeBps / 100}% of the profit on every correct call.` : "skech keeps a share of what you put in and of the profit on every correct call."} Profits are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
             : "Your balance is practice money saved on this phone."}
         </Text>
       </Sheet>
