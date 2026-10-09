@@ -1,6 +1,12 @@
 # @skech/contracts
 
-Foundry. skech on Monad: three contracts behind ERC-1967 proxies (UUPS).
+Foundry. skech as EVM contracts: three contracts behind ERC-1967 proxies (UUPS), written for Monad.
+
+> **Kept, not deployed or used.** The game runs on Solana (`../solana`); nothing in the repo deploys these,
+> and no server or app talks to them. They stay as the reference the Solana program is held to: the
+> conformance cases (`../conformance`) and the ladder vectors play both, and the engine's signature vector is
+> recovered here. `../deployments/10143.json` records where they were last deployed, on Monad testnet. The
+> Monad relayer and `bun run deploy:contracts` were removed; the notes below are as they were.
 
 | Contract | What it is |
 | --- | --- |
@@ -40,9 +46,7 @@ signs and the Solidity that checks cannot drift.
 ## Deploy
 
 ```bash
-# from the repo root: ENGINE_PRIVATE_KEY deploys and is the oracle, ENGINE_CHAIN_ID picks the chain (10143)
-bun run deploy:contracts               # --dry-run: gas and addresses, nothing sent
-# by hand
+# by hand; there is no longer a wrapper for it
 ORACLE_ADDRESS=<engine signer> forge script script/Deploy.s.sol:Deploy --rpc-url monad_testnet --broadcast --private-key <deployer>
 ```
 

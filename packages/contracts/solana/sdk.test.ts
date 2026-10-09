@@ -41,7 +41,7 @@ test("the Ed25519 instruction points at the piece inside place", () => {
   expect([d[0], v.getUint16(2, true), v.getUint16(4, true), v.getUint16(6, true), v.getUint16(8, true), v.getUint16(10, true), v.getUint16(12, true), v.getUint16(14, true)]).toEqual([1, 48, 0xffff, 16, 0xffff, 8, 172, 2]);
 });
 
-test("the default config is Monad's, as SkechGame.initialize writes it", async () => {
+test("the default config is the EVM game's, as SkechGame.initialize writes it", async () => {
   const sol = await Bun.file(new URL("../evm/src/SkechGame.sol", import.meta.url)).text();
   const init = sol.slice(sol.indexOf("function initialize("));
   const body = init.slice(init.indexOf("Config({") + 8, init.indexOf("})"));

@@ -1,5 +1,5 @@
 /**
- * The conformance cases: one game, played the same way on Monad (evm/) and Solana (solana/), step by step.
+ * The conformance cases: one game, played the same way on the EVM contracts (evm/) and Solana (solana/), step by step.
  * `generate.ts` runs each through the reference model (`reference.ts`, on `@skech/core`'s ladder) and writes what
  * must come out of every step to `vectors.json`; `evm/test/Conformance.t.sol` and `solana/tests/src/conformance.rs`
  * replay the same file against the real contracts and check every number.

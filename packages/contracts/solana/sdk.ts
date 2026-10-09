@@ -101,7 +101,7 @@ export const SECTION_BYTES = 11;
 export const ED25519_PROGRAM = address("Ed25519SigVerify111111111111111111111111111");
 export const INSTRUCTIONS_SYSVAR = address("Sysvar1nstructions1111111111111111111111111");
 
-/** `Config::DEFAULT`, what `initialize` sets: Monad's terms (`SkechGame.initialize`), and a session of 30 days at most. */
+/** `Config::DEFAULT`, what `initialize` sets: the EVM game's terms (`SkechGame.initialize`), and a session of 30 days at most. */
 export const DEFAULT_CONFIG: Config = {
   feeBps: 400,
   profitFeeBps: 1000,

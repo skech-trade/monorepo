@@ -1,6 +1,6 @@
 /**
  * The ladder as `@skech/core` computes it, printed for both chains' tests to check their own against, row for row:
- * `solana/tests/src/ladder.rs` and `evm/test/LadderVectors.t.sol`. So core, Solana and Monad are held to one table.
+ * `solana/tests/src/ladder.rs` and `evm/test/LadderVectors.t.sol`. So core, Solana and the EVM contracts are held to one table.
  *
  *   bun packages/contracts/solana/tests/vectors/ladder.ts          (writes ladder.json)
  *   bun packages/contracts/solana/tests/vectors/ladder.ts --check  (fails if ladder.json is out of date)
