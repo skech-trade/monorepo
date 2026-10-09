@@ -11,8 +11,9 @@ import { practice } from "./practice";
   The rules the sounds follow:
   - A tap is heard the instant the finger lands, as a drop of ink.
   - Drawing sounds like a pen on paper: a soft scratch that follows the hand's speed and stops with it.
-  - A hit is coins, pitched up by the streak: the third hit in a row sounds higher than the first.
-  - A big hit adds a sparkle; a big round adds a fanfare.
+  - A hit is a chime, clean and short, as a payments app confirms money in: a run of correct calls lifts it a
+    little each time, and a bigger multiple rings two or three notes up instead of one.
+  - A round that came out ahead is a chord, fuller the more it made. No coins, no fanfare: money, not a machine.
   - A miss is a soft knock, heard and not felt.
   - One at a time: see feel(), at the bottom.
   - Anything refused is a short low double note, never a buzzer.
@@ -92,7 +93,7 @@ function tone({ freq, to, at = 0, dur, gain, type = "sine", attack = 0.004 }: To
   };
 }
 
-/** A burst of filtered noise: the wet edge of a drop, the rattle of a coin. */
+/** A burst of filtered noise: the wet edge of a drop, the click of a piece going in. */
 function hiss(at: number, dur: number, gain: number, freq: number, q = 1.2) {
   const a = ctx();
   if (!a || !bus) return;
@@ -119,7 +120,22 @@ function hiss(at: number, dur: number, gain: number, freq: number, q = 1.2) {
 // A major pentatonic from A5: whatever order the notes come in, they never clash.
 const PENTA = [0, 2, 4, 7, 9];
 const note = (step: number, base = 880) => base * 2 ** ((12 * Math.floor(step / 5) + PENTA[((step % 5) + 5) % 5]) / 12);
+// A major triad and its octave, as steps of that scale.
+const MAJOR = [0, 2, 3, 5];
 
+/** One clean chime: a sine with a quiet octave over it for the glassy edge, struck fast and let ring. */
+function chime(freq: number, at: number, gain: number, dur = 0.32) {
+  tone({ freq, at, dur, gain, attack: 0.003 });
+  tone({ freq: freq * 2, at, dur: dur * 0.45, gain: gain * 0.22, attack: 0.002 });
+}
+
+/** A chord, its notes a few milliseconds apart so it blooms rather than clicks; softer and longer than a chime. */
+function chord(steps: number[], base: number, at: number, gain: number, dur: number) {
+  steps.forEach((s, i) => {
+    tone({ freq: note(s, base), at: at + i * 0.012, dur, gain, attack: 0.012 });
+    tone({ freq: note(s, base) * 2, at: at + i * 0.012, dur: dur * 0.5, gain: gain * 0.18, type: "triangle", attack: 0.008 });
+  });
+}
 
 /*
   The pen: looped noise shaped into the scratch of a nib on paper. A bandpass high in the treble is the nib,
@@ -192,7 +208,7 @@ export const sound = {
     hiss(0, 0.03, 0.05, 3200, 1.4);
   },
 
-  /** A piece the chain took: a chip set down on the felt, a hard clack with a low knock under it. */
+  /** A piece the chain took: a crisp click, an order going in, with a low knock under it. */
   placed: () => {
     if (!on()) return;
     hiss(0, 0.018, 0.09, 4200, 3);
@@ -202,53 +218,38 @@ export const sound = {
   },
 
   /**
-   * Coins, as many as the hit deserves, and a combo: every hit in a row a step higher, up an octave, with a bell
-   * over them from the third.
+   * A correct call: one chime, a step up the scale for each call in a run (up to a sixth, so it lifts without
+   * squealing). Four times or more rings a second note higher up the scale; ten or more a third, and a soft
+   * octave under them for body.
    */
-  hit: (multiple: number, streak = 0) => {
+  hit: (multiple: number, run = 0) => {
     if (!on()) return;
-    const lift = 2 ** (Math.min(streak, 12) / 12);
-    const coins = multiple >= 32 ? 7 : multiple >= 10 ? 5 : multiple >= 4 ? 3 : 2;
-    if (streak >= 2) {
-      tone({ freq: note(12 + Math.min(streak, 12), 440), dur: 0.5, gain: 0.03, type: "triangle", attack: 0.002 });
-      tone({ freq: note(19 + Math.min(streak, 12), 440), at: 0.04, dur: 0.35, gain: 0.015 });
+    const root = Math.min(run, 4);
+    chime(vary(note(root), 6), 0, 0.06);
+    if (multiple >= 4) chime(note(root + 2), 0.07, 0.045);
+    if (multiple >= 10) {
+      chime(note(root + 3), 0.14, 0.04, 0.45);
+      tone({ freq: note(root, 440), at: 0.07, dur: 0.5, gain: 0.025, type: "triangle", attack: 0.01 });
     }
-    for (let i = 0; i < coins; i++) {
-      const t = i * 0.06;
-      const f = vary(1318.5 * lift * (1 + i * 0.12), 10);
-      tone({ freq: f, at: t, dur: 0.2, gain: 0.05 });
-      tone({ freq: f * 1.5, at: t, dur: 0.11, gain: 0.02 });
-      tone({ freq: f * 2.01, at: t, dur: 0.06, gain: 0.012 });
-      hiss(t, 0.025, 0.02, 6000, 2);
-    }
-    // A big hit: a sparkle running up over the coins, and for the biggest a cascade of more coins after it.
-    if (multiple >= 10) for (let i = 0; i < 5; i++) tone({ freq: note(10 + i, 880) * lift, at: 0.22 + i * 0.045, dur: 0.16, gain: 0.03, type: "triangle" });
-    if (multiple >= 32)
-      for (let i = 0; i < 10; i++) {
-        const t = 0.45 + i * 0.05 + Math.random() * 0.02;
-        tone({ freq: vary(1568 + (i % 4) * 220, 25), at: t, dur: 0.14, gain: 0.028 });
-        hiss(t, 0.02, 0.015, 7000, 2);
-      }
   },
 
-  /** Ink the price missed: a short, soft knock on the felt. Quiet: the money is shown, not rubbed in. */
+  /** Ink the price missed: a short, soft knock on the desk. Quiet: the money is shown, not rubbed in. */
   miss: () => {
     if (!on()) return;
     tone({ freq: 150, to: 95, dur: 0.07, gain: 0.035, attack: 0.002 });
     hiss(0, 0.02, 0.012, 900, 1);
   },
 
-  /** A round that came out ahead: a rising chord, fuller the more it made; five times the stake or more, a fanfare. */
+  /**
+   * A round that came out ahead: a major chord with a chime on top. Three times its cost or more, the octave and a
+   * brighter top note; five times or more, a warm chord a fourth below resolving into it, longer, never louder.
+   */
   win: (ratio: number) => {
     if (!on()) return;
-    const steps = ratio >= 3 ? [0, 2, 4, 5, 7] : [0, 2, 4];
-    steps.forEach((s, i) => tone({ freq: note(5 + s, 440), at: 0.05 + i * 0.075, dur: 0.35, gain: 0.045, type: "triangle" }));
-    if (ratio >= 3) steps.forEach((s, i) => tone({ freq: note(10 + s, 440), at: 0.4 + i * 0.05, dur: 0.25, gain: 0.02 }));
-    if (ratio >= 5) {
-      [0, 4, 7, 12].forEach((s, i) => tone({ freq: note(12 + s, 440), at: 0.75 + i * 0.09, dur: 0.6, gain: 0.04, type: "triangle" }));
-      [0, 4, 7].forEach((s) => tone({ freq: note(s, 440), at: 1.12, dur: 0.9, gain: 0.03 }));
-      sound.hit(32, 6);
-    }
+    const at = ratio >= 5 ? 0.16 : 0;
+    if (ratio >= 5) chord([0, 2, 3], 440 * 2 ** (-7 / 12), 0, 0.03, 0.5);
+    chord(ratio >= 3 ? MAJOR : [0, 2, 3], 440, at, 0.035, ratio >= 5 ? 1.2 : 0.8);
+    chime(note(ratio >= 3 ? 3 : 0), at + 0.05, 0.04, 0.5);
   },
 
   /** Refused: ink that could not go in, not enough money. Short, low, twice. */
@@ -258,11 +259,12 @@ export const sound = {
     tone({ freq: 196, at: 0.09, dur: 0.09, gain: 0.05, type: "triangle" });
   },
 
-  /** Money arrived: a till, then a bright chord. */
+  /** Money arrived: two chimes up a major third, as a payments app says it landed, over a soft chord. */
   cash: () => {
     if (!on()) return;
-    sound.hit(4);
-    [0, 2, 4, 7].forEach((s, i) => tone({ freq: note(5 + s, 440), at: 0.2 + i * 0.07, dur: 0.4, gain: 0.04, type: "triangle" }));
+    chime(note(0), 0, 0.055);
+    chime(note(2), 0.09, 0.05, 0.45);
+    chord(MAJOR, 440, 0.16, 0.025, 0.7);
   },
 };
 
@@ -270,7 +272,7 @@ export const sound = {
   Touch: the phone's own haptic engine. Few and short, as good apps use it: one or two pulses a moment, never a
   rattle, and only for what is worth feeling. A piece landing and a miss are heard, not felt.
 */
-export type Feel = "tap" | "tick" | "placed" | "hit" | "combo" | "big" | "win" | "jackpot" | "miss" | "nope" | "cash";
+export type Feel = "tap" | "tick" | "placed" | "hit" | "run" | "big" | "win" | "great" | "miss" | "nope" | "cash";
 
 // A pattern's later pulses, so the next pattern can cancel them instead of buzzing over them.
 let pulses: ReturnType<typeof setTimeout>[] = [];
@@ -281,7 +283,7 @@ const HAPTIC: Record<Feel, (() => void) | null> = {
   tick: () => void Haptics.selectionAsync(),
   placed: null,
   hit: () => impact(Haptics.ImpactFeedbackStyle.Medium),
-  combo: () => {
+  run: () => {
     impact(Haptics.ImpactFeedbackStyle.Medium);
     later(90, () => impact(Haptics.ImpactFeedbackStyle.Light));
   },
@@ -290,17 +292,16 @@ const HAPTIC: Record<Feel, (() => void) | null> = {
     later(120, () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
   },
   win: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
-  jackpot: () => {
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    later(260, () => impact(Haptics.ImpactFeedbackStyle.Heavy));
-    later(520, () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+  great: () => {
+    impact(Haptics.ImpactFeedbackStyle.Medium);
+    later(160, () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
   },
   miss: null,
   nope: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning),
   cash: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
 };
 // How long each pattern keeps the motor, ms: nothing else is felt until it is done.
-const MOTOR: Record<Feel, number> = { tap: 40, tick: 70, placed: 0, hit: 90, combo: 160, big: 220, win: 200, jackpot: 650, miss: 0, nope: 200, cash: 200 };
+const MOTOR: Record<Feel, number> = { tap: 40, tick: 70, placed: 0, hit: 90, run: 160, big: 220, win: 200, great: 360, miss: 0, nope: 200, cash: 200 };
 let motorUntil = 0;
 
 /** Plays a pattern now, cutting off whatever pattern was still running. */
@@ -328,8 +329,8 @@ function sounds(kind: Feel, detail?: Detail) {
   if (kind === "tap") sound.drop();
   // "tick" is touch only: the pen's own sound comes from pen.move.
   else if (kind === "placed") sound.placed();
-  else if (kind === "hit" || kind === "combo" || kind === "big") sound.hit(detail?.multiple ?? 2, detail?.streak ?? 0);
-  else if (kind === "win" || kind === "jackpot") sound.win(detail?.ratio ?? 1);
+  else if (kind === "hit" || kind === "run" || kind === "big") sound.hit(detail?.multiple ?? 2, detail?.run ?? 0);
+  else if (kind === "win" || kind === "great") sound.win(detail?.ratio ?? 1);
   else if (kind === "miss") sound.miss();
   else if (kind === "nope") sound.nope();
   else if (kind === "cash") sound.cash();
@@ -342,13 +343,14 @@ function sounds(kind: Feel, detail?: Detail) {
   one kind becomes one, the biggest of it. Whatever waited too long to still mean something is dropped, and a win
   doesn't wait behind a hit. The finger is the exception: a tap is heard and felt the instant it lands.
 */
-type Detail = { multiple?: number; streak?: number; ratio?: number };
-const RANK: Record<Feel, number> = { tap: 0, tick: 0, miss: 1, placed: 2, nope: 3, hit: 4, combo: 5, big: 6, cash: 7, win: 7, jackpot: 8 };
+/** `run`: correct calls in a row before this one. */
+type Detail = { multiple?: number; run?: number; ratio?: number };
+const RANK: Record<Feel, number> = { tap: 0, tick: 0, miss: 1, placed: 2, nope: 3, hit: 4, run: 5, big: 6, cash: 7, win: 7, great: 8 };
 // How long each has the stage before the next may play, ms.
-const HOLD: Record<Feel, number> = { tap: 0, tick: 0, miss: 120, placed: 140, nope: 220, hit: 240, combo: 320, big: 560, cash: 600, win: 700, jackpot: 1500 };
+const HOLD: Record<Feel, number> = { tap: 0, tick: 0, miss: 120, placed: 140, nope: 220, hit: 240, run: 260, big: 420, cash: 600, win: 700, great: 1100 };
 // How long each may wait its turn and still mean something, ms.
-const FRESH: Record<Feel, number> = { tap: 0, tick: 0, miss: 250, placed: 400, nope: 400, hit: 700, combo: 700, big: 1000, cash: 2000, win: 2000, jackpot: 2500 };
-const family = (k: Feel) => (k === "hit" || k === "combo" || k === "big" ? "hit" : k === "jackpot" ? "win" : k);
+const FRESH: Record<Feel, number> = { tap: 0, tick: 0, miss: 250, placed: 400, nope: 400, hit: 700, run: 700, big: 1000, cash: 2000, win: 2000, great: 2500 };
+const family = (k: Feel) => (k === "hit" || k === "run" || k === "big" ? "hit" : k === "great" ? "win" : k);
 
 let queue: { kind: Feel; detail?: Detail; at: number }[] = [];
 let stageUntil = 0;
@@ -393,7 +395,7 @@ export function feel(kind: Feel, detail?: Detail) {
   if (same) {
     if (RANK[kind] > RANK[same.kind]) same.kind = kind;
     const d = same.detail ?? {};
-    same.detail = { multiple: Math.max(d.multiple ?? 0, detail?.multiple ?? 0) || undefined, streak: Math.max(d.streak ?? 0, detail?.streak ?? 0), ratio: Math.max(d.ratio ?? 0, detail?.ratio ?? 0) || undefined };
+    same.detail = { multiple: Math.max(d.multiple ?? 0, detail?.multiple ?? 0) || undefined, run: Math.max(d.run ?? 0, detail?.run ?? 0), ratio: Math.max(d.ratio ?? 0, detail?.ratio ?? 0) || undefined };
   } else queue.push({ kind, detail, at: now });
   next();
 }

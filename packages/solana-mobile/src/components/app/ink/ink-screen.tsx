@@ -355,7 +355,7 @@ export function InkScreen() {
     const streak = scoreboard().streak;
     setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false, best: t.best, streak });
     const ratio = t.cost > 0 ? t.won / t.cost : 1;
-    if (t.won > t.cost) feel(ratio >= 5 ? "jackpot" : "win", { ratio });
+    if (t.won > t.cost) feel(ratio >= 5 ? "great" : "win", { ratio });
     else if (!t.hits) hitRun.current.n = 0;
   };
   const gate = useGate();
@@ -507,7 +507,7 @@ export function InkScreen() {
               const run = hitRun.current;
               run.n = performance.now() - run.at < 6000 ? run.n + 1 : 0;
               run.at = performance.now();
-              feel(best >= 10 ? "big" : run.n >= 2 ? "combo" : "hit", { multiple: best, streak: run.n });
+              feel(best >= 10 ? "big" : run.n >= 2 ? "run" : "hit", { multiple: best, run: run.n });
             }
           }
           // Ink the price passed by: what it staked, shown as lost there, in red, as a hit shows what it paid.

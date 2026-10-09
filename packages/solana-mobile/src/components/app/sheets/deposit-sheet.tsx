@@ -390,7 +390,7 @@ const SPARKLES = [
 
 /** The deposit landed: how much, what the balance is now, and the way back to the game. */
 function Landed({ amount, balance, onStart }: { amount: number; balance: number; onStart: () => void }) {
-  // Money in is the best news the app has: a till and a bright chord, felt as well as heard.
+  // Money in is the best news the app has: two rising chimes over a soft chord, felt as well as heard.
   useEffect(() => {
     feel("cash");
   }, []);
