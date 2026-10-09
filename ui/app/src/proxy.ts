@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
-import { ENGINE_URL, RELAYER_URL, RPC_URL } from "@/lib/endpoints";
+import { NETWORK } from "@/lib/chain";
+import { ENGINE_URL, RELAYER_URL } from "@/lib/endpoints";
 import { SENTRY_DSN } from "@/lib/sentry";
 import { THEME_BOOT } from "@/lib/theme-boot";
 
@@ -16,7 +17,9 @@ import { THEME_BOOT } from "@/lib/theme-boot";
   Privy's sign-in, as its CSP guide lists it (docs.privy.io, Content Security Policy): its API and the iframe
   that holds the wallet's key (auth.privy.io), its RPCs (*.rpc.privy.systems), Cloudflare's Turnstile for its
   bot check (challenges.cloudflare.com), and WalletConnect, which the SDK loads whether or not anyone connects
-  an outside wallet. Google and Apple sign-in are a redirect, which no directive here covers.
+  an outside wallet. Google and Apple sign-in are a redirect, which no directive here covers. For Solana it
+  lists the clusters' public RPCs, which its SDK falls back to with none of ours configured: the one of the
+  cluster the game is on. The app itself reads the chain only through the relayer.
 */
 
 const PRIVY_FRAMES = ["https://auth.privy.io", "https://verify.walletconnect.com", "https://verify.walletconnect.org"];
@@ -43,7 +46,7 @@ const REPORT_URI = (() => {
 
 function policy(nonce: string) {
   const dev = process.env.NODE_ENV === "development";
-  const connect = ["'self'", ...new Set([ENGINE_URL, RELAYER_URL, RPC_URL].map(origin).filter(Boolean)), ...PRIVY_CONNECT];
+  const connect = ["'self'", ...new Set([ENGINE_URL, RELAYER_URL, NETWORK.rpc].map(origin).filter(Boolean)), ...PRIVY_CONNECT];
   return [
     "default-src 'self'",
     // React rebuilds server error stacks with eval in development only.
