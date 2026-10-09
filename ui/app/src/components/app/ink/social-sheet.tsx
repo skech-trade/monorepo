@@ -1,15 +1,17 @@
 "use client";
 
-import { ArrowLeftIcon, CheckIcon, RadioIcon, Share2Icon, TrophyIcon, UserIcon, UsersIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { BIO_MAX, playerHue, playerName, usernameProblem, type LeaderboardRow, type PlayerProfile, type ProfileResponse, type PublicDrawing, type SocialWindow } from "@skech/core/social";
+import { ArrowLeftIcon, CheckIcon, RadioIcon, Share2Icon, ShuffleIcon, TrophyIcon, UserIcon, UsersIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { BIO_MAX, playerName, usernameProblem, type LeaderboardRow, type PlayerProfile, type ProfileResponse, type PublicDrawing, type SocialWindow } from "@skech/core/social";
 import { useAccount } from "@/components/app/auth";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { PlayerAvatar } from "@/components/app/player-avatar";
+import { Avatar, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { explorerTx } from "@/lib/chain";
-import { avatarFrom, avatarUrl, socialAction, socialMoney, socialRequest, useSocial } from "@/lib/social";
+import { AVATAR_CREDIT, avatarChoices, dylanUri } from "@/lib/avatar";
+import { avatarFrom, cacheProfile, socialAction, socialMoney, socialRequest, useSocial } from "@/lib/social";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "../theme-toggle";
 import { useGate } from "./gate";
@@ -35,15 +37,41 @@ const windows: { value: SocialWindow; label: string }[] = [
 ];
 const quietCard = "rounded-[18px] bg-muted";
 
-export function PlayerAvatar({ profile, className }: { profile: PlayerProfile; className?: string }) {
-  const hue = playerHue(profile.player);
+/** The avatars' licence, where they are chosen and shown. */
+export function AvatarCredit({ className }: { className?: string }) {
   return (
-    <Avatar className={cn("size-10 ring-1 ring-foreground/5", className)}>
-      <AvatarImage alt="" src={avatarUrl(profile)} />
-      <AvatarFallback className="font-semibold text-white" style={{ background: `linear-gradient(135deg, oklch(.72 .12 ${hue}), oklch(.52 .14 ${hue + 45}))` }}>
-        {playerName(profile).slice(0, 1).toUpperCase()}
-      </AvatarFallback>
-    </Avatar>
+    <p className={cn("text-[11px] text-muted-foreground leading-snug", className)}>
+      Avatars:{" "}
+      <a className="underline underline-offset-2" href={AVATAR_CREDIT.source} rel="noopener noreferrer" target="_blank">
+        “Dylan”
+      </a>{" "}
+      by Natalia Spivak,{" "}
+      <a className="underline underline-offset-2" href={AVATAR_CREDIT.licence} rel="noopener noreferrer" target="_blank">
+        CC BY 4.0
+      </a>
+    </p>
+  );
+}
+
+/** Who is playing now: their faces in a row, each a way to their profile. */
+function PlayingNow({ onPlayer }: { onPlayer: (player: string) => void }) {
+  const { playing } = useSocial();
+  if (!playing.length) return <p className="px-1 text-[13px] text-muted-foreground">Nobody is playing right now.</p>;
+  return (
+    <div className={cn(quietCard, "flex flex-col gap-2.5 p-3")}>
+      <span className="flex items-center gap-2 text-[13px]">
+        <span className="size-2 rounded-full bg-success" />
+        <strong className="font-semibold">{playing.length}</strong> playing now
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {playing.map((p) => (
+          <button aria-label={`Open ${playerName(p)}'s profile`} className="flex flex-col items-center gap-1" key={p.player} onClick={() => onPlayer(p.player)} title={playerName(p)} type="button">
+            <PlayerAvatar className="size-10" profile={p} />
+            <span className="max-w-12 truncate text-[10px] text-muted-foreground">{playerName(p)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -181,6 +209,7 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
                     <span className={cn("size-1.5 rounded-full", social.connected ? "bg-success" : "bg-muted-foreground")} />
                     {social.connected ? "Live" : "Reconnecting…"}
                   </div>
+                  <PlayingNow onPlayer={viewPlayer} />
                   <div className={cn(quietCard, "p-3")}>
                     <span className="text-muted-foreground text-xs">Ink on your chart</span>
                     <div className="mt-2 flex gap-1">
@@ -250,6 +279,7 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
               )}
             </>
           )}
+          <AvatarCredit className="mt-auto px-1 pt-2" />
         </SheetPanel>
       </SheetPopup>
     </Sheet>
@@ -332,6 +362,8 @@ function ProfileView({ player, window, onDrawing }: { player: string; window: So
       <EditProfile
         onCancel={() => setEditing(false)}
         onSaved={(profile) => {
+          // Everywhere at once: the bar's face, the feed, the board.
+          cacheProfile(profile);
           setData({ ...data, profile });
           setEditing(false);
         }}
@@ -424,10 +456,15 @@ function EditProfile({ profile, onCancel, onSaved }: { profile: PlayerProfile; o
   const me = useAccount();
   const [username, setUsername] = useState(profile.username ?? "");
   const [bio, setBio] = useState(profile.bio);
-  // undefined: keep the avatar; null: none; a data URL: this one.
+  // The Dylan avatar chosen: its seed (the address's own is null).
+  const [seed, setSeed] = useState<string | null>(profile.avatarSeed);
+  const [page, setPage] = useState(0);
+  // undefined: keep the uploaded picture; null: none; a data URL: this one.
   const [image, setImage] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const choices = useMemo(() => [profile.player, ...avatarChoices(profile.player, page * 8 + 1, 8)], [profile.player, page]);
+  const picture = image === undefined ? profile.avatar : image !== null;
   const chooseAvatar = async (file?: File) => {
     if (!file) return;
     try {
@@ -449,7 +486,7 @@ function EditProfile({ profile, onCancel, onSaved }: { profile: PlayerProfile; o
         setBusy(true);
         setError(null);
         try {
-          const result = await socialAction<{ profile: PlayerProfile }>(me.address, "profile", { username, bio, ...(image !== undefined ? { image } : {}) }, me.signMessage);
+          const result = await socialAction<{ profile: PlayerProfile }>(me.address, "profile", { username, bio, avatarSeed: seed, ...(image !== undefined ? { image } : {}) }, me.signMessage);
           onSaved(result.profile);
         } catch (e) {
           setError((e as Error).message);
@@ -465,22 +502,53 @@ function EditProfile({ profile, onCancel, onSaved }: { profile: PlayerProfile; o
       <div className="flex items-center gap-4">
         {image ? (
           <Avatar className="size-16">
-            <AvatarImage alt="Your new avatar" src={image} />
+            <AvatarImage alt="Your new picture" src={image} />
           </Avatar>
         ) : (
-          <PlayerAvatar className="size-16" profile={{ ...profile, avatar: image === null ? false : profile.avatar }} />
+          <PlayerAvatar className="size-16" profile={{ player: profile.player, avatar: picture, avatarSeed: seed }} />
         )}
         <div className="flex flex-col items-start gap-1">
-          <label className="cursor-pointer rounded-full bg-secondary px-3.5 py-2 font-semibold text-[13px]">
-            Choose a picture
+          <span className="font-medium text-[13px]">{picture ? "Your picture" : "Your avatar"}</span>
+          <label className="cursor-pointer text-[13px] text-muted-foreground underline underline-offset-4">
+            Upload a photo instead
             <input accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => void chooseAvatar(e.target.files?.[0])} type="file" />
           </label>
-          {(profile.avatar && image !== null) || image ? (
-            <button className="min-h-9 px-1 text-[13px] text-muted-foreground" onClick={() => setImage(null)} type="button">
-              Remove picture
+          {picture ? (
+            <button className="text-[13px] text-muted-foreground underline underline-offset-4" onClick={() => setImage(null)} type="button">
+              Use an avatar
             </button>
           ) : null}
         </div>
+      </div>
+      <div aria-label="Avatars" className="grid grid-cols-3 gap-2" role="radiogroup">
+        {choices.map((choice) => {
+          const value = choice === profile.player ? null : choice;
+          const on = !picture && value === seed;
+          return (
+            <button
+              aria-checked={on}
+              aria-label={value ? `Avatar ${choice.split(":")[1]}` : "Your address's avatar"}
+              className={cn("flex aspect-square items-center justify-center rounded-[18px] bg-muted p-2 transition-shadow", on && "ring-2 ring-brand")}
+              key={choice}
+              onClick={() => {
+                setSeed(value);
+                if (picture) setImage(null);
+              }}
+              role="radio"
+              type="button"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- an inline SVG data URI */}
+              <img alt="" className="size-full rounded-full" src={dylanUri(choice)} />
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <Button className="rounded-full" onClick={() => setPage(1 + Math.floor(Math.random() * 100_000))} size="sm" type="button" variant="secondary">
+          <ShuffleIcon />
+          Shuffle
+        </Button>
+        <AvatarCredit />
       </div>
       <label className="flex flex-col gap-2 text-[13px]">
         Username

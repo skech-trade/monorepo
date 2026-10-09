@@ -1,6 +1,6 @@
 "use client";
 
-import { type ComponentType, createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { type ComponentType, createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { identify, track } from "@/lib/analytics";
 import type { Bridge } from "./privy";
 
@@ -70,8 +70,21 @@ const Ctx = createContext<Account>(SIGNED_OUT);
 const SignInCtx = createContext<() => void>(() => undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const testing = useTestAccount();
+  if (testing) return <Ctx.Provider value={testing}>{children}</Ctx.Provider>;
   if (!hasAuth) return <Ctx.Provider value={SIGNED_OUT}>{children}</Ctx.Provider>;
   return <WithPrivy>{children}</WithPrivy>;
+}
+
+/**
+ * For tests in development only (`next dev`; never in a production build): `?as=<address>` shows the page as that
+ * wallet, signed in, with nothing to sign with. Two browsers can then be two players without email codes.
+ */
+const noChange = () => () => undefined;
+function useTestAccount(): Account | null {
+  // The server renders without it; the page takes it on hydrating.
+  const as = useSyncExternalStore(noChange, () => (process.env.NODE_ENV === "production" ? null : new URLSearchParams(window.location.search).get("as")), () => null);
+  return useMemo(() => (as && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(as) ? { ...SIGNED_OUT, signedIn: true, address: as, handle: "Test player" } : null), [as]);
 }
 
 function WithPrivy({ children }: { children: ReactNode }) {

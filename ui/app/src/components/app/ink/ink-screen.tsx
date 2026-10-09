@@ -29,6 +29,7 @@ import { scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { ScoreboardSheet } from "./scoreboard-sheet";
 import { addChange, Ledger } from "./ledger";
 import { WalletButton } from "./wallet-button";
+import { publishStroke } from "@/lib/social";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 import { firstAtOrAfter, fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
@@ -141,6 +142,8 @@ function sendPiece(ch: Chain, { piece, wire }: ReturnType<typeof pieceFor>, stro
       const sig = await sessionKey!.sign(pieceBytes(piece));
       const ack = await client.request({ type: "piece", piece: wire, sessionSig: hexOf(sig), priceSig, stroke: hexOf(stroke) }, (m): m is Extract<Incoming, { type: "ack" }> => m.type === "ack" && m.drawing === wire.drawing && m.index === piece.index, 10_000);
       if (!ack || !ack.ok) fail(ack?.why ?? "No answer. Your money is back.");
+      // Taken: its stroke to the community, so other players see the line (the chain keeps only its hash).
+      else if (ack.betId) publishStroke(ack.betId, hexOf(stroke));
     } catch (e) {
       fail(String((e as Error).message ?? e));
     }

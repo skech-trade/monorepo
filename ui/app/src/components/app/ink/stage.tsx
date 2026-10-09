@@ -7,8 +7,9 @@ import { roundedTerms as areaTerms } from "@skech/core/odds";
 import type { Tick } from "@/lib/engine";
 import { tracePricePath } from "./price-path";
 import { feel, pen as penSound } from "@/lib/feel";
-import { avatarUrl, openPlayerProfile, remoteDrawings, socialMoney, visibleSocialDrawings } from "@/lib/social";
-import { playerHue, playerName, type DrawingPiece } from "@skech/core/social";
+import { openPlayerProfile, remoteDrawings, socialMoney, visibleSocialDrawings } from "@/lib/social";
+import { faceOf } from "@/lib/avatar";
+import { playerHue, type DrawingPiece } from "@skech/core/social";
 
 /**
  * The stage: the price so far on the left, now in the middle, and the space
@@ -1072,30 +1073,27 @@ export function Stage({
         c.arc(ax, ay, 14, 0, Math.PI * 2);
         c.fillStyle = `hsl(${playerHue(drawing.player)}, 45%, ${dark ? 55 : 45}%)`;
         c.fill();
-        const src = avatarUrl(drawing.profile);
-        if (src) {
-          let cached = avatarImages.get(drawing.player);
-          if (!cached || Date.now() - cached.at > 60_000) {
-            if (avatarImages.size > 100) avatarImages.clear();
-            const image = new Image();
-            image.crossOrigin = "anonymous";
-            image.src = src;
-            avatarImages.set(drawing.player, (cached = { image, at: Date.now() }));
-          }
-          if (cached.image.complete && cached.image.naturalWidth) {
-            c.save();
-            c.clip();
-            c.drawImage(cached.image, ax - 14, ay - 14, 28, 28);
-            c.restore();
-          }
+        // Their face (a Dylan avatar, or their picture): an image made once per face, kept.
+        const src = faceOf(drawing.profile);
+        let cached = avatarImages.get(src);
+        if (!cached) {
+          if (avatarImages.size > 100) avatarImages.clear();
+          const image = new Image();
+          if (!src.startsWith("data:")) image.crossOrigin = "anonymous";
+          image.src = src;
+          avatarImages.set(src, (cached = { image, at: Date.now() }));
+        }
+        if (cached.image.complete && cached.image.naturalWidth) {
+          c.save();
+          c.clip();
+          c.fillStyle = rgba(pal.bg);
+          c.fillRect(ax - 14, ay - 14, 28, 28);
+          c.drawImage(cached.image, ax - 14, ay - 14, 28, 28);
+          c.restore();
         }
         c.textAlign = "center";
         c.textBaseline = "middle";
         c.font = `600 12px ${SANS}`;
-        if (!src) {
-          c.fillStyle = "#ffffff";
-          c.fillText(playerName(drawing.profile).slice(0, 1).toUpperCase(), ax, ay + 0.5);
-        }
         c.strokeStyle = rgba(pal.bg);
         c.lineWidth = 2;
         c.stroke();

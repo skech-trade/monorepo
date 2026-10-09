@@ -4,7 +4,6 @@ import { ActivityIcon, ArrowUpRightIcon, LogOutIcon, SquarePlusIcon, TrophyIcon,
 import { useState } from "react";
 import Link from "next/link";
 import { playerName } from "@skech/core/social";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Menu, MenuPopup, MenuSeparator, MenuItem, MenuTrigger } from "@/components/ui/menu";
 import { hasAuth, useAccount } from "./auth";
@@ -16,10 +15,11 @@ import { TransactionsSheet } from "./ink/transactions-sheet";
 import { PRIVATE_TEXT } from "@/lib/analytics";
 import { shortAddress } from "@/lib/market";
 import { money } from "@/lib/money";
-import { avatarUrl, useSocial } from "@/lib/social";
+import { useSocial } from "@/lib/social";
 import { cn } from "@/lib/utils";
 import { CopyAddress } from "./copy";
 import { Wordmark } from "./logo";
+import { AccountAvatar } from "./player-avatar";
 import { ThemeToggle } from "./theme-toggle";
 
 /**
@@ -50,7 +50,6 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   const counted = chain.real && chain.hello?.activity === true;
   // An email or a phone number names the account; without one it is simply the wallet, and the address says which.
   const name = profile?.username ? playerName(profile) : me.handle && me.handle !== (me.address && shortAddress(me.address)) ? me.handle : "Your wallet";
-  const picture = profile ? avatarUrl(profile) : undefined;
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-background px-4 pt-3 pb-2 sm:gap-3">
       <Link aria-label="skech home" className="shrink-0 transition-opacity hover:opacity-70" href="/">
@@ -58,8 +57,13 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
       </Link>
       <div className="ml-auto flex shrink-0 items-center gap-2">
         {community ? (
-          <Button aria-label="Leaderboard and players" className="size-11 rounded-full border-0 bg-secondary p-0 sm:size-11 [&_svg]:size-5" onClick={() => community.open()} size="icon" variant="secondary">
+          <Button aria-label={social.playing.length ? `Leaderboard and players: ${social.playing.length} playing now` : "Leaderboard and players"} className="relative size-11 rounded-full border-0 bg-secondary p-0 sm:size-11 [&_svg]:size-5" onClick={() => community.open(social.playing.length ? "activity" : "leaderboard")} size="icon" variant="secondary">
             <TrophyIcon />
+            {social.playing.length ? (
+              <span aria-hidden="true" className="figures absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-success px-1 font-semibold text-[11px] text-white ring-2 ring-background">
+                {social.playing.length > 99 ? "99+" : social.playing.length}
+              </span>
+            ) : null}
           </Button>
         ) : null}
         {showTheme ? <ThemeToggle className={cn("size-11 rounded-full border-0 bg-secondary sm:size-11 [&_svg]:size-5", community && "max-sm:hidden")} /> : null}
@@ -68,23 +72,11 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
         {hasAuth && me.signedIn ? (
           <Menu>
             <MenuTrigger render={<Button aria-label="Your account" className="size-11 rounded-full border-0 bg-secondary p-0 sm:size-11" size="icon" variant="outline" />}>
-              {picture ? (
-                <Avatar className="size-7">
-                  <AvatarImage alt="" src={picture} />
-                </Avatar>
-              ) : me.address ? (
-                <span aria-hidden="true" className="size-7 rounded-full ring-1 ring-foreground/10" style={{ background: swatch(me.address) }} />
-              ) : (
-                <Avatar className="size-9 bg-transparent">
-                  <AvatarFallback>
-                    <UserIcon className="size-4 sm:size-3.5" />
-                  </AvatarFallback>
-                </Avatar>
-              )}
+              <AccountAvatar address={me.address} className="size-9" profile={profile} />
             </MenuTrigger>
             <MenuPopup align="end" className="w-[288px] p-1.5">
               <div className="flex items-center gap-3 px-2.5 pt-2.5 pb-3">
-                <span aria-hidden="true" className="size-11 shrink-0 rounded-full ring-1 ring-foreground/10" style={{ background: me.address ? swatch(me.address) : undefined }} />
+                <AccountAvatar address={me.address} className="size-11 shrink-0" profile={profile} />
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <p className={cn("truncate font-semibold text-[15px] leading-tight", PRIVATE_TEXT)}>{name}</p>
                   {me.address ? <CopyAddress address={me.address} className="self-start text-[13px] text-muted-foreground" /> : null}
@@ -130,13 +122,4 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
       </div>
     </header>
   );
-}
-
-/** Two hues from the address, so each wallet has a face of its own that stays the same everywhere, as on the phone. */
-function swatch(address: string) {
-  let n = 0;
-  for (let i = 0; i < 8 && i < address.length; i++) n = (n * 31 + address.charCodeAt(i)) >>> 0;
-  const a = n % 360;
-  const b = (a + 40 + ((n >> 9) % 80)) % 360;
-  return `linear-gradient(135deg, oklch(0.72 0.14 ${a}), oklch(0.55 0.16 ${b}))`;
 }

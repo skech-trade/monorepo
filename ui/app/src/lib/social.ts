@@ -9,7 +9,13 @@ import { jitter, SOCIAL_URL, STEADY_MS } from "./endpoints";
  * stream for the page, kept outside React so the canvas can read it every frame without re-rendering anything.
  */
 
-export const avatarUrl = (profile: PlayerProfile) => (profile.avatar ? `${SOCIAL_URL}/avatar?player=${encodeURIComponent(profile.player)}` : undefined);
+/**
+ * A placed piece's stroke, for everyone else's chart: the chain keeps only its hash, and the service keeps the
+ * stroke only if it hashes to that. Sent once the relayer has taken the piece; nothing waits on it.
+ */
+export function publishStroke(betId: string, stroke: string) {
+  void fetch(`${SOCIAL_URL}/stroke`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ betId, stroke }), keepalive: true }).catch(() => undefined);
+}
 
 export async function socialRequest<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${SOCIAL_URL}${path}`, {
@@ -58,8 +64,9 @@ export async function avatarFrom(file: File): Promise<string> {
   throw new Error("This picture could not be made small enough");
 }
 
-export type SocialState = { connected: boolean; counting: boolean; progress: number; drawings: PublicDrawing[]; activity: SocialActivity[]; profiles: Record<string, PlayerProfile> };
-const EMPTY: SocialState = { connected: false, counting: false, progress: 0, drawings: [], activity: [], profiles: {} };
+/** `playing`: who is playing now, most recent first. */
+export type SocialState = { connected: boolean; counting: boolean; progress: number; drawings: PublicDrawing[]; activity: SocialActivity[]; playing: PlayerProfile[]; profiles: Record<string, PlayerProfile> };
+const EMPTY: SocialState = { connected: false, counting: false, progress: 0, drawings: [], activity: [], playing: [], profiles: {} };
 let current = EMPTY;
 const listeners = new Set<() => void>();
 const activityListeners = new Set<(activity: SocialActivity) => void>();
@@ -67,14 +74,16 @@ const activityListeners = new Set<(activity: SocialActivity) => void>();
 function publish(next: SocialState) {
   const keys = Object.keys(next.profiles);
   if (keys.length > 500) {
-    const keep = new Set([...keys.slice(-400), ...next.drawings.map((d) => d.player), ...(viewer ? [viewer] : [])]);
+    const keep = new Set([...keys.slice(-400), ...next.drawings.map((d) => d.player), ...next.playing.map((p) => p.player), ...(viewer ? [viewer] : [])]);
     next.profiles = Object.fromEntries(Object.entries(next.profiles).filter(([key]) => keep.has(key)));
   }
   current = next;
   for (const listener of listeners) listener();
 }
+/** A profile as it now is, everywhere it shows: after "Edit profile" saves, with no reload. */
 export function cacheProfile(profile: PlayerProfile) {
-  publish({ ...current, profiles: { ...current.profiles, [profile.player]: profile } });
+  const swap = <T extends { player: string; profile: PlayerProfile }>(x: T) => (x.player === profile.player ? { ...x, profile } : x);
+  publish({ ...current, profiles: { ...current.profiles, [profile.player]: profile }, drawings: current.drawings.map(swap), activity: current.activity.map(swap), playing: current.playing.map((p) => (p.player === profile.player ? profile : p)) });
 }
 export const socialSnapshot = () => current;
 export const onSocialActivity = (listener: (activity: SocialActivity) => void) => {
@@ -118,7 +127,8 @@ export function connectSocial() {
         const profiles = { ...current.profiles };
         for (const d of message.drawings) profiles[d.player] = d.profile;
         for (const a of message.activity) profiles[a.player] ??= a.profile;
-        publish({ ...current, drawings: message.drawings.slice(0, 80), activity: message.activity.slice(0, 60), profiles, counting: message.counting, progress: message.progress });
+        for (const p of message.playing ?? []) profiles[p.player] ??= p;
+        publish({ ...current, drawings: message.drawings.slice(0, 80), activity: message.activity.slice(0, 60), playing: message.playing ?? [], profiles, counting: message.counting, progress: message.progress });
       } else if (message.type === "drawing") {
         const d = message.drawing;
         const drawings = [d, ...current.drawings.filter((x) => x.id !== d.id && x.updatedAt > Date.now() - LIVE_MS)].slice(0, 80);
@@ -127,7 +137,11 @@ export function connectSocial() {
         if (message.activity) for (const listener of activityListeners) listener(message.activity);
       } else if (message.type === "profile") {
         const p = message.profile;
-        publish({ ...current, profiles: { ...current.profiles, [p.player]: p }, drawings: current.drawings.map((d) => (d.player === p.player ? { ...d, profile: p } : d)), activity: current.activity.map((a) => (a.player === p.player ? { ...a, profile: p } : a)) });
+        publish({ ...current, profiles: { ...current.profiles, [p.player]: p }, drawings: current.drawings.map((d) => (d.player === p.player ? { ...d, profile: p } : d)), activity: current.activity.map((a) => (a.player === p.player ? { ...a, profile: p } : a)), playing: current.playing.map((x) => (x.player === p.player ? p : x)) });
+      } else if (message.type === "presence") {
+        const profiles = { ...current.profiles };
+        for (const p of message.playing) if (p.username || p.avatar || p.avatarSeed || !profiles[p.player]) profiles[p.player] = p;
+        publish({ ...current, playing: message.playing, profiles });
       } else if (message.type === "status") publish({ ...current, counting: message.counting, progress: message.progress });
     };
     ws.onclose = () => {
