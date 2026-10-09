@@ -10,7 +10,7 @@ import { useGate } from "./gate";
 
 /**
  * The wallet menu: the balance, what is owed, and the two ways money moves:
- * Deposit and Withdraw, each its own sheet. Nothing here costs the player gas. It opens from the
+ * Deposit and Withdraw, each its own sheet. Nothing here costs the player a network fee: the relayer pays it. It opens from the
  * balance on the game screen (`render` and `children` make that the
  * trigger), so the balance is shown once.
  */
