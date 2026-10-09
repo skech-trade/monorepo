@@ -32,7 +32,7 @@ Your balance sits in the game's program on the Solana blockchain.
 Sign in with email or SMS, or with your own Solana wallet.
 Deposit and withdraw USDC at any time.
 
-Fees: 2% of what you put in, and 10% of profit.
+Fees: 4% of what you put in, and 10% of profit.
 Prices come from Coinbase, checked against Binance and Kraken.
 
 You can lose what you put in. Only use money you can afford to lose.
