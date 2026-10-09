@@ -198,7 +198,7 @@ store's copy.
   KEEPER_JUPITER_API_KEY=<from developers.jup.ag/portal>
   KEEPER_SOL_FLOOR=0.1
   KEEPER_SOL_TARGET=0.3
-  KEEPER_DAILY_CAP_USDC=30          # 0.2 SOL cost 22 USDC on 2026-10-09: under the 20 default it buys less than the target
+  KEEPER_DAILY_CAP_USDC=30          # the default: 0.2 SOL cost 22 USDC on 2026-10-09; raise it if SOL rises
   KEEPER_COLD_WALLET=<the multisig's address>
   KEEPER_USDC_CAP=100
   KEEPER_USDC_KEEP=20

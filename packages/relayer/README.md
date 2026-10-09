@@ -46,7 +46,7 @@ bun packages/relayer/scripts/keeper-quote.ts 0.2   # what Jupiter would charge t
 | `KEEPER_JUPITER_API_KEY` | none | Sent as `x-api-key`; from developers.jup.ag/portal |
 | `KEEPER_SLIPPAGE_BPS` | `50` | On the USDC going in (1 to 500) |
 | `KEEPER_MIN_INTERVAL_MS` | `3600000` | One swap this often at most |
-| `KEEPER_DAILY_CAP_USDC` | `20` | USDC swapped a UTC day, at most, counted at each swap's most |
+| `KEEPER_DAILY_CAP_USDC` | `30` | USDC swapped a UTC day, at most, counted at each swap's most |
 | `KEEPER_USDC_RESERVE` | `0` | USDC never swapped |
 | `KEEPER_COLD_WALLET` | none | Where USDC over the cap goes. None: nowhere |
 | `KEEPER_USDC_CAP`, `KEEPER_USDC_KEEP` | `100`, `20` | Over the cap, all but the keep goes to the cold wallet |

@@ -68,7 +68,7 @@ function keeper() {
     jupiterKey: env("KEEPER_JUPITER_API_KEY") ?? null,
     slippageBps: whole("KEEPER_SLIPPAGE_BPS", 50, 1, 500),
     minIntervalMs: whole("KEEPER_MIN_INTERVAL_MS", 3_600_000, 60_000),
-    dailyCapE6: amount("KEEPER_DAILY_CAP_USDC", "20", 6),
+    dailyCapE6: amount("KEEPER_DAILY_CAP_USDC", "30", 6),
     reserveE6: amount("KEEPER_USDC_RESERVE", "0", 6),
     coldWallet: cold ? address(cold) : null,
     capE6: amount("KEEPER_USDC_CAP", "100", 6),
