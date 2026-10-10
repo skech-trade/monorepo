@@ -23,15 +23,15 @@ const PEN_MENU = 224;
 
 const Dot = ({ size }: { size: number }) => <View className="rounded-full bg-brand" style={{ width: size, height: size }} />;
 
-function DockButton({ onPress, children, label, ref }: { onPress: () => void; children: React.ReactNode; label: string; ref?: React.Ref<View> }) {
+function DockButton({ onPress, children, label, ref, disabled }: { onPress: () => void; children: React.ReactNode; label: string; ref?: React.Ref<View>; disabled?: boolean }) {
   return (
-    <Pressable accessibilityLabel={label} className="h-12 min-w-0 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-raised px-3" onPress={onPress} ref={ref} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
+    <Pressable accessibilityLabel={label} disabled={disabled} className="h-12 min-w-0 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-raised px-3" onPress={onPress} ref={ref} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
       {children}
     </Pressable>
   );
 }
 
-export function InkControls({ pen, amount, onPen, onAmount, bottom }: { pen: Brush; amount: number; onPen: (id: Brush) => void; onAmount: (n: number) => void; bottom: number }) {
+export function InkControls({ pen, amount, onPen, onAmount, bottom, fixed }: { pen: Brush; amount: number; onPen: (id: Brush) => void; onAmount: (n: number) => void; bottom: number; /** The price is set for this run (paper): shown, not picked. */ fixed?: boolean }) {
   const c = useColors();
   const { width, height } = useWindowDimensions();
   const [open, setOpen] = useState<"pen" | "amount" | null>(null);
@@ -52,11 +52,11 @@ export function InkControls({ pen, amount, onPen, onAmount, bottom }: { pen: Bru
         <Text className="font-semibold text-[16px] text-foreground">{penFor(pen).name}</Text>
         <ChevronDownIcon color={c.muted} size={14} />
       </DockButton>
-      <DockButton label={`${amountLabel(amount)} per dot`} onPress={() => setOpen("amount")}>
+      <DockButton disabled={fixed} label={`${amountLabel(amount)} per dot`} onPress={() => setOpen("amount")}>
         <Text className="font-semibold text-[16px] text-foreground" style={{ fontVariant: ["tabular-nums"] }}>
           {amountLabel(amount)}
         </Text>
-        <ChevronDownIcon color={c.muted} size={14} />
+        {fixed ? null : <ChevronDownIcon color={c.muted} size={14} />}
       </DockButton>
 
       <Popover anchor={penAt} onClose={() => setOpen(null)} open={open === "pen"} width={PEN_MENU}>

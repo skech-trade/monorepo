@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, stepFor } from "@skech/core/dots";
-import { canDraw, levelFor, PAPER_DIFFICULTY, paperResult } from "@skech/core/paper";
+import { canDraw, levelFor, PAPER_DIFFICULTY, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { areaCostOf, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
 import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
 import { encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor } from "@skech/core/chain";
@@ -228,7 +228,7 @@ function PaperEnd({ onSignIn, onAgain }: { onSignIn: () => void; onAgain: () => 
           <Button className="mt-5" onPress={onSignIn}>
             Sign in to play for real
           </Button>
-          <Button className="mt-2" onPress={onAgain} variant="secondary">
+          <Button className="mt-2 border border-border" onPress={onAgain} variant="secondary">
             Try again
           </Button>
         </View>
@@ -337,12 +337,13 @@ export function InkScreen() {
 
   useEffect(() => {
     const g = game.current;
-    g.perDot = state.perDot;
+    // A paper run's price is its own, fixed for the run; the player's own pick waits for real play.
+    g.perDot = paperOn ? PAPER_PER_DOT : state.perDot;
     setDifficulty(level, least);
     if (g.field && g.field.rtp !== difficulty(level, least).rtp) g.field = null;
     g.pen = state.brush;
     g.cell = INK_CELL;
-  }, [state.perDot, state.brush, state.taught, level, least]);
+  }, [state.perDot, state.brush, state.taught, level, least, paperOn]);
 
   /*
     Every tenth of a second: whether the prices are fresh, and the map for a drawing placed now, made a slice a
@@ -668,7 +669,7 @@ export function InkScreen() {
       const t0 = performance.now();
       if (!done && t0 - d.at < 150) return null;
       d.at = t0;
-      const settings = g.drawing ?? { step: g.step, priceStep: g.priceStep, perDot: practice().perDot };
+      const settings = g.drawing ?? { step: g.step, priceStep: g.priceStep, perDot: g.perDot };
       const placedAt = Date.now() + g.skew;
       const snap: Stroke = { ...stroke, pts: stroke.pts.slice() };
       if (forReal && !ch.real && !onPaper) return ch.player ? "Connecting…" : "Sign in to play";
@@ -1058,7 +1059,7 @@ export function InkScreen() {
           <Pressable accessibilityLabel="Settings" className="size-12 items-center justify-center rounded-full bg-raised" onPress={() => setSettingsOpen(true)} style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
             <SlidersHorizontalIcon color={c.fg} size={22} strokeWidth={1.8} />
           </Pressable>
-          <InkControls amount={state.perDot} bottom={bottom} onAmount={(n) => setPractice({ perDot: n })} onPen={(id) => setPractice({ brush: id })} pen={state.brush} />
+          <InkControls amount={paperOn ? PAPER_PER_DOT : state.perDot} bottom={bottom} fixed={paperOn} onAmount={(n) => setPractice({ perDot: n })} onPen={(id) => setPractice({ brush: id })} pen={state.brush} />
         </View>
       </Arrive>
 

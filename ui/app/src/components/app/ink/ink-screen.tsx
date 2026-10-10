@@ -3,7 +3,7 @@
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
-import { canDraw, levelFor, PAPER_DIFFICULTY, paperResult } from "@skech/core/paper";
+import { canDraw, levelFor, PAPER_DIFFICULTY, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
 import { encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor } from "@skech/core/chain";
@@ -237,7 +237,7 @@ function PaperEnd({ onSignIn, onAgain }: { onSignIn: () => void; onAgain: () => 
         <h2 className="font-semibold text-[22px] leading-tight">{headline}</h2>
         <p className="mt-1.5 text-[15px] text-muted-foreground">Practice money on the live Bitcoin price, with easier odds than real play.</p>
         <Button className="mt-5 h-12 w-full rounded-full font-semibold text-base sm:h-12" onClick={onSignIn}>Sign in to play for real</Button>
-        <Button className="mt-2 h-12 w-full rounded-full font-semibold text-base sm:h-12" onClick={onAgain} variant="secondary">Try again</Button>
+        <Button className="mt-2 h-12 w-full rounded-full font-semibold text-base sm:h-12" onClick={onAgain} variant="outline">Try again</Button>
       </div>
     </div>
   );
@@ -450,13 +450,14 @@ export function InkScreen() {
 
   useEffect(() => {
     const g = game.current;
-    g.perDot = state.perDot;
+    // A paper run's price is its own, fixed for the run; the player's own pick waits for real play.
+    g.perDot = paperOn ? PAPER_PER_DOT : state.perDot;
     // How hard the game is: every drawing priced from now on, and the map, use it.
     setDifficulty(level, least);
     if (g.field && g.field.rtp !== difficulty(level, least).rtp) g.field = null;
     g.pen = state.brush;
     g.cell = INK_CELL;
-  }, [state.perDot, state.brush, state.taught, level, least]);
+  }, [state.perDot, state.brush, state.taught, level, least, paperOn]);
 
   /*
     Every quarter second: whether the page is dark, whether the prices are
@@ -577,7 +578,7 @@ export function InkScreen() {
     if (paidOut) t.won = paidOut.credited;
     // Paper rounds are counted as such, and kept out of the session's books: those are the player's own.
     const onPaper = paper() !== null && !chainRef.current.real;
-    const played = { pen: practice().brush, per_dot: practice().perDot, real: chainRef.current.real, ...(onPaper ? { paper: true } : {}) };
+    const played = { pen: practice().brush, per_dot: onPaper ? PAPER_PER_DOT : practice().perDot, real: chainRef.current.real, ...(onPaper ? { paper: true } : {}) };
     if (!t.points) {
       track("round_finished", { ...played, voided: true, cost: 0, won: 0, net: 0 });
       return setResult({ key: line, won: 0, cost: 0, hits: 0, points: 0, voided: true });
@@ -900,7 +901,7 @@ export function InkScreen() {
       const t0 = performance.now();
       if (!done && t0 - d.at < 150) return null;
       d.at = t0;
-      const settings = g.drawing ?? { step: g.step, priceStep: g.priceStep, perDot: practice().perDot };
+      const settings = g.drawing ?? { step: g.step, priceStep: g.priceStep, perDot: g.perDot };
       const placedAt = Date.now() + g.skew;
       const snap: Stroke = { ...stroke, pts: stroke.pts.slice() };
       if (forReal && !ch.real && !onPaper) return ch.player ? "Connecting…" : "Sign in to play";
@@ -1216,8 +1217,9 @@ export function InkScreen() {
   // The same Skech controls: nib size and the cost of a full dot.
   const controls = (
     <InkControls
-      amount={state.perDot}
+      amount={paperOn ? PAPER_PER_DOT : state.perDot}
       className="w-full sm:w-auto"
+      fixed={paperOn}
       onAmount={(n) => {
         if (n !== state.perDot) track("price_changed", { per_dot: n });
         setPractice({ perDot: n });

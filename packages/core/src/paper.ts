@@ -29,6 +29,11 @@ import { DIFFICULTY, MIN_DIFFICULTY } from "./dots";
 export const PAPER_MS = 30_000;
 /** The paper money a run starts with. */
 export const PAPER_START = 10;
+/**
+ * What a dot costs on paper, fixed for the run: a cent, so ten dollars lasts many strokes in thirty seconds
+ * and a first run sees hits and misses, not one stroke spending it all. Real play's least is 10¢.
+ */
+export const PAPER_PER_DOT = 0.01;
 /** The last seconds, when the pill turns urgent. */
 export const PAPER_URGENT_MS = 5000;
 /** Once the last ink has settled, how long its result shows before the end card. */

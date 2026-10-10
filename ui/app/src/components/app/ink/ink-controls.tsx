@@ -32,7 +32,7 @@ export const amountLabel = (n: number) => `$${Number(n.toFixed(2))}`;
 /** The pen's nib, in the ink it draws with. */
 const Dot = ({ size }: { size: number }) => <span aria-hidden="true" className="block shrink-0 rounded-full bg-brand transition-[width,height] duration-150 ease-out motion-reduce:transition-none" style={{ width: size, height: size }} />;
 
-export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: Brush; amount: number; onPen: (id: Brush) => void; onAmount: (n: number) => void; className?: string }) {
+export function InkControls({ pen, amount, onPen, onAmount, className, fixed }: { pen: Brush; amount: number; onPen: (id: Brush) => void; onAmount: (n: number) => void; className?: string; /** The price is set for this run (paper): shown, not picked. */ fixed?: boolean }) {
   // A tapped price is the pick, and the panel closes on it.
   const [amountOpen, setAmountOpen] = useState(false);
   return (
@@ -50,6 +50,11 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
           </div>
         </PopoverPopup>
       </Popover>
+      {fixed ? (
+        <span aria-label={`${amountLabel(amount)} per dot`} className={cn(feedback.dockButton, "pointer-events-none inline-flex items-center rounded-full border border-border px-4")}>
+          <span className="figures font-semibold">{amountLabel(amount)}</span>
+        </span>
+      ) : (
       <Popover onOpenChange={setAmountOpen} open={amountOpen}>
         <PopoverTrigger render={<Button aria-label={`${amountLabel(amount)} per dot`} className={feedback.dockButton} variant="outline" />}>
           <span className="figures font-semibold">{amountLabel(amount)}</span><ChevronDownIcon className="size-3.5 text-muted-foreground" />
@@ -77,6 +82,7 @@ export function InkControls({ pen, amount, onPen, onAmount, className }: { pen: 
           <p className="mt-3 text-[12px] text-muted-foreground">A hit pays it times its multiple.</p>
         </PopoverPopup>
       </Popover>
+      )}
     </div>
   );
 }
