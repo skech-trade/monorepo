@@ -44,7 +44,7 @@ export type Account = {
 export type Band = { second: number; lo: string; hi: string; stake: string; rung: number };
 export type PlacedMsg = { type: "placed"; betId: string; player: string; drawing: string; index: number; openAt: string; staked: string; fee: string; refunded: string; sections: Band[]; tx: string };
 export type RefusedMsg = { type: "refused"; betId?: string; player: string; drawing: string; index: number; why: string; tx?: string };
-export type SettledMsg = { type: "settled"; betId: string; player: string; hitMask: number; missMask: number; paid: string; owed: string; closed: boolean; tx: string };
+export type SettledMsg = { type: "settled"; betId: string; player: string; hitMask: number; missMask: number; /** Bands given their stake back: their second's bar was never posted. */ expiredMask?: number; paid: string; owed: string; closed: boolean; tx: string };
 export type AckMsg = { type: "ack"; ok: boolean; betId?: string; why?: string; drawing?: string; index?: number };
 export type ActivityMsg = { type: "activity"; player: string | null; txs: number; recent: { signature: string; time: number | null }[]; explorer?: string; counting: boolean; progress: number };
 /** What the wallet signs and the relayer pays for. */

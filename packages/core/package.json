@@ -12,7 +12,8 @@
     "./paper": "./src/paper.ts",
     "./social": "./src/social.ts",
     "./cheer": "./src/cheer.ts",
-    "./cue": "./src/cue.ts"
+    "./cue": "./src/cue.ts",
+    "./optimistic": "./src/optimistic.ts"
   },
   "scripts": {
     "test": "bun test"

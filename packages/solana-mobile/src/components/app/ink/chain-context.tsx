@@ -2,6 +2,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { useAccount } from "@/components/app/auth";
 import { type Account, type Hello, type Kind, type RelayerClient, useRelayer } from "@/lib/relayer";
 import { forgetSessionKey, sessionKey, type SessionKey } from "@/lib/session";
+import { Holds } from "@skech/core/optimistic";
 
 /**
  * Real money, on Solana: the relayer, the player's account in the game, and the session key that signs their ink,
@@ -38,6 +39,20 @@ export type Chain = {
   balance: number;
   nudge: (usdc: number) => void;
   resync: () => void;
+  /**
+   * Ink played ahead of the chain: each piece's stake and hits, held in the balance under their own names from the
+   * moment they happen until the chain has done them too and its next word on the balance includes them, or until
+   * it never will (a refusal: `drop`). See `Holds` in @skech/core/optimistic; the web's is the same.
+   */
+  holds: HoldsApi;
+};
+
+export type HoldsApi = {
+  hold: (id: string, usd: number) => void;
+  land: (id: string, usd?: number) => void;
+  landAll: (prefix: string) => void;
+  drop: (id: string) => number;
+  dropAll: (prefix: string) => number;
 };
 
 export const ChainContext = createContext<Chain | null>(null);
@@ -61,6 +76,9 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   const [registering, setRegistering] = useState(false);
   const [moved, setMoved] = useState<{ said: string | null; by: number }>({ said: null, by: 0 });
   const [now, setNow] = useState(() => Date.now());
+  /** What ink played ahead of the chain has moved the balance by, whose it is, and its total, which is what renders. */
+  const [book] = useState(() => new Holds());
+  const [held, setHeld] = useState<{ player: string | null; usd: number }>({ player: null, usd: 0 });
 
   useEffect(() => {
     let live = true;
@@ -71,9 +89,44 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const said = account?.balance ?? null;
-  const balance = Math.round(((said ? Number(said) / 1e6 : 0) + (moved.said === said ? moved.by : 0)) * 1e6) / 1e6;
+  const balance = Math.round(((said ? Number(said) / 1e6 : 0) + (moved.said === said ? moved.by : 0) + (held.player === player ? held.usd : 0)) * 1e6) / 1e6;
   const nudge = useCallback((usdc: number) => setMoved((m) => ({ said, by: (m.said === said ? m.by : 0) + usdc })), [said]);
-  const resync = useCallback(() => setMoved({ said: null, by: 0 }), []);
+  const playerRef = useRef(player);
+  useEffect(() => {
+    playerRef.current = player;
+  }, [player]);
+  const resync = useCallback(() => {
+    setMoved({ said: null, by: 0 });
+    book.clear();
+    setHeld({ player: playerRef.current, usd: 0 });
+  }, [book]);
+  // Held for one player: someone else signing in starts from nothing.
+  const owner = useRef<string | null>(null);
+  const holds = useMemo<HoldsApi>(() => {
+    const after = <T,>(r: T) => (setHeld({ player: owner.current, usd: book.total() }), r);
+    const own = () => {
+      if (owner.current === playerRef.current) return;
+      owner.current = playerRef.current;
+      book.clear();
+    };
+    return {
+      hold: (id, usd) => (own(), after(book.hold(id, usd))),
+      land: (id, usd) => (own(), after(book.land(id, usd))),
+      landAll: (prefix) => (own(), after(book.landAll(prefix))),
+      drop: (id) => (own(), after(book.drop(id))),
+      dropAll: (prefix) => (own(), after(book.dropAll(prefix))),
+    };
+  }, [book]);
+  /*
+    The relayer's word on the balance includes everything the chain has done: what was held for it is let go in the
+    same breath (React renders both together, as they are set in the same message), so the figure does not move.
+  */
+  useEffect(() => {
+    const off = client.on((m) => {
+      if (m.type === "account" && m.player === playerRef.current && book.heard()) setHeld({ player: m.player, usd: book.total() });
+    });
+    return () => void off();
+  }, [client, book]);
   const saidRef = useRef(said);
   const nudgeRef = useRef(nudge);
   useEffect(() => {
@@ -226,8 +279,8 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   }, [wallet]);
 
   const value = useMemo<Chain>(
-    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, forgetKey, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync }),
-    [live, player, client, hello, account, connected, key, sessionOk, enableSession, forgetKey, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync],
+    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, forgetKey, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync, holds }),
+    [live, player, client, hello, account, connected, key, sessionOk, enableSession, forgetKey, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync, holds],
   );
   return <ChainContext.Provider value={value}>{children}</ChainContext.Provider>;
 }

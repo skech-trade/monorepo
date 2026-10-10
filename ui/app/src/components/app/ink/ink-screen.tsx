@@ -4,11 +4,12 @@ import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } f
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
-import { areaCells, areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type InkBet, type Stroke, won } from "@skech/core/ink";
+import { areaCells, areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type Cell, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
 import { BATCH_PIECE_STAKE_E6, cutAt, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor, usdE6 } from "@skech/core/chain";
 import { pieceBytes, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import { sha256 } from "@noble/hashes/sha256";
+import { confirmPiece, expireCells, holdIds, paidOnChain, pay, refusalLine, refusals, type Refusals, unpay } from "@skech/core/optimistic";
 import { type Hello, type Incoming, leastPiece } from "@/lib/relayer";
 import { NETWORK } from "@/lib/chain";
 import { useChain } from "./chain-context";
@@ -74,7 +75,7 @@ const OPEN_AFTER_MS = 350;
 const OPEN_BY_MS = 900;
 /** A second's dots are missed only this long after it ends, for the same reason. */
 const CLOSE_AFTER_MS = 600;
-/** A piece sent to the chain and not heard of by then is let go. */
+/** A piece sent to the chain and not placed by then is let go. */
 const CHAIN_ANSWER_MS = 8000;
 /** The chain's name for a drawing: 64 bits of the line's id, as the phone names it. Kept per line: it is asked for on every price batch. */
 const drawingIds = new Map<string, bigint>();
@@ -88,6 +89,24 @@ const drawingIdOf = (line: string) => {
   }
   return id;
 };
+/** A line's round so far: its pieces still in play, and what the decided ones staked, won, hit and covered. */
+type Tally = { at: number; open: number; won: number; cost: number; hits: number; points: number; best: number };
+/** A decided piece into its line's books (`sign` 1), or out of them again (-1), and into the totals of what is settled. */
+function book(lines: Map<string, Tally>, settled: { committed: number; returned: number }, bet: InkBet, sign: 1 | -1) {
+  settled.committed += sign * (cost(bet) - refund(bet));
+  settled.returned += sign * won(bet);
+  const line = bet.group ?? bet.id;
+  let t = lines.get(line);
+  if (!t) lines.set(line, (t = { at: bet.placedAt, open: 0, won: 0, cost: 0, hits: 0, points: 0, best: 0 }));
+  t.open -= sign;
+  if (bet.status !== "done") return;
+  const hitCells = bet.cells.filter((d) => d.status === "hit");
+  t.won += sign * won(bet);
+  t.cost += sign * (cost(bet) - refund(bet));
+  t.hits += sign * (isArea(bet.model) ? hitCells.reduce((n, c) => n + c.area, 0) : hitCells.length);
+  t.points += sign * (isArea(bet.model) ? bet.cells.reduce((n, c) => n + (c.expired ? 0 : c.area), 0) : bet.cells.length);
+  if (sign > 0) t.best = Math.max(t.best, ...hitCells.map((d) => d.multiple * (isArea(bet.model) ? d.area : 1)));
+}
 /** A piece's number within its drawing, from its id `line:index`. */
 const pieceIndexOf = (id: string) => Number(id.slice(id.lastIndexOf(":") + 1));
 /**
@@ -110,8 +129,13 @@ const inkArea = (st: Stroke, at: number, step: number) => {
 /** Reads of a line kept while its ink is held back: a cut can only be at one of them. */
 const MARKS = 32;
 
-/** A piece on its way to the chain: its bet, its stake, and what it takes to send its ink again. */
-type SentPiece = { id: string; stakeUsd: number; drawing: bigint; stroke: Uint8Array; tries: number };
+/**
+ * A piece sent to the chain: its bet, its drawing, its stake, and what it takes to send its ink again. It plays at
+ * once, as if placed (opened here, judged here, its hits paid into the balance), until the chain says otherwise.
+ * `placed`: the chain has taken it. `credited`: what its hits have paid into the balance so far, so a refusal can
+ * take exactly that back.
+ */
+type SentPiece = { id: string; line: string; openAt: number; stakeUsd: number; drawing: bigint; stroke: Uint8Array; tries: number; placed: boolean; credited: number };
 /**
  * Refusals that mean nothing was placed and the same ink can go again on the
  * next second: too late for its second, a price quote that aged on the way,
@@ -382,6 +406,17 @@ export function InkScreen() {
     const timer = setTimeout(() => setReturnedInk(null), 3200);
     return () => clearTimeout(timer);
   }, [returnedInk]);
+  /* Pieces that did not go through: one short notice for a burst of them, with what came back. */
+  const [refused, setRefused] = useState<Refusals | null>(null);
+  const refusedRef = useRef<Refusals | null>(null);
+  useEffect(() => {
+    if (!refused) return;
+    const timer = setTimeout(() => {
+      refusedRef.current = null;
+      setRefused(null);
+    }, 3200);
+    return () => clearTimeout(timer);
+  }, [refused]);
   const dark = useDark();
   /*
     A paper run: "Try it free", signed out, on paper money that lives only in memory (lib/paper.ts). Paper ink is
@@ -453,8 +488,6 @@ export function InkScreen() {
   const paperRun = useRef(0);
   /** Where the price last met each line's ink, for its confetti. */
   const lastHit = useRef(new Map<string, { t: number; price: number; at: number }>());
-  /** Drawings whose first piece the chain has confirmed, so each is sealed once. */
-  const sealed = useRef(new Set<string>());
   const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, placeLead: 0, step: 1, priceStep: 1, marketStep: 1, viewport: { width: 1280, height: 800 }, displayPrice: 0, perDot: state.perDot, pen: state.brush, cell: INK_CELL, bets: [], quote: null, fx: [], dark: false });
 
   const onViewport = useCallback((size: { width: number; height: number }) => { game.current.viewport = size; }, []);
@@ -587,7 +620,7 @@ export function InkScreen() {
     before a reload come back once there are prices to judge them on; dots
     older than those prices cannot be judged either way, and come back.
   */
-  const lines = useRef(new Map<string, { at: number; open: number; won: number; cost: number; hits: number; points: number; best: number }>());
+  const lines = useRef(new Map<string, Tally>());
   /**
    * Drawings still under the pen: what has been bet of each so far, so the next piece bets only new ink, and on
    * chain the line as it stood at each read since, while its ink is held back (`marks`).
@@ -600,10 +633,14 @@ export function InkScreen() {
     if (!t) lines.current.set(line, (t = { at, open: 0, won: 0, cost: 0, hits: 0, points: 0, best: 0 }));
     return t;
   };
-  /** A line is over once the pen has lifted and every point of it is decided: say what it came to, once. */
+  /**
+   * A line is over once the pen has lifted, every point of it is decided, and on chain every piece of it has been
+   * taken or refused: say what it came to, once. A round's card never has to be taken back.
+   */
   const closeLine = (line: string) => {
     const t = lines.current.get(line);
     if (!t || t.open > 0 || drawing.current.has(line)) return;
+    for (const sent of chainBets.current.values()) if (sent.line === line && !sent.placed) return;
     lines.current.delete(line);
     const paidOut = payouts.current.get(line);
     payouts.current.delete(line);
@@ -631,6 +668,28 @@ export function InkScreen() {
       if (hit && performance.now() - hit.at < 20_000) game.current.fx.push({ kind: "burst", t: hit.t, price: hit.price, born: performance.now(), tier });
     } else if (!t.hits) hitRun.current.n = 0;
   };
+  /** Bet `i` replaced by what the chain (or a refusal) made of it, the line's books kept right either way. */
+  const swap = (i: number, next: InkBet) => {
+    const g = game.current;
+    if (decided(g.bets[i])) book(lines.current, settledTotals.current, g.bets[i], -1);
+    g.bets[i] = next;
+    if (decided(next)) book(lines.current, settledTotals.current, next, 1);
+  };
+  /** Ink that was in play and is not now fades out, and the "+$x" its hits showed goes with it. */
+  const fadeOut = (bet: InkBet, cells: Cell[] = bet.status === "opening" ? bet.drawn : bet.cells.filter((c) => !c.expired), only = false) => {
+    const g = game.current;
+    const line = bet.group ?? bet.id;
+    const whole = !only && !g.bets.some((b) => b !== bet && b.status !== "void" && (b.group ?? b.id) === line);
+    if (cells.length || whole) (g.gone ??= []).push({ stroke: bet.stroke, cells, edgeCells: bet.edgeCells ?? 0, step: bet.step, born: performance.now(), whole });
+    if (g.fx.some((e) => e.piece === bet.id)) g.fx = g.fx.filter((e) => e.piece !== bet.id);
+  };
+  /** A piece that did not go through, said once for a burst of them, quietly: the soft "nope" only as a burst begins. */
+  const sayRefused = (back: number, why: string) => {
+    const next = refusals(refusedRef.current, back, why, performance.now());
+    if (next.count === 1) feel("nope");
+    refusedRef.current = next;
+    setRefused(next);
+  };
   /** A piece the chain refused, or never answered: its ink is let go and its stake is back. */
   const gate = useGate();
   /** A piece was refused for want of money: offer the deposit sheet once every drawing is settled. */
@@ -656,7 +715,8 @@ export function InkScreen() {
     if (!sent || sent.tries >= RESENDS || !RESEND.test(why)) return false;
     if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key || !ch.sessionOk) return false;
     const i = g.bets.findIndex((b) => b.id === sent.id);
-    if (i < 0 || g.bets[i].status !== "opening") return false;
+    // Already opened here, it may be playing: anything but decided goes again.
+    if (i < 0 || decided(g.bets[i])) return false;
     const bet = g.bets[i];
     const line = bet.group ?? bet.id;
     const openAt = openFor(Date.now() + g.skew + g.placeLead);
@@ -671,40 +731,54 @@ export function InkScreen() {
     const next = keyOf(sent.drawing, index);
     const signed = pieceFor(ch, level, sent.drawing, index, openAt, bet.perUnit, unit, quote.message, sections, sent.stroke);
     chainBets.current.delete(key);
-    chainBets.current.set(next, { ...sent, id: `${line}:${index}`, stakeUsd, tries: sent.tries + 1 });
-    // The first stake back, the second out: only what dropped out shows, as returned.
-    ch.nudge(sent.stakeUsd - stakeUsd);
-    const back = cents(sent.stakeUsd - stakeUsd);
-    if (back > 0) addChange(back, "back");
-    g.bets[i] = { ...bet, id: `${line}:${index}`, openAt, drawn, charged: stakeUsd };
+    chainBets.current.set(next, { ...sent, id: `${line}:${index}`, openAt, stakeUsd, tries: sent.tries + 1, placed: false, credited: 0 });
+    // The first stake back, the second out: only what dropped out shows, as returned. Any hit the first had (it was
+    // playing here) is taken back: the seconds it was in are not in the second.
+    ch.holds.drop(holdIds.stake(key));
+    ch.holds.hold(holdIds.stake(next), -stakeUsd);
+    const takenBack = ch.holds.dropAll(holdIds.wins(key));
+    const acc = payouts.current.get(line);
+    if (acc && bet.status !== "opening") unpay(acc, won(bet), sent.credited);
+    g.fx = g.fx.filter((e) => e.piece !== bet.id);
+    const back = cents(sent.stakeUsd - stakeUsd - takenBack);
+    if (back) addChange(back, back > 0 ? "back" : "stake");
+    g.bets[i] = { ...bet, id: `${line}:${index}`, openAt, drawn, charged: stakeUsd, status: "opening", cells: [], why: undefined };
     track("piece_resent", { why: why.slice(0, 120), tries: sent.tries + 1 });
     if (process.env.NODE_ENV !== "production") console.warn(`[ink] piece ${sent.id} refused (${why}); sent again as ${index}, opening ${openAt}`);
     sendPiece(ch, signed, sent.stroke, quote.signature, (w) => letGoRef.current(next, w));
     updateTotals();
     return true;
   }, [level, updateTotals]);
+  /*
+    A piece that did not go through: refused by the relayer or the chain, or never answered. It was playing as if
+    placed; now its ink fades out, its stake comes back, and whatever its hits paid is taken back, so the balance is
+    what it would have been had it never been drawn. One quiet notice says so.
+  */
   const letGo = useCallback((key: string, why: string) => {
     const g = game.current;
     if (resend(key, why)) return;
     track("piece_refused", { why: why.slice(0, 120) });
     // Out of money: the deposit sheet, but not while drawings are still in play, which may yet pay (below).
     if (/not enough|balance|allowance/i.test(why)) topUp.current = true;
-    feel("nope");
     const sent = chainBets.current.get(key);
     chainBets.current.delete(key);
     if (!sent) return;
-    chainRef.current.nudge(sent.stakeUsd);
-    addChange(sent.stakeUsd, "back");
+    const ch = chainRef.current;
+    const back = -ch.holds.drop(holdIds.stake(key)) || sent.stakeUsd;
+    const takenBack = ch.holds.dropAll(holdIds.wins(key));
     const i = g.bets.findIndex((b) => b.id === sent.id);
-    if (i >= 0 && g.bets[i].status === "opening") {
-      g.bets[i] = { ...g.bets[i], status: "void", why };
-      const line = g.bets[i].group ?? g.bets[i].id;
-      const t = tally(line, g.bets[i].placedAt);
-      t.open--;
-      if (t.open <= 0 && !drawing.current.has(line)) closeLine(line);
-      setReturnedInk({ id: sent.id, amount: cents(sent.stakeUsd) });
+    if (i >= 0 && g.bets[i].status !== "void") {
+      const bet = g.bets[i];
+      const acc = payouts.current.get(sent.line);
+      if (acc) unpay(acc, won(bet), sent.credited);
+      fadeOut(bet);
+      swap(i, { ...bet, status: "void", why, cells: [] });
       updateTotals();
     }
+    closeLine(sent.line);
+    const net = cents(back - takenBack);
+    if (net) addChange(net, net > 0 ? "back" : "stake");
+    sayRefused(cents(back), why);
     if (process.env.NODE_ENV !== "production") console.warn(`[ink] piece ${sent.id} not placed: ${why}`);
   }, [updateTotals, resend]);
   useEffect(() => {
@@ -793,24 +867,24 @@ export function InkScreen() {
       }
     }
     let changed = false;
+    /** Played for real: what the hits of pieces still in the chain's hands paid, held in the balance piece by piece. */
+    let held = 0;
+    const ch = chainRef.current;
+    /** Pieces the chain has not placed in time: let go once this pass is over, as a refusal is. */
+    const unanswered: string[] = [];
+    /** Pieces still waiting on the chain: kept on the chart, decided or not, until it has said. */
+    const waiting = new Set<string>();
+    for (const [key, sent] of chainBets.current) {
+      if (sent.placed) continue;
+      waiting.add(sent.id);
+      if (nowMs >= sent.openAt + CHAIN_ANSWER_MS) unanswered.push(key);
+    }
     for (let i = 0; i < g.bets.length; i++) {
       let bet = g.bets[i];
-      const key = chainRef.current.real ? keyOf(drawingIdOf(bet.group ?? bet.id), pieceIndexOf(bet.id)) : "";
-      const onChain = chainRef.current.real ? chainBets.current.has(key) : false;
-      if (bet.status === "opening" && onChain) {
-        // A piece on its way to the chain: the chain prices it, and says so through the relayer. Not heard from in time, it is let go.
-        if (nowMs >= bet.openAt + CHAIN_ANSWER_MS) {
-          const sent = chainBets.current.get(key);
-          chainBets.current.delete(key);
-          if (sent) {
-            chainRef.current.nudge(sent.stakeUsd);
-            addChange(sent.stakeUsd, "back");
-          }
-          bet = { ...bet, status: "void", why: "No answer. Your money is back." };
-          if (process.env.NODE_ENV !== "production") console.warn(`[ink] piece ${bet.id} was never answered by the relayer`);
-          changed = true;
-        }
-      } else if (bet.status === "opening" && nowMs >= bet.openAt + OPEN_AFTER_MS) {
+      const key = ch.real ? keyOf(drawingIdOf(bet.group ?? bet.id), pieceIndexOf(bet.id)) : "";
+      // A piece on its way to the chain plays as if placed.
+      const sent = ch.real ? chainBets.current.get(key) : undefined;
+      if (bet.status === "opening" && nowMs >= bet.openAt + OPEN_AFTER_MS) {
         // Off its second's map when that is in; on the paths, here, if it is not by the time it has to be.
         const quick = g.field ? openOn(bet, g.field) : null;
         if (!quick && nowMs < bet.openAt + OPEN_BY_MS) {
@@ -822,10 +896,17 @@ export function InkScreen() {
         // Why part of a stroke is faint rather than solid, when it happens: for finding out, in development only.
         if (process.env.NODE_ENV !== "production" && (bet.status === "void" || bet.cells.length < drawn))
           console.warn(`[ink] piece ${bet.id} opened ${bet.status}: ${bet.status === "void" ? bet.why : `${drawn - bet.cells.length} of ${drawn} sections refused`}`);
-        const returned = refund(bet);
-        credit += returned;
-        if (returned > 0) setReturnedInk({ id: bet.id, amount: returned });
-        if (bet.status === "void") g.fx.push({ kind: "placed", t: bet.openAt, price: latest.c, born: performance.now() });
+        if (sent) {
+          // On chain: opened here exactly as the chain opens it, so it is judged from its first second, hits and all,
+          // without waiting for the chain. What the chain hands back, and its own bands, come with `placed`; until
+          // then nothing is refunded, and ink with nothing in play here waits on the chain's word, faint.
+          if (bet.status === "void") bet = { ...bet, status: "live", why: undefined, cells: [] };
+        } else {
+          const returned = refund(bet);
+          credit += returned;
+          if (returned > 0) setReturnedInk({ id: bet.id, amount: returned });
+          if (bet.status === "void") g.fx.push({ kind: "placed", t: bet.openAt, price: latest.c, born: performance.now() });
+        }
         changed = true;
       }
       if (bet.status === "live") {
@@ -838,7 +919,7 @@ export function InkScreen() {
           const prev = k > 0 && bars[k - 1].t === bar.t - 1000 ? bars[k - 1].c : undefined;
           bet = judge(bet, bar, bar.t + 1000 + CLOSE_AFTER_MS <= nowMs, prev);
           if (bet === before) continue;
-          if (chainRef.current.real) bet = lessProfitFee(bet, before, chainRef.current.hello?.terms?.profitFeeBps ?? 1000);
+          if (ch.real) bet = lessProfitFee(bet, before, ch.hello?.terms?.profitFeeBps ?? 1000);
           changed = true;
           // One burst a second, however many cells of ink the price crossed in it, with what they paid together.
           const fresh2 = bet.cells.filter((d, k) => d.status === "hit" && before.cells[k].status !== "hit");
@@ -848,11 +929,14 @@ export function InkScreen() {
             const line = bet.group ?? bet.id;
             const acc = payouts.current.get(line) ?? { raw: 0, credited: 0 };
             payouts.current.set(line, acc);
-            acc.raw += won(bet) - won(before);
             // Credit whole cents of the drawing's running total; the fraction waits for its next hit.
-            const due = Math.max(0, Math.floor(acc.raw * 100 + 1e-8) / 100 - acc.credited);
-            acc.credited = cents(acc.credited + due);
-            credit += due;
+            const due = pay(acc, won(bet) - won(before));
+            if (sent) {
+              // Paid now, as if the piece were placed; held under its name until the chain pays it, or takes it back.
+              sent.credited = cents(sent.credited + due);
+              ch.holds.hold(holdIds.win(key, bar.t), due);
+              held += due;
+            } else credit += due;
             paidOut += due;
             // Where it landed, what this hit paid: always a gain. What the
             // drawing came to, win or lose, is the round's card when it ends.
@@ -874,7 +958,7 @@ export function InkScreen() {
             const ahead = acc.credited - stake > 0.005;
             const where = { t: fresh2[0].t + 500, price: Math.min(hi, Math.max(lo, bar.c)) };
             if (fresh3) {
-              g.fx.push({ kind: "hit", ...where, born: performance.now(), text: paid > 0 ? `+${money(paid)}` : undefined, line, big: best >= 10, profit: ahead });
+              g.fx.push({ kind: "hit", ...where, born: performance.now(), text: paid > 0 ? `+${money(paid)}` : undefined, line, big: best >= 10, profit: ahead, piece: bet.id });
               lastHit.current.set(line, { ...where, at: performance.now() });
             }
             if (fresh3) {
@@ -888,39 +972,32 @@ export function InkScreen() {
         }
       }
       if (decided(bet) && !decided(g.bets[i])) {
-        settledTotals.current.committed += cost(bet) - refund(bet);
-        settledTotals.current.returned += won(bet);
+        book(lines.current, settledTotals.current, bet, 1);
         const line = bet.group ?? bet.id;
-        const t = tally(line, bet.placedAt);
-        t.open--;
-        if (bet.status === "done") {
-          const hitCells = bet.cells.filter((d) => d.status === "hit");
-          t.won += won(bet);
-          t.cost += cost(bet) - refund(bet);
-          t.hits += isArea(bet.model) ? hitCells.reduce((n, c) => n + c.area, 0) : hitCells.length;
-          t.points += isArea(bet.model) ? bet.cells.reduce((n, c) => n + c.area, 0) : bet.cells.length;
-          t.best = Math.max(t.best, ...hitCells.map((d) => d.multiple * (isArea(bet.model) ? d.area : 1)));
-        }
-        if (t.open <= 0) closeLine(line);
+        if ((lines.current.get(line)?.open ?? 0) <= 0) closeLine(line);
       }
       g.bets[i] = bet;
     }
+    for (const key of unanswered) {
+      if (process.env.NODE_ENV !== "production") console.warn(`[ink] piece ${key} was never placed by the relayer`);
+      letGoRef.current(key, "No answer. Your money is back.");
+    }
     // Paper ink exists only while signed out with a run on (it is thrown away at sign-in), so its money goes back to the run.
-    const onPaper = paper() !== null && !chainRef.current.real;
+    const onPaper = paper() !== null && !ch.real;
     if (credit) {
-      if (chainRef.current.real) chainRef.current.nudge(credit);
+      if (ch.real) ch.nudge(credit);
       else if (onPaper) paperCredit(credit, paidOut);
       else setPractice((s) => ({ balance: cents(s.balance + credit) }));
     }
-    if (credit > 0) {
+    if (credit + held > 0) {
       setGained(performance.now());
-      addChange(cents(credit), "win");
+      addChange(cents(credit + held), "win");
     }
     // Practice drawings are kept for a reload; paper ones are not, and must never come back as practice.
-    if ((changed || credit) && !chainRef.current.real && !onPaper) setPractice({ open: g.bets.filter((b) => !decided(b)) });
+    if ((changed || credit) && !ch.real && !onPaper) setPractice({ open: g.bets.filter((b) => !decided(b)) });
     setLive(new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size);
     // Keep finished drawings only as long as their dots are still fading.
-    g.bets = g.bets.filter((b) => !decided(b) || b.cells.some((d) => d.t + 3000 > nowMs));
+    g.bets = g.bets.filter((b) => !decided(b) || b.cells.some((d) => d.t + 3000 > nowMs) || waiting.has(b.id));
     updateTotals();
   }, [feed, lib, owner, updateTotals]);
   useEffect(() => {
@@ -944,6 +1021,9 @@ export function InkScreen() {
       const d = drawing.current.get(line) ?? { prev: null, area: 0, charged: 0, at: 0, pieces: 0, marks: [] };
       const finish = () => {
         if (!done) return;
+        // On chain: the soft seal as the pen lifts, once a drawing has ink going in. It is played as placed from
+        // the start; the chain's own word on it comes later, and only a refusal is heard from it (the soft "nope").
+        if (chainRef.current.real && (drawing.current.get(line)?.pieces ?? 0) > 0) sound.placed();
         drawing.current.delete(line);
         closeLine(line);
       };
@@ -1031,8 +1111,9 @@ export function InkScreen() {
         const from = d.prev?.pts.length ?? 0;
         const stroke = bytesOf(encodeStroke({ t0: snap.t0, p0: snap.p0, rt: snap.rt, rp: snap.rp, from, pts: snap.pts.slice(from) }));
         const signed = pieceFor(ch, level, drawing, d.pieces, bet.openAt, settings.perDot, unit, quote.message, sections, stroke);
-        chainBets.current.set(key, { id: bet.id, stakeUsd: charge, drawing, stroke, tries: 0 });
-        ch.nudge(-charge);
+        chainBets.current.set(key, { id: bet.id, line, openAt: bet.openAt, stakeUsd: charge, drawing, stroke, tries: 0, placed: false, credited: 0 });
+        // Out of the balance now, as placed; held under the piece's name until the chain takes it, or gives it back.
+        ch.holds.hold(holdIds.stake(key), -charge);
         sendPiece(ch, signed, stroke, quote.signature, (why) => letGo(key, why));
       }
       // Paper money runs out as real money does: the line ends where it can no longer be paid for.
@@ -1080,47 +1161,66 @@ export function InkScreen() {
 
   /*
     What the chain says: a piece placed (its bands, as priced there), refused,
-    or settled. The ink was drawn as if it would go in; here it is made to
-    match what did.
+    or settled. The ink was drawn, opened, judged and paid as if it would go
+    in; here it is made to match what did, the balance with it, eased rather
+    than jumped wherever the two differ.
   */
   useEffect(() => {
     if (!real) return;
     const g = game.current;
     const feeBps = () => chainRef.current.hello?.terms?.profitFeeBps ?? 1000;
+    /** The chain moved what a piece's hits pay by `bySecond`: paid into (or out of) the balance in whole cents, as hits are. */
+    const repay = (key: string, sent: SentPiece, bySecond: Map<number, number>, landed: boolean) => {
+      const ch = chainRef.current;
+      const acc = payouts.current.get(sent.line) ?? { raw: 0, credited: 0 };
+      payouts.current.set(sent.line, acc);
+      for (const [t, usd] of bySecond) {
+        const due = pay(acc, usd, true);
+        if (!due) continue;
+        sent.credited = cents(sent.credited + due);
+        ch.holds.hold(holdIds.win(key, t), due);
+        if (landed) ch.holds.land(holdIds.win(key, t));
+      }
+    };
     const off = chain.client.on((m) => {
       if (m.type === "placed") {
         const key = keyOf(m.drawing, m.index);
         const sent = chainBets.current.get(key);
         if (!sent) return;
+        const ch = chainRef.current;
         betKeys.current.set(m.betId, key);
-        const i = g.bets.findIndex((b) => b.id === sent.id);
-        if (i < 0) return;
-        const bet = g.bets[i];
         const staked = Number(m.staked) / 1e6;
-        // On chain: a soft seal, once per drawing, when its first piece is in.
-        const drawn = bet.group ?? bet.id;
-        if (!sealed.current.has(drawn)) {
-          sealed.current.add(drawn);
-          if (sealed.current.size > 200) sealed.current.clear();
-          sound.placed();
-        }
-        const cells = m.sections.map((s) => ({ t: bet.openAt + s.second * 1000, lo: fromE8(BigInt(s.lo)), hi: fromE8(BigInt(s.hi)), area: Number(s.stake) / 1e6 / bet.perUnit, multiple: s.rung / 100, status: "live" as const }));
-        g.bets[i] = { ...bet, status: cells.length ? "live" : "void", why: cells.length ? undefined : "The price moved, and none of it is in play now.", cells, charged: staked };
-        // What the chain did not take is back.
-        if (sent.stakeUsd > staked + 1e-9) {
-          chainRef.current.nudge(sent.stakeUsd - staked);
-          addChange(cents(sent.stakeUsd - staked), "back");
-          setReturnedInk({ id: sent.id, amount: cents(sent.stakeUsd - staked) });
-        }
-        chainBets.current.set(key, { ...sent, stakeUsd: staked });
-        if (!cells.length) {
+        // Taken: the stake the chain took is out of its balance now, and its next word says so.
+        ch.holds.land(holdIds.stake(key), -staked);
+        const before = sent.stakeUsd;
+        Object.assign(sent, { placed: true, stakeUsd: staked });
+        const i = g.bets.findIndex((b) => b.id === sent.id);
+        if (i < 0) return closeLine(sent.line);
+        const bet = g.bets[i];
+        const bands = m.sections.map((s) => ({ second: s.second, lo: fromE8(BigInt(s.lo)), hi: fromE8(BigInt(s.hi)), stake: Number(s.stake) / 1e6, rung: s.rung }));
+        const { bet: next, bySecond } = confirmPiece(bet, bands, staked, feeBps());
+        const credited = sent.credited;
+        repay(key, sent, bySecond, false);
+        if (next.status === "void") {
+          // The chain placed none of it: to the player, the same as a refusal. Its hits and their taking back
+          // cancel out, and are let go together.
           chainBets.current.delete(key);
           betKeys.current.delete(m.betId);
-          const line = bet.group ?? bet.id;
-          const t = tally(line, bet.placedAt);
-          t.open--;
-          if (t.open <= 0 && !drawing.current.has(line)) closeLine(line);
+          ch.holds.dropAll(holdIds.wins(key));
+          fadeOut(bet);
+          swap(i, next);
+          const net = cents(before - (credited - sent.credited));
+          if (net) addChange(net, net > 0 ? "back" : "stake");
+          sayRefused(cents(before), next.why ?? "");
+        } else {
+          swap(i, next);
+          // What the chain did not take is back.
+          if (before > staked + 1e-9) {
+            addChange(cents(before - staked), "back");
+            setReturnedInk({ id: sent.id, amount: cents(before - staked) });
+          }
         }
+        closeLine(sent.line);
         updateTotals();
       } else if (m.type === "account") {
         // Nothing on its way to the chain or waiting on it: the relayer's balance is exact, and the app's own
@@ -1133,51 +1233,56 @@ export function InkScreen() {
         const key = betKeys.current.get(m.betId);
         const sent = key ? chainBets.current.get(key) : undefined;
         if (!sent || !key) return;
+        const ch = chainRef.current;
         const i = g.bets.findIndex((b) => b.id === sent.id);
         if (i < 0) return;
-        const bet = g.bets[i];
-        let changed = false;
+        // Bands whose bar was never posted: given their stake back on chain, so out of play here too.
+        const expired = expireCells(g.bets[i], m.expiredMask ?? 0);
+        const bet = expired.bet;
+        let changed = expired.gone.length > 0;
         let disagreed = 0;
-        let takeBack = 0;
+        /** What the chain's word changes this piece's hits by, by second. */
+        const bySecond = new Map<number, number>();
+        const moved = (t: number, usd: number) => bySecond.set(t, (bySecond.get(t) ?? 0) + usd);
+        for (const c of expired.gone) if (c.status === "hit") moved(c.t, -(c.paid ?? 0));
+        /** The seconds this settlement decided: what the screen paid for them, the chain has now paid too. */
+        const seconds = new Set<number>();
         const cells = bet.cells.map((c, k) => {
           const hit = (m.hitMask >> k) & 1;
           const miss = (m.missMask >> k) & 1;
           if (!hit && !miss) return c;
+          seconds.add(c.t);
           const status = hit ? ("hit" as const) : ("miss" as const);
           if (c.status === status) return c;
           changed = true;
           if (c.status !== "live") disagreed++;
-          // The screen paid a hit the chain calls a miss: take it back, or the balance shows money that is not there.
-          if (c.status === "hit" && !hit) takeBack += c.paid ?? 0;
-          const stake = bet.perUnit * c.area;
-          const gross = stake * c.multiple;
-          return { ...c, status, paid: hit ? gross - Math.max(0, gross - stake) * (feeBps() / 10_000) : undefined };
+          // The screen paid a hit the chain calls a miss, or missed one it calls a hit: the balance follows the chain.
+          const paid = hit ? paidOnChain(bet.perUnit * c.area, c.multiple, feeBps()) : undefined;
+          moved(c.t, (paid ?? 0) - (c.paid ?? 0));
+          return { ...c, status, paid };
         });
+        for (const c of expired.gone) seconds.add(c.t);
         if (changed) {
-          const wasDecided = decided(bet);
-          const next: InkBet = { ...bet, cells, status: cells.every((c) => c.status !== "live") ? "done" : "live" };
-          g.bets[i] = next;
+          swap(i, { ...bet, cells, status: cells.every((c) => c.status !== "live") ? "done" : "live" });
+          if (expired.back > 0) {
+            ch.holds.land(holdIds.back(key), expired.back);
+            addChange(cents(expired.back), "back");
+            fadeOut(g.bets[i], expired.gone, true);
+          }
           // The chain deciding first is normal; the chain deciding otherwise is worth knowing about.
           if (disagreed) track("judge_disagreed", { bands: disagreed });
-          if (takeBack > 0) chainRef.current.nudge(-cents(takeBack));
           if (disagreed && process.env.NODE_ENV !== "production") console.warn(`[ink] the chain judged ${disagreed} band${disagreed > 1 ? "s" : ""} of ${bet.id} otherwise: hits ${m.hitMask.toString(2)} misses ${m.missMask.toString(2)}`);
-          if (decided(next) && !wasDecided) {
-            settledTotals.current.committed += cost(next) - refund(next);
-            settledTotals.current.returned += won(next);
-            const line = next.group ?? next.id;
-            const t = tally(line, next.placedAt);
-            t.open--;
-            t.won += won(next);
-            t.cost += cost(next) - refund(next);
-            if (t.open <= 0 && !drawing.current.has(line)) closeLine(line);
-          }
           updateTotals();
         }
+        repay(key, sent, bySecond, true);
+        for (const t of seconds) ch.holds.land(holdIds.win(key, t));
         // Decided here, or closed on chain: nothing more will come for it.
         if (decided(g.bets[i]) || m.closed) {
+          ch.holds.landAll(holdIds.wins(key));
           chainBets.current.delete(key);
           betKeys.current.delete(m.betId);
         }
+        closeLine(sent.line);
         // No account asked for here: the relayer sends it after every payout, and at least every few seconds of
         // settlements, so what nothing is waiting on is resynced.
       }
@@ -1205,6 +1310,41 @@ export function InkScreen() {
       g.fx.push({ kind: "burst", t: now - 1000, price: g.displayPrice, born: performance.now(), tier });
     };
   }, [house]);
+  /*
+    For tuning, in development or with ?house: what a piece the chain turns away looks like, on the newest drawing
+    still in play here, from the console. Its ink fades, its stake comes back and its hits are taken back, as a real
+    refusal's are; in practice the money is practice money.
+  */
+  useEffect(() => {
+    if (!house) return;
+    (window as unknown as { __refuse?: unknown }).__refuse = (why = "Too many small pieces; draw a longer line") => {
+      const g = game.current;
+      let i = -1;
+      for (let j = g.bets.length - 1; j >= 0; j--) if (!decided(g.bets[j])) { i = j; break; }
+      if (i < 0) return "Nothing in play";
+      if (chainRef.current.real) {
+        const bet = g.bets[i];
+        letGoRef.current(keyOf(drawingIdOf(bet.group ?? bet.id), pieceIndexOf(bet.id)), why);
+        return bet.id;
+      }
+      const bet = g.bets[i];
+      const line = bet.group ?? bet.id;
+      const acc = payouts.current.get(line);
+      const credited = Math.floor(won(bet) * 100 + 1e-8) / 100;
+      if (acc) unpay(acc, won(bet), credited);
+      const back = cents(cost(bet) - refund(bet));
+      fadeOut(bet);
+      swap(i, { ...bet, status: "void", why, cells: [] });
+      const onPaper = paper() !== null;
+      if (onPaper) paperCredit(cents(back - credited), -credited);
+      else setPractice((s) => ({ balance: cents(s.balance + back - credited), open: g.bets.filter((b) => !decided(b)) }));
+      addChange(cents(back - credited), back >= credited ? "back" : "stake");
+      sayRefused(back, why);
+      closeLine(line);
+      updateTotals();
+      return bet.id;
+    };
+  });
   // For tests in development: place a line from the console, as the pen does.
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") (window as unknown as { __place?: typeof onPlace }).__place = onPlace;
@@ -1432,7 +1572,11 @@ export function InkScreen() {
           ) : null}
       </div>
 
-      {returnedInk && !previewing && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
+      {refused && !previewing && !over ? (
+        <div key={`refused:${refused.id}`} role="status" className={feedback.bottomPill}>{refusalLine(refused)} · <span className="figures font-semibold text-foreground">{money(refused.back)} back</span></div>
+      ) : returnedInk && !previewing && !over ? (
+        <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div>
+      ) : null}
       <div className={feedback.bottomShade} aria-hidden="true" />
       {homeBar ? <HomeScreenBar dismiss={home.dismiss} install={home.install} /> : null}
       <UpdateReady busy={live > 0} />

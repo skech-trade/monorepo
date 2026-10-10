@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { type Bar, type Field, openFor } from "@skech/core/dots";
-import { drawingLayout, INK_CELL, VIEW_SECONDS, CHART_STEP_PX, PEN_CELLS, type Cell, type InkBet, type Pen, type Stroke } from "@skech/core/ink";
+import { drawingLayout, INK_CELL, VIEW_SECONDS, CHART_STEP_PX, PEN_CELLS, type BetCell, type Cell, type InkBet, type Pen, type Stroke } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
 import { BURST, type Tier } from "@skech/core/cheer";
 import type { Tick } from "@/lib/engine";
@@ -38,7 +38,14 @@ import { playerHue, type PublicDrawing } from "@skech/core/social";
  * sprays; a hit while the round is still behind only rings. `burst`: a round that came out ahead, its confetti thrown
  * from where the price last met its ink, as much as its `tier` (cheer.ts) earns.
  */
-export type Fx = { kind: "hit" | "placed" | "drop" | "burst"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean; profit?: boolean; tier?: number; thrown?: boolean };
+export type Fx = { kind: "hit" | "placed" | "drop" | "burst"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean; profit?: boolean; tier?: number; thrown?: boolean; piece?: string };
+/**
+ * Ink that was in play and is not any more, because the chain did not take it (refused, voided, never answered, or
+ * given back): it fades out over `GONE_MS` from where it was, rather than vanishing. `whole`: nothing else of its
+ * drawing is left, so its faint line fades too; otherwise the line stays, faint there, as ink not in play is.
+ */
+export type Gone = { stroke: Stroke; cells: Cell[]; edgeCells: number; step: number; born: number; whole: boolean };
+export const GONE_MS = 300;
 /** What the stroke being drawn costs, the least and most a hit on it pays (in dollars), and which of its points are in play. */
 export type Preview = { multipleLow: number; multipleHigh: number; units: number; cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[]; keyboard?: boolean };
 
@@ -72,6 +79,8 @@ export type Game = {
   /** Price a stroke as if it were placed now. Set by the screen, which has the paths and the market. */
   quote: ((st: Stroke) => Preview | null) | null;
   fx: Fx[];
+  /** Ink fading out, newest last: see `Gone`. */
+  gone?: Gone[];
   /** Whether the screen is dark, read from the page. */
   dark: boolean;
 };
@@ -745,6 +754,7 @@ export function Stage({
       if (!d) {
         d = { hits: [], misses: [], lastHit: -Infinity, lastMiss: -Infinity };
         for (const q of bet.cells) {
+          if (q.expired) continue;
           if (q.status === "hit") {
             d.hits.push(q);
             d.lastHit = Math.max(d.lastHit, q.t);
@@ -856,12 +866,15 @@ export function Stage({
           if (!group) groups.set(id, group = { id, stroke: bet.stroke, cells: [], edgeCells: bet.edgeCells ?? 0, step: bet.step });
           // A drawing bet as it was drawn: each piece carries the stroke so far; draw the longest.
           else if (bet.stroke.pts.length > group.stroke.pts.length) group.stroke = bet.stroke;
-          group.cells.push(...(bet.status === "opening" ? bet.drawn : bet.cells));
+          for (const q of bet.status === "opening" ? bet.drawn : bet.cells) if (!(q as BetCell).expired) group.cells.push(q);
         }
         renderedGroups = [...groups.values()];
       }
+      // Ink on its way out: only while it fades, and with Reduce Motion not at all.
+      if (g.gone?.length && (reducedMotion.matches || g.gone.every((q) => ms - q.born >= GONE_MS))) g.gone = [];
+      const fading = g.gone?.length ? g.gone : null;
       // No pen and no drawing on the chart (a hit or a miss is always in one): no ink, and no layer to clear and lay over.
-      const inked = !!pen || renderedGroups.length > 0 || people.length > 0 || pens.length > 0;
+      const inked = !!pen || renderedGroups.length > 0 || people.length > 0 || pens.length > 0 || !!fading;
       if (inked) onLayer(inkLayer, inkCtx);
       // Other players' ink, under the player's own: one line a drawing, faint, and stronger where it is in play.
       const remote = (line: { t0: number; p0: number; rt: number; rp: number }, path: Path2D, style: string) => {
@@ -910,6 +923,14 @@ export function Stage({
           ink(group.stroke, rgba(pal.ink, 0.3));
           inkInPlay(group.stroke, group.cells, solid, group.edgeCells, group.step);
         }
+      }
+      // What the chain did not take, fading from solid to what is left of it: the faint line (0.886 over it is the
+      // solid 0.92 drawn over faint ink), or nothing.
+      if (fading) for (const q of fading) {
+        const left = 1 - Math.min(1, (ms - q.born) / GONE_MS);
+        if (left <= 0) continue;
+        if (q.whole) ink(q.stroke, rgba(pal.ink, 0.3 * left));
+        inkInPlay(q.stroke, q.cells, rgba(pal.ink, (q.whole ? 0.92 : 0.886) * left), q.edgeCells, q.step);
       }
       if (pen) {
         // Ink shows the moment it is drawn, solid wherever it can be in play,
