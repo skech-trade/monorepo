@@ -13,7 +13,8 @@
     "./social": "./src/social.ts",
     "./cheer": "./src/cheer.ts",
     "./cue": "./src/cue.ts",
-    "./optimistic": "./src/optimistic.ts"
+    "./optimistic": "./src/optimistic.ts",
+    "./explain": "./src/explain.ts"
   },
   "scripts": {
     "test": "bun test"
