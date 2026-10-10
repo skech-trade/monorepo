@@ -517,8 +517,8 @@ export function InkScreen() {
       g.dark = document.documentElement.classList.contains("dark");
       const latest = g.bars.at(-1);
       const nowMs = Date.now() + g.skew;
-      const last = g.ticks.at(-1)?.t ?? latest?.t ?? 0;
-      const ok = connected && !!latest && nowMs - last < 5000 && g.bars.length > 60;
+      // Heartbeats keep quiet seconds live; signed prices are checked separately when placing.
+      const ok = connected && !!latest && nowMs - latest.t < 5000 && g.bars.length > 60;
       setFresh(ok);
       if (!ok) {
         g.field = null;
