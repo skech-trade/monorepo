@@ -13,7 +13,7 @@ import { roundedTerms as areaTerms } from "@skech/core/odds";
 import { cutAt, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor, usdE6 } from "@skech/core/chain";
 import { pieceBytes, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import { useAccount } from "@/components/app/auth";
-import { useGate } from "@/components/app/gate";
+import { useGate, useGatePanels } from "@/components/app/gate";
 import { BitcoinMark, Button, Popover, raised, Sheet, Spinner, Switch, useColors } from "@/components/ui";
 import { hasAuth } from "@/lib/config";
 import { useAppActive } from "@/lib/lifecycle";
@@ -288,14 +288,14 @@ export function InkScreen() {
   }, []);
 
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [help, setHelp] = useState(false);
+  // Settings and How it works are held by the gate, so the account menu opens them too.
+  const { help, setHelp, settings: settingsOpen, setSettings: setSettingsOpen } = useGatePanels();
   const [returnedInk, setReturnedInk] = useState<{ id: string; amount: number } | null>(null);
   useEffect(() => {
     if (!returnedInk) return;
     const timer = setTimeout(() => setReturnedInk(null), 3200);
     return () => clearTimeout(timer);
   }, [returnedInk]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const blurTarget = useRef<View>(null);
   const dark = useDark();
   /*

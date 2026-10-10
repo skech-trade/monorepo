@@ -1,5 +1,5 @@
 import * as Clipboard from "expo-clipboard";
-import { ActivityIcon, ArrowDownLeftIcon, ArrowUpRightIcon, CheckIcon, CopyIcon, LogOutIcon, MoonIcon, SunIcon, TrophyIcon, UserIcon } from "@/components/ui/icons";
+import { ActivityIcon, ArrowDownLeftIcon, ArrowUpRightIcon, CheckIcon, ChevronRightIcon, CircleQuestionMarkIcon, CopyIcon, LogOutIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, TrophyIcon } from "@/components/ui/icons";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,7 +22,9 @@ function CopyAddress({ address }: { address: string }) {
   return (
     <Pressable
       accessibilityLabel={copied ? "Address copied" : `Copy address ${address}`}
+      accessibilityRole="button"
       className="flex-row items-center gap-1 self-start"
+      hitSlop={{ top: 6, bottom: 20, left: 8, right: 8 }}
       onPress={async () => {
         await Clipboard.setStringAsync(address);
         setCopied(true);
@@ -37,10 +39,16 @@ function CopyAddress({ address }: { address: string }) {
   );
 }
 
+/** Between the menu's groups. */
+function Separator() {
+  return <View className="mx-1 my-1 h-px bg-border" />;
+}
+
 /**
  * The bar over the game, laid out as a phone app's: the wordmark in the middle, the trophy (the leaderboard and who
- * is playing) on the left, and the account on the right. Signed in, the account is a small menu: who you are,
- * Deposit, withdrawing, their transactions, light or dark, and signing out. Signed out the way in is "Sign in to play"
+ * is playing) on the left, and the account on the right. Signed in, the account is a small menu, as the web's
+ * (ui/app account-menu.tsx): who you are (a way to your profile), the money (the balance, in, out, the
+ * transactions), the app (Settings, How it works, light or dark), and signing out, alone at the bottom. Signed out the way in is "Sign in to play"
  * in the middle of the game; during a "Try it free" run that is gone, so Sign in sits on the right. Light or dark is
  * in Settings too. Over the game, under the phone's status bar.
  */
@@ -60,6 +68,17 @@ export function AppBar() {
   const playing = useSocialPick((s) => s.playing.length);
   const counted = chain.real && chain.hello?.activity === true;
   const name = profile?.username ? playerName(profile) : (me.email ?? (me.kind === "wallet" ? "Your wallet" : (me.handle ?? "Your wallet")));
+  const identity = me.address ? (
+    <>
+      <AccountAvatar address={me.address} profile={profile} size={44} />
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="font-semibold text-[15px] text-foreground" numberOfLines={1}>
+          {name}
+        </Text>
+        <CopyAddress address={me.address} />
+      </View>
+    </>
+  ) : null;
   return (
     <View className="absolute inset-x-0 top-0 z-30 flex-row items-center px-4 pb-2" style={{ paddingTop: insets.top + 8, height: insets.top + 64 }}>
       {/* The two sides are the same width, so the wordmark sits in the true middle. */}
@@ -96,38 +115,84 @@ export function AppBar() {
 
       {me.signedIn && me.address ? (
         <Popover anchor={{ top: insets.top + 60, right: 16 }} onClose={() => setMenu(false)} open={menu} width={288}>
-          <View className="flex-row items-center gap-3 px-2.5 pt-2.5 pb-3">
-            <AccountAvatar address={me.address} profile={profile} size={44} />
-            <View className="min-w-0 flex-1 gap-0.5">
-              <Text className="font-semibold text-[15px] text-foreground" numberOfLines={1}>
-                {name}
-              </Text>
-              <CopyAddress address={me.address} />
-            </View>
-          </View>
-          <View className="mx-1 mb-1 h-px bg-border" />
-          {chain.real ? (
-            <Row
-              icon={<ArrowDownLeftIcon color={c.fg} size={18} />}
-              onPress={() => {
-                setMenu(false);
-                gate.openDeposit("account_menu");
-              }}
-            >
-              Deposit
-            </Row>
-          ) : null}
+          {/* Who you are: the whole row opens the profile, the address in it copies. */}
           {community ? (
-            <Row
-              icon={<UserIcon color={c.fg} size={18} />}
+            <Pressable
+              accessibilityLabel="Your profile"
+              accessibilityRole="button"
+              className="min-h-16 flex-row items-center gap-3 rounded-xl px-2.5 py-2.5"
               onPress={() => {
                 setMenu(false);
                 community.open("profile", me.address ?? undefined);
               }}
+              style={({ pressed }) => ({ backgroundColor: pressed ? "rgba(127,127,127,0.12)" : "transparent" })}
             >
-              Your profile
-            </Row>
+              {identity}
+              <ChevronRightIcon color={c.muted} size={16} />
+            </Pressable>
+          ) : (
+            <View className="min-h-16 flex-row items-center gap-3 px-2.5 py-2.5">{identity}</View>
+          )}
+          {chain.real ? (
+            <>
+              <Separator />
+              <View accessible className="gap-0.5 px-2.5 pt-2 pb-1.5">
+                <Text className="text-[13px] text-muted-foreground">Balance</Text>
+                <Text className="font-semibold text-[24px] text-foreground" style={{ fontVariant: ["tabular-nums"], letterSpacing: -0.4 }}>
+                  {money(chain.balance)}
+                </Text>
+              </View>
+              <Row
+                icon={<ArrowDownLeftIcon color={c.fg} size={18} />}
+                onPress={() => {
+                  setMenu(false);
+                  gate.openDeposit("account_menu");
+                }}
+              >
+                Deposit
+              </Row>
+              <Row
+                disabled={chain.balance <= 0}
+                icon={<ArrowUpRightIcon color={c.fg} size={18} />}
+                onPress={() => {
+                  setMenu(false);
+                  gate.openWithdraw();
+                }}
+              >
+                Withdraw
+              </Row>
+              {counted ? (
+                <Row
+                  icon={<ActivityIcon color={c.fg} size={18} />}
+                  onPress={() => {
+                    setMenu(false);
+                    gate.openTransactions();
+                  }}
+                >
+                  Transactions
+                </Row>
+              ) : null}
+            </>
           ) : null}
+          <Separator />
+          <Row
+            icon={<SlidersHorizontalIcon color={c.fg} size={18} />}
+            onPress={() => {
+              setMenu(false);
+              gate.openSettings();
+            }}
+          >
+            Settings
+          </Row>
+          <Row
+            icon={<CircleQuestionMarkIcon color={c.fg} size={18} />}
+            onPress={() => {
+              setMenu(false);
+              gate.openHelp();
+            }}
+          >
+            How it works
+          </Row>
           <Row
             icon={dark ? <SunIcon color={c.fg} size={18} /> : <MoonIcon color={c.fg} size={18} />}
             onPress={() => {
@@ -137,30 +202,7 @@ export function AppBar() {
           >
             {dark ? "Light appearance" : "Dark appearance"}
           </Row>
-          {chain.real ? (
-            <Row
-              disabled={chain.balance <= 0}
-              icon={<ArrowUpRightIcon color={c.fg} size={18} />}
-              onPress={() => {
-                setMenu(false);
-                gate.openWithdraw();
-              }}
-              trailing={money(chain.balance)}
-            >
-              Withdraw
-            </Row>
-          ) : null}
-          {counted ? (
-            <Row
-              icon={<ActivityIcon color={c.fg} size={18} />}
-              onPress={() => {
-                setMenu(false);
-                gate.openTransactions();
-              }}
-            >
-              Transactions
-            </Row>
-          ) : null}
+          <Separator />
           <Row
             destructive
             icon={<LogOutIcon color={dark ? "#ff453a" : "#d70015"} size={18} />}

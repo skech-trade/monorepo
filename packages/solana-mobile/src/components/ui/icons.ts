@@ -9,6 +9,7 @@ export { default as ArrowUpRightIcon } from "lucide-react-native/icons/arrow-up-
 export { default as CheckIcon } from "lucide-react-native/icons/check";
 export { default as ChevronDownIcon } from "lucide-react-native/icons/chevron-down";
 export { default as ChevronRightIcon } from "lucide-react-native/icons/chevron-right";
+export { default as CircleQuestionMarkIcon } from "lucide-react-native/icons/circle-question-mark";
 export { default as ClipboardPasteIcon } from "lucide-react-native/icons/clipboard-paste";
 export { default as CopyIcon } from "lucide-react-native/icons/copy";
 export { default as LockIcon } from "lucide-react-native/icons/lock";
