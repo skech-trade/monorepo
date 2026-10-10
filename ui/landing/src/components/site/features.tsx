@@ -33,7 +33,7 @@ const FEATURES = [
     art: { light: "fees", dark: "fees-dark" },
     size: [1200, 900],
     title: "Low trading fees",
-    description: "Keep your trading costs low, with no fee to redraw.",
+    description: "What the game takes is small, and it is the same whatever you draw.",
   },
   {
     slot: "markets",
@@ -44,10 +44,10 @@ const FEATURES = [
   },
   {
     slot: "redraw",
-    art: { light: "redraw-wide-light", dark: "redraw-wide-dark" },
-    size: [1500, 500],
-    title: "Redraw for free",
-    description: "Change your path and update your trade without a redraw fee.",
+    art: null,
+    size: [0, 0],
+    title: "Everyone\u2019s ink, live",
+    description: "Watch what other players are drawing while they draw it, and see where their lines landed.",
   },
   {
     slot: "rewards",
@@ -57,6 +57,33 @@ const FEATURES = [
     description: "A full run on the real odds, played with paper money. No wallet, no sign-in.",
   },
 ] as const;
+
+/**
+ * Four players' lines over the same stretch of price, which is what the community sheet shows: everyone's ink on
+ * one chart. Drawn rather than photographed, so it costs no asset and stays legible at the tile's height.
+ */
+function Crowd() {
+  const lines = [
+    { d: "M6 44 C 30 40, 52 28, 78 30 S 126 20, 152 12", hue: 226 },
+    { d: "M6 52 C 32 50, 56 44, 80 46 S 128 40, 152 34", hue: 152 },
+    { d: "M6 36 C 28 30, 54 34, 78 24 S 124 30, 152 22", hue: 28 },
+    { d: "M6 60 C 30 58, 54 56, 78 52 S 126 48, 152 44", hue: 286 },
+  ];
+  return (
+    <svg aria-hidden="true" className={styles.crowd} fill="none" viewBox="0 0 158 72">
+      {lines.map(line => (
+        <path
+          d={line.d}
+          key={line.hue}
+          stroke={`oklch(0.62 0.17 ${line.hue})`}
+          strokeLinecap="round"
+          strokeOpacity={line.hue === 226 ? 1 : 0.62}
+          strokeWidth={line.hue === 226 ? 3 : 2.2}
+        />
+      ))}
+    </svg>
+  );
+}
 
 /** An asymmetric bento, with funding and leverage as the anchors. */
 export function Features() {
@@ -74,17 +101,21 @@ export function Features() {
               <p>{feature.description}</p>
             </div>
             <div className={styles.artwork}>
-              {(["light", "dark"] as const).map(theme => (
-                <Image
-                  key={theme}
-                  alt=""
-                  className={theme === "dark" ? styles.darkArt : styles.lightArt}
-                  src={`/assets/illo/features/${feature.art[theme]}.png`}
-                  width={feature.size[0]}
-                  height={feature.size[1]}
-                  sizes="(max-width: 767px) calc(100vw - 56px), (max-width: 1023px) 45vw, 500px"
-                />
-              ))}
+              {feature.art === null ? (
+                <Crowd />
+              ) : (
+                (["light", "dark"] as const).map(theme => (
+                  <Image
+                    key={theme}
+                    alt=""
+                    className={theme === "dark" ? styles.darkArt : styles.lightArt}
+                    src={`/assets/illo/features/${feature.art[theme]}.png`}
+                    width={feature.size[0]}
+                    height={feature.size[1]}
+                    sizes="(max-width: 767px) calc(100vw - 56px), (max-width: 1023px) 45vw, 500px"
+                  />
+                ))
+              )}
             </div>
           </article>
         ))}

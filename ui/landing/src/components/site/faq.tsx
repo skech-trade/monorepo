@@ -1,37 +1,43 @@
+import { DIFFICULTY, difficulty } from "@skech/core/dots";
 import { ChevronDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Reveal } from "./motion";
 import { SectionScene } from "./illo";
 import styles from "./story.module.css";
 
+/* The ladder's ends, from the game rather than from this page. */
+const RULES = difficulty(DIFFICULTY);
+const MOST = RULES.maxMultiple;
+const LEAST = RULES.minMultiple;
+
 const FAQS = [
   {
     q: "What does my drawing actually do?",
-    a: "It says which way you think the price is going. Draw it going up and you win if it goes up. Draw it turning down and from that point you win if it falls. That is all it has to get right.",
+    a: "Your line is cut into one-second pieces. Each piece covers a small band of prices, and it pays if the price comes through that band during that second. The seconds it misses are gone.",
   },
   {
     q: "Do I have to guess the right price?",
-    a: "No. You are not picking a number or a range to land in. Draw up, and if it goes up you make money. The bigger the move, the more you make.",
+    a: "Near enough, yes. A piece of your line covers a band of prices for one second and pays only if the price passes through it. A wider pen covers more of the chart and pays less for being there.",
   },
   {
     q: "What if the price doesn't follow my line?",
-    a: "It won't, and that is fine. You get paid on which way the price actually went, not on how close it came to your line.",
+    a: "It will not, and it does not have to. Only the seconds the price spent inside your line pay. A line that catches half of them has done well.",
   },
   {
-    q: "What closes a trade?",
-    a: "The clock, you, or a limit you set. A round lasts about a minute. You can close it early whenever you like. And if it goes far enough against you, it closes on its own.",
+    q: "How much does a hit pay?",
+    a: `Every piece sits on a rung, from ${LEAST}\u00d7 up to ${MOST}\u00d7. The rung is set by how likely that band was: ink where the price was never expected pays the most for being right.`,
+  },
+  {
+    q: "When is a drawing finished?",
+    a: "Each second of ink is judged as the price reaches it, from the price that second really traded at. When the last piece has been judged, the drawing is done.",
   },
   {
     q: "Can I set a limit on what I lose?",
-    a: "Yes. You type the numbers: put in $100, close if I lose $50, close if I make $70. Both are optional, and you can never lose more than you put in.",
-  },
-  {
-    q: "What is the boost?",
-    a: "It makes your money work harder. At 50\u00d7 your $100 moves like $5,000, so wins get bigger and so do losses. You still cannot lose more than you put in.",
+    a: "You set it before you draw. Every dot costs what you chose, from ten cents to a dollar, and you can never lose more than the ink you put down.",
   },
   {
     q: "Do you hold my money?",
-    a: "No. Nothing to install, no account to approve, and we never hold your funds.",
+    a: "Your balance is USDC held by the game on Solana. Deposits, withdrawals and every drawing are transactions on chain, and skech pays the network fee for them.",
   },
   {
     q: "Why has nobody built this before?",

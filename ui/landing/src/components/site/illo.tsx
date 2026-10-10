@@ -13,23 +13,18 @@ import cta from "../../../public/assets/illo/cta-scene.png";
 import band from "../../../public/assets/illo/band-cast.png";
 import steps from "../../../public/assets/illo/spot-steps.png";
 import example from "../../../public/assets/illo/spot-example.png";
-import redraw from "../../../public/assets/illo/spot-redraw.png";
 import faq from "../../../public/assets/illo/spot-faq.png";
 import sceneSteps from "../../../public/assets/illo/scene-steps.png";
 import sceneExample from "../../../public/assets/illo/scene-example.png";
-import sceneRedraw from "../../../public/assets/illo/scene-redraw.png";
 import sceneFaq from "../../../public/assets/illo/scene-faq.png";
 import sceneStepsDark from "../../../public/assets/illo/scene-steps-dark.png";
 import sceneExampleDark from "../../../public/assets/illo/scene-example-dark.png";
-import sceneRedrawDark from "../../../public/assets/illo/scene-redraw-dark.png";
 import sceneFaqDark from "../../../public/assets/illo/scene-faq-dark.png";
 import sceneStepsWebp from "../../../public/assets/illo/scene-steps.webp";
 import sceneExampleWebp from "../../../public/assets/illo/scene-example.webp";
-import sceneRedrawWebp from "../../../public/assets/illo/scene-redraw.webp";
 import sceneFaqWebp from "../../../public/assets/illo/scene-faq.webp";
 import sceneStepsDarkWebp from "../../../public/assets/illo/scene-steps-dark.webp";
 import sceneExampleDarkWebp from "../../../public/assets/illo/scene-example-dark.webp";
-import sceneRedrawDarkWebp from "../../../public/assets/illo/scene-redraw-dark.webp";
 import sceneFaqDarkWebp from "../../../public/assets/illo/scene-faq-dark.webp";
 import { IllustrationPalette } from "./illustration-palette";
 import styles from "./illo.module.css";
@@ -51,14 +46,12 @@ const SLOTS = {
   band,
   steps,
   example,
-  redraw,
   faq,
 } as const;
 
 const SECTION_SCENES = {
   steps: { light: [sceneSteps, sceneStepsWebp], dark: [sceneStepsDark, sceneStepsDarkWebp] },
   example: { light: [sceneExample, sceneExampleWebp], dark: [sceneExampleDark, sceneExampleDarkWebp] },
-  redraw: { light: [sceneRedraw, sceneRedrawWebp], dark: [sceneRedrawDark, sceneRedrawDarkWebp] },
   faq: { light: [sceneFaq, sceneFaqWebp], dark: [sceneFaqDark, sceneFaqDarkWebp] },
 } as const;
 
@@ -134,7 +127,7 @@ export function Spot({
   name,
   className,
 }: {
-  name: "steps" | "example" | "redraw" | "faq";
+  name: "steps" | "example" | "faq";
   className?: string;
 }) {
   const s = SLOTS[name];
