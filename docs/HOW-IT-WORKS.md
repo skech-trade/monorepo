@@ -1,7 +1,8 @@
 # How skech works
 
 You draw ink ahead of Bitcoin's live price. Ink the price runs through pays.
-It is practice money for now: $1,000 in the browser, no sign-in needed.
+Signed in, it is USDC on Solana devnet (section 11). Signed out, it is a thirty-second free trial on $10 of paper
+money (`packages/core/src/paper.ts`); a build without sign-in plays $1,000 of practice money in the browser.
 
 | Part | Where |
 | --- | --- |
@@ -10,6 +11,7 @@ It is practice money for now: $1,000 in the browser, no sign-in needed.
 | The game on chain | `packages/contracts/solana/programs/skech/src/` (Anchor, on Solana) |
 | Pricing and sending pieces to the chain | `packages/relayer` (Bun) |
 | What the app signs, and the ladder in integers | `packages/core/src/chain.ts` |
+| How it works, as the apps say it | `packages/core/src/explain.ts` |
 | The browser's drawing key, the relayer, real money on screen | `ui/app/src/lib/session.ts`, `lib/relayer.ts`, `components/app/ink/chain-context.tsx` |
 | Practice balance and settings | `ui/app/src/lib/practice.ts` |
 | Market readings, price paths, chances | `packages/core/src/dots.ts` |
@@ -119,7 +121,8 @@ hit pays d × stake × rung                  (one section pays at most 256 dots)
 ```
 
 - **Difficulty** is one number, 50 to 100 (`DIFFICULTY` in `dots.ts`, 55 by default;
-  a slider in the help sheet in development, or with `?house`). It sets `ladderBest`,
+  a slider in the help sheet in development, or with `?house`). Real play and the free trial use the market's
+  setting on chain, which the relayer's hello carries: 51 on devnet. It sets `ladderBest`,
   what ink exactly on a rung returns: 1.20 − 0.40 × d/100, so 98¢ at 55. Under 50 that
   is more than a dollar, so both chains refuse a lower setting (`MIN_DIFFICULTY`), and
   price one set lower before there was a least as 50. It also sets the floor, the least
@@ -332,8 +335,7 @@ all addresses of the program:
 - **`Game`** holds the terms, the oracle and the USDC vault. The house never holds the players' money.
 - **`Pool`**: every stake goes into one pool, and every hit is paid from it. The house's take is counted
   here too: a share of every stake as it is placed, and of the profit on every hit, both the admin's to
-  set (`set_config`): 4% of every stake and 10% of every profit (devnet charged 1% and 5% from 10 October 2026
-  until SKT starts on it, which moves it back). Of those, 3 of the 4 points and 8 of the 10 go to SKT holders
+  set (`set_config`): 4% of every stake and 10% of every profit. Of those, 3 of the 4 points and 8 of the 10 go to SKT holders
   (below), 1 and 2 to the treasury; `collect_fees` moves the treasury's out. What the pool holds over a reserve
   and over what every live bet could pay goes 75% to SKT holders and 25% to the treasury (`share_surplus`, below).
   Nothing else.
@@ -435,14 +437,16 @@ returns per dollar before fees, at most 1 − the fee, 0.96 at 4% (`within_fee` 
 `chain.ts`; the apps grey such ink out). Ink that returns more, certain ink at 1× or ink exactly on a rung at a low
 difficulty (chance × rung is 1.2 − 0.4 · d/100 there: 1.0 at 50, 0.98 at 55, 0.96 at 60), would let a player put
 money through the pool at no risk while the holders' share of its fee came out of the pool. At difficulty 55 that
-drops ink within 2% under a rung, and ink over 89% likely, which pays its fair multiple under the floor.
+drops ink within 2% under a rung; at 51, devnet's setting, within 3.6%. At both it drops all ink over 87% likely
+(0.96 / 1.1): just under the first rung, or so likely it pays its fair multiple under the floor.
 
-A half-dot at 10¢ with a 50% chance at difficulty 40, with the 4% stake fee: fair 2.080×, rung 2×.
-Placed: 5¢ leaves the balance, 0.2¢ (4%) is fees (0.15¢ to SKT holders, 0.05¢ to the treasury), 4.8¢ joins
-the pool. Hit: 10¢ gross, 5¢ profit, 0.5¢ (10%) fees (0.4¢ to holders, 0.1¢ to the treasury), 9.5¢ to the
-balance, paid from the pool. Missed: the 4.8¢ stays in the pool for the next hit, and the miss mints SKT on
-5¢ · (1 − 0.5 · 2) / 0.5 = 0. With the pool empty, the 9.5¢ is owed as IOU and paid off as others lose; while it
-is owed, the holders' share of every fee goes to the pool to pay it.
+A half-dot at 10¢ with a 50% chance at difficulty 51, with the 4% stake fee: fair 1.992×, rung 1.5×, and
+0.5 × 1.5 = 0.75, under 0.96, so it is offered. Placed: 5¢ leaves the balance, 0.2¢ (4%) is fees (0.15¢ to SKT
+holders, 0.05¢ to the treasury), 4.8¢ joins the pool. Hit: 7.5¢ gross, 2.5¢ profit, 0.25¢ (10%) fees (0.2¢ to
+holders, 0.05¢ to the treasury), 7.25¢ to the balance, paid from the pool. Missed: the 4.8¢ stays in the pool for
+the next hit, and the miss mints SKT on 5¢ · [(1 − 0.75) + 0.1 · 0.5 · 0.5] / 0.5 = 2.75¢ (2.75 SKT at G = 0).
+With the pool empty, the 7.25¢ is owed as IOU and paid off as others lose; while it is owed, the holders' share of
+every fee goes to the pool to pay it, and no surplus is shared.
 
 ### SKT
 

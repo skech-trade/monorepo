@@ -1,13 +1,13 @@
 import Image from "next/image";
-import { MAX_INK_MULTIPLE, MIN_INK_MULTIPLE } from "@skech/core/ink";
+import { LADDER, MIN_INK_MULTIPLE } from "@skech/core/ink";
 import { Crowd } from "./crowd";
 import styles from "./features.module.css";
 
 /*
-  What a section can pay, from the constant that means exactly that. RULES.maxMultiple is not it: that one shapes
-  the odds and sat at 14x, which is why this tile briefly said so.
+  What a section can pay: the ladder's top rung. MAX_INK_MULTIPLE is not it (that is the most dots one section pays,
+  256), nor RULES.maxMultiple, which shapes the odds and sat at 14x: this tile has said both.
 */
-const MOST = MAX_INK_MULTIPLE;
+const MOST = LADDER[LADDER.length - 1];
 const LEAST = Math.round(MIN_INK_MULTIPLE);
 
 /**

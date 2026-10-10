@@ -18,7 +18,7 @@ export const EFFECTIVE_DATE = "October 2026";
 export const STAKE_FEE = "4%";
 export const PROFIT_FEE = "10%";
 
-/** What an IOU grows by, at SkechIOU's current rate. */
+/** What an IOU grows by, at the game's current rate (`iou_rate` on the pool). */
 export const IOU_GROWTH = "about 0.1% a day";
 
 /** The subject line a deletion request is matched on. */

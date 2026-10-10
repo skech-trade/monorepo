@@ -20,7 +20,7 @@ Bun-workspaces monorepo.
     │   ├── solana/       #   the game, on Solana (Anchor)
     │   ├── evm/          #   the EVM contracts it was first written as (Foundry): kept, not deployed or used
     │   └── deployments/  #   the deployed addresses, written by the deploy, read by everything
-    └── solana-mobile/    # Solana mobile starter (Expo, Mobile Wallet Adapter); its own npm project
+    └── solana-mobile/    # the phone app (Expo, Privy): the web game, screen for screen; its own npm project
 infra/                    # the EC2 box: setup, deploy, Caddy, systemd
 ```
 
@@ -42,8 +42,9 @@ bun run dev:relayer  # relayer on its own (needs the engine, a game on the clust
 
 The engine needs Rust (`cargo`); the Solana program needs Anchor and the Solana CLI (`docs/SETUP.md`).
 `SKECH_SOLANA_CLUSTER` (devnet when blank) picks the game, from `packages/contracts/deployments/solana-<cluster>.json`.
-Without a relayer key (`SOLANA_RELAYER_KEYPAIR`) the relayer sits out and the app plays for practice money;
-with one, a signed-in player plays for USDC on Solana devnet.
+Without a relayer key (`SOLANA_RELAYER_KEYPAIR`) the relayer sits out. Without sign-in (`NEXT_PUBLIC_PRIVY_APP_ID`)
+the app plays practice money; with it, someone signed out gets a thirty-second free trial on paper money, and a
+signed-in player plays for USDC on Solana devnet through the relayer.
 
 ## Ports
 
@@ -55,7 +56,7 @@ Both apps use fixed default ports for `dev` and `start`:
 - Relayer: ws://localhost:3104/ws (`RELAYER_SOLANA_PORT`; the app reads `NEXT_PUBLIC_RELAYER_URL`)
 
 Stop an existing server before restarting it. Keep `http://localhost:3101`
-in your Coinbase CDP development project's allowed origins.
+in your Privy development app's allowed origins (`docs/PRIVY-SETUP.md`).
 
 To override a port for an individual app, set `PORT`:
 

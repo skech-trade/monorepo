@@ -8,6 +8,7 @@ import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
+import { howItWorks, howItWorksSummary } from "@skech/core/explain";
 import { areaCells, areaCostOf, type Cell, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
 import { confirmPiece, expireCells, holdIds, paidOnChain, pay, refusalLine, refusals, type Refusals, unpay } from "@skech/core/optimistic";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
@@ -26,7 +27,7 @@ import { library } from "@/lib/library";
 import { money, signed, skt as sktAmount } from "@/lib/money";
 import { endPaperRun, paper, paperCredit, paperDebit, paperDrew, paperTick, pausePaperRun, resumePaperRun, startPaperRun, usePaper, usePaperPhase } from "@/lib/paper";
 import { cents, practice, record, setPractice, usePractice } from "@/lib/practice";
-import { type Hello, type Incoming, leastPiece } from "@/lib/relayer";
+import { type Incoming, leastPiece } from "@/lib/relayer";
 import { scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { setDark, useDark } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -130,19 +131,6 @@ const RESENDS = 2;
 const RESEND_BASE = 100_000;
 
 /** A piece as the session key signs it, and as it goes on the wire: bands in grid units, the chain's numbers as strings. */
-/** The fees and who they go to, in the game's own numbers as the relayer sends them; without them, no number that could be wrong. */
-function feesLine(terms: Hello["terms"] | undefined) {
-  const pct = (bps: number) => `${bps / 100}%`;
-  if (!terms) return "A share of what you put in and of the profit on every correct call is taken as fees, split between SKT holders and skech.";
-  const { feeBps, profitFeeBps, holderFeeBps: h, holderProfitFeeBps: hp } = terms;
-  if (h === undefined || hp === undefined) return `${pct(feeBps)} of what you put in and ${pct(profitFeeBps)} of the profit on every correct call are taken as fees, split between SKT holders and skech.`;
-  const weeks = terms.sktHalfLifeSecs ? Math.round(terms.sktHalfLifeSecs / 604_800) : null;
-  const s = terms.surplusHolderBps;
-  const surplus = s === undefined ? " Holders also share what the pool keeps beyond its reserve." : ` ${s / 100}% of the pool’s surplus above its reserve goes to SKT holders, ${100 - s / 100}% to skech.`;
-  const skt = ` Losing earns SKT.${surplus}${weeks ? ` SKT halves every ${weeks} weeks: keep playing to keep your share.` : ""}`;
-  return `A fee of ${pct(feeBps)} of what you put in: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of the profit on every correct call: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.${skt}`;
-}
-
 function pieceFor(ch: Chain, level: number, drawing: bigint, index: number, openAt: number, perDot: number, unit: number, quote: { price: string | number; time: string | number }, sections: ReturnType<typeof toSections>, stroke: Uint8Array) {
   const unitE8 = toE8(unit);
   const piece: SolanaPiece = {
@@ -1180,8 +1168,8 @@ export function InkScreen() {
   const pillTop = top + 116;
   /** On a paper run its clock takes the stroke pill's place, and what would be there sits under it. */
   const clockRoom = 46;
-  // What skech keeps, as the relayer says it; nothing numeric until it has.
-  const fees = chain.hello?.terms ?? null;
+  // What How it works explains: the paper run, real USDC (a build that signs in), or practice money.
+  const helpMode = paperOn ? "paper" : forReal ? "real" : "practice";
   // The balance, green and a little larger for a moment when money comes back, and what just moved it under it.
   const balance = (
     <>
@@ -1480,26 +1468,17 @@ export function InkScreen() {
         ) : null}
       </Sheet>
 
-      <Sheet description={`Predict where Bitcoin goes next: draw it on the chart. ${paperOn ? "Paper money, on the live price: thirty seconds of practice." : forReal ? `Real USDC, on the live price, on ${chain.hello?.label ?? "Solana"}.` : "Practice money, on the live price."}`} onClose={() => setHelp(false)} open={help} title="How it works">
-        {[
-          "Draw the path you think the price will take over the next seconds, ahead of the live price. One full dot at your selected pen size costs the amount under Per dot. A longer stroke costs more; retracing ink in the same drawing adds no cost. The total cost rounds up to the next cent, once per drawing.",
-          "Every part of your ink is a call on where the price will be in that second. The map shows what each spot returns if the price crosses it then, 1× up to 128× what it cost. The multiple comes from the chance the price reaches that spot: near the price and soon is likely and returns little; far away returns a lot. A wider pen puts more ink, and more money, on the same spots; it never changes what a spot returns. Only solid blue ink is in play. A correct call pays out immediately.",
-          "Your call goes in as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing. The drawing’s cost rounds up to the cent once, over all of it.",
-          "Placing a drawing takes its cost from your balance straight away; what just moved your balance shows under it. The number beside it is what you have earned: this round’s returns while ink is in play, this session’s otherwise. Tap it for the session so far. Correct calls pay out the moment the price touches them; the rest settles when its second closes.",
-          `Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches ${RULES.horizon} seconds ahead.`,
-        ].map((p) => (
-          <Text className="text-[15px] text-foreground leading-relaxed" key={p.slice(0, 24)}>
-            {p}
-          </Text>
+      <Sheet description={howItWorksSummary({ mode: helpMode, network: chain.hello?.label })} onClose={() => setHelp(false)} open={help} title="How it works">
+        {howItWorks({ mode: helpMode, terms: chain.hello?.terms, difficulty: helpMode === "real" ? (chain.hello?.difficulty ?? level) : level, horizon: RULES.horizon, network: chain.hello?.label, testMoney: Boolean(chain.hello?.faucet), device: "phone" }).map((section) => (
+          <View className="gap-1.5" key={section.title}>
+            <Text className="font-semibold text-[16px] text-foreground">{section.title}</Text>
+            {section.lines.map((line) => (
+              <Text className="text-[15px] text-muted-foreground leading-relaxed" key={line}>
+                {line}
+              </Text>
+            ))}
+          </View>
         ))}
-        <Text className="text-[15px] text-muted-foreground leading-relaxed">
-          {`Multiples are set from historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns ${Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for ${difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Calls are resolved using one-second price ranges. `}
-          {paperOn
-            ? `This practice run plays the real game\u2019s odds on paper money, with no fees and a cent a dot. Its paper money is gone when it ends.`
-            : forReal
-            ? `${feesLine(fees)} Profits are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
-            : "Your balance is practice money saved on this phone."}
-        </Text>
       </Sheet>
     </View>
   );

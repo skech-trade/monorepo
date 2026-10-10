@@ -4,13 +4,14 @@ import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } f
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
+import { howItWorks, howItWorksSummary } from "@skech/core/explain";
 import { areaCells, areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type Cell, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
 import { BATCH_PIECE_STAKE_E6, cutAt, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor, usdE6 } from "@skech/core/chain";
 import { pieceBytes, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import { sha256 } from "@noble/hashes/sha256";
 import { confirmPiece, expireCells, holdIds, paidOnChain, pay, refusalLine, refusals, type Refusals, unpay } from "@skech/core/optimistic";
-import { type Hello, type Incoming, leastPiece } from "@/lib/relayer";
+import { type Incoming, leastPiece } from "@/lib/relayer";
 import { NETWORK } from "@/lib/chain";
 import { useChain } from "./chain-context";
 
@@ -199,23 +200,6 @@ function lessProfitFee(bet: InkBet, before: InkBet, profitFeeBps: number): InkBe
   });
   return touched ? { ...bet, cells } : bet;
 }
-
-/** The fees and who they go to, in the game's own numbers as the relayer sends them; without them, no number that could be wrong. */
-const feesLine = (terms: Hello["terms"] | undefined) => {
-  const pct = (bps: number) => `${bps / 100}%`;
-  if (!terms) return "A share of every stake and of every win’s profit is taken as fees, split between SKT holders and skech.";
-  const { feeBps, profitFeeBps, holderFeeBps: h, holderProfitFeeBps: hp } = terms;
-  if (h === undefined || hp === undefined) return `${pct(feeBps)} of every stake and ${pct(profitFeeBps)} of every win’s profit are taken as fees, split between SKT holders and skech.`;
-  return `A fee of ${pct(feeBps)} of every stake: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of every win’s profit: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.${sktLine(terms)}`;
-};
-
-/** How SKT is earned and kept, in the game's own numbers. */
-const sktLine = (terms: NonNullable<Hello["terms"]>) => {
-  const weeks = terms.sktHalfLifeSecs ? Math.round(terms.sktHalfLifeSecs / 604_800) : null;
-  const s = terms.surplusHolderBps;
-  const surplus = s === undefined ? " Holders also share what the pool keeps beyond its reserve." : ` ${s / 100}% of the pool’s surplus above its reserve goes to SKT holders, ${100 - s / 100}% to skech.`;
-  return ` Losing earns SKT.${surplus}${weeks ? ` SKT halves every ${weeks} weeks: keep playing to keep your share.` : ""}`;
-};
 
 /** A price with its cents quieter than its dollars. */
 const Price = ({ value }: { value: number }) => {
@@ -438,6 +422,8 @@ export function InkScreen() {
   */
   const paperPhase = usePaperPhase();
   const paperOn = paperPhase !== null && !real;
+  // What How it works explains: the paper run, real USDC (a build that signs in), or practice money.
+  const helpMode = paperOn ? "paper" : forReal ? "real" : "practice";
   /**
    * How hard the game is here: on chain, what the game contract says; on a paper run, its own easier setting;
    * else what the house set on this browser, or the game's own. `least`: only the paper run goes under 50.
@@ -1680,15 +1666,17 @@ export function InkScreen() {
         <SheetPopup className="sm:max-w-md" side="right" variant="inset">
           <SheetHeader className="px-6 pt-8">
             <SheetTitle className="font-bold text-xl">How it works</SheetTitle>
-            <SheetDescription>{paperOn ? "Paper money, on the live Bitcoin price: thirty seconds of practice." : forReal ? `Real money, USDC on ${chain.hello?.label ?? NETWORK.label}, on the live Bitcoin price.` : "Practice money, on the live Bitcoin price."}</SheetDescription>
+            <SheetDescription>{howItWorksSummary({ mode: helpMode, network: chain.hello?.label ?? NETWORK.label })}</SheetDescription>
           </SheetHeader>
-          <SheetPanel className="flex flex-col gap-4 px-6 pb-8 text-sm leading-relaxed">
-            <p>Draw ahead of the live price. One full dot at your selected pen size costs the amount under Per dot. A longer stroke costs more; retracing ink in the same drawing adds no cost. The total cost rounds up to the next cent, once per drawing.</p>
-            <p>Every part of your ink pays a rung of the ladder on the map, 1× up to 128× what it cost, if the price crosses it in its second. Rungs come from the chance the price reaches that spot then: near the price and soon is likely and pays little; far away pays a lot. A wider pen puts more ink, and more money, on the same spots; it never changes what a spot pays. Only solid blue ink is in play. A hit pays immediately.</p>
-            <p>Ink is bet as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing. The drawing’s cost rounds up to the cent once, over all of it.</p>
-            <p>Placing a drawing takes its stake from your balance straight away; what just moved your balance shows under it. The number beside it is what you have won: this round&rsquo;s payouts while ink is in play, this session&rsquo;s otherwise. Tap it for the scoreboard. Hits pay the moment the price touches them; the rest settles when its second closes.</p>
-            <p>Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches {RULES.horizon} seconds ahead.</p>
-            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for {difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {paperOn ? `This practice run plays the real game’s odds on paper money, with no fees and a cent a dot. Its paper money is gone when it ends.` : forReal ? `${feesLine(chain.hello?.terms)} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills. Your balance is USDC held by the game on Solana: deposits and withdrawals are transactions skech pays the network fee for, and each drawing is placed and settled on chain.` : "Your balance is practice money saved in this browser."}</p>
+          <SheetPanel className="flex flex-col gap-6 px-6 pb-8 text-sm leading-relaxed">
+            {howItWorks({ mode: helpMode, terms: chain.hello?.terms, difficulty: helpMode === "real" ? chain.hello?.difficulty ?? level : level, horizon: RULES.horizon, network: chain.hello?.label ?? NETWORK.label, testMoney: (chain.hello ? chain.hello.faucet : NETWORK.faucet) !== null, device: "browser" }).map((section) => (
+              <section className="flex flex-col gap-1.5" key={section.title}>
+                <h3 className="font-semibold text-[15px]">{section.title}</h3>
+                <ul className="flex flex-col gap-1 text-muted-foreground">
+                  {section.lines.map((line) => <li key={line}>{line}</li>)}
+                </ul>
+              </section>
+            ))}
             {house && !forReal ? (
               <div className="flex flex-col gap-3 rounded-[14px] bg-muted p-4">
                 <div className="flex items-baseline justify-between">
