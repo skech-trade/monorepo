@@ -7,9 +7,9 @@ import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
-import { areaCostOf, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
-import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
-import { encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor } from "@skech/core/chain";
+import { areaCells, areaCostOf, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
+import { roundedTerms as areaTerms } from "@skech/core/odds";
+import { cutAt, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor, usdE6 } from "@skech/core/chain";
 import { pieceBytes, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import { useAccount } from "@/components/app/auth";
 import { useGate } from "@/components/app/gate";
@@ -23,7 +23,7 @@ import { library } from "@/lib/library";
 import { money, signed } from "@/lib/money";
 import { endPaperRun, paper, paperCredit, paperDebit, paperDrew, paperTick, pausePaperRun, resumePaperRun, startPaperRun, usePaper, usePaperPhase } from "@/lib/paper";
 import { cents, practice, record, setPractice, usePractice } from "@/lib/practice";
-import { type Incoming } from "@/lib/relayer";
+import { type Incoming, leastPiece } from "@/lib/relayer";
 import { scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { setDark, useDark } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -85,6 +85,18 @@ const pieceIndexOf = (id: string) => Number(id.slice(id.lastIndexOf(":") + 1));
 const keyOf = (drawing: bigint | string, index: number) => `${drawing}:${index}`;
 const hexOf = (b: Uint8Array) => `0x${Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")}`;
 const bytesOf = (h: string) => Uint8Array.from((h.replace(/^0x/, "").match(/../g) ?? []).map((x) => parseInt(x, 16)));
+
+/** The dots a line as it stood covers on an opening: once per mark and second, as held ink is asked at every read. */
+const areas = new WeakMap<Stroke, { at: number; step: number; area: number }>();
+const inkArea = (st: Stroke, at: number, step: number) => {
+  const c = areas.get(st);
+  if (c && c.at === at && c.step === step) return c.area;
+  const area = areaCells(st, at, step).reduce((n, x) => n + x.area, 0);
+  areas.set(st, { at, step, area });
+  return area;
+};
+/** Reads of a line kept while its ink is held back: a cut can only be at one of them. */
+const MARKS = 32;
 
 type SentPiece = { id: string; stakeUsd: number; drawing: bigint; stroke: Uint8Array; tries: number };
 const RESEND = /^(Too late for that second|Price seen is stale|Difficulty|Waiting for live prices|Starting up|No price to open on|Late$|StalePrice$)/;
@@ -421,7 +433,8 @@ export function InkScreen() {
   }, [connected, lib, level, least]);
 
   const lines = useRef(new Map<string, { at: number; open: number; won: number; cost: number; hits: number; points: number; best: number }>());
-  const drawing = useRef(new Map<string, { prev: Stroke | null; area: number; charged: number; at: number; pieces: number }>());
+  /** Drawings under the pen: what has gone in so far, and on chain the line at each read since, while its ink is held back. */
+  const drawing = useRef(new Map<string, { prev: Stroke | null; area: number; charged: number; at: number; pieces: number; marks: Stroke[] }>());
   const payouts = useRef(new Map<string, { raw: number; credited: number }>());
   const tally = (line: string, at: number) => {
     let t = lines.current.get(line);
@@ -464,7 +477,8 @@ export function InkScreen() {
       const drawn = bet.drawn.filter((c) => c.t >= openAt + 1000);
       const unit = bet.step * (bet.cell ?? INK_CELL);
       const sections = toSections(drawn, openAt, toE6(bet.perUnit), unit);
-      if (!sections.length) return false;
+      // What is still ahead of the price must make a piece by itself: under the least, the ink is let go.
+      if (!sections.length || stakeOf(sections) < leastPiece(ch.hello)) return false;
       const stakeUsd = Number(stakeOf(sections)) / 1e6;
       const index = RESEND_BASE + resent.current++;
       const next = keyOf(sent.drawing, index);
@@ -657,7 +671,7 @@ export function InkScreen() {
     (stroke: Stroke, line: string, done: boolean): Placed => {
       const g = game.current;
       if (!fresh || !g.field) return "Waiting for live prices";
-      const d = drawing.current.get(line) ?? { prev: null, area: 0, charged: 0, at: 0, pieces: 0 };
+      const d = drawing.current.get(line) ?? { prev: null, area: 0, charged: 0, at: 0, pieces: 0, marks: [] };
       const finish = () => {
         if (!done) return;
         drawing.current.delete(line);
@@ -675,11 +689,32 @@ export function InkScreen() {
       d.at = t0;
       const settings = g.drawing ?? { step: g.step, priceStep: g.priceStep, perDot: g.perDot };
       const placedAt = Date.now() + g.skew;
-      const snap: Stroke = { ...stroke, pts: stroke.pts.slice() };
+      const now: Stroke = { ...stroke, pts: stroke.pts.slice() };
       if (forReal && !ch.real && !onPaper) return ch.player ? "Connecting…" : "Sign in to play";
       if (ch.real && !ch.sessionOk) return "Getting ready, one moment";
+      /*
+        On chain each piece is a transaction the relayer pays for, and must stake its least (10¢). Ink is held
+        back, drawn as it is, until a piece and the ink after it both reach that (`cutAt`): the piece goes up
+        to that read, and the end of the line, however short, goes with the ink still held when the pen lifts.
+      */
+      const minStake = ch.real ? leastPiece(ch.hello) : 0n;
+      const hold = () => {
+        d.marks.push(now);
+        if (d.marks.length > MARKS) d.marks.shift();
+        drawing.current.set(line, d);
+        return null;
+      };
+      let snap = now;
+      let cut = -1;
+      if (ch.real && !done) {
+        const at = openFor(placedAt + g.placeLead);
+        cut = cutAt(d.prev, d.marks, now, (st) => (st ? inkArea(st, at, settings.priceStep) : 0), toE6(settings.perDot), minStake);
+        if (cut < 0) return hold();
+        snap = d.marks[cut];
+      }
       const bet = placeInk(snap, d.prev, settings.perDot, settings.priceStep, placedAt + g.placeLead, `${line}:${d.pieces}`, line, INK_EDGE_CELLS);
       if (!bet) {
+        if (cut >= 0) return hold();
         finish();
         return done && !d.pieces ? "Draw ahead of the wait line" : null;
       }
@@ -690,14 +725,24 @@ export function InkScreen() {
         const sections = toSections(bet.drawn, bet.openAt, toE6(settings.perDot), unit);
         const stake = stakeOf(sections);
         if (!sections.length) {
+          if (cut >= 0) return hold();
           finish();
           return done && !d.pieces ? "Draw ahead of the wait line" : null;
+        }
+        if (stake < minStake) {
+          if (!done) return hold();
+          finish();
+          // The whole line too little to send: nothing is placed or charged. The end of a placed line falls
+          // short only if its held ink went behind the wait line before the pen lifted.
+          return d.pieces ? null : `Draw a little more: at least ${usdE6(minStake)} a line`;
         }
         charge = Number(stake) / 1e6;
         if (charge > ch.balance) {
           finish();
-          if (ch.balance < POINT_PRICES.values[0]) topUp.current = true;
-          return { stop: ch.balance >= POINT_PRICES.values[0] ? "Balance used up here · lower the price per dot" : "Not enough USDC in the game" };
+          // Not enough for a piece at all: the deposit sheet once this drawing and any others are settled.
+          const enough = ch.balance >= Number(minStake) / 1e6;
+          if (!enough) topUp.current = true;
+          return { stop: enough ? "Balance used up here · lower the price per dot" : "Not enough USDC in the game" };
         }
         const quote = feedRef.current.quote;
         if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key) {
@@ -722,6 +767,7 @@ export function InkScreen() {
       addChange(-charge, "stake");
       if (!drawing.current.has(line)) drawing.current.set(line, d);
       d.prev = snap;
+      if (cut >= 0) d.marks = [...d.marks.slice(cut + 1), now];
       d.area = area;
       d.charged = cents(d.charged + charge);
       d.pieces++;
@@ -893,12 +939,14 @@ export function InkScreen() {
 
   const shownBalance = forReal ? chain.balance : state.balance;
   const onboarding = useOnboarding(live);
-  const cannotPlay: "signin" | "deposit" | null = !me.ready ? null : !me.signedIn ? null : real && chain.account !== null && chain.balance < POINT_PRICES.values[0] && live === 0 ? "deposit" : null;
+  // Less in the balance than one piece stakes (10¢), with nothing in play: the deposit sheet, not the chart.
+  const leastUsd = Number(leastPiece(chain.hello)) / 1e6;
+  const cannotPlay: "signin" | "deposit" | null = !me.ready ? null : !me.signedIn ? null : real && chain.account !== null && chain.balance < leastUsd && live === 0 ? "deposit" : null;
   useEffect(() => {
     if (!topUp.current || !real || chain.account === null || live > 0) return;
     topUp.current = false;
-    if (chain.balance < POINT_PRICES.values[0]) gate.openDeposit("short");
-  }, [live, real, chain.account, chain.balance, gate]);
+    if (chain.balance < leastUsd) gate.openDeposit("short");
+  }, [live, real, chain.account, chain.balance, gate, leastUsd]);
   const price = feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0;
   /*
     Signed out, the phone plays for practice money, as the web did before there was a game on chain: the game is

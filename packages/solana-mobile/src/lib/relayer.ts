@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { RELAYER_URL } from "./config";
+import { MIN_PIECE_STAKE_E6 } from "@skech/core/chain";
 
 /**
  * The Solana relayer: where the app sends what it draws, signed by the session key, and hears back what the chain
@@ -26,10 +27,12 @@ export type Hello = {
   difficulty: number | null;
   lateMs: number;
   units: string[] | null;
-  terms: { minPerDot: string; maxPerDot: string; maxPieceStake: string; maxPriceAgeMs: number; feeBps: number; profitFeeBps: number } | null;
+  terms: { minPerDot: string; maxPerDot: string; maxPieceStake: string; minPieceStake?: string; maxPriceAgeMs: number; feeBps: number; profitFeeBps: number } | null;
   faucet: string | null;
   activity: boolean;
 };
+/** The least one piece may stake, USDC e6: the relayer's figure, or the game's 10¢ until it has said. */
+export const leastPiece = (hello: Hello | null | undefined) => BigInt(hello?.terms?.minPieceStake ?? MIN_PIECE_STAKE_E6);
 export type Account = {
   player: string;
   balance: string;

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { hasAuth } from "@/lib/config";
-import { POINT_PRICES } from "@skech/core/odds";
+import { leastPiece } from "@/lib/relayer";
 import { useAccount } from "@/components/app/auth";
 import { useGate } from "@/components/app/gate";
 import { Button, raised, Spinner } from "@/components/ui";
@@ -23,7 +23,8 @@ export function useOnboarding(live: number): { step: Step; setupError: string | 
   const chain = useChain();
   const [setupError, setSetupError] = useState<string | null>(null);
   const known = chain.account !== null;
-  const empty = known && chain.balance < POINT_PRICES.values[0] && live === 0;
+  // Not enough for one piece (10¢, the least the relayer sends), with nothing in play.
+  const empty = known && chain.balance < Number(leastPiece(chain.hello)) / 1e6 && live === 0;
 
   let step: Step = null;
   if (!forReal) step = null;
