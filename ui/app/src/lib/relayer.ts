@@ -45,16 +45,18 @@ export type Account = {
   owed: string;
   /** USDC in the wallet itself, and how much of it the game may sweep in. */
   wallet: { usdc: string; approved: string };
+  /** The player's SKT (e6) and the USDC (e6) it has earned that a claim would pay now; absent from an older relayer. */
+  skt?: { balance: string; claimable: string };
 };
 export type Band = { second: number; lo: string; hi: string; stake: string; rung: number };
 export type PlacedMsg = { type: "placed"; betId: string; player: string; drawing: string; index: number; openAt: string; staked: string; fee: string; refunded: string; sections: Band[]; tx: string };
 export type RefusedMsg = { type: "refused"; betId?: string; player: string; drawing: string; index: number; why: string; tx?: string };
-export type SettledMsg = { type: "settled"; betId: string; player: string; hitMask: number; missMask: number; /** Bands given their stake back: their second's bar was never posted. */ expiredMask?: number; paid: string; owed: string; closed: boolean; tx: string };
+export type SettledMsg = { type: "settled"; betId: string; player: string; hitMask: number; missMask: number; /** Bands given their stake back: their second's bar was never posted. */ expiredMask?: number; paid: string; owed: string; closed: boolean; /** SKT e6 this bet's misses minted. */ minted?: string; tx: string };
 export type AckMsg = { type: "ack"; ok: boolean; betId?: string; why?: string; drawing?: string; index?: number };
 /** A player's transactions, counted by the relayer from their game account's signatures. `counting`: still reading the history. */
 export type ActivityMsg = { type: "activity"; player: string | null; txs: number; recent: { signature: string; time: number | null }[]; explorer?: string; counting: boolean; progress: number };
 /** What the wallet signs and the relayer pays for. */
-export type Kind = "session" | "deposit" | "withdraw" | "revoke";
+export type Kind = "session" | "deposit" | "withdraw" | "revoke" | "claim";
 export type BuiltMsg = { type: "built"; kind: string; id?: string; tx?: string; ok?: false; why?: string };
 export type SubmittedMsg = { type: "submitted"; id: string; kind?: string; ok: boolean; tx?: string; why?: string };
 export type Incoming =
@@ -234,6 +236,8 @@ const sameAccount = (a: Account | null, b: Account) =>
   a.owed === b.owed &&
   a.wallet.usdc === b.wallet.usdc &&
   a.wallet.approved === b.wallet.approved &&
+  a.skt?.balance === b.skt?.balance &&
+  a.skt?.claimable === b.skt?.claimable &&
   (a.session?.key ?? null) === (b.session?.key ?? null) &&
   (a.session?.validUntil ?? null) === (b.session?.validUntil ?? null) &&
   (a.session?.allowance ?? null) === (b.session?.allowance ?? null);

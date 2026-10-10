@@ -1,12 +1,12 @@
 "use client";
 
-import { ActivityIcon, ArrowDownLeftIcon, ArrowUpRightIcon, CheckIcon, ChevronRightIcon, CircleQuestionMarkIcon, CopyIcon, LogOutIcon, SlidersHorizontalIcon, SquarePlusIcon } from "lucide-react";
+import { ActivityIcon, ArrowDownLeftIcon, ArrowUpRightIcon, CheckIcon, ChevronRightIcon, CircleQuestionMarkIcon, CoinsIcon, CopyIcon, LogOutIcon, SlidersHorizontalIcon, SquarePlusIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "@/components/ui/menu";
 import { PRIVATE_TEXT } from "@/lib/analytics";
 import { shortAddress } from "@/lib/market";
-import { money } from "@/lib/money";
+import { money, skt } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { useCopy } from "./copy";
 import { AccountAvatar } from "./player-avatar";
@@ -20,6 +20,10 @@ export type AccountMenuProps = {
   profile?: Face;
   /** The balance, playing for real; null otherwise, and there is no money group. */
   balance: number | null;
+  /** The player's SKT (e6) and what it has earned (USDC), playing for real; null otherwise. */
+  skt?: { balance: number; claimable: number } | null;
+  claiming?: boolean;
+  onClaim?: () => void;
   /** Whether the relayer counts transactions: only then is there a list of them. */
   counted: boolean;
   /** A phone's browser, not yet on the Home Screen. */
@@ -82,6 +86,15 @@ export function AccountMenuPopup(p: AccountMenuProps) {
               <ArrowUpRightIcon />
               Withdraw
             </MenuItem>
+            {p.skt ? (
+              <MenuItem className={row} disabled={p.skt.claimable < 0.01 || p.claiming} onClick={p.onClaim}>
+                <CoinsIcon />
+                <span className="flex flex-1 items-baseline gap-1.5">
+                  SKT <span className="figures text-muted-foreground">{skt(p.skt.balance)}</span>
+                </span>
+                <span className="figures text-[13px] text-muted-foreground">{p.claiming ? "Claiming…" : `Claim ${money(p.skt.claimable)}`}</span>
+              </MenuItem>
+            ) : null}
             {/* Only where the relayer counts them: an empty sheet of dashes says nothing. */}
             {p.counted ? (
               <MenuItem className={row} onClick={p.onTransactions}>

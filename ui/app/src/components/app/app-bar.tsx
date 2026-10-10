@@ -92,6 +92,9 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
             onSignOut={() => me.signOut()}
             onTransactions={() => setTxsOpen(true)}
             onWithdraw={gate.openWithdraw}
+            onClaim={() => void chain.claim()}
+            claiming={chain.claiming}
+            skt={chain.real ? chain.skt : null}
             profile={profile}
           />
         ) : null}
