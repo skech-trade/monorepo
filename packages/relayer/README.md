@@ -33,6 +33,7 @@ bun packages/relayer/scripts/keeper-quote.ts 0.2   # what Jupiter would charge t
 | `SOLANA_DEVNET_RPC_URL`, `SOLANA_MAINNET_BETA_RPC_URL` | the public RPC | A private RPC per cluster; `SOLANA_<CLUSTER>_WS_URL` for its websocket if not the same URL over ws |
 | `SOLANA_RPC_RPS` | `15` | Requests a second to the RPC, all told |
 | `SOLANA_PRIORITY_MICROLAMPORTS`, `SOLANA_PRIORITY_MAX_MICROLAMPORTS` | followed; capped at 50,000 (2,000,000 on mainnet) | A fixed priority fee, or the cap on the followed one |
+| `SOLANA_MIN_PIECE_STAKE` | `100000` (10¢) | The least one piece may stake, USDC millionths, as it arrives and after what the program would hand back. Each piece is a transaction the relayer pays for, and only the stake fee pays it back. In `hello`'s terms as `minPieceStake` |
 | `NEXT_PUBLIC_ENGINE_URL` | `ws://localhost:3102/ws` | Where the engine is |
 | `RELAYER_SOLANA_PORT` | `3104` | |
 | `RELAYER_HOST` | `127.0.0.1` | Where to listen. Caddy fronts it on the box; `0.0.0.0` for a phone on the LAN |
