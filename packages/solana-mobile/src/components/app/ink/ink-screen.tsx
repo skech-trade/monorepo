@@ -10,7 +10,7 @@ import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RU
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { areaCells, areaCostOf, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
-import { cutAt, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor, usdE6 } from "@skech/core/chain";
+import { BATCH_PIECE_STAKE_E6, cutAt, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor, usdE6 } from "@skech/core/chain";
 import { pieceBytes, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import { useAccount } from "@/components/app/auth";
 import { useGate } from "@/components/app/gate";
@@ -735,11 +735,13 @@ export function InkScreen() {
       if (forReal && !ch.real && !onPaper) return ch.player ? "Connecting…" : "Sign in to play";
       if (ch.real && !ch.sessionOk) return "Getting ready, one moment";
       /*
-        On chain each piece is a transaction the relayer pays for, and must stake its least (10¢). Ink is held
-        back, drawn as it is, until a piece and the ink after it both reach that (`cutAt`): the piece goes up
-        to that read, and the end of the line, however short, goes with the ink still held when the pen lifts.
+        On chain each piece is a transaction the relayer pays for, and only a stake of about 10¢ pays its gas
+        back. Ink is held back, drawn as it is, and sent in pieces of 10¢ (`cutAt`), each up to a read with at
+        least the relayer's least (1¢) drawn after it: when the pen lifts, that end goes as a piece of its own,
+        and a whole line goes if it reaches the least. The relayer limits each player's pieces under 10¢.
       */
       const minStake = ch.real ? leastPiece(ch.hello) : 0n;
+      const batch = minStake > BATCH_PIECE_STAKE_E6 ? minStake : BATCH_PIECE_STAKE_E6;
       const hold = () => {
         d.marks.push(now);
         if (d.marks.length > MARKS) d.marks.shift();
@@ -750,7 +752,7 @@ export function InkScreen() {
       let cut = -1;
       if (ch.real && !done) {
         const at = openFor(placedAt + g.placeLead);
-        cut = cutAt(d.prev, d.marks, now, (st) => (st ? inkArea(st, at, settings.priceStep) : 0), toE6(settings.perDot), minStake);
+        cut = cutAt(d.prev, d.marks, now, (st) => (st ? inkArea(st, at, settings.priceStep) : 0), toE6(settings.perDot), batch, minStake);
         if (cut < 0) return hold();
         snap = d.marks[cut];
       }
@@ -771,7 +773,7 @@ export function InkScreen() {
           finish();
           return done && !d.pieces ? "Draw ahead of the wait line" : null;
         }
-        if (stake < minStake) {
+        if (stake < (done ? minStake : batch)) {
           if (!done) return hold();
           finish();
           // The whole line too little to send: nothing is placed or charged. The end of a placed line falls
@@ -981,7 +983,7 @@ export function InkScreen() {
 
   const shownBalance = forReal ? chain.balance : state.balance;
   const onboarding = useOnboarding(live);
-  // Less in the balance than one piece stakes (10¢), with nothing in play: the deposit sheet, not the chart.
+  // Less in the balance than one piece stakes (1¢), with nothing in play: the deposit sheet, not the chart.
   const leastUsd = Number(leastPiece(chain.hello)) / 1e6;
   const cannotPlay: "signin" | "deposit" | null = !me.ready ? null : !me.signedIn ? null : real && chain.account !== null && chain.balance < leastUsd && live === 0 ? "deposit" : null;
   useEffect(() => {
