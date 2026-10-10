@@ -30,6 +30,11 @@ export type Chain = {
   deposit: (usdc: number) => Promise<string | null>;
   /** Send `usdc` from the balance to `to` (a Solana address): the transaction, or why not. */
   withdraw: (usdc: number, to: string) => Promise<{ tx: string } | { why: string }>;
+  /** The player's SKT and the USDC it has earned, as the relayer last said; null before it has. */
+  skt: { balance: number; claimable: number } | null;
+  /** What the SKT has earned, into the balance: the transaction, or why not. */
+  claim: () => Promise<{ tx: string } | { why: string }>;
+  claiming: boolean;
   /** USDC in the wallet itself, on its way in; null before the first word. */
   wallet: number | null;
   /** How much of the wallet's USDC the game may sweep in without asking. */
@@ -221,6 +226,25 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     [player, client, me.signTransaction],
   );
 
+  const [sktBalance, sktClaimable] = [account?.skt?.balance, account?.skt?.claimable];
+  const skt = useMemo(() => (sktBalance !== undefined && sktClaimable !== undefined ? { balance: Number(sktBalance), claimable: Number(sktClaimable) / 1e6 } : null), [sktBalance, sktClaimable]);
+  const [claiming, setClaiming] = useState(false);
+  const claim = useCallback(async (): Promise<{ tx: string } | { why: string }> => {
+    if (!player) return { why: "Not connected" };
+    const amount = skt?.claimable ?? 0;
+    setClaiming(true);
+    try {
+      const before = saidRef.current;
+      const r = await client.transact("claim", {}, me.signTransaction);
+      if (!r.ok) return { why: r.why };
+      // As a withdrawal: the relayer sends the new balance first, so it is counted here only if that has not come.
+      if (saidRef.current === before) nudgeRef.current(amount);
+      return { tx: r.tx };
+    } finally {
+      setClaiming(false);
+    }
+  }, [player, client, me.signTransaction, skt]);
+
   /*
     USDC that lands in the wallet is on its way in. With the session's standing approval the relayer sweeps it in
     by itself; the app asks it to look now rather than on its next round. With no approval left, a Privy wallet
@@ -279,8 +303,8 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   }, [wallet]);
 
   const value = useMemo<Chain>(
-    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, forgetKey, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync, holds }),
-    [live, player, client, hello, account, connected, key, sessionOk, enableSession, forgetKey, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync, holds],
+    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, forgetKey, registering, deposit, withdraw, skt, claim, claiming, wallet, approved, adding, landed, balance, nudge, resync, holds }),
+    [live, player, client, hello, account, connected, key, sessionOk, enableSession, forgetKey, registering, deposit, withdraw, skt, claim, claiming, wallet, approved, adding, landed, balance, nudge, resync, holds],
   );
   return <ChainContext.Provider value={value}>{children}</ChainContext.Provider>;
 }
