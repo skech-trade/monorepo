@@ -32,6 +32,7 @@ pub fn check_config(c: &Config, r: &RewardsConfig) -> Result<()> {
     require!((MIN_WALLET_CAP_BPS..=BPS as u16).contains(&r.wallet_cap_bps), SkechError::BadConfig);
     // The pool always keeps at least what one piece could pay at these terms over what live bets could.
     require!(r.surplus_reserve >= max_piece_payout(c), SkechError::BadConfig);
+    require!(r.surplus_holder_bps as u64 <= BPS, SkechError::BadConfig);
     Ok(())
 }
 

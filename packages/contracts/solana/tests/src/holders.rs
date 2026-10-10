@@ -174,11 +174,15 @@ fn the_pool_shares_its_surplus_and_can_still_pay_every_live_band() {
     let live = [t.place(&winner, open_at, &[(1, AT, 500_000, LONG)]), t.place(&winner, open_at, &[(2, AT, 900_000, HALF)])];
     let r = t.g.rewards();
     assert_eq!(r.liability, 500_000 * 96 + 900_000 * 150 / 100, "what they could pay, gross");
-    let pool = t.g.pool().pool;
+    let (pool, fees) = (t.g.pool().pool, t.g.pool().fees);
     let m = t.g.send(&[t.g.share_surplus_ix()], &[]).expect("shared");
     println!("share_surplus: {} CU", m.compute_units_consumed);
     let shared: Vec<skech::events::SurplusShared> = events(&m.logs);
-    assert_eq!(shared[0].amount, pool - reserve - r.liability);
+    // 75% of the surplus to holders, rounded down; the treasury the rest, the rounding with it.
+    let surplus = pool - reserve - r.liability;
+    assert_eq!(shared[0].amount, surplus * 7_500 / 10_000);
+    assert_eq!(shared[0].treasury, surplus - surplus * 7_500 / 10_000);
+    assert_eq!(t.g.pool().fees - fees, shared[0].treasury);
     assert_eq!(t.g.pool().pool, reserve + r.liability, "the pool keeps the reserve and every live bet's most");
     assert_eq!(t.g.rewards().holder_funds - r.holder_funds, shared[0].amount);
     // Nothing more to share.
@@ -235,4 +239,51 @@ fn no_wallet_mints_past_its_cap() {
         let (h, total, floor) = (t.g.holder(&key(&whale)).shares, r.total_shares, r.floor_shares());
         assert!(h * 10 <= total.max(floor) + 10, "{h} of {total}");
     }
+}
+
+/// B: the split is exactly the configured share to holders, rounded down, and the rest to the treasury; a share over
+/// 10,000 bps is refused; and the wallet cap still holds on the holders' part (the floor's part going to the treasury).
+#[test]
+fn the_surplus_splits_three_quarters_to_holders_and_the_cap_holds_on_their_part() {
+    let mut t = T::new();
+    let reserve = small_terms(&mut t);
+    let admin = t.g.admin.insecure_clone();
+    assert_eq!(t.g.rewards().config.surplus_holder_bps, 7_500, "the default");
+    // Over 10,000 bps: refused. 10,000 and 0 are fine.
+    for (bps, ok) in [(10_001u16, false), (u16::MAX, false), (10_000, true), (0, true), (7_500, true)] {
+        let r = RewardsConfig { surplus_holder_bps: bps, ..t.g.rewards().config };
+        let res = t.g.send(&[t.g.set_rewards_config_ix(r)], &[&admin]);
+        if ok {
+            res.expect("accepted");
+        } else {
+            assert_eq!(custom_error(&res), Some(code(SkechError::BadConfig)), "{bps} bps");
+        }
+    }
+    // The cap on, its floor 1M SKT as by default: one loser holds every share there is, a sliver of the floor.
+    let r = RewardsConfig { wallet_cap_bps: 1_000, ..t.g.rewards().config };
+    t.rewards_config(r);
+    t.g.set_time(t.g.now + skech::state::BAR_RING as i64);
+    let loser = t.g.player(300 * E6, 300 * E6);
+    for _ in 0..200 {
+        t.play(&loser, FAR, 1_000_000, HALF);
+    }
+    let (rw, pool, fees) = (t.g.rewards(), t.g.pool().pool, t.g.pool().fees);
+    let floor = rw.floor_shares();
+    assert!(rw.total_shares < floor, "fewer shares than the floor");
+    let surplus = pool - reserve - rw.liability;
+    let m = t.g.send(&[t.g.share_surplus_ix()], &[]).expect("shared");
+    let e: Vec<skech::events::SurplusShared> = events(&m.logs);
+    let to_holders = surplus * 7_500 / 10_000;
+    // Of the holders' 75%, only total / floor is shared (rounded up): the loser, holding all of it, is paid at most a
+    // tenth of the holders' part. The treasury takes its 25% and the floor's part.
+    let shared = ((to_holders as u128 * rw.total_shares).div_ceil(floor)) as u64;
+    assert_eq!(e[0].amount, shared);
+    assert_eq!(e[0].treasury, surplus - shared);
+    assert_eq!(t.g.pool().fees - fees, surplus - shared);
+    assert_eq!(t.g.pool().pool, reserve + rw.liability);
+    let before = t.g.player_state(&loser).balance;
+    let w = loser.wallet.insecure_clone();
+    let _ = t.g.send(&[t.g.claim_ix(&loser)], &[&w]);
+    let paid = t.g.player_state(&loser).balance - before;
+    assert!(paid <= to_holders / 10 + 1, "paid {paid} of the holders' {to_holders}");
 }

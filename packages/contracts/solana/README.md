@@ -22,7 +22,7 @@ The game: one Anchor program, `skech`, on Solana. It is the same game as the EVM
 
 Accounts: `Game` (terms, oracle, vault; read-only to players), `Pool` (the pool, the fees, the IOU index), `Market` and `Bars` per market, `Player` per wallet, `Bet` per piece, and for SKT `Rewards` (one: shares, the holders' accumulator and its last eras, their funds, the tracked gain, the decay's clock, live bets' liability, SKT's terms) and `Holder` per wallet (shares and their era, earnings, basis). All are PDAs of the program.
 
-SKT (`src/skt.rs`, and `docs/HOW-IT-WORKS.md` § SKT) is Solana's alone: every band that misses mints on its odds-weighted loss (the profit fee counted), SKT decays with a half-life, no wallet mints past 10% of all of it, and holders share 3 of the 4 stake-fee points, 8 of the 10 profit-fee points and the pool's surplus over its reserve and live bets' worst (`share_surplus`). The EVM game has none; the conformance cases with SKT terms run on Solana only.
+SKT (`src/skt.rs`, and `docs/HOW-IT-WORKS.md` § SKT) is Solana's alone: every band that misses mints on its odds-weighted loss (the profit fee counted), SKT decays with a half-life, no wallet mints past 10% of all of it, and holders share 3 of the 4 stake-fee points, 8 of the 10 profit-fee points and 75% of the pool's surplus over its reserve and live bets' worst (`share_surplus`; the treasury takes the other 25%). The EVM game has none; the conformance cases with SKT terms run on Solana only.
 
 ## Numbers (LiteSVM, `snapshots/compute.json`)
 
@@ -38,7 +38,7 @@ SKT (`src/skt.rs`, and `docs/HOW-IT-WORKS.md` § SKT) is Solana's alone: every b
 | settling, part by part: the instruction / each bet / each band / each band decided / each holder opened | 13,000 / 9,700 / 850 / 800 / 6,300 |
 | claim | 13,800 |
 | redeem | 13,300 |
-| share_surplus | 15,800 |
+| share_surplus | 16,100 |
 
 `place` finds the bet's canonical bump itself (so a piece has one address), 1,500 units for each bump it tries below 255: the snapshot is taken at 255, and the relayer adds `place_per_bump` for the bump it already knows.
 

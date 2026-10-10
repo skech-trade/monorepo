@@ -40,6 +40,8 @@ export type RewardsConfig = {
   capFloor: bigint;
   /** USDC e6 the pool keeps, over what every live bet could pay, before any of its surplus is shared with holders. */
   surplusReserve: bigint;
+  /** Of the pool's surplus, to SKT holders, bps; the rest to the treasury. */
+  surplusHolderBps: number;
 };
 
 export type RewardsConfigArgs = {
@@ -60,6 +62,8 @@ export type RewardsConfigArgs = {
   capFloor: number | bigint;
   /** USDC e6 the pool keeps, over what every live bet could pay, before any of its surplus is shared with holders. */
   surplusReserve: number | bigint;
+  /** Of the pool's surplus, to SKT holders, bps; the rest to the treasury. */
+  surplusHolderBps: number;
 };
 
 export function getRewardsConfigEncoder(): FixedSizeEncoder<RewardsConfigArgs> {
@@ -71,6 +75,7 @@ export function getRewardsConfigEncoder(): FixedSizeEncoder<RewardsConfigArgs> {
     ["walletCapBps", getU16Encoder()],
     ["capFloor", getU64Encoder()],
     ["surplusReserve", getU64Encoder()],
+    ["surplusHolderBps", getU16Encoder()],
   ]);
 }
 
@@ -83,6 +88,7 @@ export function getRewardsConfigDecoder(): FixedSizeDecoder<RewardsConfig> {
     ["walletCapBps", getU16Decoder()],
     ["capFloor", getU64Decoder()],
     ["surplusReserve", getU64Decoder()],
+    ["surplusHolderBps", getU16Decoder()],
   ]);
 }
 

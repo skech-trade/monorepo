@@ -106,4 +106,6 @@ test("SKT halves every half-life, eras and all, as the program counts it", () =>
 test("the default reserve is three times what one piece can pay at the default terms", () => {
   expect(maxPiecePayoutE6(DEFAULT_CONFIG)).toBe(819_200_000_000n);
   expect(DEFAULT_REWARDS_CONFIG.surplusReserve).toBe(3n * 819_200_000_000n);
+  // Of the surplus, three quarters to holders.
+  expect(DEFAULT_REWARDS_CONFIG.surplusHolderBps).toBe(7_500);
 });

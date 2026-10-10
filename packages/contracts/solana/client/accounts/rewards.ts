@@ -254,5 +254,5 @@ export async function fetchAllMaybeRewards(
 }
 
 export function getRewardsSize(): number {
-  return 319;
+  return 321;
 }

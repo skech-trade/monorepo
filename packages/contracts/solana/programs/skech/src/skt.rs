@@ -4,8 +4,8 @@
 //! - **The fees.** Of the stake fee, `holder_fee_bps` (3 of 4 points) is the holders'; of the profit fee,
 //!   `holder_profit_fee_bps` (8 of 10). The house keeps the rest and every rounding. While anything is owed as IOU
 //!   the holders' share goes to the pool, to pay it off; while (next to) no SKT exists, to the treasury. The mint is
-//!   never changed by what is owed. What the pool holds over the reserve and what live bets could pay is shared with
-//!   holders too (`share_surplus`), never while anything is owed.
+//!   never changed by what is owed. What the pool holds over the reserve and what live bets could pay goes 75% to
+//!   holders and 25% to the treasury (`share_surplus`), never while anything is owed.
 //! - **Decay, as shares.** A mint of `skt` at time t adds `skt · 2^(t/h)` shares (h the half-life), and a holder's SKT
 //!   at time t is `shares · 2^(−t/h)`. Every balance decays alike, so what decay changes is how a mint weighs against
 //!   older ones: the holders' share is split by shares, which is by decayed balance, and an early loss earns less and
@@ -30,7 +30,7 @@
 //!   is little, whichever is more; what would pass it is not minted (G still moves on). The floor is `cap_floor` SKT as
 //!   if minted when SKT started and held by nobody: it decays as every SKT does, so it matters early and fades. Every
 //!   share is counted against the larger of all shares and the floor's, so no wallet is paid more than its cap's part of
-//!   anything shared; the floor's part goes to the treasury (or stays in the pool). One check per mint and per share,
+//!   anything shared; the floor's part goes to the treasury. One check per mint and per share,
 //!   and it only ever mints and pays less. A player with many wallets is not stopped by it.
 
 use anchor_lang::prelude::*;

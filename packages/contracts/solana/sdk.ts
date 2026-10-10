@@ -123,7 +123,8 @@ export const DEFAULT_CONFIG: Config = {
 /**
  * `RewardsConfig::DEFAULT`: 3 of the 4 stake points and 8 of the 10 profit points to SKT holders; the curve's scale
  * $1,000,000; a half-life of 26 weeks; no wallet past 10% of all SKT, or 100,000 SKT while there is under a million;
- * $2,457,600 kept in the pool over what live bets could pay before any surplus is shared.
+ * $2,457,600 kept in the pool over what live bets could pay before any surplus is shared, and of the surplus 75% to
+ * holders, 25% to the treasury.
  */
 export const DEFAULT_REWARDS_CONFIG: RewardsConfig = {
   holderFeeBps: 300,
@@ -133,6 +134,7 @@ export const DEFAULT_REWARDS_CONFIG: RewardsConfig = {
   walletCapBps: 1_000,
   capFloor: 1_000_000_000_000n,
   surplusReserve: 2_457_600_000_000n,
+  surplusHolderBps: 7_500,
 };
 /** SKT is counted in millionths, as USDC is. */
 export const SKT_DECIMALS = 6;
@@ -203,8 +205,9 @@ export const maxPiecePayoutE6 = (c: Pick<Config, "maxPerDot" | "maxPieceStake">)
   return bands < stake ? bands : stake;
 };
 
-/** What `share_surplus` would share now, USDC e6 (surplus.rs `surplus`): 0 while anything is owed, too soon after SKT
- * started, with no shares to share it among, or with the pool at or under its reserve and every live bet's most. */
+/** What `share_surplus` would move out of the pool now, USDC e6 (surplus.rs `surplus`): 0 while anything is owed, too
+ * soon after SKT started, with no shares to share it among, or with the pool at or under its reserve and every live
+ * bet's most. `surplusHolderBps` of it goes to holders, the rest to the treasury. */
 export function surplusE6(pool: Pick<Pool, "pool" | "iouShares" | "houseShares">, rewards: Pick<Rewards, "liability" | "config" | "startedAt" | "totalShares">, now: bigint): bigint {
   if (pool.iouShares > 0n || pool.houseShares > 0n || now < rewards.startedAt + 240n || rewards.totalShares < 1_000_000n) return 0n;
   const keep = rewards.liability + rewards.config.surplusReserve;

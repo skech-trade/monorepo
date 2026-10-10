@@ -350,13 +350,16 @@ pub struct RewardsConfig {
     pub cap_floor: u64,
     /// USDC e6 the pool keeps, over what every live bet could pay, before any of its surplus is shared with holders.
     pub surplus_reserve: u64,
+    /// Of the pool's surplus, to SKT holders, bps; the rest to the treasury.
+    pub surplus_holder_bps: u16,
 }
 
 impl RewardsConfig {
     /// 3 of the 4 stake points and 8 of the 10 profit points to holders; the curve's scale $1,000,000, so the rate falls
     /// across a tracked gain of $0 to $10M: 100 SKT a dollar at 0, 25 at $1M, 0.83 at $10M. A half-life of 26 weeks; no
     /// wallet past 10% of all SKT, or past 100,000 SKT while there is under a million. The pool keeps $2,457,600 over
-    /// what live bets could pay: three times the most one piece can pay at the default terms (`max_piece_payout`).
+    /// what live bets could pay: three times the most one piece can pay at the default terms (`max_piece_payout`); of
+    /// what it holds over that, 75% goes to holders and 25% to the treasury.
     pub const DEFAULT: RewardsConfig = RewardsConfig {
         holder_fee_bps: 300,
         holder_profit_fee_bps: 800,
@@ -365,6 +368,7 @@ impl RewardsConfig {
         wallet_cap_bps: 1_000,
         cap_floor: 1_000_000_000_000,
         surplus_reserve: 2_457_600_000_000,
+        surplus_holder_bps: 7_500,
     };
 }
 

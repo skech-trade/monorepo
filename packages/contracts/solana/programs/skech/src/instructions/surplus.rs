@@ -1,6 +1,8 @@
-//! The pool's surplus, shared with SKT holders. The pool pays every hit; the house's edge stays in it, and nothing else
-//! ever takes it out. What it holds over a large reserve and over what every live bet could pay, if every band hit, goes
-//! to holders by the accumulator, as their share of a fee does. Anyone may send it (the relayer does, every few
+//! The pool's surplus, shared with SKT holders and the treasury. The pool pays every hit; the house's edge stays in it,
+//! and nothing else ever takes it out. What it holds over a large reserve and over what every live bet could pay, if
+//! every band hit, goes `surplus_holder_bps` (75%) to holders by the accumulator, as their share of a fee does, and the
+//! rest to the treasury. With every holder paid by the accumulator and the treasury keeping a quarter, a whale that
+//! loses on purpose to hold SKT gets back less than it loses whatever others play (`docs/HOW-IT-WORKS.md` § SKT). Anyone may send it (the relayer does, every few
 //! minutes); it never runs while anything is owed, so IOUs are always paid first.
 //!
 //! Why the pool can still pay: `Rewards::liability` is the gross every live bet placed since SKT started could pay (each
@@ -44,10 +46,15 @@ pub fn share_surplus(ctx: Context<ShareSurplus>) -> Result<()> {
     rewards.catch_up(now);
     let amount = surplus(pool, rewards, now);
     require!(amount > 0, SkechError::NoSurplus);
-    // While there are fewer shares than the cap's floor, only their part of it leaves the pool (`counted_shares`).
-    let shared = amount - rewards.accrue(amount, now)?;
-    pool.pool -= shared;
+    // The holders' part, rounded down; the treasury's the rest, the rounding with it. Of the holders' part, while there
+    // are fewer shares than the cap's floor, only their share is shared (`counted_shares`): the floor's goes to the
+    // treasury too.
+    let to_holders = (amount as u128 * rewards.config.surplus_holder_bps as u128 / BPS as u128) as u64;
+    let shared = to_holders - rewards.accrue(to_holders, now)?;
+    let treasury = amount - shared;
+    pool.pool -= amount;
+    pool.fees = pool.fees.checked_add(treasury).ok_or(SkechError::Overflow)?;
     rewards.swept_total = rewards.swept_total.saturating_add(shared);
-    emit!(SurplusShared { amount: shared, kept: pool.pool });
+    emit!(SurplusShared { amount: shared, treasury, kept: pool.pool });
     Ok(())
 }

@@ -297,7 +297,7 @@ fn account_sizes_are_what_is_on_chain() {
     assert_eq!((&bytes[at..at + 4], &bytes[at + 4..at + 8]), (&0xaabb_ccddu32.to_le_bytes()[..], &0x1122_3344u32.to_le_bytes()[..]));
     // And the new ones: a Holder's rent is the relayer's, once a player.
     assert_eq!(skech::state::Holder::SPACE, 141);
-    assert_eq!(8 + <skech::state::Rewards as anchor_lang::Space>::INIT_SPACE, 319);
+    assert_eq!(8 + <skech::state::Rewards as anchor_lang::Space>::INIT_SPACE, 321);
 }
 
 /// A piece's bytes and a domain, for `sdk.test.ts` to check the TypeScript encodes them the same.

@@ -167,11 +167,12 @@ pub struct HolderAccrued {
     pub era: u32,
 }
 
-/// What the pool held over the reserve and what every live bet could pay, `amount` USDC e6, shared with holders;
-/// `kept` stays in the pool.
+/// What the pool held over the reserve and what every live bet could pay: `amount` USDC e6 shared with holders,
+/// `treasury` to the treasury (its 25% and the cap floor's part of the holders'); `kept` stays in the pool.
 #[event]
 pub struct SurplusShared {
     pub amount: u64,
+    pub treasury: u64,
     pub kept: u64,
 }
 

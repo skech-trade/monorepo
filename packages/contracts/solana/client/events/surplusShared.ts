@@ -34,10 +34,15 @@ export function getSurplusSharedEventDiscriminatorBytes(): ReadonlyUint8Array {
   );
 }
 
-export type SurplusSharedEvent = { amount: bigint; kept: bigint };
+export type SurplusSharedEvent = {
+  amount: bigint;
+  treasury: bigint;
+  kept: bigint;
+};
 
 export type SurplusSharedEventArgs = {
   amount: number | bigint;
+  treasury: number | bigint;
   kept: number | bigint;
 };
 
@@ -46,6 +51,7 @@ export function getSurplusSharedEventEncoder(): FixedSizeEncoder<SurplusSharedEv
   return getHiddenPrefixEncoder(
     getStructEncoder([
       ["amount", getU64Encoder()],
+      ["treasury", getU64Encoder()],
       ["kept", getU64Encoder()],
     ]),
     [getConstantEncoder(SURPLUS_SHARED_EVENT_DISCRIMINATOR)],
@@ -57,6 +63,7 @@ export function getSurplusSharedEventDecoder(): FixedSizeDecoder<SurplusSharedEv
   return getHiddenPrefixDecoder(
     getStructDecoder([
       ["amount", getU64Decoder()],
+      ["treasury", getU64Decoder()],
       ["kept", getU64Decoder()],
     ]),
     [getConstantDecoder(SURPLUS_SHARED_EVENT_DISCRIMINATOR)],
