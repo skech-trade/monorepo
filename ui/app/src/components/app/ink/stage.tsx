@@ -467,7 +467,7 @@ export function Stage({
       keyboard = false;
       penSound.up();
       // The browser took the pointer back mid-stroke (a gesture, a palm): ink drawn since the last piece is not bet.
-      if (pen && process.env.NODE_ENV !== "production") console.warn(`[ink] stroke cancelled by the browser: ink drawn since the last piece (up to 150 ms) is not bet`);
+      if (pen && process.env.NODE_ENV !== "production") console.warn(`[ink] stroke cancelled by the browser: ink drawn since the last piece (on chain, all ink still held back) is not bet`);
       if (pen && el.hasPointerCapture(pen.id)) el.releasePointerCapture(pen.id);
       game.current.drawing = undefined;
       pen = null;
