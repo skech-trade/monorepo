@@ -23,7 +23,12 @@ import { livePens, type LivePen, penFlush, penLift, remoteDrawings, visibleSocia
  * the money; this owns the picture and the pen. The pen is a finger: a pan that starts the moment it lands.
  */
 
-export type Fx = { kind: "hit" | "miss" | "placed" | "drop"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean };
+/**
+ * Something that happened on the chart, drawn where it happened. `profit`: a hit in a round that is ahead, which
+ * sprays; a hit while the round is still behind only rings. `burst`: a round that came out ahead, its confetti thrown
+ * (by the screen's own canvas, `Game.burst`) from where the price last met its ink, as much as its `tier` earns.
+ */
+export type Fx = { kind: "hit" | "miss" | "placed" | "drop" | "burst"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean; profit?: boolean; tier?: number; thrown?: boolean };
 export type Preview = { multipleLow: number; multipleHigh: number; units: number; cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[]; keyboard?: boolean };
 
 export type Game = {
@@ -45,6 +50,8 @@ export type Game = {
   quote: ((st: Stroke) => Preview | null) | null;
   fx: Fx[];
   dark: boolean;
+  /** Throws a profitable round's confetti from (x, y) on the stage, on the UI thread. */
+  burst?: (x: number, y: number, tier: number) => void;
 };
 
 const now = (g: Game) => Date.now() + g.skew;
@@ -859,7 +866,8 @@ export const Stage = memo(function Stage({
           const grow = still.current ? 1 : 0.6 + age * 0.8;
           c.drawCircle(ex, ey, (e.big ? 34 : 26) * grow, paintOf(color(pal.up, 0.5 * (1 - age)), 2));
           c.drawCircle(ex, ey, (e.big ? 52 : 40) * grow, paintOf(color(pal.up, 0.25 * (1 - age)), 1.2));
-          const n = still.current ? 0 : e.big ? 22 : 14;
+          // The spray is a celebration, so only a hit in a round that is ahead has one.
+          const n = still.current || e.profit === false ? 0 : e.big ? 22 : 14;
           for (let i = 0; i < n; i++) {
             const a = (i / n) * Math.PI * 2 + e.born;
             const d = (e.big ? 44 : 30) * (0.55 + (0.45 * ((i * 7919) % 11)) / 11) * Math.min(1, age * 2.2);
@@ -885,6 +893,19 @@ export const Stage = memo(function Stage({
             const cy = ey - 40 - (still.current ? 0 : age * 18);
             c.drawRRect(rrect(cx - tw / 2, cy - 12, tw, 24, 12), paintOf(color(pal.down, 0.9 * alpha)));
             text(c, e.text, cx, cy + 0.5, f, color([255, 255, 255], alpha));
+          }
+        } else if (e.kind === "burst") {
+          // Handed to the confetti's own canvas the first frame it is seen; here only a flash of light where it came from.
+          if (!e.thrown) {
+            e.thrown = true;
+            if (!still.current) g.burst?.(ex, ey, e.tier ?? 1);
+          }
+          const life = (ms - e.born) / 700;
+          if (life < 1) {
+            const out = still.current ? 1 : 1 - (1 - life) ** 3;
+            const r = (28 + 18 * (e.tier ?? 1)) * (0.4 + 0.6 * out);
+            c.drawCircle(ex, ey, r, paintOf(color(pal.up, 0.16 * (1 - life))));
+            c.drawCircle(ex, ey, r * 0.55, paintOf(color(pal.up, 0.22 * (1 - life))));
           }
         } else if (e.kind === "drop") {
           const life = Math.min(1, (ms - e.born) / 520);

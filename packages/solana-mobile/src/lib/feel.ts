@@ -1,5 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { AudioContext, type AudioBuffer, type AudioBufferSourceNode, type BiquadFilterNode, type GainNode, type OscillatorType } from "react-native-audio-api";
+import { climbRate, feltLevel, type Tier, type Voice, voiceFor, voiceJob } from "@skech/core/cheer";
 import { practice } from "./practice";
 
 /*
@@ -11,12 +12,17 @@ import { practice } from "./practice";
   The rules the sounds follow:
   - A tap is heard the instant the finger lands, as a drop of ink.
   - Drawing sounds like a pen on paper: a soft scratch that follows the hand's speed and stops with it.
-  - A hit is a chime, clean and short, as a payments app confirms money in: a run of correct calls lifts it a
-    little each time, and a bigger multiple rings two or three notes up instead of one.
-  - A round that came out ahead is a chord, fuller the more it made. No coins, no fanfare: money, not a machine.
-  - A miss is a soft knock, heard and not felt.
+  - Only profit is celebrated. A hit is heard and felt only while its round is ahead: a bell, clean and short, a run
+    of correct calls lifting it a little each time, a bigger multiple ringing notes over it. A hit in a round that is
+    still behind is shown, not heard.
+  - A round that came out ahead rings up its chord, fuller the more it made, a step up the scale for each profitable
+    round in a row (back to the root after one that was not), and the till rings as the money lands in the balance.
+  - A miss, and a round that lost, make no sound and no touch.
   - One at a time: see feel(), at the bottom.
   - Anything refused is a short low double note, never a buzzer.
+
+  The celebrations (packages/core/src/cheer.ts) are made once, a slice at a time while the pen is up, and kept: each
+  then plays as one buffer, never a dozen oscillators wired up on the JS thread in the middle of a frame.
 */
 
 let audio: AudioContext | null = null;
@@ -34,6 +40,7 @@ function ctx(): AudioContext | null {
     bus = audio.createGain();
     bus.gain.value = 0.6;
     bus.connect(audio.destination);
+    prepareVoices();
   }
   if (audio.state === "suspended") void audio.resume();
   sleepSoon();
@@ -122,6 +129,67 @@ const PENTA = [0, 2, 4, 7, 9];
 const note = (step: number, base = 880) => base * 2 ** ((12 * Math.floor(step / 5) + PENTA[((step % 5) + 5) % 5]) / 12);
 // A major triad and its octave, as steps of that scale.
 const MAJOR = [0, 2, 3, 5];
+
+/*
+  The celebrations, made once: from the first sound on, a slice of a few milliseconds every other frame or so, the
+  commonest first, never while the pen is down. One asked for before it is ready falls back to the chimes and chords
+  below, so nothing is ever late waiting for it. At 24 kHz: half the work of the phone's own rate, and nothing in them
+  is anywhere near that high.
+*/
+const VOICE_RATE = 24_000;
+const VOICE_ORDER: Voice[] = ["win1", "coins", "hit", "win2", "win3", "win4"];
+const voices = new Map<Voice, AudioBuffer>();
+let making: { voice: Voice; run: (n: number) => boolean; result: () => Float32Array<ArrayBuffer> } | null = null;
+let preparing = false;
+
+function prepareVoices() {
+  if (preparing) return;
+  preparing = true;
+  setTimeout(makeSome, 400);
+}
+function makeSome() {
+  const a = audio;
+  if (!a) return;
+  // The pen gets the JS thread to itself: try again once it is up.
+  if (penVoice) return void setTimeout(makeSome, 300);
+  const until = performance.now() + 3;
+  while (performance.now() < until) {
+    if (!making) {
+      const next = VOICE_ORDER.find((v) => !voices.has(v));
+      if (!next) return;
+      making = { voice: next, ...voiceJob(next, VOICE_RATE) };
+    }
+    if (making.run(512)) {
+      const data = making.result();
+      const buffer = a.createBuffer(1, data.length, VOICE_RATE);
+      buffer.copyToChannel(data, 0);
+      voices.set(making.voice, buffer);
+      making = null;
+    }
+  }
+  setTimeout(makeSome, 32);
+}
+
+/** Plays a made celebration, `at` seconds from now, `rate` times as fast (and so as high). False if not made yet. */
+function voice(v: Voice, { at = 0, rate = 1, gain = 1 }: { at?: number; rate?: number; gain?: number } = {}): boolean {
+  const a = ctx();
+  const buffer = voices.get(v);
+  if (!a || !bus || !buffer) return false;
+  const src = a.createBufferSource();
+  src.buffer = buffer;
+  src.playbackRate.value = rate;
+  const g = a.createGain();
+  g.gain.value = gain;
+  src.connect(g).connect(bus);
+  src.start(a.currentTime + at);
+  src.onEnded = () => {
+    src.disconnect();
+    g.disconnect();
+  };
+  return true;
+}
+/** When the till rings after a round's chord, by tier: as the balance's count-up lands, later for the longer chords. */
+const TILL_AT: Record<Tier, number> = { 0: 0, 1: 0.26, 2: 0.32, 3: 0.42, 4: 0.62 };
 
 /** One clean chime: a sine with a quiet octave over it for the glassy edge, struck fast and let ring. */
 function chime(freq: number, at: number, gain: number, dur = 0.32) {
@@ -224,6 +292,13 @@ export const sound = {
    */
   hit: (multiple: number, run = 0) => {
     if (!on()) return;
+    // Up the pentatonic a step a hit in a row, as the chimes below climb.
+    const lift = note(Math.min(run, 4)) / note(0);
+    if (voice("hit", { rate: vary(lift, 6) })) {
+      if (multiple >= 4) voice("hit", { at: 0.07, rate: lift * 2 ** (7 / 12), gain: 0.7 });
+      if (multiple >= 10) voice("hit", { at: 0.14, rate: lift * 2, gain: 0.55 });
+      return;
+    }
     const root = Math.min(run, 4);
     chime(vary(note(root), 6), 0, 0.06);
     if (multiple >= 4) chime(note(root + 2), 0.07, 0.045);
@@ -233,23 +308,21 @@ export const sound = {
     }
   },
 
-  /** Ink the price missed: a short, soft knock on the desk. Quiet: the money is shown, not rubbed in. */
-  miss: () => {
-    if (!on()) return;
-    tone({ freq: 150, to: 95, dur: 0.07, gain: 0.035, attack: 0.002 });
-    hiss(0, 0.02, 0.012, 900, 1);
-  },
-
   /**
-   * A round that came out ahead: a major chord with a chime on top. Three times its cost or more, the octave and a
-   * brighter top note; five times or more, a warm chord a fourth below resolving into it, longer, never louder.
+   * A round that came out ahead: its tier's chord (cheer.ts), a step up the scale for each profitable round in a row,
+   * and the till as the money lands. Until the chord is made: a major chord with a chime on top, fuller from tier 3,
+   * with a warm chord a fourth below resolving into it for a top round.
    */
-  win: (ratio: number) => {
-    if (!on()) return;
-    const at = ratio >= 5 ? 0.16 : 0;
-    if (ratio >= 5) chord([0, 2, 3], 440 * 2 ** (-7 / 12), 0, 0.03, 0.5);
-    chord(ratio >= 3 ? MAJOR : [0, 2, 3], 440, at, 0.035, ratio >= 5 ? 1.2 : 0.8);
-    chime(note(ratio >= 3 ? 3 : 0), at + 0.05, 0.04, 0.5);
+  win: (tier: Tier, rounds = 1, till = true) => {
+    if (!on() || tier === 0) return;
+    const lift = climbRate(rounds);
+    if (!voice(voiceFor(tier), { rate: lift })) {
+      const at = tier >= 4 ? 0.16 : 0;
+      if (tier >= 4) chord([0, 2, 3], 440 * 2 ** (-7 / 12) * lift, 0, 0.03, 0.5);
+      chord(tier >= 3 ? MAJOR : [0, 2, 3], 440 * lift, at, 0.035, tier >= 4 ? 1.2 : 0.8);
+      chime(note(tier >= 3 ? 3 : 0) * lift, at + 0.05, 0.04, 0.5);
+    }
+    if (till) voice("coins", { at: TILL_AT[tier], gain: 0.75 + tier * 0.08 });
   },
 
   /** Refused: ink that could not go in, not enough money. Short, low, twice. */
@@ -259,9 +332,10 @@ export const sound = {
     tone({ freq: 196, at: 0.09, dur: 0.09, gain: 0.05, type: "triangle" });
   },
 
-  /** Money arrived: two chimes up a major third, as a payments app says it landed, over a soft chord. */
+  /** Money arrived: the till, then a bright chord; until they are made, two chimes up a major third over a soft chord. */
   cash: () => {
     if (!on()) return;
+    if (voice("coins") && voice("win2", { at: 0.18, gain: 0.85 })) return;
     chime(note(0), 0, 0.055);
     chime(note(2), 0.09, 0.05, 0.45);
     chord(MAJOR, 440, 0.16, 0.025, 0.7);
@@ -269,10 +343,14 @@ export const sound = {
 };
 
 /*
-  Touch: the phone's own haptic engine. Few and short, as good apps use it: one or two pulses a moment, never a
-  rattle, and only for what is worth feeling. A piece landing and a miss are heard, not felt.
+  Touch: the phone's own haptic engine. Few and short, as good apps use it, and only for what is worth feeling: a
+  profit most of all. A piece landing is heard, not felt; a miss neither.
 */
-export type Feel = "tap" | "tick" | "placed" | "hit" | "run" | "big" | "win" | "great" | "miss" | "nope" | "cash";
+/**
+ * What can be felt. `hit`, `run` and `big` are a hit while its round is ahead (one, one of a run, one at 10× or more);
+ * `win`, `great` and `top` a round that came out ahead (cheer.ts's tiers 1-2, 3 and 4).
+ */
+export type Feel = "tap" | "tick" | "placed" | "hit" | "run" | "big" | "win" | "great" | "top" | "nope" | "cash";
 
 // A pattern's later pulses, so the next pattern can cancel them instead of buzzing over them.
 let pulses: ReturnType<typeof setTimeout>[] = [];
@@ -291,26 +369,51 @@ const HAPTIC: Record<Feel, (() => void) | null> = {
     impact(Haptics.ImpactFeedbackStyle.Heavy);
     later(120, () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
   },
-  win: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
-  great: () => {
-    impact(Haptics.ImpactFeedbackStyle.Medium);
-    later(160, () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
-  },
-  miss: null,
+  win: () => WIN_HAPTIC[1](),
+  great: () => WIN_HAPTIC[3](),
+  top: () => WIN_HAPTIC[4](),
   nope: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning),
   cash: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
 };
+/**
+ * A profitable round, by how strongly it is felt (cheer.ts's `feltLevel`: its tier, more for a run of them): a quick
+ * double tap, a firmer one, a rolling triple, and for a top round a longer roll that lands on the system's success.
+ */
+const WIN_HAPTIC: Record<1 | 2 | 3 | 4, () => void> = {
+  1: () => {
+    impact(Haptics.ImpactFeedbackStyle.Medium);
+    later(85, () => impact(Haptics.ImpactFeedbackStyle.Medium));
+  },
+  2: () => {
+    impact(Haptics.ImpactFeedbackStyle.Medium);
+    later(80, () => impact(Haptics.ImpactFeedbackStyle.Heavy));
+  },
+  3: () => {
+    impact(Haptics.ImpactFeedbackStyle.Light);
+    later(65, () => impact(Haptics.ImpactFeedbackStyle.Medium));
+    later(130, () => impact(Haptics.ImpactFeedbackStyle.Heavy));
+  },
+  4: () => {
+    impact(Haptics.ImpactFeedbackStyle.Heavy);
+    later(80, () => impact(Haptics.ImpactFeedbackStyle.Medium));
+    later(150, () => impact(Haptics.ImpactFeedbackStyle.Medium));
+    later(220, () => impact(Haptics.ImpactFeedbackStyle.Heavy));
+    later(420, () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+  },
+};
 // How long each pattern keeps the motor, ms: nothing else is felt until it is done.
-const MOTOR: Record<Feel, number> = { tap: 40, tick: 70, placed: 0, hit: 90, run: 160, big: 220, win: 200, great: 360, miss: 0, nope: 200, cash: 200 };
+const MOTOR: Record<Feel, number> = { tap: 40, tick: 70, placed: 0, hit: 90, run: 160, big: 220, win: 200, great: 260, top: 620, nope: 200, cash: 200 };
+const WIN_MOTOR: Record<1 | 2 | 3 | 4, number> = { 1: 160, 2: 170, 3: 260, 4: 620 };
 let motorUntil = 0;
 
-/** Plays a pattern now, cutting off whatever pattern was still running. */
-function buzz(kind: Feel, now: number) {
-  const pattern = HAPTIC[kind];
+/** Plays a pattern now, cutting off whatever pattern was still running. `level`: how strongly a profitable round is felt. */
+function buzz(kind: Feel, now: number, level: Tier = 0) {
+  const round = level > 0 && (kind === "win" || kind === "great" || kind === "top") ? (level as 1 | 2 | 3 | 4) : 0;
+  const pattern = round ? WIN_HAPTIC[round] : HAPTIC[kind];
   if (!pattern || !practice().haptics) return;
   for (const p of pulses) clearTimeout(p);
   pulses = [];
-  motorUntil = now + MOTOR[kind];
+  motorUntil = now + (round ? WIN_MOTOR[round] : MOTOR[kind]);
   try {
     pattern();
   } catch {
@@ -330,8 +433,7 @@ function sounds(kind: Feel, detail?: Detail) {
   // "tick" is touch only: the pen's own sound comes from pen.move.
   else if (kind === "placed") sound.placed();
   else if (kind === "hit" || kind === "run" || kind === "big") sound.hit(detail?.multiple ?? 2, detail?.run ?? 0);
-  else if (kind === "win" || kind === "great") sound.win(detail?.ratio ?? 1);
-  else if (kind === "miss") sound.miss();
+  else if (kind === "win" || kind === "great" || kind === "top") sound.win(detail?.tier ?? 1, detail?.rounds ?? 1, detail?.till ?? false);
   else if (kind === "nope") sound.nope();
   else if (kind === "cash") sound.cash();
 }
@@ -343,14 +445,14 @@ function sounds(kind: Feel, detail?: Detail) {
   one kind becomes one, the biggest of it. Whatever waited too long to still mean something is dropped, and a round's
   result doesn't wait behind a hit. The finger is the exception: a tap is heard and felt the instant it lands.
 */
-/** `run`: correct calls in a row before this one. */
-type Detail = { multiple?: number; run?: number; ratio?: number };
-const RANK: Record<Feel, number> = { tap: 0, tick: 0, miss: 1, placed: 2, nope: 3, hit: 4, run: 5, big: 6, cash: 7, win: 7, great: 8 };
-// How long each has the stage before the next may play, ms.
-const HOLD: Record<Feel, number> = { tap: 0, tick: 0, miss: 120, placed: 140, nope: 220, hit: 240, run: 260, big: 420, cash: 600, win: 700, great: 1100 };
+/** `run`: correct calls in a row before this one. `tier` and `rounds`: a profitable round's size, and how many in a row. */
+type Detail = { multiple?: number; run?: number; tier?: Tier; rounds?: number; till?: boolean };
+const RANK: Record<Feel, number> = { tap: 0, tick: 0, placed: 2, nope: 3, hit: 4, run: 5, big: 6, cash: 7, win: 7, great: 8, top: 9 };
+// How long each has the stage before the next may play, ms: a round's chord and its till ring out in full.
+const HOLD: Record<Feel, number> = { tap: 0, tick: 0, placed: 140, nope: 220, hit: 240, run: 260, big: 420, cash: 600, win: 900, great: 1300, top: 1900 };
 // How long each may wait its turn and still mean something, ms.
-const FRESH: Record<Feel, number> = { tap: 0, tick: 0, miss: 250, placed: 400, nope: 400, hit: 700, run: 700, big: 1000, cash: 2000, win: 2000, great: 2500 };
-const family = (k: Feel) => (k === "hit" || k === "run" || k === "big" ? "hit" : k === "great" ? "win" : k);
+const FRESH: Record<Feel, number> = { tap: 0, tick: 0, placed: 400, nope: 400, hit: 700, run: 700, big: 1000, cash: 2000, win: 2000, great: 2500, top: 3000 };
+const family = (k: Feel) => (k === "hit" || k === "run" || k === "big" ? "hit" : k === "great" || k === "top" ? "win" : k);
 
 let queue: { kind: Feel; detail?: Detail; at: number }[] = [];
 let stageUntil = 0;
@@ -373,7 +475,7 @@ function next() {
   queue.shift();
   stageUntil = now + HOLD[top.kind];
   stageRank = RANK[top.kind];
-  buzz(top.kind, now);
+  buzz(top.kind, now, top.detail?.tier ? feltLevel(top.detail.tier, top.detail.rounds ?? 1) : 0);
   if (on()) sounds(top.kind, top.detail);
   if (queue.length) pump = setTimeout(next, HOLD[top.kind]);
 }
@@ -395,7 +497,19 @@ export function feel(kind: Feel, detail?: Detail) {
   if (same) {
     if (RANK[kind] > RANK[same.kind]) same.kind = kind;
     const d = same.detail ?? {};
-    same.detail = { multiple: Math.max(d.multiple ?? 0, detail?.multiple ?? 0) || undefined, run: Math.max(d.run ?? 0, detail?.run ?? 0), ratio: Math.max(d.ratio ?? 0, detail?.ratio ?? 0) || undefined };
+    same.detail = {
+      multiple: Math.max(d.multiple ?? 0, detail?.multiple ?? 0) || undefined,
+      run: Math.max(d.run ?? 0, detail?.run ?? 0),
+      tier: Math.max(d.tier ?? 0, detail?.tier ?? 0) as Tier,
+      rounds: Math.max(d.rounds ?? 0, detail?.rounds ?? 0) || undefined,
+      till: d.till || detail?.till,
+    };
   } else queue.push({ kind, detail, at: now });
   next();
+}
+
+/** A round that came out ahead, felt and heard by its tier, and a step up for each profitable round in a row. */
+export function celebrate(tier: Tier, rounds: number) {
+  if (tier === 0) return;
+  feel(tier >= 4 ? "top" : tier === 3 ? "great" : "win", { tier, rounds, till: true });
 }

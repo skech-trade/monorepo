@@ -3,6 +3,7 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "@/components/ui/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BURST, type Tier, winTier } from "@skech/core/cheer";
 import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, stepFor } from "@skech/core/dots";
@@ -18,7 +19,7 @@ import { hasAuth } from "@/lib/config";
 import { useAppActive } from "@/lib/lifecycle";
 import { useEngine } from "@/lib/engine";
 import { track } from "@/lib/analytics";
-import { feel } from "@/lib/feel";
+import { celebrate, feel } from "@/lib/feel";
 import { FieldMaker } from "@/lib/field";
 import { library } from "@/lib/library";
 import { money, signed } from "@/lib/money";
@@ -32,7 +33,7 @@ import { type Chain, useChain } from "./chain-context";
 import { DepositButton, InkControls } from "./ink-controls";
 import { introReady } from "./ink-intro";
 import { addChange, Ledger } from "./ledger";
-import { Arrive, Bump, Glow, MOTION } from "./motion";
+import { Arrive, Bump, Confetti, type ConfettiHandle, Glow, MOTION, ProfitGlow, RisingMoney } from "./motion";
 import { Onboarding, Pill, useOnboarding } from "./onboarding";
 import { type Game, type Placed, type Preview, Stage } from "./stage";
 import { WalletButton } from "./wallet-button";
@@ -182,9 +183,7 @@ function PaperMoney({ gained }: { gained: boolean }) {
       <View accessibilityLabel={`Paper money ${money(run.balance)}, not real`} className="items-end">
         <Text className="text-[12px] text-muted-foreground">Paper money</Text>
         <Bump on={gained}>
-          <Text className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
-            {money(run.balance)}
-          </Text>
+          <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }} value={run.balance} />
         </Bump>
         <Ledger />
       </View>
@@ -315,13 +314,30 @@ export function InkScreen() {
     return () => clearTimeout(t);
   }, [gained]);
   const hitRun = useRef({ n: 0, at: 0 });
-  // Misses are felt, but at most this often: a stroke can miss in many places in one second.
-  const missFelt = useRef(0);
+  /*
+    A profitable round's celebration on the screen, besides its card: the balance lights up, a strong one lights the
+    edges, and confetti flies from where the price met the ink. `key` plays it again for the next. Profitable rounds
+    in a row on paper, which keeps no books.
+  */
+  const [cheer, setCheer] = useState<{ key: string; tier: Tier } | null>(null);
+  useEffect(() => {
+    if (!cheer) return;
+    const t = setTimeout(() => setCheer(null), 2600);
+    return () => clearTimeout(t);
+  }, [cheer]);
+  const paperRun = useRef(0);
+  /** Where the price last met each line's ink, for its confetti. */
+  const lastHit = useRef(new Map<string, { t: number; price: number; at: number }>());
+  const confetti = useRef<ConfettiHandle>(null);
   const sealed = useRef(new Set<string>());
   const insets = useSafeAreaInsets();
   const top = insets.top + 64;
   const bottom = Math.max(22, insets.bottom);
   const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, placeLead: 0, step: 1, priceStep: 1, marketStep: 1, viewport: { width: 390, height: 800 }, displayPrice: 0, perDot: state.perDot, pen: state.brush, cell: INK_CELL, bets: [], quote: null, fx: [], dark: false });
+  // The stage finds where a profitable round's confetti starts; the confetti's own canvas throws it.
+  useEffect(() => {
+    game.current.burst = (x, y, tier) => confetti.current?.fire(x, y, BURST[tier as Tier], tier);
+  }, []);
   useEffect(() => {
     game.current.dark = dark;
   }, [dark]);
@@ -447,11 +463,19 @@ export function InkScreen() {
     // Paper rounds stay out of the session's books: those are the player's own.
     const onPaper = paper() !== null && !chainRef.current.real;
     if (!onPaper) record({ id: line, at: t.at, cost: cents(t.cost), won: cents(t.won), hits: t.hits, dots: t.points, best: t.best });
-    const streak = onPaper ? 0 : scoreboard().streak;
+    // Only a round that came out ahead is celebrated, by how much it made; a loss, or breaking even, passes in silence.
+    const tier = winTier(cents(t.won), cents(t.cost), t.best);
+    if (onPaper) paperRun.current = tier ? paperRun.current + 1 : 0;
+    const streak = onPaper ? paperRun.current : scoreboard().streak;
     setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false, best: t.best, streak });
-    const ratio = t.cost > 0 ? t.won / t.cost : 1;
-    if (t.won > t.cost) feel(ratio >= 5 ? "great" : "win", { ratio });
-    else if (!t.hits) hitRun.current.n = 0;
+    const hit = lastHit.current.get(line);
+    lastHit.current.delete(line);
+    if (tier) {
+      celebrate(tier, Math.max(1, streak));
+      setCheer({ key: line, tier });
+      // From where the price last met the ink, if that is still on the chart.
+      if (hit && performance.now() - hit.at < 20_000) game.current.fx.push({ kind: "burst", t: hit.t, price: hit.price, born: performance.now(), tier });
+    } else if (!t.hits) hitRun.current.n = 0;
   };
   const gate = useGate();
   const topUp = useRef(false);
@@ -600,8 +624,20 @@ export function InkScreen() {
             const lo = Math.min(...hitNow.map((d) => d.lo));
             const hi = Math.max(...hitNow.map((d) => d.hi));
             const recent = nowMs - (bar.t + 1000) < 3000;
-            if (recent) g.fx.push({ kind: "hit", t: hitNow[0].t + 500, price: Math.min(hi, Math.max(lo, bar.c)), born: performance.now(), text: paid > 0 ? `+${money(paid)}` : undefined, line, big: best >= 10 });
+            // A hit is celebrated (heard, felt, a spray) only while its round is ahead: what it has paid so far is more
+            // than everything it has staked. A hit that still leaves the round behind is shown, quietly, and no more.
+            let stake = lines.current.get(line)?.cost ?? 0;
+            for (let j = 0; j < g.bets.length; j++) {
+              const b = j === i ? bet : g.bets[j];
+              if ((b.group ?? b.id) === line && !decided(g.bets[j])) stake += cost(b) - refund(b);
+            }
+            const ahead = acc.credited - stake > 0.005;
+            const where = { t: hitNow[0].t + 500, price: Math.min(hi, Math.max(lo, bar.c)) };
             if (recent) {
+              g.fx.push({ kind: "hit", ...where, born: performance.now(), text: paid > 0 ? `+${money(paid)}` : undefined, line, big: best >= 10, profit: ahead });
+              lastHit.current.set(line, { ...where, at: performance.now() });
+            }
+            if (recent && ahead) {
               const run = hitRun.current;
               run.n = performance.now() - run.at < 6000 ? run.n + 1 : 0;
               run.at = performance.now();
@@ -615,10 +651,6 @@ export function InkScreen() {
             for (const d of missNow.slice(0, 8)) {
               const lost = Math.floor(bet.perUnit * (isArea(bet.model) ? d.area : 1) * 100 + 1e-8) / 100;
               if (lost > 0) g.fx.push({ kind: "miss", t: d.t + 500, price: (d.lo + d.hi) / 2, born: performance.now(), text: `\u2212${money(lost)}`, loss: true, line: bet.group ?? bet.id });
-            }
-            if (performance.now() - missFelt.current > 700) {
-              missFelt.current = performance.now();
-              feel("miss");
             }
           }
           if (bet.status !== "live") break;
@@ -936,9 +968,13 @@ export function InkScreen() {
     <>
       <Text className="text-[12px] text-muted-foreground">Balance</Text>
       <Bump on={gained > 0}>
-        <Text className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
-          {money(shownBalance)}
-        </Text>
+        {cheer ? (
+          <ProfitGlow color={dark ? "rgba(48,209,88,0.22)" : "rgba(52,199,89,0.2)"} delay={200} key={cheer.key}>
+            <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
+          </ProfitGlow>
+        ) : (
+          <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
+        )}
       </Bump>
       <Ledger />
     </>
@@ -955,6 +991,7 @@ export function InkScreen() {
             <Stage game={game} onPlace={onPlace} onPreview={onPreview} onViewport={onViewport} />
           </View>
         ) : null}
+        <Confetti colors={[c.success, c.brand, c.gold]} ref={confetti} />
         {cannotPlay ? <Pressable className="absolute inset-0" onPress={() => (feel("nope"), gate.openDeposit("tap"))} /> : null}
       </View>
       <LinearGradient colors={[c.bg, c.bg, dark ? "rgba(0,0,0,0)" : "rgba(255,255,255,0)"]} locations={[0, 0.8, 1]} pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: top + 64 }} />
@@ -1045,15 +1082,30 @@ export function InkScreen() {
           <Arrive motion={overBig ? MOTION.cardBig : overWon ? MOTION.cardIn : MOTION.cardSoft}>
             <View className={cn("border-[0.5px] bg-raised", overWon ? "items-center rounded-[20px] px-[22px] py-2.5" : "items-end rounded-2xl px-[18px] py-[9px]", overBig ? "border-success-foreground" : "border-border")} style={raised}>
               {/* Just the round's result: a profit shows everything that came back, a loss what it lost. */}
+              {overWon && (over.streak ?? 0) >= 2 ? (
+                <Arrive motion={MOTION.badgePop}>
+                  <View className="mb-1 rounded-full px-2.5 py-0.5" style={{ backgroundColor: dark ? "rgba(111,146,255,0.16)" : "rgba(46,91,255,0.12)" }}>
+                    <Text className="font-bold text-[12px] text-brand">{over.streak} in a row</Text>
+                  </View>
+                </Arrive>
+              ) : null}
               <Text className={cn("text-muted-foreground", overWon ? "text-[13px]" : "text-[12px]")}>{overWon ? "Profit" : overNet < 0 ? "Loss" : "Even"}</Text>
-              <Text className={cn("font-bold", overWon ? "text-success-foreground" : overNet < 0 ? "text-destructive-foreground" : "text-foreground", overBig ? "text-[32px]" : overWon ? "text-[26px]" : "text-[18px] font-semibold")} style={{ fontVariant: ["tabular-nums"] }}>
-                {overWon ? `+${money(over.won)}` : signed(overNet)}
-              </Text>
+              {overWon ? (
+                <ProfitGlow color={dark ? "rgba(48,209,88,0.24)" : "rgba(52,199,89,0.22)"}>
+                  <Text className={cn("font-bold text-success-foreground", overBig ? "text-[32px]" : "text-[26px]")} style={{ fontVariant: ["tabular-nums"] }}>
+                    +{money(over.won)}
+                  </Text>
+                </ProfitGlow>
+              ) : (
+                <Text className={cn("font-semibold text-[18px]", overNet < 0 ? "text-destructive-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
+                  {signed(overNet)}
+                </Text>
+              )}
             </View>
           </Arrive>
         </View>
       ) : null}
-      {over && overBig && !preview ? <Glow color={dark ? "rgba(48,209,88,0.38)" : "rgba(36,138,61,0.38)"} key={`glow-${over.key}`} /> : null}
+      {over && overBig && !preview ? <Glow color={dark ? "rgba(48,209,88,0.42)" : "rgba(36,138,61,0.42)"} key={`glow-${over.key}`} top={cheer?.tier === 4} /> : null}
 
       {returnedInk && !preview && !over ? (
         <Arrive key={returnedInk.id} motion={MOTION.pillUp} pointerEvents="none" style={{ position: "absolute", right: 16, bottom: bottom + 78, zIndex: 20 }}>
