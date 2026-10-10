@@ -18,11 +18,39 @@ const BPS = 10_000n;
 /** The house's share, rounded up: a stake or profit split small never slips under the fee. */
 const feeOf = (amount: bigint, bps: number) => (amount * BigInt(bps) + BPS - 1n) / BPS;
 
+/* ---- SKT (Solana only): the holders' share of the fees, and what a new net loss mints (programs/skech/src/skt.rs) ---- */
+
+const SKT_PER_USDC = 100n;
+const ACC_SCALE = 10n ** 18n;
+const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
+/** The holders' part of a fee taken at `feeBps` on `amount`: their bps of it, rounded down. */
+export const holderPart = (amount: bigint, holderBps: number, feeBps: number) => (amount * BigInt(Math.min(holderBps, feeBps))) / BPS;
+/**
+ * SKT e6 a new net loss mints: the integral of the rate across the tracked gain from `a` to `b`: 100 a unit at a gain of
+ * 0 or less, `100 · S² / (S + g)²` above it, so `100 · S² · (1/(S+lo) − 1/(S+hi))`, the first term rounded down and the
+ * second up.
+ */
+export function mintAmount(scale: bigint, a: bigint, b: bigint): bigint {
+  if (b <= a) return 0n;
+  let out = a < 0n ? ((b < 0n ? b : 0n) - a) * SKT_PER_USDC : 0n;
+  const lo = a > 0n ? a : 0n;
+  const hi = b > 0n ? b : 0n;
+  if (hi > lo && scale > 0n) {
+    const k = SKT_PER_USDC * scale * scale;
+    const d = k / (scale + lo) - ceilDiv(k, scale + hi);
+    out += d > 0n ? d : 0n;
+  }
+  return out;
+}
+/** What each SKT holder has, in a case's state. */
+export type HolderState = { skt: string; worst: number; net: number; claimable: number };
+export type SktState = { supply: string; acc: string; holderFunds: number; gain: number; holders: Record<string, HolderState> };
+
 export type Band = { second: number; lo: number; hi: number; stake: number; rung: number };
 export type PlaceOut = { ok: true; sections: Band[]; staked: number; fee: number; refunded: number } | { ok: false; refused: string };
 export type Settled = { id: string; hitMask: number; missMask: number; paid: number; owed: number };
-export type State = { balance: Record<string, number>; allowance: Record<string, number>; pool: number; fees: number; owed: Record<string, number>; houseOwed: number };
-export type StepOut = { place?: PlaceOut; settled?: Settled[]; difficulty?: { ok: true } | { ok: false; refused: string }; state: State };
+export type State = { balance: Record<string, number>; allowance: Record<string, number>; pool: number; fees: number; owed: Record<string, number>; houseOwed: number; skt?: SktState };
+export type StepOut = { place?: PlaceOut; settled?: Settled[]; difficulty?: { ok: true } | { ok: false; refused: string }; claimed?: number; state: State };
 
 type Bet = { player: string; unit: number; sections: Band[]; live: number; hit: number };
 
@@ -43,6 +71,59 @@ export function run(c: Case): StepOut[] {
   let marketDifficulty = c.difficulty;
   const posted = new Map<number, { prevClose: bigint; high: bigint; low: bigint; close: bigint }>();
   const bets = new Map<string, Bet>();
+  // SKT, in a case that has it.
+  const skt = c.skt;
+  let supply = 0n;
+  let acc = 0n;
+  let holderFunds = 0n;
+  let gain = 0n;
+  const holders: Record<string, { skt: bigint; accAt: bigint; unclaimed: bigint; net: bigint; worst: bigint }> = {};
+  for (const p of players) holders[p] = { skt: 0n, accAt: 0n, unclaimed: 0n, net: 0n, worst: 0n };
+  const earned = (h: (typeof holders)[string]) => (acc > h.accAt && h.skt > 0n ? (h.skt * (acc - h.accAt)) / ACC_SCALE : 0n);
+  const settleRewards = (h: (typeof holders)[string]) => {
+    h.unclaimed += earned(h);
+    h.accAt = acc;
+  };
+  const owing = () => Object.values(owed).some((x) => x > 0n) || houseOwed > 0n;
+  const accrue = (amount: bigint) => {
+    acc += (amount * ACC_SCALE) / supply;
+    holderFunds += amount;
+  };
+  /** The holders' share of a stake's fee: to the pool while anything is owed, the treasury while there is no SKT. */
+  const shareStakeFee = (amount: bigint) => {
+    if (!amount) return;
+    if (owing()) pool += amount;
+    else if (supply === 0n) fees += amount;
+    else accrue(amount);
+  };
+  /** The holders' share of a profit's fee: out of what the pool has left, or left in it while anything is owed. */
+  const shareProfitFee = (amount: bigint) => {
+    const taken = amount < pool ? amount : pool;
+    if (!taken || owing()) return;
+    pool -= taken;
+    if (supply === 0n) fees += taken;
+    else accrue(taken);
+  };
+  /** A settlement's stakes decided and what its hits credited: a new low mints. */
+  const record = (who: string, staked: bigint, credited: bigint, ious: boolean) => {
+    const h = holders[who];
+    // Counted at every settlement that decides a stake of theirs, as the program does: each count is rounded down.
+    if (staked > 0n) settleRewards(h);
+    const delta = credited - staked;
+    if (!delta) return;
+    const before = gain;
+    h.net += delta;
+    gain -= delta;
+    const low = h.net < 0n ? -h.net : 0n;
+    if (low <= h.worst) return;
+    const fresh = low - h.worst;
+    h.worst = low;
+    const end = (ious ? 0n : before) - delta;
+    const minted = mintAmount(BigInt(skt!.mintScale), end - fresh, end);
+    settleRewards(h);
+    h.skt += minted;
+    supply += minted;
+  };
   const state = (): State => ({
     balance: Object.fromEntries(players.map((p) => [p, Number(balance[p])])),
     allowance: Object.fromEntries(players.map((p) => [p, Number(allowance[p])])),
@@ -50,6 +131,17 @@ export function run(c: Case): StepOut[] {
     fees: Number(fees),
     owed: Object.fromEntries(players.map((p) => [p, Number(owed[p])])),
     houseOwed: Number(houseOwed),
+    ...(skt
+      ? {
+          skt: {
+            supply: String(supply),
+            acc: String(acc),
+            holderFunds: Number(holderFunds),
+            gain: Number(gain),
+            holders: Object.fromEntries(players.map((p) => [p, { skt: String(holders[p].skt), worst: Number(holders[p].worst), net: Number(holders[p].net), claimable: Number(holders[p].unclaimed + earned(holders[p])) }])),
+          },
+        }
+      : {}),
   });
   /** In USDC as far as the pool goes, the rest owed. */
   const pay = (who: string, due: bigint) => {
@@ -69,7 +161,16 @@ export function run(c: Case): StepOut[] {
 
   const out: StepOut[] = [];
   for (const step of c.steps as Step[]) {
-    if ("difficulty" in step) {
+    if ("claim" in step) {
+      // What the player's SKT earned, into their balance.
+      const h = holders[step.claim];
+      settleRewards(h);
+      const amount = h.unclaimed;
+      h.unclaimed = 0n;
+      holderFunds -= amount;
+      balance[step.claim] += amount;
+      out.push({ claimed: Number(amount), state: state() });
+    } else if ("difficulty" in step) {
       // The least is 50: under it, ink exactly on a rung returns more than a dollar.
       const ok = step.difficulty >= MIN_DIFFICULTY && step.difficulty <= 100;
       if (ok) marketDifficulty = step.difficulty;
@@ -133,10 +234,12 @@ export function run(c: Case): StepOut[] {
         continue;
       }
       const fee = feeOf(kept, c.feeBps);
+      const toHolders = skt ? holderPart(kept, skt.holderFeeBps, c.feeBps) : 0n;
       balance[who] -= kept;
       allowance[who] -= kept;
       pool += kept - fee;
-      fees += fee;
+      fees += fee - toHolders;
+      shareStakeFee(toHolders);
       bets.set(s.id, { player: who, unit: c.unit, sections: bands, live: (1 << bands.length) - 1, hit: 0 });
       out.push({ place: { ok: true, sections: bands, staked: Number(kept), fee: Number(fee), refunded: total - Number(kept) }, state: state() });
     } else {
@@ -150,12 +253,14 @@ export function run(c: Case): StepOut[] {
         let decided = 0;
         let gross = 0n;
         let stakeHit = 0n;
+        let stakeDecided = 0n;
         bet.sections.forEach((x, i) => {
           const bit = 1 << i;
           if (!(bet.live & bit)) return;
           const bar = posted.get(x.second);
           if (!bar) return;
           decided |= bit;
+          stakeDecided += BigInt(x.stake);
           if (crosses(bar, BigInt(x.lo), BigInt(x.hi), BigInt(bet.unit))) {
             hits |= bit;
             stakeHit += BigInt(x.stake);
@@ -165,13 +270,19 @@ export function run(c: Case): StepOut[] {
         if (!decided) continue;
         bet.live &= ~decided;
         bet.hit |= hits;
+        const ious = owing();
         let paid = 0n;
         let left = 0n;
+        let credited = 0n;
         if (gross > 0n) {
           const profitFee = feeOf(gross - stakeHit, c.profitFeeBps);
-          ({ paid, owed: left } = pay(bet.player, gross - profitFee));
-          cut(profitFee);
+          credited = gross - profitFee;
+          ({ paid, owed: left } = pay(bet.player, credited));
+          const toHolders = skt ? holderPart(gross - stakeHit, skt.holderProfitFeeBps, c.profitFeeBps) : 0n;
+          cut(profitFee - toHolders);
+          shareProfitFee(toHolders);
         }
+        if (skt) record(bet.player, stakeDecided, credited, ious);
         settled.push({ id, hitMask: hits, missMask: decided & ~hits, paid: Number(paid), owed: Number(left) });
       }
       out.push({ settled, state: state() });

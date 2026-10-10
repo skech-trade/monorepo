@@ -27,7 +27,9 @@ export type PlaceStep = {
 export type BarStep = { bar: { second: number; prevClose: number; high: number; low: number; close: number; settle: string[] } };
 /** The admin sets the market's difficulty: pieces from then on must be signed at it. */
 export type DifficultyStep = { difficulty: number };
-export type Step = PlaceStep | BarStep | DifficultyStep;
+/** The player claims what their SKT earned (Solana only). */
+export type ClaimStep = { claim: "a" | "b" };
+export type Step = PlaceStep | BarStep | DifficultyStep | ClaimStep;
 export type Case = {
   name: string;
   /** What each player has in the game, and what their session may stake. */
@@ -38,6 +40,12 @@ export type Case = {
   /** The market: its price (e8) on the opening second, the grid (e8). */
   price: number;
   unit: number;
+  /**
+   * SKT's terms. A case with them is the Solana program's alone (the EVM game, retired, has no SKT and keeps its old
+   * fees): its state also checks the supply, the holders' accumulator and funds, the tracked gain and every holder.
+   * Without them the Solana runner sets SKT's split to nothing, so the fees are the EVM game's to the unit.
+   */
+  skt?: { holderFeeBps: number; holderProfitFeeBps: number; mintScale: number };
   steps: Step[];
 };
 
@@ -49,7 +57,20 @@ const e8 = (usd: number) => Math.round(usd * 1e8);
 const at = (units: number) => (AT + units) * UNIT;
 const flat = (second: number, price: number, high = price, low = price) => ({ second, prevClose: price, high, low, close: price });
 
+/** SKT's default terms, at the fees they are a part of. */
+const SKT = { holderFeeBps: 300, holderProfitFeeBps: 800, mintScale: 100_000_000_000 };
+
 const std = { players: { a: { deposit: 10_000_000, allowance: 5_000_000 } }, difficulty: 51, feeBps: 200, profitFeeBps: 1000, price: PRICE, unit: UNIT };
+
+const skt = {
+  players: { a: { deposit: 10_000_000, allowance: 5_000_000 }, b: { deposit: 30_000_000, allowance: 25_000_000 } },
+  difficulty: 51,
+  feeBps: 400,
+  profitFeeBps: 1000,
+  price: PRICE,
+  unit: UNIT,
+  skt: SKT,
+};
 
 export const CASES: Case[] = [
   {
@@ -263,5 +284,54 @@ export const CASES: Case[] = [
     price: PRICE,
     unit: UNIT,
     steps: [{ place: { id: "p", sections: [{ second: 1, lo: AT, width: 5, stake: 50_000, chance: 500_000_000 }] } }],
+  },
+
+  /* ---- SKT: the Solana program's alone ---- */
+  {
+    ...skt,
+    name: "SKT: a loss mints; then 3 of the 4 stake points and 8 of the 10 profit points accrue; a claim pays them, a second nothing",
+    steps: [
+      // B's dollar misses: no SKT yet, so the holders' 3 points of the fee go to the treasury.
+      { place: { id: "lose", player: "b", perDot: 1_000_000, sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(1, PRICE), settle: ["lose"] } },
+      // A's nickel: 0.15 of its 0.2 fee to B's SKT, and 2 of its 2.5 profit fee when it hits.
+      { place: { id: "win", sections: [{ second: 2, lo: AT, width: 5, stake: 50_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(2, PRICE), settle: ["win"] } },
+      { claim: "b" },
+      { claim: "b" },
+      { claim: "a" },
+    ],
+  },
+  {
+    ...skt,
+    name: "SKT: while a win is owed, the holders' share goes to the pool, and a loss mints at the full rate",
+    steps: [
+      { place: { id: "first", player: "b", perDot: 1_000_000, sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 100_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(1, PRICE), settle: ["first"] } },
+      // A 1% chance at 96x: far more than the pool holds, so most of it is owed.
+      { place: { id: "long", sections: [{ second: 2, lo: AT, width: 5, stake: 50_000, chance: 10_000_000 }] } },
+      { bar: { ...flat(2, PRICE), settle: ["long"] } },
+      // Owed: B's stake fee's holder share goes to the pool, to pay A, not to B's SKT.
+      { place: { id: "refill", player: "b", perDot: 1_000_000, sections: [{ second: 3, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(3, PRICE), settle: ["refill"] } },
+      { claim: "b" },
+    ],
+  },
+  {
+    ...skt,
+    name: "SKT: only a new low mints, and only past the old one",
+    steps: [
+      { place: { id: "down", sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 100_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(1, PRICE), settle: ["down"] } },
+      // A win: no SKT taken back, none minted.
+      { place: { id: "up", sections: [{ second: 2, lo: AT, width: 5, stake: 100_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(2, PRICE), settle: ["up"] } },
+      // Back down to the old low exactly: nothing.
+      { place: { id: "back", sections: [{ second: 3, lo: AT + 5000, width: 5, stake: 45_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(3, PRICE), settle: ["back"] } },
+      // Past it: the 30,000 past it, and only that.
+      { place: { id: "past", sections: [{ second: 4, lo: AT + 5000, width: 5, stake: 30_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(4, PRICE), settle: ["past"] } },
+    ],
   },
 ];

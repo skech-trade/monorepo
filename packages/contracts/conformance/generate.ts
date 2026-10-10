@@ -1,6 +1,7 @@
 /**
  * Writes what every conformance case must do, step by step, to `vectors.json`, from the reference model; and the
- * Solidity that replays it against SkechGame (`evm/test/ConformanceCases.sol`), so both chains run the same file.
+ * Solidity that replays it against SkechGame (`evm/test/ConformanceCases.sol`), so both chains run the same file. A case
+ * with SKT terms is the Solana program's alone: the EVM game is retired and has none, so it gets no Solidity.
  *
  *   bun packages/contracts/conformance/generate.ts          (from the repo root)
  *   bun packages/contracts/conformance/generate.ts --check  (fails if either file is out of date)
@@ -30,6 +31,7 @@ lines.push('import {ConformanceRunner} from "./Conformance.t.sol";');
 lines.push("");
 lines.push("contract ConformanceCases is ConformanceRunner {");
 vectors.cases.forEach((c, ci) => {
+  if (c.skt) return;
   lines.push(`    /// ${c.name}`);
   lines.push(`    function test_case_${ci}() public {`);
   const b = c.players.b;
