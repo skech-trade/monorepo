@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { URL } from 'node:url'
-import { type Field, fieldJob, readLibrary, setDifficulty } from '@skech/core/dots'
-import { INK_EDGE_CELLS } from '@skech/core/ink'
+import { type Field, field, fieldJob, readLibrary, setDifficulty } from '@skech/core/dots'
+import { INK_CELL, INK_EDGE_CELLS, openOn, placeInk, type Stroke } from '@skech/core/ink'
 import { type FieldAsk, FieldMaker, PHONE_SECONDS } from '../src/lib/field'
 
 /*
@@ -134,4 +134,55 @@ test('stopping odds work cancels the queued frame and emits no result', () => {
   expect(frames.size).toBe(0)
   expect(maker.busy).toBe(false)
   expect(completed).toBe(false)
+})
+
+test('a map finished at once, part made or waiting, is exactly the one-go map, and is not made twice', () => {
+  for (const ask of asks) {
+    const expected = whole(ask)
+    let delivered = 0
+    const maker = new FieldMaker(lib, () => delivered++)
+    maker.ask(ask)
+    // A few slices in, then the rest at once.
+    for (let i = 0; i < 3 && frames.size; i++) {
+      const [id, callback] = frames.entries().next().value!
+      frames.delete(id)
+      callback(performance.now())
+    }
+    expect(maker.finishNow((a) => a.at === ask.at)).toEqual(expected)
+    expect(delivered).toBe(1)
+    expect(maker.busy).toBe(false)
+    // Asked again: the same map, kept, not made again.
+    expect(maker.finishNow((a) => a.at === ask.at)).toEqual(expected)
+    expect(delivered).toBe(1)
+    expect(maker.finishNow((a) => a.at === ask.at + 1000)).toBeNull()
+    frames.clear()
+  }
+  // One waiting behind another: started and finished at once, the first finished on the way.
+  const done = new Map<number, Field>()
+  const maker = new FieldMaker(lib, (id, value) => done.set(id, value))
+  maker.ask(asks[0])
+  maker.ask(asks[1])
+  expect(maker.finishNow((a) => a.id === 2)).toBeNull()
+  frames.clear()
+})
+
+test("a drawing opened on the phone's map is priced exactly as on the full map of the paths", () => {
+  for (const ask of asks) {
+    setDifficulty(ask.difficulty, ask.least)
+    // In a drawing's own cells, as the app asks for its maps.
+    const full = field(lib, ask.f, ask.at, ask.step, INK_CELL, INK_EDGE_CELLS)
+    const own = whole({ ...ask, cell: INK_CELL })
+    const unit = ask.step / INK_CELL
+    let compared = 0
+    for (let k = 0; k < 40; k++) {
+      // Lines from the wait line out to the phone map's last second, above and below the price.
+      const st: Stroke = { t0: ask.at + 1200 + k * 300, p0: ask.f.price + (k - 20) * unit * 0.6, rt: 260, rp: unit * 0.35, pts: Array.from({ length: 1 + (k % 9) * 6 }, (_, i) => ({ t: i * 90, p: Math.sin(i / 3) * unit })) }
+      const bet = placeInk(st, null, 0.1, unit, ask.at - 500, `l${k}:0`, `l${k}`, INK_EDGE_CELLS)
+      if (!bet || !bet.drawn.every((c) => Math.round((c.t - ask.at) / 1000) - 1 < own.seconds)) continue
+      const priced = openOn(bet, own)
+      expect(priced).toEqual(openOn(bet, full))
+      if (priced?.status === 'live') compared++
+    }
+    expect(compared).toBeGreaterThan(10)
+  }
 })

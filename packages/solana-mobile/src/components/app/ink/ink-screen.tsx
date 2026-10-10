@@ -6,10 +6,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { BURST, type Tier, winTier } from "@skech/core/cheer";
 import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
+import { type Bar, DIFFICULTY, difficulty, type Features, features, type Field, field, type Library, openFor, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { howItWorks, howItWorksSummary } from "@skech/core/explain";
-import { areaCells, areaCostOf, type Cell, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
+import { areaCells, areaCostOf, type Cell, CELL, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
 import { confirmPiece, expireCells, holdIds, paidOnChain, pay, refusalLine, refusals, type Refusals, unpay } from "@skech/core/optimistic";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
 import { BATCH_PIECE_STAKE_E6, cutAt, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor, usdE6 } from "@skech/core/chain";
@@ -98,6 +98,33 @@ const inkArea = (st: Stroke, at: number, step: number) => {
   areas.set(st, { at, step, area });
   return area;
 };
+/** A full map of the paths, made for a drawing whose second's map had not come in time: kept for the next such one. */
+let lateField: { key: string; field: Field } | null = null;
+/**
+ * A drawing opened past its deadline without its second's map: priced exactly as `open` prices it, without making a
+ * whole map of the paths for every piece. That was a third of a second each on a fast phone, seven pieces a second
+ * while drawing, and the map it was waiting for never got the frames to finish: the pen ran at a few frames a second.
+ *
+ * First the phone's own map of that second, if it is being made (or was), finished now: its band chances are the
+ * full map's, bit for bit, for the seconds it reaches, so ink within them is priced the same. Else a full map, made
+ * once for the second and kept. Else, as before, `open`.
+ */
+function openLate(bet: InkBet, lib: Library, bars: Bar[], maker: FieldMaker | null): InkBet {
+  const f = features(bars, bet.openAt);
+  if (!f || bet.model !== "ladder-v1") return open(bet, lib, bars);
+  const cell = bet.cell ?? CELL,
+    size = bet.step * cell,
+    edge = bet.edgeCells ?? 0;
+  const same = (a: Features) => a.price === f.price && a.sigma === f.sigma && a.momentum === f.momentum && a.wick === f.wick;
+  const own = maker?.finishNow((ask) => ask.at === bet.openAt && Math.abs(ask.step - size) <= size * 1e-9 && same(ask.f));
+  if (own && (own.edgeCells ?? 0) === edge && bet.drawn.every((c) => Math.round((c.t - own.openAt) / 1000) - 1 < own.seconds)) {
+    const priced = openOn(bet, own);
+    if (priced) return priced;
+  }
+  const key = JSON.stringify([bet.openAt, size, cell, edge, f, RULES]);
+  if (lateField?.key !== key) lateField = { key, field: field(lib, f, bet.openAt, size, cell, edge) };
+  return openOn(bet, lateField.field) ?? open(bet, lib, bars);
+}
 /** Reads of a line kept while its ink is held back: a cut can only be at one of them. */
 const MARKS = 32;
 
@@ -778,7 +805,7 @@ export function InkScreen() {
           g.bets[i] = bet;
           continue;
         }
-        bet = quick ?? open(bet, lib, bars);
+        bet = quick ?? openLate(bet, lib, bars, maker.current);
         if (sent) {
           // On chain: opened here exactly as the chain opens it, so it is judged from its first second, hits and all,
           // without waiting for the chain. What the chain hands back, and its own bands, come with `placed`; until
