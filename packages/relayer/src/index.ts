@@ -58,6 +58,7 @@ const server: SolanaServer = new SolanaServer(scfg, engine, chain, domain, log, 
   difficulty: sequencer.difficulty,
   connections: server.connections,
   pieces: sequencer.stats,
+  latency: sequencer.latency.snapshot(),
   settling: { ...settler.stats, seconds: settler.watchers() },
   keeper: keeper.status(),
 }));
