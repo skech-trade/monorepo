@@ -1,9 +1,10 @@
 /**
  * Pieces on Solana: checked as they arrive and answered at once, then, 350 ms into the second they open on, every
  * band priced on that second's map and each piece sent as its own transaction, all at once. One piece per
- * transaction is how Solana wants it: placements by different players write different accounts and run in
- * parallel, and the widest piece fills a transaction on its own.
+ * transaction fits the widest piece. Submissions are concurrent, but the shared writable pool and fee payer
+ * still constrain execution on chain.
  */
+import { Latency, openingDelay } from "../latency";
 import { ed25519 } from "@noble/curves/ed25519";
 import { type Address, address, getAddressEncoder, getBase16Encoder } from "@solana/kit";
 import { features, NICE, stepFor } from "@skech/core/dots";
@@ -54,6 +55,7 @@ const u = (n: unknown, max: number) => Number.isInteger(n) && (n as number) >= 0
 export const tooLittle = (stake: bigint, least: bigint) => (stake < least ? `A piece must be at least ${usdE6(least)}` : null);
 
 export class SolanaSequencer {
+  readonly latency = new Latency();
   difficulty = 40;
   /** min/max per dot and the most a piece may stake, and the fee, from the game's config; the least a piece stakes, the relayer's own. */
   terms = { minPerDot: 10_000n, maxPerDot: 100_000_000n, maxPieceStake: 10_000_000_000n, minPieceStake: MIN_PIECE_STAKE_E6, maxPriceAgeMs: 15_000, feeBps: 400, profitFeeBps: 1000 };
@@ -124,6 +126,10 @@ export class SolanaSequencer {
   }
 
   async accept(msg: SolanaPieceMsg): Promise<{ ok: true; betId: Address } | { ok: false; why: string; betId?: Address }> {
+    return this.latency.measure("accept", () => this.acceptPiece(msg));
+  }
+
+  private async acceptPiece(msg: SolanaPieceMsg): Promise<{ ok: true; betId: Address } | { ok: false; why: string; betId?: Address }> {
     const now = Math.floor(this.engine.now());
     const bad = (why: string, betId?: Address) => {
       const k = why.replace(/\d+/g, "N");
@@ -177,7 +183,7 @@ export class SolanaSequencer {
     let bucket = this.buckets.get(openAt);
     if (!bucket) {
       this.buckets.set(openAt, (bucket = []));
-      setTimeout(() => void this.flush(openAt).catch((e) => this.log(`place at ${openAt}: ${String((e as Error).message ?? e).split("\n")[0]}`)), Math.max(0, openAt + this.cfg.openAfterMs - now));
+      setTimeout(() => void this.flush(openAt).catch((e) => this.log(`place at ${openAt}: ${String((e as Error).message ?? e).split("\n")[0]}`)), openingDelay(openAt, this.cfg.openAfterMs, this.engine.now()));
     }
     bucket.push({ piece, sig, key: acct.key, receivedAt, bet, bump, stake, stroke });
     this.stats.accepted++;
@@ -237,6 +243,7 @@ export class SolanaSequencer {
   }
 
   private async flush(openAt: number) {
+    this.latency.record("openingLate", Math.max(0, this.engine.now() - Number(openAt) - this.cfg.openAfterMs));
     const bucket = this.buckets.get(openAt) ?? [];
     this.buckets.delete(openAt);
     if (!bucket.length) return;
@@ -259,7 +266,7 @@ export class SolanaSequencer {
       bucket.map(async (e) => {
         const p = e.piece;
         try {
-          const fl = await this.pricer.fieldFor(f, openAt, Number(p.unit) / 1e8, this.difficulty);
+          const fl = await this.latency.measure("pricing", () => this.pricer.fieldFor(f, openAt, Number(p.unit) / 1e8, this.difficulty));
           const bands = this.bandsOf(p);
           const chances = this.pricer.chances(fl, bands, openAt);
           if (chances.some((c) => c < 0 || c > CHANCE_ONE)) throw new Error("a chance out of range");
@@ -289,7 +296,7 @@ export class SolanaSequencer {
             chances,
           });
           // The compute budget's two instructions come first: the signature check is third, the placement fourth.
-          const sent = await this.chain.send(`place ${e.bet}`, [ed25519Instruction(e.key, e.sig, 3, bytes.length), place], this.computeFor(p.sections.length, e.bump));
+          const sent = await this.latency.measure("chain", () => this.chain.send(`place ${e.bet}`, [ed25519Instruction(e.key, e.sig, 3, bytes.length), place], this.computeFor(p.sections.length, e.bump)));
           if (sent.err) {
             const code = customCode(sent.err);
             this.refuse(e, code !== null ? (getSkechErrorMessage(code as Parameters<typeof getSkechErrorMessage>[0]) ?? `Refused (${code})`) : "Not placed", sent.signature);
@@ -297,7 +304,7 @@ export class SolanaSequencer {
           }
           // What the chain placed: from its event, or worked out as the program works it out if the event is slow or
           // cannot be read. It is placed either way, and must be watched to be settled.
-          const ev = (await this.chain.events(sent.signature).catch(() => [])).find((x) => x.name === "Placed")?.data as { staked: bigint; fee: bigint; refunded: bigint; sections: Band[] } | undefined;
+          const ev = (await this.latency.measure("events", () => this.chain.events(sent.signature)).catch(() => [])).find((x) => x.name === "Placed")?.data as { staked: bigint; fee: bigint; refunded: bigint; sections: Band[] } | undefined;
           const placed = ev ?? this.predict(p, bands, chances, price, momentum);
           this.stats.placed++;
           const c = this.players.get(p.player);
