@@ -37,7 +37,6 @@ import { Onboarding, Pill, useOnboarding } from "./onboarding";
 import { type Game, type Placed, type Preview, Stage } from "./stage";
 import { WalletButton } from "./wallet-button";
 import { publishStroke } from "@/lib/social";
-import { AvatarCredit } from "@/components/app/sheets/social-sheet";
 
 /** How old a map of multiples may be, in ms past its second, and still be shown. */
 const STALE_MAP_MS = 3500;
@@ -1212,7 +1211,6 @@ export function InkScreen() {
             ? `${fees ? `skech keeps ${fees.feeBps / 100}% of what you put in and ${fees.profitFeeBps / 100}% of the profit on every correct call.` : "skech keeps a share of what you put in and of the profit on every correct call."} Profits are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
             : "Your balance is practice money saved on this phone."}
         </Text>
-        <AvatarCredit />
       </Sheet>
     </View>
   );
