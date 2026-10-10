@@ -78,6 +78,8 @@ export type SolanaDeployment = {
   pool: Address;
   market: Address;
   bars: Address;
+  /** SKT's account; absent from a deployment written before SKT (`rewardsAddress` gives it). */
+  rewards?: Address;
   vault: Address;
   usdcMint: Address;
   tokenProgram: Address;

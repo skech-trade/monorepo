@@ -286,6 +286,7 @@ export class SolanaSequencer {
             market: this.cfg.deployment.market,
             bars: this.cfg.deployment.bars,
             pool: this.cfg.deployment.pool,
+            rewards: this.chain.rewards,
             player: await playerAddress(p.player, this.cfg.deployment.program),
             bet: e.bet,
             playerArg: p.player,

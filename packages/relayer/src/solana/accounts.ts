@@ -1,6 +1,6 @@
 /**
- * What the relayer knows of each player's accounts: their game account, the pool (for what they are owed) and the
- * USDC in their wallet, read together in one `getMultipleAccounts`, and at most once a second for each player
+ * What the relayer knows of each player's accounts: their game account, the pool (for what they are owed), the
+ * USDC in their wallet and their SKT (with SKT's own account, for what it has earned), read together in one `getMultipleAccounts`, and at most once a second for each player
  * however many ask. A settlement, the app asking, a piece arriving and a new socket watching each used to read for
  * themselves, three requests a time.
  *
@@ -9,11 +9,12 @@
  * none started in the last second, else a second after the last, shared by everyone who asks meanwhile.
  */
 import type { Address } from "@solana/kit";
-import type { Player, Pool } from "@skech/contracts/solana/sdk";
+import type { Holder, Player, Pool, Rewards } from "@skech/contracts/solana/sdk";
 import type { Token } from "@solana-program/token";
 import { remember } from "../limits";
 
-export type Snapshot = { player: Player | null; pool: Pool; token: Token | null; at: number };
+/** `holder` is the player's SKT, null until their first settlement; `rewards` SKT's own, null until it starts. */
+export type Snapshot = { player: Player | null; pool: Pool; token: Token | null; holder: Holder | null; rewards: Rewards | null; at: number };
 type Entry = { last: Snapshot | null; stale: boolean; started: number; running: Promise<Snapshot> | null; queued: Promise<Snapshot> | null };
 
 /** Players remembered at once. */

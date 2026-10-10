@@ -38,23 +38,31 @@ import { fetchAddressLookupTable } from "@solana-program/address-lookup-table";
 import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from "@solana-program/compute-budget";
 import { decodeToken, findAssociatedTokenPda, TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 import {
+  CLAIMED_EVENT_DISCRIMINATOR,
   decodeGame,
+  decodeHolder,
   decodeMarket,
   decodePlayer,
   decodePool,
+  decodeRewards,
   fetchGame,
   fetchMarket,
   fetchMaybePlayer,
   fetchPool,
   type Game,
   getBarPostedEventDecoder,
+  getClaimedEventDecoder,
   getDepositedEventDecoder,
+  getMintedEventDecoder,
   getOwedEventDecoder,
   getPlacedEventDecoder,
   getRedeemedEventDecoder,
   getSettledEventDecoder,
+  holderAddress,
+  MINTED_EVENT_DISCRIMINATOR,
   type Player,
   type Pool,
+  rewardsAddress,
   BAR_POSTED_EVENT_DISCRIMINATOR,
   DEPOSITED_EVENT_DISCRIMINATOR,
   OWED_EVENT_DISCRIMINATOR,
@@ -79,6 +87,8 @@ const EVENTS = [
   ["Redeemed", REDEEMED_EVENT_DISCRIMINATOR, getRedeemedEventDecoder()],
   ["Deposited", DEPOSITED_EVENT_DISCRIMINATOR, getDepositedEventDecoder()],
   ["BarPosted", BAR_POSTED_EVENT_DISCRIMINATOR, getBarPostedEventDecoder()],
+  ["Minted", MINTED_EVENT_DISCRIMINATOR, getMintedEventDecoder()],
+  ["Claimed", CLAIMED_EVENT_DISCRIMINATOR, getClaimedEventDecoder()],
 ] as const;
 export type SolanaEvent = { name: (typeof EVENTS)[number][0]; data: Record<string, unknown> };
 
@@ -118,6 +128,10 @@ export class SolanaChain {
   readonly budget: Budget;
   /** Each player's accounts, read at most once a second however many ask (accounts.ts). */
   readonly accounts = new Accounts((wallet) => this.snapshot(wallet));
+  /** SKT's global account, which every placement and settlement writes. */
+  rewards!: Address;
+  /** Bets one settlement holds: (bet, player, holder) for each, in 1,232 bytes; one fewer if the lookup table lacks `rewards`. */
+  betsPerSettle = 9;
 
   constructor(readonly cfg: SolanaConfig, private readonly log: (s: string) => void) {
     this.budget = new Budget(cfg.rpcPerSec, log);
@@ -146,6 +160,11 @@ export class SolanaChain {
     this.signer = await createKeyPairSignerFromBytes(this.cfg.keyBytes);
     const t = await fetchAddressLookupTable(this.rpc, this.cfg.deployment.lookupTable);
     this.table = { [this.cfg.deployment.lookupTable]: [...t.data.addresses] };
+    this.rewards = await rewardsAddress(this.cfg.deployment.program);
+    if (!t.data.addresses.includes(this.rewards)) {
+      this.betsPerSettle = this.cfg.betsPerSettle - 1;
+      this.log(`lookup table ${this.cfg.deployment.lookupTable} lacks SKT's rewards account: ${this.betsPerSettle} bets a settlement (bun run deploy:solana --skip-program extends it)`);
+    } else this.betsPerSettle = this.cfg.betsPerSettle;
     await Promise.all([this.refreshHash(), this.refreshPriority()]);
     // A blockhash is good for 150 blocks, about a minute: one a few seconds old costs a transaction nothing. Asked
     // again sooner while the RPC is not answering, so it never runs out under us.
@@ -310,13 +329,19 @@ export class SolanaChain {
     }
     return out;
   }
-  /** A player's game account, the pool and the USDC account in their wallet, in one request: see `accounts`. */
+  /** A player's game account, the pool, the USDC account in their wallet, their SKT and SKT's own, in one request: see `accounts`. */
   async snapshot(wallet: Address): Promise<Omit<Snapshot, "at">> {
     const d = this.cfg.deployment;
-    const [pda, [ata]] = await Promise.all([playerAddress(wallet, d.program), findAssociatedTokenPda({ mint: d.usdcMint, owner: wallet, tokenProgram: TOKEN_PROGRAM_ADDRESS })]);
-    const [player, pool, token] = await fetchEncodedAccounts(this.rpc, [pda, d.pool, ata]);
+    const [pda, [ata], hpda] = await Promise.all([playerAddress(wallet, d.program), findAssociatedTokenPda({ mint: d.usdcMint, owner: wallet, tokenProgram: TOKEN_PROGRAM_ADDRESS }), holderAddress(wallet, d.program)]);
+    const [player, pool, token, holder, rewards] = await fetchEncodedAccounts(this.rpc, [pda, d.pool, ata, hpda, this.rewards]);
     assertAccountExists(pool);
-    return { player: player.exists ? decodePlayer(player).data : null, pool: decodePool(pool).data, token: token.exists ? decodeToken(token).data : null };
+    return {
+      player: player.exists ? decodePlayer(player).data : null,
+      pool: decodePool(pool).data,
+      token: token.exists ? decodeToken(token).data : null,
+      holder: holder.exists ? decodeHolder(holder).data : null,
+      rewards: rewards.exists ? decodeRewards(rewards).data : null,
+    };
   }
   async lamports(): Promise<bigint> {
     return (await this.rpc.getBalance(this.signer.address).send()).value;

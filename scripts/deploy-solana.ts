@@ -5,6 +5,11 @@
  *   bun run deploy:solana --mainnet        required as well on mainnet-beta: it spends real SOL
  *   bun run deploy:solana --skip-program   the program is already deployed: set the game up only
  *   bun run deploy:solana --set-config     also set the game's terms to the defaults (4% of stakes, 10% of profit), and SOLANA_CONFIG
+ *   bun run deploy:solana --set-rewards    also set SKT's terms to the defaults (3 of the 4 points, 8 of the 10), and SOLANA_REWARDS_CONFIG
+ *
+ * A game without SKT (set up before it) is given it: `init_rewards` starts SKT and moves the game's fees to the
+ * defaults in the same instruction, keeping its other terms (SOLANA_CONFIG and SOLANA_REWARDS_CONFIG apply). Until it
+ * is sent, an upgraded program places and settles nothing.
  *
  * It deploys the program (`anchor build` first), initializes the game with the deployer as admin (the program's
  * upgrade authority must be the deployer), opens BTC-USD, creates the lookup table every placement uses, and
@@ -15,6 +20,7 @@
  *   SOLANA_TREASURY           who owns the treasury's USDC account (default the deployer; a multisig on mainnet)
  *   DIFFICULTY                the market's difficulty, 50 to 100 (default 51)
  *   SOLANA_CONFIG             with --set-config: JSON of terms to change from the defaults, e.g. {"feeBps":300}
+ *   SOLANA_REWARDS_CONFIG     JSON of SKT's terms to change from the defaults, e.g. {"mintScale":"100000000000"}
  *
  * On mainnet: transfer the upgrade authority and the admin to a multisig (Squads) straight after, and build with
  * `anchor build --verifiable` so the deployed program can be verified against this source.
@@ -50,15 +56,21 @@ import {
   barsAddress,
   type Config,
   DEFAULT_CONFIG,
+  DEFAULT_REWARDS_CONFIG,
   deploymentFile,
   fetchMaybeGame,
+  fetchMaybeRewards,
   gameAddress,
   getInitializeInstruction,
   getInitMarketInstruction,
+  getInitRewardsInstruction,
   getSetConfigInstruction,
+  getSetRewardsConfigInstruction,
   INSTRUCTIONS_SYSVAR,
   marketAddress,
   poolAddress,
+  rewardsAddress,
+  type RewardsConfig,
   SKECH_PROGRAM_ADDRESS,
   type SolanaDeployment,
   solanaNetwork,
@@ -183,17 +195,38 @@ if (existing.exists) {
 
 /* ---- the terms: a game keeps what it was initialized with until the admin sets others ---- */
 
-if (process.argv.includes("--set-config")) {
-  const overrides = JSON.parse(env("SOLANA_CONFIG") ?? "{}") as Record<string, number | string>;
-  const unknown = Object.keys(overrides).filter((k) => !(k in DEFAULT_CONFIG));
-  if (unknown.length) fail(`SOLANA_CONFIG names terms the game does not have: ${unknown.join(", ")}`);
-  const config = { ...DEFAULT_CONFIG } as Record<string, number | bigint>;
-  for (const [k, v] of Object.entries(overrides)) config[k] = typeof DEFAULT_CONFIG[k as keyof Config] === "bigint" ? BigInt(v) : Number(v);
-  const current = await fetchMaybeGame(rpc, game);
-  const now = current.exists ? current.data.config : undefined;
-  const same = now && Object.keys(config).every((k) => String(now[k as keyof Config]) === String(config[k]));
-  if (same) console.log("the game's terms are already these: leaving them");
-  else await send("terms", [getSetConfigInstruction({ admin: deployer, game, config: config as Config })]);
+/** `base` with the JSON in `name` over it, each value the type the default has. */
+function terms<T extends object>(name: string, base: T): T {
+  const overrides = JSON.parse(env(name) ?? "{}") as Record<string, number | string>;
+  const unknown = Object.keys(overrides).filter((k) => !(k in base));
+  if (unknown.length) fail(`${name} names terms there are none of: ${unknown.join(", ")}`);
+  const out = { ...base } as Record<string, unknown>;
+  for (const [k, v] of Object.entries(overrides)) out[k] = typeof (base as Record<string, unknown>)[k] === "bigint" ? BigInt(v) : Number(v);
+  return out as T;
+}
+const same = (a: object, b: object) => Object.keys(b).every((k) => String((a as Record<string, unknown>)[k]) === String((b as Record<string, unknown>)[k]));
+const rewards = await rewardsAddress();
+const skt = await fetchMaybeRewards(rpc, rewards);
+const onGame = await fetchMaybeGame(rpc, game);
+const current = onGame.exists ? onGame.data.config : undefined;
+if (!skt.exists) {
+  // SKT starts with the game's fees at the defaults, its other terms as they are: one instruction, never between.
+  const config = terms("SOLANA_CONFIG", { ...(current ?? DEFAULT_CONFIG), feeBps: DEFAULT_CONFIG.feeBps, profitFeeBps: DEFAULT_CONFIG.profitFeeBps });
+  const rewardsConfig = terms("SOLANA_REWARDS_CONFIG", DEFAULT_REWARDS_CONFIG);
+  await send(`SKT (${config.feeBps / 100}% of stakes, ${config.profitFeeBps / 100}% of profit; ${rewardsConfig.holderFeeBps} and ${rewardsConfig.holderProfitFeeBps} bps of them to holders)`, [
+    getInitRewardsInstruction({ admin: deployer, game, rewards, config, rewardsConfig }),
+  ]);
+} else {
+  if (process.argv.includes("--set-config")) {
+    const config = terms("SOLANA_CONFIG", DEFAULT_CONFIG);
+    if (current && same(current, config)) console.log("the game's terms are already these: leaving them");
+    else await send("terms", [getSetConfigInstruction({ admin: deployer, game, rewards, config: config as Config })]);
+  }
+  if (process.argv.includes("--set-rewards")) {
+    const rewardsConfig = terms("SOLANA_REWARDS_CONFIG", DEFAULT_REWARDS_CONFIG);
+    if (same(skt.data.config, rewardsConfig)) console.log("SKT's terms are already these: leaving them");
+    else await send("SKT's terms", [getSetRewardsConfigInstruction({ admin: deployer, game, rewards, rewardsConfig: rewardsConfig as RewardsConfig })]);
+  }
 }
 
 /* ---- the lookup table every placement uses ---- */
@@ -209,7 +242,7 @@ await send("lookup table", [
     address: table,
     authority: deployer,
     payer: deployer,
-    addresses: [game, market, bars, pool, INSTRUCTIONS_SYSVAR, address("11111111111111111111111111111111"), vault, usdc, TOKEN_PROGRAM_ADDRESS],
+    addresses: [game, market, bars, pool, rewards, INSTRUCTIONS_SYSVAR, address("11111111111111111111111111111111"), vault, usdc, TOKEN_PROGRAM_ADDRESS],
   }),
 ]);
 
@@ -222,6 +255,7 @@ const deployment: SolanaDeployment = {
   pool,
   market,
   bars,
+  rewards,
   vault: onChain?.vault ?? vault,
   usdcMint: usdc,
   tokenProgram: onChain?.tokenProgram ?? TOKEN_PROGRAM_ADDRESS,

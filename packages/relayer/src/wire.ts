@@ -98,7 +98,7 @@ export const SOLANA: Record<string, Spec> = {
     stroke: bytes(null, STROKE_BYTES),
   },
   build: (m) => {
-    const player = { kind: oneOf("session", "deposit", "withdraw", "revoke"), player: base58 };
+    const player = { kind: oneOf("session", "deposit", "withdraw", "revoke", "claim"), player: base58 };
     if (m.kind === "session") return { ...player, key: base58, validUntil: uint, allowance: uint, approve: optional(uint) };
     if (m.kind === "deposit") return { ...player, amount: uint };
     if (m.kind === "withdraw") return { ...player, amount: uint, to: optional(base58) };

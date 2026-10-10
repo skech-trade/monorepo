@@ -14,7 +14,7 @@ function chain(ms = 5, exists = true) {
     reads.push({ wallet, at: performance.now() });
     const v = balance.v;
     await Bun.sleep(ms);
-    return { player: exists ? ({ balance: v } as unknown as Player) : null, pool: {} as Pool, token: null };
+    return { player: exists ? ({ balance: v } as unknown as Player) : null, pool: {} as Pool, token: null, holder: null, rewards: null };
   };
   return { fetch, reads, balance };
 }
@@ -89,7 +89,7 @@ describe("a player's accounts", () => {
     const fetch = async (): Promise<Omit<Snapshot, "at">> => {
       const mine = ++n;
       await Bun.sleep(mine === 1 ? 80 : 1);
-      return { player: { balance: BigInt(mine) } as unknown as Player, pool: {} as Pool, token: null };
+      return { player: { balance: BigInt(mine) } as unknown as Player, pool: {} as Pool, token: null, holder: null, rewards: null };
     };
     const a = new Accounts(fetch, 10);
     const slow = a.get(A);
@@ -104,7 +104,7 @@ describe("a player's accounts", () => {
     let fail = true;
     const fetch = async (): Promise<Omit<Snapshot, "at">> => {
       if (fail) throw new Error("429");
-      return { player: null, pool: {} as Pool, token: null };
+      return { player: null, pool: {} as Pool, token: null, holder: null, rewards: null };
     };
     const a = new Accounts(fetch, 10);
     const all = await Promise.allSettled([a.get(A), a.get(A)]);

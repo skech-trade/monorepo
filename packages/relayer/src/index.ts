@@ -11,7 +11,7 @@
  */
 import { report, survive, trail } from "./sentry";
 import { join } from "node:path";
-import { domainFor } from "@skech/contracts/solana/sdk";
+import { domainFor, fetchMaybeRewards } from "@skech/contracts/solana/sdk";
 import { Engine } from "./engine";
 import { Pricer } from "./pricer";
 import { SolanaChain } from "./solana/chain";
@@ -43,6 +43,12 @@ if (game.oracle !== chain.signer.address) {
   report("not-oracle", `relayer ${chain.signer.address} is not the Solana game's oracle ${game.oracle}`);
 }
 scfg.lateMs = game.config.lateMs;
+// SKT's account: every placement and settlement writes it. Until the admin starts it (init_rewards), the program
+// refuses them all.
+if (!(await fetchMaybeRewards(chain.rpc, chain.rewards)).exists) {
+  log("WARNING: SKT has not started on this game (no Rewards account): nothing can be placed or settled until the admin sends init_rewards (bun run deploy:solana --skip-program)");
+  report("no-rewards", `the Solana game has no Rewards account at ${chain.rewards}`);
+}
 
 const engine = new Engine(scfg.engineUrl, log, scfg.engineSigner);
 engine.start();

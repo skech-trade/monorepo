@@ -95,6 +95,8 @@ describe("what the wallet signs", () => {
     expect(why(solana({ type: "build", kind: "deposit", player: WALLET, amount: "10000000" }))).toBeNull();
     expect(why(solana({ type: "build", kind: "withdraw", player: WALLET, amount: "1000000" }))).toBeNull();
     expect(why(solana({ type: "build", kind: "revoke", player: WALLET }))).toBeNull();
+    expect(why(solana({ type: "build", kind: "claim", player: WALLET }))).toBeNull();
+    expect(why(solana({ type: "build", kind: "claim" }))).toBe("Bad player");
     const r = solana({ type: "build", kind: "deposit", player: WALLET, amount: -1 });
     expect("why" in r && refusal(r.msg, r.why)).toEqual({ type: "built", kind: "deposit", ok: false, why: "Bad amount" });
     expect(why(solana({ type: "build", kind: "mint", player: WALLET }))).toBe("Bad kind");
