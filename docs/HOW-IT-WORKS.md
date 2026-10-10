@@ -408,6 +408,16 @@ limited for each player instead of refused, 10 at once and 2 a second, so ink dr
 ink returns about 99¢) cannot cost the game more than a little. Paper and practice runs send nothing and are
 not held.
 
+The apps play the player's own ink as placed from the moment it is drawn (`packages/core/src/optimistic.ts`):
+held-back and in-flight ink looks exactly like confirmed ink, its stake leaves the balance at once, and each
+piece opens on the screen as the chain will open it and is judged on the local price, hits paid, heard and felt
+at once. Each stake and hit is held in the balance under the piece's name until the chain has done it and its
+next word on the balance includes it. `placed` swaps in the chain's bands (keeping what the price already did
+to them) and repays any difference; a settlement that disagrees moves the balance to the chain's figure. A piece
+refused by the relayer, voided, given back (`expiredMask`) or not placed within 8 s fades out over 300 ms, its
+stake comes back and its hits are taken back, and one quiet notice covers a burst of them. A drawing's round
+card waits until every piece of it has been taken or refused.
+
 ### Fees and the pool, by the numbers
 
 A half-dot at 10¢ with a 50% chance at difficulty 40, with the 4% stake fee: fair 2.080×, rung 2×.
