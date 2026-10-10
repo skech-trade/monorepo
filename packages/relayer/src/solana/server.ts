@@ -18,6 +18,7 @@ import type { SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { Placed, Refused, SolanaPieceMsg, SolanaSequencer } from "./sequencer";
 import type { Settled, SolanaSettler } from "./settler";
+import type { SocialBridge } from "../social/bridge";
 import { beat, clientIp, Door, IDLE_S, MESSAGE_BYTES, Rates, remember, Sponsor } from "../limits";
 import { report } from "../sentry";
 import { big, type Message, read, refusal, SOLANA } from "../wire";
@@ -126,12 +127,21 @@ export class SolanaServer {
     };
   }
 
+  /** The social service, told what was placed and settled; null without a database. */
+  social: SocialBridge | null = null;
+
   readonly notify = {
-    placed: (p: Placed) => this.toPlayer(p.player, { type: "placed", ...p }),
+    placed: (p: Placed) => {
+      // The stroke is the player's own: the app has it, and it is the social feed's to show.
+      const { stroke: _stroke, unit: _unit, ...told } = p;
+      this.toPlayer(p.player, { type: "placed", ...told });
+      this.social?.placed(p);
+    },
     refused: (r: Refused) => this.toPlayer(r.player, { type: "refused", ...r }),
     settled: (s: Settled) => {
       this.sequencer?.credit(s.player, s.paid);
       this.toPlayer(s.player, { type: "settled", ...s });
+      this.social?.settled(s);
     },
     owed: (to: Address, value: bigint) => this.toPlayer(to, { type: "owed", value }),
     account: (player: Address) => void this.sendAccount(player),

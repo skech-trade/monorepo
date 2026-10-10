@@ -1,7 +1,7 @@
 "use client";
 
 import { type PrivyClientConfig, PrivyProvider, type User, useLogin, useLogout, usePrivy, type WalletWithMetadata } from "@privy-io/react-auth";
-import { useCreateWallet, useSignTransaction, useWallets } from "@privy-io/react-auth/solana";
+import { useCreateWallet, useSignMessage, useSignTransaction, useWallets } from "@privy-io/react-auth/solana";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { shortAddress } from "@/lib/market";
 import { type Account, NOT_YET } from "./auth";
@@ -78,13 +78,14 @@ function Publish({ asked, onAccount }: Omit<Bridge, "appId">) {
   const { logout } = useLogout();
   const { wallets } = useWallets();
   const { signTransaction } = useSignTransaction();
+  const { signMessage } = useSignMessage();
   const { createWallet } = useCreateWallet();
   const address = embedded(user);
   const wallet = wallets.find((w) => w.address === address) ?? null;
   // Privy's functions are new on most renders; the account is published only when what it says changes.
-  const fns = useRef({ logout, signTransaction, wallet });
+  const fns = useRef({ logout, signTransaction, signMessage, wallet });
   useEffect(() => {
-    fns.current = { logout, signTransaction, wallet };
+    fns.current = { logout, signTransaction, signMessage, wallet };
   });
 
   // Answer each sign-in asked for, once Privy can open: asked before it was ready, it opens when it is.
@@ -130,6 +131,12 @@ function Publish({ asked, onAccount }: Omit<Bridge, "appId">) {
         const out: string[] = [];
         for (const t of base64s) out.push(await sign(t));
         return out;
+      },
+      signMessage: async (message) => {
+        const w = fns.current.wallet;
+        if (!w) throw new Error("No wallet yet");
+        const { signature } = await fns.current.signMessage({ message: new TextEncoder().encode(message), wallet: w, options: SILENT });
+        return toBase64(signature);
       },
     };
   }, [ready, authenticated, address, signing, handle, email]);

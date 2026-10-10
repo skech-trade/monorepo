@@ -7,6 +7,9 @@ import { roundedTerms as areaTerms } from "@skech/core/odds";
 import type { Tick } from "@/lib/engine";
 import { tracePricePath } from "./price-path";
 import { feel, pen as penSound } from "@/lib/feel";
+import { livePens, type LivePen, openPlayerProfile, penFlush, penLift, remoteDrawings, socialMoney, visibleSocialDrawings } from "@/lib/social";
+import { faceOf } from "@/lib/avatar";
+import { playerHue, type PublicDrawing } from "@skech/core/social";
 
 /**
  * The stage: the price so far on the left, now in the middle, and the space
@@ -364,11 +367,18 @@ export function Stage({
       const r = el.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
+    /** Where other players' faces are on the chart this frame, behind the wait line: a tap there opens their profile. */
+    let playerTargets: { x: number; y: number; player: string }[] = [];
     const down = (e: PointerEvent) => {
       const g = game.current;
       if (e.button !== 0 || pen || !g || !price(g) || !g.field) return;
       const q = point(e);
       if (q.y < plotTop() || q.y > plotBottom()) return;
+      // Ahead of the wait line every touch draws; behind it, a face is a way to its player.
+      if (q.x < waitX()) {
+        const face = playerTargets.find((t) => Math.hypot(q.x - t.x, q.y - t.y) < 22);
+        if (face) return openPlayerProfile(face.player);
+      }
       // Not from the grey zone before the wait line: ink there cannot be bet yet. Said, felt, not silently ignored.
       if (q.x < waitX()) {
         feel("nope");
@@ -534,6 +544,87 @@ export function Stage({
     // Clip the original round nib once against their union: independently
     // rounding each second would put visible seams back into the stroke.
     const bandCache = new WeakMap<Cell[], { pad: number; bands: Cell[] }>();
+    /*
+      Everyone else's ink, from the live feed (lib/social.ts). A drawing's pieces each carry the points from where
+      the last left off: joined into one line, made once per version of the drawing and kept. Drawn faint in its
+      player's colour, and stronger inside the bands it bought. Who is on which tile is counted twice a second, not
+      every frame. Their faces are drawn once each into a small canvas, and that is what each frame copies.
+    */
+    type Line = { t0: number; p0: number; rt: number; rp: number; path: Path2D };
+    const remoteLines = new WeakMap<PublicDrawing, Line | null>();
+    const pathOf = (pts: readonly { t: number; p: number }[], rt: number, rp: number, n = pts.length) => {
+      const path = new Path2D();
+      for (let i = 0; i < n; i++) {
+        if (i) path.lineTo(pts[i].t / rt, pts[i].p / rp);
+        else path.moveTo(pts[i].t / rt, pts[i].p / rp);
+      }
+      if (n === 1) path.lineTo(pts[0].t / rt + 1e-3, pts[0].p / rp);
+      return path;
+    };
+    const remoteLine = (d: PublicDrawing): Line | null => {
+      let line = remoteLines.get(d);
+      if (line !== undefined) return line;
+      const pieces = d.pieces.filter((q) => q.stroke?.pts.length && q.stroke.rt && q.stroke.rp).sort((a, b) => (a.from ?? 0) - (b.from ?? 0) || a.openAt - b.openAt);
+      const first = pieces[0]?.stroke;
+      line = null;
+      if (first) {
+        const pts: { t: number; p: number }[] = [];
+        for (const q of pieces) for (const pt of q.stroke!.pts) if (!pts.length || pt.t !== pts[pts.length - 1].t || pt.p !== pts[pts.length - 1].p) pts.push(pt);
+        line = { t0: first.t0, p0: first.p0, rt: first.rt, rp: first.rp, path: pathOf(pts, first.rt, first.rp) };
+      }
+      remoteLines.set(d, line);
+      return line;
+    };
+    /** A live pen's line, made again only when more of it is shown. */
+    const penLines = new WeakMap<LivePen, { n: number; path: Path2D }>();
+    const penLine = (p: LivePen) => {
+      let made = penLines.get(p);
+      if (!made || made.n !== p.shown) penLines.set(p, (made = { n: p.shown, path: pathOf(p.pts, p.rt, p.rp, p.shown) }));
+      return made.path;
+    };
+    /** Each player's hue, and each drawing's figure and its width: worked out once, not every frame. */
+    const hues = new Map<string, number>();
+    const hueOf = (player: string) => {
+      let h = hues.get(player);
+      if (h === undefined) {
+        if (hues.size > 500) hues.clear();
+        hues.set(player, (h = playerHue(player)));
+      }
+      return h;
+    };
+    const figures = new WeakMap<PublicDrawing, { text: string; wide: number }>();
+    /** Faces, each drawn once at twice its size into a canvas of its own. */
+    const faces = new Map<string, HTMLCanvasElement | HTMLImageElement>();
+    const face = (src: string): HTMLCanvasElement | null => {
+      const got = faces.get(src);
+      if (got instanceof HTMLCanvasElement) return got;
+      if (got) return null;
+      if (faces.size > 120) faces.clear();
+      const image = new Image();
+      if (!src.startsWith("data:")) image.crossOrigin = "anonymous";
+      image.onload = () => {
+        const raster = document.createElement("canvas");
+        raster.width = raster.height = 56;
+        raster.getContext("2d")?.drawImage(image, 0, 0, 56, 56);
+        faces.set(src, raster);
+      };
+      image.src = src;
+      faces.set(src, image);
+      return null;
+    };
+    /** Sends this player's pen to everyone else, ten times a second while it is down: nothing runs on a pointer move. */
+    let streaming = "";
+    const stream = setInterval(() => {
+      if (pen) {
+        streaming = pen.drawing;
+        penFlush(pen.drawing, pen.stroke);
+      } else if (streaming) {
+        penLift(streaming);
+        streaming = "";
+      }
+    }, 100);
+    let crowdAt = 0;
+    const tileCrowds = new Map<string, { players: Set<string>; stake: bigint; label: string }>();
     const inkInPlay = (st: Stroke, cells: Cell[], style: string, edgeCells = 0, step = game.current.step) => {
       if (!cells.length) return;
       const pad = edgeCells * step * INK_CELL;
@@ -643,6 +734,32 @@ export function Stage({
         if (map.field !== fl || map.pen !== gPen() || map.width !== w || map.height !== h || map.step !== g.step) paintMap(fl);
       }
       const nx = nowX();
+      // Who has ink on each tile still to come: counted twice a second.
+      if (ms - crowdAt > 500) {
+        crowdAt = ms;
+        tileCrowds.clear();
+        const first = map.tiles[0];
+        const rowP = (map.rowPx * g.step) / pitchY;
+        if (first) for (const drawing of visibleSocialDrawings().slice(0, 40)) {
+          if (drawing.complete) continue;
+          for (const piece of drawing.pieces) {
+            const decided = piece.hitMask | piece.missMask | (piece.expiredMask ?? 0);
+            piece.sections.forEach((section, i) => {
+              if ((decided & (1 << i)) !== 0) return;
+              const col = Math.floor((x(piece.openAt + section.second * 1000 + 500) - nx - first.left) / (first.width + 4));
+              if (col < 0) return;
+              const id = `${col}:${Math.floor((Number(section.lo) + Number(section.hi)) / 2e8 / rowP)}`;
+              let crowd = tileCrowds.get(id);
+              if (!crowd) tileCrowds.set(id, (crowd = { players: new Set(), stake: 0n, label: "" }));
+              crowd.players.add(drawing.player);
+              crowd.stake += BigInt(section.stake);
+            });
+          }
+        }
+        for (const crowd of tileCrowds.values()) crowd.label = `${crowd.players.size} · ${socialMoney(crowd.stake.toString())}`;
+      }
+      const people = remoteDrawings().slice(0, phone() ? 12 : w < 1024 ? 18 : 24);
+      const pens = livePens();
 
       /*
         The ink first, so it can be softened and rubbed out before anything
@@ -665,8 +782,48 @@ export function Stage({
         renderedGroups = [...groups.values()];
       }
       // No pen and no drawing on the chart (a hit or a miss is always in one): no ink, and no layer to clear and lay over.
-      const inked = !!pen || renderedGroups.length > 0;
+      const inked = !!pen || renderedGroups.length > 0 || people.length > 0 || pens.length > 0;
       if (inked) onLayer(inkLayer, inkCtx);
+      // Other players' ink, under the player's own: one line a drawing, faint, and stronger where it is in play.
+      const remote = (line: { t0: number; p0: number; rt: number; rp: number }, path: Path2D, style: string) => {
+        c.save();
+        c.setTransform(dpr * line.rt * pxMs(), 0, 0, (dpr * -line.rp * pitchY) / g.step, dpr * x(line.t0), dpr * y(line.p0));
+        c.lineWidth = 2;
+        c.lineCap = "round";
+        c.lineJoin = "round";
+        c.strokeStyle = style;
+        c.stroke(path);
+        c.restore();
+      };
+      const viewFrom = tAt(0), viewTo = tAt(w);
+      for (const drawing of people) {
+        const age = Math.max(0, Date.now() - drawing.updatedAt);
+        if (drawing.complete && age > 15_000) continue;
+        const line = remoteLine(drawing);
+        // Only what is on screen: a drawing wholly behind now, or beyond the view, is not drawn.
+        if (!line || line.t0 > viewTo || drawing.pieces.every((q) => q.openAt + 30_000 < viewFrom)) continue;
+        const hue = hueOf(drawing.player), light = dark ? 70 : 42;
+        const fade = drawing.complete ? Math.max(0, 1 - age / 15_000) : 1;
+        remote(line, line.path, `hsla(${hue}, 55%, ${light}%, ${0.16 * fade})`);
+        c.save();
+        c.beginPath();
+        for (const piece of drawing.pieces) {
+          const pad = Number(piece.unit) / 1e8;
+          for (const section of piece.sections) {
+            const from = x(piece.openAt + section.second * 1000), top = y(Number(section.hi) / 1e8 + pad);
+            c.rect(from, top, x(piece.openAt + (section.second + 1) * 1000) - from, y(Number(section.lo) / 1e8 - pad) - top);
+          }
+        }
+        c.clip();
+        remote(line, line.path, `hsla(${hue}, 55%, ${light}%, ${0.4 * fade})`);
+        c.restore();
+      }
+      // Lines being drawn right now, elsewhere: faint, catching up smoothly between their ten updates a second.
+      for (const p of pens) {
+        if (p.shown < p.pts.length) p.shown = Math.min(p.pts.length, p.shown + Math.max(1, Math.ceil((p.pts.length - p.shown) / 5)));
+        if (!p.shown) continue;
+        remote(p, penLine(p), `hsla(${hueOf(p.player)}, 55%, ${dark ? 70 : 42}%, 0.32)`);
+      }
       for (const group of renderedGroups) {
         if (group.id !== pen?.drawing) {
           // The whole line faint, as ink too soon is while drawing, then solid wherever it is in play:
@@ -949,15 +1106,106 @@ export function Stage({
             if (font !== s.font) c.font = font = s.font;
             c.globalAlpha = tile.opacity * alpha;
             c.fillStyle = s.fill;
-            c.fillText(text, tile.x0 + tile.width / 2, tile.y0 + tileH / 2 + 0.5);
+            c.fillText(text, tile.x0 + tile.width / 2, tile.y0 + tileH / 2 + (crowd && !phone() && tile.width > 60 ? -5 : 0.5));
           };
+          const crowd = tileCrowds.get(tile.id);
           // A changed number goes out, then the new one comes in: never both at once, which read as a smudge.
           if (tile.was !== tile.text && eased < 1) {
             if (eased < 0.5) write(tile.was, 1 - eased * 2);
             else write(tile.text, eased * 2 - 1);
           } else write(tile.text, 1);
+          // How many have ink on this tile, and on a computer how much.
+          if (crowd) {
+            c.globalAlpha = tile.opacity;
+            c.fillStyle = rgba(pal.fg, phone() ? 0.5 : 0.55);
+            if (phone()) {
+              c.font = font = `500 8px ${SANS}`;
+              c.textAlign = "right";
+              c.fillText(`${crowd.players.size}`, tile.x0 + tile.width - 3, tile.y0 + 7);
+              c.textAlign = "center";
+            } else if (tile.width > 60) {
+              c.font = font = `500 10px ${SANS}`;
+              c.fillText(crowd.label, tile.x0 + tile.width / 2, tile.y0 + tileH / 2 + 11);
+            }
+          }
         }
         c.globalAlpha = 1;
+        c.restore();
+      }
+      // A face and a figure on each drawing being played: what it staked, then what it made. Canvas only, no React.
+      playerTargets = [];
+      const occupied: { x: number; y: number }[] = [];
+      const labelLimit = phone() ? 4 : w < 1024 ? 6 : 8;
+      for (const drawing of visibleSocialDrawings().slice(0, phone() ? 12 : w < 1024 ? 18 : 24)) {
+        if (occupied.length >= labelLimit) break;
+        const piece = drawing.pieces.find((pc) => pc.stroke?.pts.length);
+        if (!piece?.stroke) continue;
+        const age = Math.max(0, Date.now() - drawing.updatedAt);
+        if (drawing.complete && age > 15_000) continue;
+        const start = piece.stroke.pts[0];
+        const ax = x(piece.stroke.t0 + start.t), ay = y(piece.stroke.p0 + start.p) - 24;
+        if (ax < 24 || ax > w - 24 || ay < plotTop() + 24 || ay > plotBottom() - 20 || occupied.some((o) => Math.abs(o.x - ax) < 100 && Math.abs(o.y - ay) < 42)) continue;
+        occupied.push({ x: ax, y: ay });
+        c.save();
+        c.globalAlpha = drawing.complete ? Math.max(0, 1 - age / 15_000) : 0.9;
+        c.beginPath();
+        c.arc(ax, ay, 14, 0, Math.PI * 2);
+        c.fillStyle = `hsl(${hueOf(drawing.player)}, 45%, ${dark ? 55 : 45}%)`;
+        c.fill();
+        // Their face (a Dylan avatar, or their picture): an image made once per face, kept.
+        const raster = face(faceOf(drawing.profile));
+        if (raster) {
+          c.save();
+          c.clip();
+          c.drawImage(raster, ax - 14, ay - 14, 28, 28);
+          c.restore();
+        }
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.font = `600 12px ${SANS}`;
+        c.strokeStyle = rgba(pal.bg);
+        c.lineWidth = 2;
+        c.stroke();
+        let figure = figures.get(drawing);
+        if (!figure) {
+          const text = drawing.complete ? socialMoney(drawing.pnl, true) : socialMoney(drawing.stake);
+          figures.set(drawing, (figure = { text, wide: c.measureText(text).width + 16 }));
+        }
+        const { text, wide } = figure;
+        const left = Math.min(w - wide - 8, ax + 19);
+        roundRect(c, left, ay - 12, wide, 24, 12);
+        c.fillStyle = rgba(pal.bg, 0.94);
+        c.fill();
+        c.fillStyle = drawing.complete && BigInt(drawing.pnl) > 0n ? rgba(pal.up) : rgba(pal.fg, 0.8);
+        c.textAlign = "left";
+        c.fillText(text, left + 8, ay + 0.5);
+        c.restore();
+        if (ax < waitX() - 18) playerTargets.push({ x: ax, y: ay, player: drawing.player });
+      }
+      // Whose pen that is, at its nib: their face, and that they are drawing.
+      for (const p of pens) {
+        if (!p.shown || p.ended) continue;
+        const nib = p.pts[p.shown - 1];
+        const ax = x(p.t0 + nib.t) + 18, ay = y(p.p0 + nib.p) - 18;
+        if (ax < 16 || ax > w - 16 || ay < plotTop() + 12 || ay > plotBottom() - 12) continue;
+        c.save();
+        c.globalAlpha = 0.85;
+        c.beginPath();
+        c.arc(ax, ay, 11, 0, Math.PI * 2);
+        c.fillStyle = `hsl(${hueOf(p.player)}, 45%, ${dark ? 55 : 45}%)`;
+        c.fill();
+        const raster = face(faceOf(p.profile ?? { player: p.player, avatar: false, avatarSeed: null }));
+        if (raster) {
+          c.save();
+          c.clip();
+          c.drawImage(raster, ax - 11, ay - 11, 22, 22);
+          c.restore();
+        }
+        c.font = `500 11px ${SANS}`;
+        c.textAlign = "left";
+        c.textBaseline = "middle";
+        c.fillStyle = rgba(pal.fg, 0.6);
+        c.fillText("drawing…", ax + 15, ay + 0.5);
         c.restore();
       }
       // The pen: a soft ring around the nib, and the nib.
@@ -1062,6 +1310,8 @@ export function Stage({
     raf = requestAnimationFrame(frame);
     return () => {
       cancel();
+      clearInterval(stream);
+      if (streaming) penLift(streaming);
       cancelAnimationFrame(raf);
       ro.disconnect();
       el.removeEventListener("keydown", keydown);

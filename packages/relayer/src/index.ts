@@ -7,6 +7,7 @@
  *
  *   ws://localhost:3104/ws   apps connect here
  *   GET /health, GET /status
+ *   http://localhost:3105     profiles, follows, the leaderboard and the live feed (src/social), with SOCIAL_DATABASE_URL
  */
 import { report, survive, trail } from "./sentry";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ import { Keeper, keeperIo } from "./solana/keeper";
 import { SolanaSequencer } from "./solana/sequencer";
 import { SolanaServer } from "./solana/server";
 import { SolanaSettler } from "./solana/settler";
+import { indexerLimits, SocialBridge } from "./social/bridge";
 
 const log = (s: string) => {
   console.error(`${new Date().toISOString().slice(11, 23)} ${s}`);
@@ -71,6 +73,11 @@ const setTerms = (g: typeof game, d: number) => {
 setTerms(game, difficulty);
 server.sequencer = sequencer;
 server.settler = settler;
+// The community, in a worker of its own: off without a database, and nothing the game waits for either way.
+if (process.env.SOCIAL_DATABASE_URL) {
+  const d = scfg.deployment;
+  server.social = new SocialBridge({ cluster: scfg.net.cluster, program: d.program, game: d.game, pool: d.pool, rpcUrl: scfg.rpcUrl, wsUrl: scfg.wsUrl, ...indexerLimits() }, log);
+}
 
 // The relayer's SOL bought back from the fees in its USDC account, and what is over a cap sent to a cold wallet.
 const kio = await keeperIo(chain, scfg.deployment.usdcMint);

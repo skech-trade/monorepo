@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
-    "build": "bun build --target bun --outdir dist src/index.ts src/field.worker.ts",
+    "build": "bun build --target bun --outdir dist src/index.ts src/field.worker.ts src/social/worker.ts",
+    "social": "bun src/social/standalone.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
