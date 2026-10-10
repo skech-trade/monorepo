@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { mergeHistory } from "@skech/core/bars";
 import type { Bar } from "@skech/core/dots";
 import { ENGINE_URL as STREAM, jitter, STEADY_MS } from "./endpoints";
 
@@ -72,7 +73,7 @@ export type Market = {
 
 type Message =
   | { type: "hello"; signer: `0x${string}`; typedData: TypedData }
-  | { type: "history"; trades: [id: number, t: number, p: number][] }
+  | { type: "history"; trades: [id: number, t: number, p: number][]; quote?: Omit<Quote, "price"> & { p: number } }
   | ({ type: "price"; id: number; t: number; p: number } & Omit<Quote, "price">)
   | { type: "beat" };
 
@@ -159,12 +160,14 @@ export function useEngine(): Market {
       ws = sock;
       heard = Date.now();
       sock.onopen = () => {
+        if (stopped || ws !== sock) return;
         clearTimeout(steady);
         steady = setTimeout(() => (backoff = 500), STEADY_MS);
         m.connected = true;
         setConnected(true);
       };
       sock.onmessage = (e) => {
+        if (stopped || ws !== sock) return;
         heard = Date.now();
         let msg: Message;
         try {
@@ -176,12 +179,11 @@ export function useEngine(): Market {
           m.signer = msg.signer;
           m.typedData = msg.typedData;
         } else if (msg.type === "history") {
-          // Oldest first; on a reconnect, only what came after the last trade already folded.
-          for (const [id, t, p] of msg.trades) {
-            if (id <= lastId || !(p > 0)) continue;
-            lastId = id;
-            fold(t, p);
-          }
+          // Oldest first; history that finished loading after live prices began is folded in behind them.
+          lastId = mergeHistory(m, msg.trades, lastId, fold);
+          // The latest signed quote, so a quiet market can be drawn on before Coinbase trades again.
+          const q = msg.quote;
+          if (q && (q.message?.time ?? 0) >= (m.quote?.message?.time ?? 0)) m.quote = { price: q.p, source: q.source, message: q.message, signature: q.signature };
           bump();
         } else if (msg.type === "price") {
           if (msg.id <= lastId || !(msg.p > 0)) return;
@@ -215,7 +217,7 @@ export function useEngine(): Market {
     */
     const clock = setInterval(() => {
       // Silent without closing: reopen, rather than show a price that has stopped.
-      if (ws && ws.readyState === WebSocket.OPEN && Date.now() - heard > SILENT_MS) {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) && Date.now() - heard > SILENT_MS) {
         const dead = ws;
         ws = null;
         dead.onclose = null;
