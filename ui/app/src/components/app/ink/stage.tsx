@@ -640,16 +640,27 @@ export function Stage({
       so the player's own ink is what stands out. Who is on which tile is counted twice a second, not
       every frame. Their faces are drawn once each into a small canvas, and that is what each frame copies.
     */
-    type Line = { t0: number; p0: number; rt: number; rp: number; path: Path2D };
+    /*
+      Their lines are laid out in pixels, not in the drawer's own units: those units are square on the screen they
+      were drawn on, not on this one (a phone's seconds are wider than a desktop's), and a pen stroked under a
+      transform that is not square comes out an oval, a tap a flat egg. So the points are scaled onto this screen,
+      the pen kept round at the drawer's height, and only moved by the frame. Made again only when the scale does.
+    */
+    type Scaled = { kt: number; kp: number; n: number; r: number; path: Path2D };
+    type Line = { t0: number; p0: number; rp: number; pts: { t: number; p: number }[]; scaled: Scaled | null };
     const remoteLines = new WeakMap<PublicDrawing, Line | null>();
-    const pathOf = (pts: readonly { t: number; p: number }[], rt: number, rp: number, n = pts.length) => {
-      const path = new Path2D();
+    /** A line in pixels from its first point, and its pen's radius there: kept until the scale or the points change. */
+    const scaledOf = (line: { rp: number; pts: readonly { t: number; p: number }[] }, made: Scaled | null | undefined, n: number): Scaled => {
+      const kt = pxMs(), kp = pitchY / game.current!.step;
+      if (made && made.kt === kt && made.kp === kp && made.n === n) return made;
+      const path = new Path2D(), pts = line.pts;
       for (let i = 0; i < n; i++) {
-        if (i) path.lineTo(pts[i].t / rt, pts[i].p / rp);
-        else path.moveTo(pts[i].t / rt, pts[i].p / rp);
+        if (i) path.lineTo(pts[i].t * kt, -pts[i].p * kp);
+        else path.moveTo(pts[i].t * kt, -pts[i].p * kp);
       }
-      if (n === 1) path.lineTo(pts[0].t / rt + 1e-3, pts[0].p / rp);
-      return path;
+      // A tap: a point the round caps can close around, so it shows as the pen's own circle.
+      if (n === 1) path.lineTo(pts[0].t * kt + 0.01, -pts[0].p * kp);
+      return { kt, kp, n, r: line.rp * kp, path };
     };
     const remoteLine = (d: PublicDrawing): Line | null => {
       let line = remoteLines.get(d);
@@ -660,17 +671,18 @@ export function Stage({
       if (first) {
         const pts: { t: number; p: number }[] = [];
         for (const q of pieces) for (const pt of q.stroke!.pts) if (!pts.length || pt.t !== pts[pts.length - 1].t || pt.p !== pts[pts.length - 1].p) pts.push(pt);
-        line = { t0: first.t0, p0: first.p0, rt: first.rt, rp: first.rp, path: pathOf(pts, first.rt, first.rp) };
+        line = { t0: first.t0, p0: first.p0, rp: first.rp, pts, scaled: null };
       }
       remoteLines.set(d, line);
       return line;
     };
-    /** A live pen's line, made again only when more of it is shown. */
-    const penLines = new WeakMap<LivePen, { n: number; path: Path2D }>();
+    const remotePath = (line: Line) => (line.scaled = scaledOf(line, line.scaled, line.pts.length));
+    /** A live pen's line, made again only when more of it is shown or the scale changes. */
+    const penLines = new WeakMap<LivePen, Scaled>();
     const penLine = (p: LivePen) => {
-      let made = penLines.get(p);
-      if (!made || made.n !== p.shown) penLines.set(p, (made = { n: p.shown, path: pathOf(p.pts, p.rt, p.rp, p.shown) }));
-      return made.path;
+      const was = penLines.get(p), made = scaledOf(p, was, p.shown);
+      if (made !== was) penLines.set(p, made);
+      return made;
     };
     /** Each player's hue, and each drawing's figure and its width: worked out once, not every frame. */
     const hues = new Map<string, number>();
@@ -883,20 +895,19 @@ export function Stage({
         a hairline either side in the muted text colour, nothing filled. The body is stroked, then its middle rubbed
         out of the layer, which holds only other players' ink so far. Lines being drawn right now read a touch more.
       */
-      const remote = (line: { t0: number; p0: number; rt: number; rp: number }, path: Path2D, style: string, edge: number) => {
-        const sx = line.rt * pxMs(), sy = (line.rp * pitchY) / g.step;
+      const remote = (line: { t0: number; p0: number }, scaled: Scaled, style: string, edge: number) => {
         c.save();
-        c.setTransform(dpr * sx, 0, 0, -dpr * sy, dpr * x(line.t0), dpr * y(line.p0));
+        // Moved, never stretched: the pen, its caps and the hairline either side are round in pixels.
+        c.setTransform(dpr, 0, 0, dpr, dpr * x(line.t0), dpr * y(line.p0));
         c.lineCap = "round";
         c.lineJoin = "round";
-        c.lineWidth = 2;
+        c.lineWidth = 2 * scaled.r;
         c.strokeStyle = style;
-        c.stroke(path);
+        c.stroke(scaled.path);
         c.globalCompositeOperation = "destination-out";
-        // The hairline in pixels, whatever the line's own scale (another screen's may not be square on this one).
-        c.lineWidth = Math.max(0, 2 - (2 * edge) / Math.sqrt(sx * sy));
+        c.lineWidth = Math.max(0, 2 * (scaled.r - edge));
         c.strokeStyle = "#000";
-        c.stroke(path);
+        c.stroke(scaled.path);
         c.restore();
       };
       const viewFrom = tAt(0), viewTo = tAt(w);
@@ -908,7 +919,7 @@ export function Stage({
         // Only what is on screen: a drawing wholly behind now, or beyond the view, is not drawn.
         if (!line || line.t0 > viewTo || drawing.pieces.every((q) => q.openAt + 30_000 < viewFrom)) continue;
         const fade = drawing.complete ? Math.max(0, 1 - age / 15_000) : 1;
-        remote(line, line.path, fade < 1 ? rgba(pal.muted, quiet * fade) : quietStyle, 1.25);
+        remote(line, remotePath(line), fade < 1 ? rgba(pal.muted, quiet * fade) : quietStyle, 1.25);
       }
       // Lines being drawn right now, elsewhere: the same, catching up smoothly between their ten updates a second.
       const penStyle = pens.length ? rgba(pal.muted, dark ? 0.6 : 0.55) : "";
