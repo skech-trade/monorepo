@@ -1,4 +1,4 @@
-import { BlendMode, Canvas, ClipOp, matchFont, PaintStyle, Picture, Skia, StrokeCap, StrokeJoin, TileMode, type SkCanvas, type SkFont, type SkPaint, type SkPath, type SkPicture } from "@shopify/react-native-skia";
+import { BlendMode, Canvas, ClipOp, matchFont, PaintStyle, Picture, Skia, StrokeCap, StrokeJoin, TileMode, type SkCanvas, type SkFont, type SkPaint, type SkPath, type SkPicture, type SkRect } from "@shopify/react-native-skia";
 import { grouped } from "@/lib/money";
 import { memo, type RefObject, useEffect, useMemo, useRef } from "react";
 import { AppState, type LayoutChangeEvent, Platform, View } from "react-native";
@@ -82,13 +82,15 @@ const PALETTES: Record<"light" | "dark", Palette> = {
 /** A frame costing more than this on the JS thread marks a slow phone; there the stage draws at half rate while the pen is up. */
 const SLOW_FRAME_MS = 6;
 const HALF_RATE_MS = 30;
-const colors = new Map<string, ReturnType<typeof Skia.Color>>();
+const colors = new Map<number, ReturnType<typeof Skia.Color>>();
+/** Keyed by a number, not a string: a string built for every colour asked for was a few hundred allocations a frame. */
 const color = (c: Rgb, a = 1) => {
-  const k = `${c[0]},${c[1]},${c[2]},${Math.round(a * 100) / 100}`;
+  const hundredths = Math.round(a * 100);
+  const k = ((c[0] * 256 + c[1]) * 256 + c[2]) * 1024 + (hundredths + 512);
   let v = colors.get(k);
   if (!v) {
     if (colors.size > 5000) colors.clear();
-    colors.set(k, (v = Skia.Color(`rgba(${k})`)));
+    colors.set(k, (v = Skia.Color(`rgba(${c[0]},${c[1]},${c[2]},${hundredths / 100})`)));
   }
   return v;
 };
@@ -138,6 +140,20 @@ const height = (m: number) => Math.min(1, Math.max(0, Math.log2(m) / 7));
 /** Show the maximum return per section, rounded down to a tenth. */
 export const fmtMultiple = (m: number) => `${Math.floor(m * 10 + 1e-8) / 10}×`;
 const fmtPrice = (p: number, cents: boolean) => grouped(p, cents ? 2 : 0);
+/** The seconds along the foot, as written there. */
+const SECOND_LABELS = Array.from({ length: VIEW_SECONDS + 1 }, (_, s) => `${s}s`);
+
+/** The first index at or after time `t`, in a list kept in time order (bars and trades both are). */
+function firstAtOrAfter(list: readonly { t: number }[], t: number) {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid].t < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
 
 export type Placed = string | { stop: string } | null;
 const whyOf = (r: Placed) => (r && typeof r === "object" ? r.stop : r);
@@ -159,15 +175,34 @@ line.setAntiAlias(true);
 line.setStyle(PaintStyle.Stroke);
 line.setStrokeCap(StrokeCap.Round);
 line.setStrokeJoin(StrokeJoin.Round);
+/** What each shared paint was last set to: a call across to native is made only for a change. */
+const fillSet = { color: null as Float32Array | null };
+const lineSet = { color: null as Float32Array | null, width: NaN };
 const paintOf = (c: Float32Array, stroke?: number): SkPaint => {
-  const p = stroke === undefined ? fill : line;
-  p.setColor(c);
-  if (stroke !== undefined) p.setStrokeWidth(stroke);
-  return p;
+  if (stroke === undefined) {
+    if (fillSet.color !== c) fill.setColor((fillSet.color = c));
+    return fill;
+  }
+  if (lineSet.color !== c) line.setColor((lineSet.color = c));
+  if (lineSet.width !== stroke) line.setStrokeWidth((lineSet.width = stroke));
+  return line;
 };
+/*
+  Rectangles, made once and written over: a canvas call copies what it is given as it records, so one will do for
+  every call in turn. A new one each time was a native object apiece, hundreds a frame, for Hermes to collect.
+*/
+const R = Skia.XYWHRect(0, 0, 0, 0);
+const rect = (x: number, y: number, w: number, h: number) => {
+  R.setXYWH(x, y, w, h);
+  return R;
+};
+const RR_RECT = Skia.XYWHRect(0, 0, 0, 0);
+const RR = { rect: RR_RECT as SkRect, rx: 0, ry: 0 };
 const rrect = (x: number, y: number, w: number, h: number, r: number) => {
   const rr = Math.max(0, Math.min(r, w / 2, h / 2));
-  return Skia.RRectXY(Skia.XYWHRect(x, y, w, h), rr, rr);
+  RR_RECT.setXYWH(x, y, w, h);
+  RR.rx = RR.ry = rr;
+  return RR;
 };
 /** Text centred on `x`, its middle on `y`, as the web's canvas draws with textAlign centre and textBaseline middle. */
 const widths = new Map<SkFont, Map<string, number>>();
@@ -192,12 +227,30 @@ function text(c: SkCanvas, s: string, x: number, y: number, f: SkFont, col: Floa
   }
   c.drawText(s, align === "center" ? x - w / 2 : x, y - mid, paintOf(col), f);
 }
-const layerPaint = (alpha = 1, blend?: BlendMode) => {
-  const p = Skia.Paint();
-  p.setAlphaf(alpha);
-  if (blend !== undefined) p.setBlendMode(blend);
-  return p;
+/** A layer's paint: its alpha set for each use (a layer copies its paint as it is recorded). */
+const fading = Skia.Paint();
+const layerPaint = (alpha: number) => {
+  fading.setAlphaf(alpha);
+  return fading;
 };
+const keepInside = (() => {
+  const p = Skia.Paint();
+  p.setAlphaf(1);
+  p.setBlendMode(BlendMode.DstIn);
+  return p;
+})();
+/*
+  A hit's soft spot: one radial gradient of radius 1, scaled to each spot. Made once: a shader is a native object
+  that tells Hermes it holds a megabyte, so one made per hit per frame had the JS thread collecting garbage through
+  every win.
+*/
+const spot = (() => {
+  const p = Skia.Paint();
+  p.setShader(Skia.Shader.MakeRadialGradient({ x: 0, y: 0 }, 1, [Skia.Color("rgba(0,0,0,1)"), Skia.Color("rgba(0,0,0,0.9)"), Skia.Color("rgba(0,0,0,0)")], [0, 0.7, 1], TileMode.Clamp));
+  return p;
+})();
+/** The face images' whole source square. */
+const FACE_SRC = Skia.XYWHRect(0, 0, 64, 64);
 const eraser = (() => {
   const p = Skia.Paint();
   p.setBlendMode(BlendMode.DstOut);
@@ -262,39 +315,47 @@ export const Stage = memo(function Stage({
     const W = () => size.current.w;
     const H = () => size.current.h;
     const phone = () => W() < 640;
-    // Asked for thousands of times a frame (every x(), y(), nowX()…): made again only when what it is made from changes.
-    let laid: { w: number; h: number; step: number; it: ReturnType<typeof drawingLayout> } | null = null;
-    const layout = () => {
-      const w = W(),
-        h = H(),
+    const NEAR_MS = 4000;
+    /*
+      Asked for thousands of times a frame (every x(), y(), nowX()…): made again only when what it is made from
+      changes, with what x() and y() need worked out with it, so each is one call here and a little arithmetic,
+      not a dozen calls (on a phone's JS engine, which interprets, the calls were most of what a frame cost).
+    */
+    type Laid = ReturnType<typeof drawingLayout> & { w: number; h: number; market: number; mid: number; far: number; nearX: number };
+    let laid: Laid | null = null;
+    const layout = (): Laid => {
+      const { w, h } = size.current,
         step = game.current.marketStep;
-      if (!laid || laid.w !== w || laid.h !== h || laid.step !== step) laid = { w, h, step, it: drawingLayout(w, h, step) };
-      return laid.it;
+      if (!laid || laid.w !== w || laid.h !== h || laid.market !== step) {
+        const it = drawingLayout(w, h, step);
+        // The last minute (half a minute on a phone) behind now, squeezed into what is left of the width.
+        const far = Math.max(0.0004, (it.nowX - 8 - NEAR_MS * it.pxMs) / ((w < 640 ? 30_000 : 60_000) - NEAR_MS));
+        laid = { ...it, w, h, market: step, mid: (it.top + it.bottom) / 2, far, nearX: it.nowX - NEAR_MS * it.pxMs };
+      }
+      return laid;
     };
     const nowX = () => layout().nowX;
     const pxMs = () => layout().pxMs;
     const pitchY = CHART_STEP_PX;
     const plotTop = () => layout().top;
     const plotBottom = () => layout().bottom;
-    const middleY = () => (plotTop() + plotBottom()) / 2;
-    const NEAR_MS = 4000;
-    const pastMs = () => (phone() ? 30_000 : 60_000);
-    const farPxMs = () => Math.max(0.0004, (nowX() - 8 - NEAR_MS * pxMs()) / (pastMs() - NEAR_MS));
     const x = (t: number) => {
+      const l = layout();
       const d = at - t;
-      return d <= NEAR_MS ? nowX() - d * pxMs() : nowX() - NEAR_MS * pxMs() - (d - NEAR_MS) * farPxMs();
+      return d <= NEAR_MS ? l.nowX - d * l.pxMs : l.nearX - (d - NEAR_MS) * l.far;
     };
     const tAt = (px: number) => {
-      const edge = nowX() - NEAR_MS * pxMs();
-      return px >= edge ? at + (px - nowX()) / pxMs() : at - NEAR_MS - (edge - px) / farPxMs();
+      const l = layout();
+      return px >= l.nearX ? at + (px - l.nowX) / l.pxMs : at - NEAR_MS - (l.nearX - px) / l.far;
     };
-    const y = (p: number) => middleY() - ((p - centre) / game.current.step) * pitchY;
-    const pAt = (py: number) => centre + ((middleY() - py) * game.current.step) / pitchY;
+    const y = (p: number) => layout().mid - ((p - centre) / game.current.step) * pitchY;
+    const pAt = (py: number) => centre + ((layout().mid - py) * game.current.step) / pitchY;
     const radius = () => (PEN_CELLS[game.current.drawing?.pen ?? game.current.pen] * CHART_STEP_PX) / 2;
     const priceRadius = () => (radius() * game.current.step) / pitchY;
 
     /* The map: a grid of tiles ahead of the wait line, each the multiple a tap at its middle pays. */
-    type Tile = { id: string; left: number; width: number; offset: number; p: number; rung: number; text: string; was: string; changed: number; opacity: number };
+    /** `x0` and `y0` are where it is on screen this frame, worked out once and read by everything that draws it. */
+    type Tile = { id: string; left: number; width: number; offset: number; p: number; rung: number; text: string; was: string; changed: number; opacity: number; x0: number; y0: number };
     const map = { pen: "", width: 0, height: 0, step: 0, field: null as Field | null, tiles: [] as Tile[], rowPx: 36 };
     const gPen = () => game.current.drawing?.pen ?? game.current.pen;
     const WAIT_MS = 2000;
@@ -335,7 +396,7 @@ export const Stage = memo(function Stage({
           const label = rung ? fmtMultiple(rung) : "";
           const old = previous.get(id);
           const changing = !!old && old.text !== label;
-          map.tiles.push({ id, left, width, offset, p, rung, text: label, was: changing ? old!.text : (old?.was ?? label), changed: changing ? performance.now() : (old?.changed ?? 0), opacity: old?.opacity ?? 0 });
+          map.tiles.push({ id, left, width, offset, p, rung, text: label, was: changing ? old!.text : (old?.was ?? label), changed: changing ? performance.now() : (old?.changed ?? 0), opacity: old?.opacity ?? 0, x0: 0, y0: 0 });
         }
       }
     };
@@ -439,7 +500,13 @@ export const Stage = memo(function Stage({
     const scaledOf = (l: { rp: number; pts: readonly { t: number; p: number }[] }, made: Scaled | null | undefined, n: number): Scaled => {
       const kt = pxMs(), kp = pitchY / game.current.step;
       if (made && made.kt === kt && made.kp === kp && made.n === n) return made;
-      const path = Skia.Path.Make(), pts = l.pts;
+      const pts = l.pts;
+      // A live pen that has shown more of itself: only the new points are added, not the whole line made again.
+      if (made && made.kt === kt && made.kp === kp && made.n > 1 && n > made.n) {
+        for (let i = made.n; i < n; i++) made.path.lineTo(pts[i].t * kt, -pts[i].p * kp);
+        return { kt, kp, n, r: l.rp * kp, path: made.path };
+      }
+      const path = Skia.Path.Make();
       for (let i = 0; i < n; i++) {
         if (i) path.lineTo(pts[i].t * kt, -pts[i].p * kp);
         else path.moveTo(pts[i].t * kt, -pts[i].p * kp);
@@ -484,6 +551,12 @@ export const Stage = memo(function Stage({
     }, 100);
     const pathOf = (st: Stroke) => {
       let made = strokePaths.get(st);
+      // The stroke under the pen grows a point at a time: the new points are added to its path, not all of them again.
+      if (made && made.n > 1 && st.pts.length > made.n && made.rt === st.rt && made.rp === st.rp) {
+        const pts = st.pts;
+        for (let i = made.n; i < pts.length; i++) made.path.lineTo(pts[i].t / st.rt, pts[i].p / st.rp);
+        made.n = pts.length;
+      }
       if (!made || made.n !== st.pts.length || made.rt !== st.rt || made.rp !== st.rp) {
         const path = Skia.Path.Make();
         const pts = st.pts;
@@ -507,10 +580,17 @@ export const Stage = memo(function Stage({
       c.restore();
     };
     const bandCache = new WeakMap<Cell[], { pad: number; bands: Cell[] }>();
-    const clipTo = (c: SkCanvas, rects: { x: number; y: number; w: number; h: number }[]) => {
-      const p: SkPath = Skia.Path.Make();
-      for (const r of rects) p.addRect(Skia.XYWHRect(r.x, r.y, r.w, r.h));
-      c.clipPath(p, ClipOp.Intersect, true);
+    /** One path, emptied and written again for each clip: the clip copies it as it is recorded. */
+    const clipPath: SkPath = Skia.Path.Make();
+    /** Clips to each cell's second, a pen's `pad` wider above and below. */
+    const clipTo = (c: SkCanvas, cells: readonly Cell[], pad: number) => {
+      clipPath.rewind();
+      const wide = pxMs() * 1000;
+      for (const q of cells) {
+        const top = y(q.hi + pad);
+        clipPath.addRect(rect(x(q.t), top, wide, y(q.lo - pad) - top));
+      }
+      c.clipPath(clipPath, ClipOp.Intersect, true);
     };
     const inkInPlay = (c: SkCanvas, st: Stroke, cells: Cell[], col: Float32Array, edgeCells = 0, step = game.current.step) => {
       if (!cells.length) return;
@@ -527,11 +607,50 @@ export const Stage = memo(function Stage({
         bandCache.set(cells, cached);
       }
       c.save();
-      clipTo(c, cached.bands.map((q) => ({ x: x(q.t), y: y(q.hi), w: pxMs() * 1000, h: y(q.lo) - y(q.hi) })));
+      clipTo(c, cached.bands, 0);
       ink(c, st, col);
       c.restore();
     };
+    /*
+      Each bet's hit and missed cells, and the newest second of each: sorted out once per judged bet (a bet is replaced,
+      never changed, when the price decides some of it), not filtered from all its cells twice a frame. Misses leave out
+      cells given back on chain (`expired`); hits, as before, do not.
+    */
+    const decidedCells = new WeakMap<InkBet, { hits: BetCell[]; misses: BetCell[]; lastHit: number; lastMiss: number }>();
+    const decidedOf = (bet: InkBet) => {
+      let d = decidedCells.get(bet);
+      if (!d) {
+        d = { hits: [], misses: [], lastHit: -Infinity, lastMiss: -Infinity };
+        for (const q of bet.cells) {
+          if (q.status === "hit") {
+            d.hits.push(q);
+            d.lastHit = Math.max(d.lastHit, q.t);
+          } else if (q.status === "miss" && !q.expired) {
+            d.misses.push(q);
+            d.lastMiss = Math.max(d.lastMiss, q.t);
+          }
+        }
+        decidedCells.set(bet, d);
+      }
+      return d;
+    };
+    /** The cells of `list` decided within the last 2.2 s, in one array kept for it: read before the next call. */
+    const recent: BetCell[] = [];
+    const recentOf = (list: readonly BetCell[]) => {
+      recent.length = 0;
+      for (const q of list) if (at - (q.t + 1000) < 2200) recent.push(q);
+      return recent;
+    };
 
+    /** The price line's points and path, kept from frame to frame and written over rather than made anew. */
+    const linePts: { x: number; y: number }[] = [];
+    const pricePath: SkPath = Skia.Path.Make();
+    const pricePen = { moveTo: (a: number, b: number) => pricePath.moveTo(a, b), bezierCurveTo: (a: number, b: number, cc: number, d: number, e: number, f: number) => pricePath.cubicTo(a, b, cc, d, e, f) };
+    /** The price tag's text, formatted again only when the price changes. */
+    let tagFor = { price: NaN, text: "" };
+    /** Each multiple's font and shade, by its text: forgotten when the palette or the size changes. */
+    const labelStyles = new Map<string, { font: SkFont; rgb: Rgb }>();
+    let labelsFor: { pal: Palette | null; size: number } = { pal: null, size: 0 };
     let renderedBets: InkBet[] | null = null;
     let renderedGroups: { id: string; stroke: Stroke; cells: Cell[]; edgeCells: number; step: number }[] = [];
     let raf = 0;
@@ -545,6 +664,11 @@ export const Stage = memo(function Stage({
     */
     let cost = 0;
     let drawnAt = 0;
+    /*
+      One recorder for the stage's life. A recorder is a native object that tells Hermes it holds a megabyte: one made
+      every frame had the JS thread collecting garbage many times a second.
+    */
+    const recorder = Skia.PictureRecorder();
     /* Nothing is drawn in the background: the loop stops, and a stroke the app was sent away in the middle of is let go. */
     let active = AppState.currentState === "active" || AppState.currentState === null;
     const appState = AppState.addEventListener("change", (state) => {
@@ -571,8 +695,9 @@ export const Stage = memo(function Stage({
       const t0 = performance.now();
       if (!pen && cost > SLOW_FRAME_MS && t0 - drawnAt < HALF_RATE_MS) return;
       drawnAt = t0;
-      const recorder = Skia.PictureRecorder();
-      const c = recorder.beginRecording(Skia.XYWHRect(0, 0, w, h));
+      // No bounds, as Skia's own canvas records: with them it also built an index of every draw, at the end of each
+      // frame on the JS thread, that nothing used, as the whole picture is always drawn.
+      const c = recorder.beginRecording();
       draw(c, w, h, g);
       picture.value = recorder.finishRecordingAsPicture();
       const took = performance.now() - t0;
@@ -612,38 +737,35 @@ export const Stage = memo(function Stage({
       const tip = pen ? pen.last : null;
       const py = y(p);
       const tagFont = font(600, 12);
-      const tagText = fmtPrice(g.displayPrice || latest, true);
+      const shownPrice = g.displayPrice || latest;
+      if (tagFor.price !== shownPrice) tagFor = { price: shownPrice, text: fmtPrice(shownPrice, true) };
+      const tagText = tagFor.text;
       const tagW = measure(tagFont, tagText) + 20;
       const tagX = phone() ? nx - 12 - tagW : nx + 12;
-      const tag = { x0: tagX, x1: tagX + tagW, y0: py - 12, y1: py + 12 };
-      const tileBox = (tile: Tile) => {
-        const ty = y(tile.p);
-        return { x0: nx + tile.left, y0: ty - map.rowPx / 2 + 2, w: tile.width, h: map.rowPx - 4 };
-      };
+      const tagX1 = tagX + tagW, tagY0 = py - 12, tagY1 = py + 12;
+      const tileH = map.rowPx - 4;
       const tiles = fl && map.field === fl ? map.tiles : [];
+      const top = plotTop(), bottom = plotBottom();
+      // Each tile's place this frame, worked out once and read by everything that draws it.
       for (const tile of tiles) {
-        const b = tileBox(tile);
-        const onChart = b.y0 >= plotTop() && b.y0 + b.h <= plotBottom();
-        const underTag = b.x0 < tag.x1 + 4 && b.x0 + b.w > tag.x0 - 4 && b.y0 < tag.y1 + 4 && b.y0 + b.h > tag.y0 - 4;
+        tile.x0 = nx + tile.left;
+        tile.y0 = y(tile.p) - map.rowPx / 2 + 2;
+        const onChart = tile.y0 >= top && tile.y0 + tileH <= bottom;
+        const underTag = tile.x0 < tagX1 + 4 && tile.x0 + tile.width > tagX - 4 && tile.y0 < tagY1 + 4 && tile.y0 + tileH > tagY0 - 4;
         const visible = onChart && tile.rung ? (underTag ? 0.12 : 1) : 0;
         tile.opacity += (visible - tile.opacity) * ease(0.012);
       }
-      const underPen = tip
-        ? tiles.find((tile) => {
-            const b = tileBox(tile);
-            return tile.rung && tip.x >= b.x0 - 2 && tip.x <= b.x0 + b.w + 2 && tip.y >= b.y0 - 2 && tip.y <= b.y0 + b.h + 2;
-          })
-        : undefined;
+      const underPen = tip ? tiles.find((tile) => tile.rung && tip.x >= tile.x0 - 2 && tip.x <= tile.x0 + tile.width + 2 && tip.y >= tile.y0 - 2 && tip.y <= tile.y0 + tileH + 2) : undefined;
 
       // The tiles themselves, under everything: bluer where a hit pays more.
       if (tiles.length) {
         c.save();
-        c.clipRect(Skia.XYWHRect(0, plotTop(), w, plotBottom() - plotTop()), ClipOp.Intersect, true);
-        const top = pal.dark ? 0.12 : 0.072;
+        c.clipRect(rect(0, top, w, bottom - top), ClipOp.Intersect, true);
+        const most = pal.dark ? 0.12 : 0.072;
+        const corner = phone() ? 9 : 12;
         for (const tile of tiles) {
           if (tile.opacity < 0.01) continue;
-          const b = tileBox(tile);
-          c.drawRRect(rrect(b.x0, b.y0, b.w, b.h, phone() ? 9 : 12), paintOf(color(pal.ink, top * Math.pow(height(tile.rung), 0.6) * tile.opacity)));
+          c.drawRRect(rrect(tile.x0, tile.y0, tile.width, tileH, corner), paintOf(color(pal.ink, most * Math.pow(height(tile.rung), 0.6) * tile.opacity)));
         }
         c.restore();
       }
@@ -651,54 +773,68 @@ export const Stage = memo(function Stage({
       // The wait zone, from now to the wait line: greyed out, as nothing can be drawn there.
       {
         const wx = waitX();
-        if (wx - nx > 12) c.drawRRect(rrect(nx + 4, plotTop(), wx - nx - 8, plotBottom() - plotTop(), phone() ? 9 : 12), paintOf(color(pal.fg, pal.dark ? 0.07 : 0.045)));
+        if (wx - nx > 12) c.drawRRect(rrect(nx + 4, top, wx - nx - 8, bottom - top, phone() ? 9 : 12), paintOf(color(pal.fg, pal.dark ? 0.07 : 0.045)));
       }
 
       // The price, live: one line through every trade on hand, and each second's close before them.
       {
         const from = tAt(0);
         const firstTick = g.ticks[0]?.t ?? Number.POSITIVE_INFINITY;
-        const pts: { x: number; y: number }[] = [];
-        for (const bar of g.bars) {
+        let n = 0;
+        const put = (px: number, qy: number) => {
+          const q = linePts[n++];
+          if (!q) linePts.push({ x: px, y: qy });
+          else {
+            q.x = px;
+            q.y = qy;
+          }
+        };
+        // From the first bar and trade on screen, found by halving, not by walking the minutes before it.
+        for (let i = firstAtOrAfter(g.bars, from - 1000); i < g.bars.length; i++) {
+          const bar = g.bars[i];
           if (bar.t >= firstTick) break;
-          if (bar.t + 1000 >= from) pts.push({ x: x(bar.t + 1000), y: y(bar.c) });
+          put(x(bar.t + 1000), y(bar.c));
         }
         let lastX = Number.NEGATIVE_INFINITY;
-        for (const tk of g.ticks) {
-          if (tk.t < from || tk.t > at) continue;
+        for (let i = firstAtOrAfter(g.ticks, from); i < g.ticks.length; i++) {
+          const tk = g.ticks[i];
+          if (tk.t > at) continue;
           const px = x(tk.t);
-          if (px - lastX < 0.75 && pts.length) pts[pts.length - 1] = { x: px, y: y(tk.p) };
-          else pts.push({ x: px, y: y(tk.p) });
+          // Far back, many trades land on one pixel: the last of them stands for it.
+          if (px - lastX < 0.75 && n) n--;
+          put(px, y(tk.p));
           lastX = px;
         }
-        pts.push({ x: nx, y: y(p) });
-        if (pts.length > 1) {
-          const path = Skia.Path.Make();
-          tracePricePath({ moveTo: (a, b) => path.moveTo(a, b), bezierCurveTo: (a, b, cc, d, e, f) => path.cubicTo(a, b, cc, d, e, f) }, pts);
+        put(nx, y(p));
+        linePts.length = n;
+        if (n > 1) {
+          pricePath.rewind();
+          tracePricePath(pricePen, linePts);
           c.save();
-          c.clipRect(Skia.XYWHRect(0, plotTop() - 6, w, plotBottom() - plotTop() + 12), ClipOp.Intersect, true);
-          c.drawPath(path, paintOf(color(pal.fg), 2));
+          c.clipRect(rect(0, top - 6, w, bottom - top + 12), ClipOp.Intersect, true);
+          c.drawPath(pricePath, paintOf(color(pal.fg), 2));
           c.restore();
         }
       }
 
       // Now: a line top to bottom, and the price on it, in a tag of its own.
-      const axisY = plotBottom() + 14;
-      c.drawRect(Skia.XYWHRect(Math.round(nx) - 0.5, 0, 1, axisY), paintOf(color(pal.fg, 0.16)));
+      const axisY = bottom + 14;
+      c.drawRect(rect(Math.round(nx) - 0.5, 0, 1, axisY), paintOf(color(pal.fg, 0.16)));
       const pulse = still.current ? 0 : (ms % 1400) / 1400;
       c.drawCircle(nx, py, 10 + pulse * 6, paintOf(color(pal.fg, 0.12 * (1 - pulse * 0.6))));
       c.drawCircle(nx, py, 4.5, paintOf(color(pal.fg)));
-      c.drawRRect(rrect(tag.x0, tag.y0, tagW, 24, 12), paintOf(color(pal.fg)));
-      text(c, tagText, tag.x0 + tagW / 2, py + 0.5, tagFont, color(pal.bg));
+      c.drawRRect(rrect(tagX, tagY0, tagW, 24, 12), paintOf(color(pal.fg)));
+      text(c, tagText, tagX + tagW / 2, py + 0.5, tagFont, color(pal.bg));
 
       // Seconds ahead, along the foot: a tick each second, a longer one every five.
+      const faint = paintOf(color(pal.faint));
       for (let s = 0; s <= VIEW_SECONDS; s++) {
         const tx = Math.round(nx + s * 1000 * pxMs()) + 0.5;
         const major = s % 5 === 0;
-        c.drawRect(Skia.XYWHRect(tx - 0.5, axisY - (major ? 8 : 4), 1, major ? 8 : 4), paintOf(color(pal.faint)));
+        c.drawRect(rect(tx - 0.5, axisY - (major ? 8 : 4), 1, major ? 8 : 4), faint);
       }
       const axisFont = font(400, 11);
-      for (let s = 0; s <= VIEW_SECONDS; s += 5) text(c, s ? `${s}s` : "Now", nx + s * 1000 * pxMs(), axisY + 14, axisFont, color(pal.muted));
+      for (let s = 0; s <= VIEW_SECONDS; s += 5) text(c, s ? SECOND_LABELS[s] : "Now", nx + s * 1000 * pxMs(), axisY + 14, axisFont, color(pal.muted));
 
       // Lines being drawn right now, elsewhere, catching up smoothly between their ten updates a second.
       const pens = livePens();
@@ -713,7 +849,7 @@ export const Stage = memo(function Stage({
           if (image) {
             c.save();
             c.clipRRect(rrect(ax - r, ay - r, r * 2, r * 2, r), ClipOp.Intersect, true);
-            c.drawImageRect(image, Skia.XYWHRect(0, 0, 64, 64), Skia.XYWHRect(ax - r, ay - r, r * 2, r * 2), paintOf(color(pal.fg, alpha)));
+            c.drawImageRect(image, FACE_SRC, rect(ax - r, ay - r, r * 2, r * 2), paintOf(color(pal.fg, alpha)));
             c.restore();
           }
           c.drawCircle(ax, ay, r, paintOf(color(pal.bg, alpha), 1.5));
@@ -725,7 +861,9 @@ export const Stage = memo(function Stage({
         };
         const occupied: { x: number; y: number }[] = [];
         const limit = phone() ? 4 : 6;
-        for (const drawing of visibleSocialDrawings().slice(0, phone() ? 12 : 18)) {
+        const visible = visibleSocialDrawings();
+        for (let i = 0, most = Math.min(visible.length, phone() ? 12 : 18); i < most; i++) {
+          const drawing = visible[i];
           if (occupied.length >= limit) break;
           const piece = drawing.pieces.find((q) => q.stroke?.pts.length);
           if (!piece?.stroke) continue;
@@ -764,10 +902,11 @@ export const Stage = memo(function Stage({
         c.drawPath(scaled.path, hollow);
         c.restore();
       };
-      const people = remoteDrawings().slice(0, phone() ? 12 : 18);
+      const people = remoteDrawings();
       const viewFrom = tAt(0), viewTo = tAt(w);
       const quiet = pal.dark ? 0.45 : 0.4;
-      for (const drawing of people) {
+      for (let i = 0, most = Math.min(people.length, phone() ? 12 : 18); i < most; i++) {
+        const drawing = people[i];
         const age = Math.max(0, Date.now() - drawing.updatedAt);
         if (drawing.complete && age > 15_000) continue;
         const l = remoteLine(drawing);
@@ -809,35 +948,40 @@ export const Stage = memo(function Stage({
       if (pen) {
         const from = x(openFor(at) + 1000);
         c.save();
-        c.clipRect(Skia.XYWHRect(from, 0, w - from, h), ClipOp.Intersect, true);
+        c.clipRect(rect(from, 0, w - from, h), ClipOp.Intersect, true);
         ink(c, pen.stroke, solid);
         c.restore();
         c.save();
-        c.clipRect(Skia.XYWHRect(0, 0, from, h), ClipOp.Intersect, true);
+        c.clipRect(rect(0, 0, from, h), ClipOp.Intersect, true);
         ink(c, pen.stroke, color(pal.ink, 0.3));
         c.restore();
       }
       // Ink the price has passed is spent: it ends at the price line.
-      c.drawRect(Skia.XYWHRect(0, 0, nx, h), eraser);
+      c.drawRect(rect(0, 0, nx, h), eraser);
       // Ink the price missed turns red as the price passes it, and fades.
       for (const bet of g.bets) {
-        const misses = bet.cells.filter((q) => q.status === "miss" && !q.expired && at - (q.t + 1000) < 2200);
+        const d = decidedOf(bet);
+        // Nothing missed in the last 2.2 s: nothing to look through.
+        if (at - (d.lastMiss + 1000) >= 2200) continue;
+        const misses = recentOf(d.misses);
         if (!misses.length) continue;
         const pad = (bet.edgeCells ?? 0) * bet.step * INK_CELL;
-        const age = Math.max(0, Math.min(1, (at - (Math.max(...misses.map((q) => q.t)) + 1000)) / 2200));
+        const age = Math.max(0, Math.min(1, (at - (d.lastMiss + 1000)) / 2200));
         c.save();
-        clipTo(c, misses.map((q) => ({ x: x(q.t), y: y(q.hi + pad), w: pxMs() * 1000, h: y(q.lo - pad) - y(q.hi + pad) })));
+        clipTo(c, misses, pad);
         ink(c, bet.stroke, color(pal.down, 0.5 * (1 - age * age)));
         c.restore();
       }
       // Where the price ran through the ink, it glows green for a moment: there, and nowhere else.
       for (const bet of g.bets) {
-        const hits = bet.cells.filter((q) => q.status === "hit" && at - (q.t + 1000) < 2200);
+        const d = decidedOf(bet);
+        if (at - (d.lastHit + 1000) >= 2200) continue;
+        const hits = recentOf(d.hits);
         if (!hits.length) continue;
-        const age = Math.max(0, Math.min(1, (at - (Math.max(...hits.map((q) => q.t)) + 1000)) / 2200));
+        const age = Math.max(0, Math.min(1, (at - (d.lastHit + 1000)) / 2200));
         c.saveLayer(layerPaint(1 - age * age));
         ink(c, bet.stroke, green, 0.35);
-        c.saveLayer(layerPaint(1, BlendMode.DstIn));
+        c.saveLayer(keepInside);
         for (const q of hits) {
           const lo = Math.max(q.lo, q.range?.[0] ?? q.lo);
           const hi = Math.min(q.hi, q.range?.[1] ?? q.hi);
@@ -845,16 +989,15 @@ export const Stage = memo(function Stage({
           const cy = (y(lo) + y(hi)) / 2;
           const rx = pxMs() * 600;
           const ry = Math.max(4, (y(lo) - y(hi)) / 2) + radius();
-          const spot = Skia.Paint();
-          spot.setShader(Skia.Shader.MakeRadialGradient({ x: 0, y: 0 }, ry, [Skia.Color("rgba(0,0,0,1)"), Skia.Color("rgba(0,0,0,0.9)"), Skia.Color("rgba(0,0,0,0)")], [0, 0.7, 1], TileMode.Clamp));
+          // The unit spot, stretched to rx by ry: the same as a spot of radius ry stretched rx / ry wide.
           c.save();
           c.translate(cx, cy);
-          c.scale(rx / ry, 1);
-          c.drawRect(Skia.XYWHRect(-ry, -ry, ry * 2, ry * 2), spot);
+          c.scale(rx, ry);
+          c.drawRect(rect(-1, -1, 2, 2), spot);
           c.restore();
         }
         c.restore();
-        c.drawRect(Skia.XYWHRect(nx, 0, w - nx, h), eraser);
+        c.drawRect(rect(nx, 0, w - nx, h), eraser);
         c.restore();
       }
       c.restore();
@@ -862,23 +1005,30 @@ export const Stage = memo(function Stage({
       // The multiples, over the ink.
       if (tiles.length) {
         c.save();
-        c.clipRect(Skia.XYWHRect(0, plotTop(), w, plotBottom() - plotTop()), ClipOp.Intersect, true);
+        c.clipRect(rect(0, top, w, bottom - top), ClipOp.Intersect, true);
         if (underPen) {
-          const b = tileBox(underPen);
-          const r = rrect(b.x0 - 1, b.y0 - 1, b.w + 2, b.h + 2, phone() ? 10 : 13);
+          const r = rrect(underPen.x0 - 1, underPen.y0 - 1, underPen.width + 2, tileH + 2, phone() ? 10 : 13);
           c.drawRRect(r, paintOf(color(pal.ink, 0.14)));
           c.drawRRect(r, paintOf(color(pal.ink), 1.5));
         }
         const size = phone() ? 11 : 14;
+        if (labelsFor.pal !== pal || labelsFor.size !== size) {
+          labelsFor = { pal, size };
+          labelStyles.clear();
+        }
         for (const tile of tiles) {
           if (tile.opacity < 0.01) continue;
-          const b = tileBox(tile);
           const k = still.current ? 1 : Math.min(1, (ms - tile.changed) / 260);
           const eased = k * k * (3 - 2 * k);
           const write = (s: string, alpha: number) => {
             if (alpha < 0.01 || !s) return;
-            const m = parseFloat(s);
-            text(c, s, b.x0 + b.w / 2, b.y0 + b.h / 2 + 0.5, font(m >= 8 ? 600 : 500, size), color(mix(pal.faint, pal.ink, height(m)), tile.opacity * alpha));
+            // Each multiple's face and shade, by its text: a dozen or so values on a few dozen tiles.
+            let style = labelStyles.get(s);
+            if (!style) {
+              const m = parseFloat(s);
+              labelStyles.set(s, (style = { font: font(m >= 8 ? 600 : 500, size), rgb: mix(pal.faint, pal.ink, height(m)) }));
+            }
+            text(c, s, tile.x0 + tile.width / 2, tile.y0 + tileH / 2 + 0.5, style.font, color(style.rgb, tile.opacity * alpha));
           };
           if (tile.was !== tile.text && eased < 1) {
             if (eased < 0.5) write(tile.was, 1 - eased * 2);
@@ -896,7 +1046,8 @@ export const Stage = memo(function Stage({
       }
 
       // Hits burst and float what they paid; a drawing pops once when it goes in.
-      g.fx = g.fx.filter((e) => ms - e.born < 1500);
+      // Made anew only when one has run its course, not every frame.
+      if (g.fx.some((e) => ms - e.born >= 1500)) g.fx = g.fx.filter((e) => ms - e.born < 1500);
       for (const e of g.fx) {
         const age = (ms - e.born) / 1500;
         const ex = x(e.t);
