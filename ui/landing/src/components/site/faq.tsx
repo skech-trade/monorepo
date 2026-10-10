@@ -1,4 +1,4 @@
-import { MAX_INK_MULTIPLE, MIN_INK_MULTIPLE } from "@skech/core/ink";
+import { LADDER, MIN_INK_MULTIPLE } from "@skech/core/ink";
 import { ChevronDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Reveal } from "./motion";
@@ -6,7 +6,7 @@ import { SectionScene } from "./illo";
 import styles from "./story.module.css";
 
 /* What a section can pay, from the game rather than from this page. */
-const MOST = MAX_INK_MULTIPLE;
+const MOST = LADDER[LADDER.length - 1];
 const LEAST = Math.round(MIN_INK_MULTIPLE);
 
 const FAQS = [

@@ -1,4 +1,4 @@
-import { MAX_INK_MULTIPLE, MIN_INK_MULTIPLE } from "@skech/core/ink";
+import { LADDER, MIN_INK_MULTIPLE } from "@skech/core/ink";
 import type { ReactNode } from "react";
 import { AmountWheel } from "./amount-wheel";
 import { StorySection } from "./story-section";
@@ -6,7 +6,7 @@ import styles from "./story.module.css";
 import { smoothPath } from "./market-data";
 
 /* What a section can pay, from the game rather than from this page. */
-const MOST = MAX_INK_MULTIPLE;
+const MOST = LADDER[LADDER.length - 1];
 const LEAST = Math.round(MIN_INK_MULTIPLE);
 
 /** The three decisions, visible together in their actual order. */
