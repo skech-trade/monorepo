@@ -54,7 +54,7 @@ export class SolanaSequencer {
   readonly latency = new Latency();
   difficulty = 40;
   /** min/max per dot and the most a piece may stake, and the fee, from the game's config. */
-  terms = { minPerDot: 10_000n, maxPerDot: 10_000_000n, maxPieceStake: 1_000_000_000n, maxPriceAgeMs: 15_000, feeBps: 200, profitFeeBps: 1000 };
+  terms = { minPerDot: 10_000n, maxPerDot: 100_000_000n, maxPieceStake: 10_000_000_000n, maxPriceAgeMs: 15_000, feeBps: 400, profitFeeBps: 1000 };
   private buckets = new Map<number, Pending[]>();
   private seen = new Set<Address>();
   private players = new Map<Address, { at: number; balance: bigint; allowance: bigint; key: Uint8Array; validUntil: bigint }>();
@@ -202,9 +202,10 @@ export class SolanaSequencer {
     return p.sections.map((s) => ({ second: s.second, lo: BigInt(s.lo) * p.unit, hi: BigInt(s.lo + s.width) * p.unit, stake: BigInt(s.stake) }));
   }
 
-  private computeFor(n: number) {
+  /** What placing `n` bands costs, and the program's search for the bet's bump, down from 255. */
+  private computeFor(n: number, bump: number) {
     const c = this.cfg.compute;
-    const at = c.place_1 + ((c.place_32 - c.place_1) * (n - 1)) / 31;
+    const at = c.place_1 + ((c.place_32 - c.place_1) * (n - 1)) / 31 + c.place_per_bump * (255 - bump);
     return Math.ceil(at * 1.2) + 2_000;
   }
 
@@ -254,10 +255,9 @@ export class SolanaSequencer {
             momentum: BigInt(momentum),
             receivedAt: BigInt(e.receivedAt),
             chances,
-            betBump: e.bump,
           });
           // The compute budget's two instructions come first: the signature check is third, the placement fourth.
-          const sent = await this.latency.measure("chain", () => this.chain.send(`place ${e.bet}`, [ed25519Instruction(e.key, e.sig, 3, bytes.length), place], this.computeFor(p.sections.length)));
+          const sent = await this.latency.measure("chain", () => this.chain.send(`place ${e.bet}`, [ed25519Instruction(e.key, e.sig, 3, bytes.length), place], this.computeFor(p.sections.length, e.bump)));
           if (sent.err) {
             const code = customCode(sent.err);
             this.refuse(e, code !== null ? (getSkechErrorMessage(code as Parameters<typeof getSkechErrorMessage>[0]) ?? `Refused (${code})`) : "Not placed", sent.signature);

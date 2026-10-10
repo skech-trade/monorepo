@@ -6,15 +6,21 @@
  * @see https://github.com/codama-idl/codama
  */
 
+export * from "./adminProposed";
+export * from "./adminSet";
 export * from "./barPosted";
 export * from "./configSet";
 export * from "./deposited";
 export * from "./feesCollected";
+export * from "./iouRateSet";
 export * from "./marketSet";
+export * from "./oracleSet";
 export * from "./owed";
+export * from "./pausedSet";
 export * from "./placed";
 export * from "./redeemed";
 export * from "./sessionRevoked";
 export * from "./sessionSet";
 export * from "./settled";
+export * from "./treasurySet";
 export * from "./withdrawn";

@@ -70,8 +70,8 @@ const server: Server = new Server({
 // Each player's transactions on chain, read from the game's logs. Without the deployment block, counted from now.
 const from = cfg.deployBlock ?? (await chain.pub.getBlockNumber());
 if (cfg.deployBlock === null) log(`activity: no deployment block known (deployments/${cfg.chainId}.json "block", or SKECH_DEPLOY_BLOCK); counting from block ${from}`);
-const activity = new Activity(chain, from, join(import.meta.dir, "..", `.relayer-activity.${cfg.chainId}.${cfg.game.toLowerCase()}.json`), log);
-settler = new Settler(cfg, engine, chain, server.notify, log, join(import.meta.dir, "..", `.relayer-state.${cfg.chainId}.${cfg.game.toLowerCase()}.json`));
+const activity = new Activity(chain, from, join(cfg.stateDir, `.relayer-activity.${cfg.chainId}.${cfg.game.toLowerCase()}.json`), log);
+settler = new Settler(cfg, engine, chain, server.notify, log, join(cfg.stateDir, `.relayer-state.${cfg.chainId}.${cfg.game.toLowerCase()}.json`));
 sequencer = new Sequencer(cfg, engine, pricer, chain, settler, server.notify, log);
 sequencer.difficulty = difficulty;
 sequencer.gameConfig = gameConfig;

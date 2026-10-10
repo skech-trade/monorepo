@@ -76,6 +76,14 @@ export const SKECH_ERROR__BAD_SETTLE_ACCOUNTS = 0x178c; // 6028
 export const SKECH_ERROR__NOT_UPGRADE_AUTHORITY = 0x178d; // 6029
 /** Overflow: Arithmetic overflow */
 export const SKECH_ERROR__OVERFLOW = 0x178e; // 6030
+/** BarLate: The bar is too late to post */
+export const SKECH_ERROR__BAR_LATE = 0x178f; // 6031
+/** NotSplToken: USDC must be an SPL Token mint */
+export const SKECH_ERROR__NOT_SPL_TOKEN = 0x1790; // 6032
+/** OwnRedeem: A holder redeeming their own takes no cut: send no caller_player */
+export const SKECH_ERROR__OWN_REDEEM = 0x1791; // 6033
+/** NotPendingAdmin: Not the proposed admin */
+export const SKECH_ERROR__NOT_PENDING_ADMIN = 0x1792; // 6034
 
 export type SkechError =
   | typeof SKECH_ERROR__ALLOWANCE
@@ -89,6 +97,7 @@ export type SkechError =
   | typeof SKECH_ERROR__BALANCE
   | typeof SKECH_ERROR__BAR_CONFLICT
   | typeof SKECH_ERROR__BAR_DISCONTINUOUS
+  | typeof SKECH_ERROR__BAR_LATE
   | typeof SKECH_ERROR__DIFFICULTY
   | typeof SKECH_ERROR__INSUFFICIENT
   | typeof SKECH_ERROR__LATE
@@ -98,8 +107,11 @@ export type SkechError =
   | typeof SKECH_ERROR__NOTHING_TO_REDEEM
   | typeof SKECH_ERROR__NOT_OFFERED
   | typeof SKECH_ERROR__NOT_ORACLE
+  | typeof SKECH_ERROR__NOT_PENDING_ADMIN
+  | typeof SKECH_ERROR__NOT_SPL_TOKEN
   | typeof SKECH_ERROR__NOT_UPGRADE_AUTHORITY
   | typeof SKECH_ERROR__OVERFLOW
+  | typeof SKECH_ERROR__OWN_REDEEM
   | typeof SKECH_ERROR__PAUSED
   | typeof SKECH_ERROR__PER_DOT
   | typeof SKECH_ERROR__REPLAY
@@ -124,6 +136,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [SKECH_ERROR__BALANCE]: `Balance`,
     [SKECH_ERROR__BAR_CONFLICT]: `A different bar is already posted for that second`,
     [SKECH_ERROR__BAR_DISCONTINUOUS]: `The bar does not follow on from the second before`,
+    [SKECH_ERROR__BAR_LATE]: `The bar is too late to post`,
     [SKECH_ERROR__DIFFICULTY]: `Difficulty`,
     [SKECH_ERROR__INSUFFICIENT]: `Not enough`,
     [SKECH_ERROR__LATE]: `Late`,
@@ -133,8 +146,11 @@ if (process.env["NODE_ENV"] !== "production") {
     [SKECH_ERROR__NOTHING_TO_REDEEM]: `Nothing to redeem`,
     [SKECH_ERROR__NOT_OFFERED]: `NotOffered`,
     [SKECH_ERROR__NOT_ORACLE]: `Not the oracle`,
+    [SKECH_ERROR__NOT_PENDING_ADMIN]: `Not the proposed admin`,
+    [SKECH_ERROR__NOT_SPL_TOKEN]: `USDC must be an SPL Token mint`,
     [SKECH_ERROR__NOT_UPGRADE_AUTHORITY]: `Only the program's upgrade authority may initialize`,
     [SKECH_ERROR__OVERFLOW]: `Arithmetic overflow`,
+    [SKECH_ERROR__OWN_REDEEM]: `A holder redeeming their own takes no cut: send no caller_player`,
     [SKECH_ERROR__PAUSED]: `The game is paused`,
     [SKECH_ERROR__PER_DOT]: `PerDot`,
     [SKECH_ERROR__REPLAY]: `Replay`,

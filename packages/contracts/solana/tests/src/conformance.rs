@@ -255,3 +255,43 @@ fn the_same_game_as_monad() {
         run(c);
     }
 }
+
+/// `SkechGame.initialize`'s config, as written in the Solidity: `name: value` pairs inside `Config({ ... })`.
+fn evm_defaults() -> HashMap<String, u64> {
+    let sol = include_str!("../../../evm/src/SkechGame.sol");
+    let init = &sol[sol.find("function initialize(").expect("SkechGame.initialize")..];
+    let body = &init[init.find("Config({").expect("its Config") + 8..];
+    let body = &body[..body.find("})").unwrap()];
+    body.lines()
+        .map(|l| l.split("//").next().unwrap().trim().trim_end_matches(','))
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let (k, v) = l.split_once(':').expect("name: value");
+            (k.trim().to_string(), v.trim().replace('_', "").parse().expect("a number"))
+        })
+        .collect()
+}
+
+#[test]
+fn the_defaults_are_monads() {
+    let evm = evm_defaults();
+    let c = skech::state::Config::DEFAULT;
+    let ours: [(&str, u64); 10] = [
+        ("feeBps", c.fee_bps as u64),
+        ("profitFeeBps", c.profit_fee_bps as u64),
+        ("sweepBps", c.sweep_bps as u64),
+        ("lateMs", c.late_ms as u64),
+        ("placeGraceMs", c.place_grace_ms as u64),
+        ("maxPriceAgeMs", c.max_price_age_ms as u64),
+        ("minPerDot", c.min_per_dot),
+        ("maxPerDot", c.max_per_dot),
+        ("maxPieceStake", c.max_piece_stake),
+        ("minRedeem", c.min_redeem),
+    ];
+    assert_eq!(evm.len(), ours.len(), "SkechGame's Config has fields this test does not know: {evm:?}");
+    for (name, value) in ours {
+        assert_eq!(evm.get(name), Some(&value), "{name}: Config::DEFAULT has {value}, SkechGame.initialize {:?}", evm.get(name));
+    }
+    // And it is what a new game starts with.
+    assert_eq!(Game::new().game().config, c);
+}

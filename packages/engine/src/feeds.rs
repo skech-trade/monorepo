@@ -36,15 +36,22 @@ const KRAKEN: &str = "wss://ws.kraken.com/v2";
 const KEEP_MS: u64 = 600_000;
 /// Coinbase pages trades a thousand at a time; ten minutes is rarely more than a few.
 const PAGES: usize = 12;
+/// How far a Coinbase trade's time may be from this clock and still be signed: the time goes on chain as when
+/// the price was, and the attesters it was checked against are of now.
+const CLOCK_MS: u64 = 2_000;
+/// Binance's USDC/USDT older than this no longer turns its BTC/USDT into dollars.
+const USDC_FRESH: Duration = Duration::from_secs(30);
 const FIRST_RETRY: Duration = Duration::from_millis(500);
 const LAST_RETRY: Duration = Duration::from_secs(10);
 
-/// A trade as the engine keeps it: Coinbase's id, the exchange's time in ms, the price with 8 decimals.
+/// A trade as the engine keeps it: Coinbase's id, the exchange's time in ms, the price with 8 decimals, and
+/// whether it was checked and signed (a backfilled trade never is).
 #[derive(Clone, Copy)]
 pub struct Trade {
     pub id: u64,
     pub t: u64,
     pub p8: u128,
+    pub checked: bool,
 }
 
 /// The last ten minutes of trades, oldest first, for a client that has just connected.
@@ -70,16 +77,19 @@ impl History {
         }
     }
 
-    /// `{type:"history", trades:[[id, t, p], …]}`, unsigned: a chart needs the prices, a trade needs only the newest signature.
+    /// `{type:"history", trades:[[id, t, p, checked], …]}`, unsigned: a chart needs the prices, a trade needs only
+    /// the newest signature. `checked` is 1 for a trade that was checked and signed as it landed, 0 for one that
+    /// was not (backfilled, or not agreed on): a bet settles on bars folded from the 1s only.
     pub fn frame(&self) -> Utf8Bytes {
-        let kept = self.0.lock().unwrap();
-        let mut out = String::with_capacity(32 + kept.len() * 36);
+        // Copied out, so the lock the Coinbase feed needs is held for a copy, not for the formatting.
+        let kept: Vec<Trade> = self.0.lock().unwrap().iter().copied().collect();
+        let mut out = String::with_capacity(32 + kept.len() * 38);
         out.push_str(r#"{"type":"history","trades":["#);
         for (i, x) in kept.iter().enumerate() {
             if i > 0 {
                 out.push(',');
             }
-            out.push_str(&format!("[{},{},{}]", x.id, x.t, x.p8 as f64 / 1e8));
+            out.push_str(&format!("[{},{},{},{}]", x.id, x.t, x.p8 as f64 / 1e8, u8::from(x.checked)));
         }
         out.push_str("]}");
         out.into()
@@ -88,9 +98,11 @@ impl History {
 
 /// Every BTC-USD trade on Coinbase, the market the game is priced on, checked
 /// against the attesters (`attest.rs`) and signed:
-/// `{type:"price", id, t, p, source, coinbase, attesters, message, signature}`.
-/// `p` is the price to show and the one signed, `message` the EIP-712 `Price`
-/// the signature is over; both are null when no attester could check it.
+/// `{type:"price", id, t, p, signed, source, coinbase, attesters, message, signature}`.
+/// `p` is the price to show and, when `signed`, the one signed; `message` is
+/// the EIP-712 `Price` the signature is over. When no two venues agreed, no
+/// attester was heard from, or Coinbase's time is off this clock, `signed` is
+/// false, `p` is Coinbase's, unchecked, and `message` and `signature` are null.
 /// Plus `{type:"beat", t}` with Coinbase's heartbeat each second, so a quiet
 /// market is not mistaken for a dead socket.
 pub async fn coinbase(feed: Feed, quoter: Arc<Quoter>, history: History, board: Board, band: f64) {
@@ -147,19 +159,22 @@ pub async fn coinbase(feed: Feed, quoter: Arc<Quoter>, history: History, board: 
                 let coinbase = cb8 as f64 / 1e8;
                 let attesters = board.fresh();
                 let prices: Vec<f64> = attesters.iter().map(|(_, p)| *p).collect();
-                let (p8, source, signed) = match decide(coinbase, &prices, band) {
-                    Verdict::Agrees => (cb8, "coinbase", true),
-                    Verdict::Differs { median } => ((median * 100.0).round() as u128 * 1_000_000, "attesters", true),
-                    Verdict::Alone => (cb8, "coinbase", false),
+                // Why it is not signed, if it is not.
+                let (p8, source, unsigned) = match decide(coinbase, &prices, band) {
+                    _ if !on_time(t, now_ms()) => (cb8, "coinbase", Some("coinbase's time is off this clock")),
+                    Verdict::Agrees => (cb8, "coinbase", None),
+                    Verdict::Differs { median } => ((median * 100.0).round() as u128 * 1_000_000, "attesters", None),
+                    Verdict::Disputed => (cb8, "coinbase", Some("no two venues agree")),
+                    Verdict::Alone => (cb8, "coinbase", Some("no attester heard from")),
                 };
-                let signature = if signed { quoter.sign(MARKET, p8, t) } else { None };
-                tally.add(p8, source, signature.as_deref(), coinbase, &attesters);
+                let signature = if unsigned.is_none() { quoter.sign(MARKET, p8, t) } else { None };
+                tally.add(p8, source, signature.as_deref(), unsigned.unwrap_or("signing failed"), coinbase, &attesters);
                 last_id = id;
-                history.extend([Trade { id, t, p8 }]);
+                history.extend([Trade { id, t, p8, checked: signature.is_some() }]);
                 // price as a string: it is a uint256, and JavaScript numbers are not exact past 2^53.
                 let message = signature.as_ref().map(|_| json!({ "market": MARKET, "price": p8.to_string(), "time": t }));
                 let update = json!({
-                    "type": "price", "id": id, "t": t, "p": p8 as f64 / 1e8, "source": source,
+                    "type": "price", "id": id, "t": t, "p": p8 as f64 / 1e8, "signed": signature.is_some(), "source": source,
                     "coinbase": coinbase, "attesters": attesters.into_iter().map(|(name, p)| (name.to_owned(), json!(p))).collect::<serde_json::Map<_, _>>(),
                     "message": message, "signature": signature,
                 });
@@ -191,14 +206,14 @@ impl Tally {
         Self { since: Instant::now(), trades: 0, fallback: 0, unsigned: 0, last: String::new() }
     }
 
-    fn add(&mut self, p8: u128, source: &str, signature: Option<&str>, coinbase: f64, attesters: &[(&str, f64)]) {
+    fn add(&mut self, p8: u128, source: &str, signature: Option<&str>, why_not: &str, coinbase: f64, attesters: &[(&str, f64)]) {
         self.trades += 1;
         let price = dollars(p8);
         let apart = attesters.iter().map(|(name, p)| format!("{name} {:.3}%", ((p - coinbase) / coinbase * 100.0).abs())).collect::<Vec<_>>().join(", ");
         self.last = match signature {
             None => {
                 self.unsigned += 1;
-                format!("NOT signed {price}: no attester heard from")
+                format!("NOT signed {price}: {why_not}{}", if apart.is_empty() { String::new() } else { format!(" ({apart})") })
             }
             Some(sig) => {
                 let whose = if source == "coinbase" {
@@ -250,8 +265,7 @@ async fn backfill(http: &reqwest::Client, history: &History) -> Result<usize, St
         time: String,
     }
     let known = history.newest();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_millis() as u64;
-    let cutoff = now.saturating_sub(KEEP_MS);
+    let cutoff = now_ms().saturating_sub(KEEP_MS);
     let mut got = Vec::new();
     let mut after = None;
     for _ in 0..PAGES {
@@ -269,7 +283,7 @@ async fn backfill(http: &reqwest::Client, history: &History) -> Result<usize, St
             let (Ok(t), Some(p8)) = (t, e8(&x.price)) else { continue };
             reached |= t < cutoff;
             if x.trade_id > known && t >= cutoff {
-                got.push(Trade { id: x.trade_id, t, p8 });
+                got.push(Trade { id: x.trade_id, t, p8, checked: false });
             }
         }
         if reached {
@@ -294,15 +308,15 @@ pub async fn binance(board: Board) {
     struct Trade<'a> {
         p: &'a str,
     }
-    // USDT per USDC. Until the first one trades there is no dollar price to post.
-    let mut usdc: Option<f64> = None;
+    // USDT per USDC, and when it traded. Until one has, lately, there is no dollar price to post.
+    let mut usdc: Option<(f64, Instant)> = None;
     hold("binance", BINANCE, None, Duration::from_secs(10), |text| {
         let Ok(m) = serde_json::from_str::<Wrapped>(text) else { return Ok(()) };
         let Ok(p) = m.data.p.parse::<f64>() else { return Ok(()) };
         match m.stream {
-            "usdcusdt@trade" => usdc = Some(p),
+            "usdcusdt@trade" => usdc = Some((p, Instant::now())),
             "btcusdt@trade" => {
-                if let Some(usdc) = usdc {
+                if let Some((usdc, _)) = usdc.filter(|(_, at)| at.elapsed() <= USDC_FRESH) {
                     board.set("binance", p / usdc);
                 }
             }
@@ -318,6 +332,8 @@ pub async fn kraken(board: Board) {
     #[derive(Deserialize)]
     struct Channel<'a> {
         channel: Option<&'a str>,
+        #[serde(rename = "type")]
+        kind: Option<&'a str>,
     }
     #[derive(Deserialize)]
     struct Trades {
@@ -327,10 +343,13 @@ pub async fn kraken(board: Board) {
     struct Trade {
         price: f64,
     }
-    let subscribe = json!({ "method": "subscribe", "params": { "channel": "trade", "symbol": [MARKET.replace('-', "/")] } });
+    // No snapshot (Kraken's default, asked for anyway): it is the last fifty trades, however old, and the board
+    // would take the newest of them as a price of now.
+    let subscribe = json!({ "method": "subscribe", "params": { "channel": "trade", "symbol": [MARKET.replace('-', "/")], "snapshot": false } });
     // Kraken sends a heartbeat every second.
     hold("kraken", KRAKEN, Some(subscribe), Duration::from_secs(10), |text| {
-        if serde_json::from_str::<Channel>(text).ok().and_then(|c| c.channel) != Some("trade") {
+        let Ok(Channel { channel: Some("trade"), kind }) = serde_json::from_str::<Channel>(text) else { return Ok(()) };
+        if kind == Some("snapshot") {
             return Ok(());
         }
         if let Some(last) = serde_json::from_str::<Trades>(text).ok().and_then(|t| t.data.last().map(|x| x.price)) {
@@ -339,6 +358,17 @@ pub async fn kraken(board: Board) {
         Ok(())
     })
     .await
+}
+
+/// Now on this clock, in ms since the epoch.
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// Whether a trade's time is close enough to this clock to sign: a Coinbase clock that is off, or a trade
+/// delivered late, would put a time on chain that the attesters' prices were never of.
+fn on_time(t: u64, now: u64) -> bool {
+    t.abs_diff(now) <= CLOCK_MS
 }
 
 /// One upstream socket, held open for good. A failure is logged once, not on
@@ -389,6 +419,17 @@ async fn read(ws: &mut Socket, silent: Duration, mut on_text: impl FnMut(&str) -
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn signs_only_trades_timed_near_this_clock() {
+        let now = 1_790_629_278_967;
+        assert!(super::on_time(now, now));
+        assert!(super::on_time(now - 2_000, now));
+        assert!(super::on_time(now + 2_000, now));
+        assert!(!super::on_time(now - 2_001, now));
+        assert!(!super::on_time(now + 2_001, now));
+        assert!(!super::on_time(0, now));
+    }
+
     #[test]
     fn dollars_reads_like_money() {
         assert_eq!(super::dollars(8_345_755_000_000), "$83,457.55");

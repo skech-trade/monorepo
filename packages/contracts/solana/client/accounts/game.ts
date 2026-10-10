@@ -61,7 +61,7 @@ export type Game = {
   /** Signs every placement (its quote) and every bar. */
   oracle: Address;
   usdcMint: Address;
-  /** The token program the mint is under: SPL Token for USDC, Token-2022 allowed. */
+  /** The token program the mint is under: SPL Token (`initialize` takes no other). */
   tokenProgram: Address;
   /** Every player's USDC, the pool and the fees: the game PDA's associated token account. */
   vault: Address;
@@ -84,7 +84,7 @@ export type GameArgs = {
   /** Signs every placement (its quote) and every bar. */
   oracle: Address;
   usdcMint: Address;
-  /** The token program the mint is under: SPL Token for USDC, Token-2022 allowed. */
+  /** The token program the mint is under: SPL Token (`initialize` takes no other). */
   tokenProgram: Address;
   /** Every player's USDC, the pool and the fees: the game PDA's associated token account. */
   vault: Address;

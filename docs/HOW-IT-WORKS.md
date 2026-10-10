@@ -303,6 +303,15 @@ ERC-1967 proxies (UUPS), on Monad testnet (chain 10143), Foundry 1.8 with `netwo
   pool can pay (`redeem`), and is paid 10% of the growth for it; a holder redeeming their own pays
   nothing. The house's unpaid fees are owed the same way, behind the player.
 
+### On Solana
+
+The same game as an Anchor program (`packages/contracts/solana`, its README has every difference): one
+piece a transaction, an Ed25519 session key, the oracle signing the transaction instead of the quote.
+The price is kept for the last 240 seconds, and a second's bar may be posted up to 200 s after it; a
+band whose second was never posted by then is given back in full by `expire`, which anyone may send,
+as on Monad. A bet is closed, its rent back, once every band is decided and its piece can no longer be
+placed. The terms are Monad's, and a redeemer's cut is theirs on both chains.
+
 ### What goes on chain, and who signs it
 
 | Thing | Signed by | Says |

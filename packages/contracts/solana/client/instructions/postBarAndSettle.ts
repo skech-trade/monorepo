@@ -150,7 +150,7 @@ export type PostBarAndSettleAsyncInput<
   marketAccount: TAccountMarketAccount;
   bars: TAccountBars;
   pool?: TAccountPool;
-  /** Gets back the rent of the bets closed here: must be who paid it. */
+  /** Gets back the rent of the bets closed here: only those it paid for are closed. */
   rentReceiver: TAccountRentReceiver;
   market: PostBarAndSettleInstructionDataArgs["market"];
   bar: PostBarAndSettleInstructionDataArgs["bar"];
@@ -299,7 +299,7 @@ export type PostBarAndSettleInput<
   marketAccount: TAccountMarketAccount;
   bars: TAccountBars;
   pool: TAccountPool;
-  /** Gets back the rent of the bets closed here: must be who paid it. */
+  /** Gets back the rent of the bets closed here: only those it paid for are closed. */
   rentReceiver: TAccountRentReceiver;
   market: PostBarAndSettleInstructionDataArgs["market"];
   bar: PostBarAndSettleInstructionDataArgs["bar"];
@@ -434,7 +434,7 @@ export type ParsedPostBarAndSettleInstruction<
     marketAccount: TAccountMetas[2];
     bars: TAccountMetas[3];
     pool: TAccountMetas[4];
-    /** Gets back the rent of the bets closed here: must be who paid it. */
+    /** Gets back the rent of the bets closed here: only those it paid for are closed. */
     rentReceiver: TAccountMetas[5];
   };
   data: PostBarAndSettleInstructionData;

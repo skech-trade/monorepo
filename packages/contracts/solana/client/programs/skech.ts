@@ -55,6 +55,7 @@ import {
   getAcceptAdminInstructionAsync,
   getCollectFeesInstructionAsync,
   getDepositInstructionAsync,
+  getExpireInstructionAsync,
   getInitializeInstructionAsync,
   getInitMarketInstructionAsync,
   getPlaceInstructionAsync,
@@ -77,6 +78,7 @@ import {
   parseAcceptAdminInstruction,
   parseCollectFeesInstruction,
   parseDepositInstruction,
+  parseExpireInstruction,
   parseInitializeInstruction,
   parseInitMarketInstruction,
   parsePlaceInstruction,
@@ -99,11 +101,13 @@ import {
   type AcceptAdminAsyncInput,
   type CollectFeesAsyncInput,
   type DepositAsyncInput,
+  type ExpireAsyncInput,
   type InitializeAsyncInput,
   type InitMarketAsyncInput,
   type ParsedAcceptAdminInstruction,
   type ParsedCollectFeesInstruction,
   type ParsedDepositInstruction,
+  type ParsedExpireInstruction,
   type ParsedInitializeInstruction,
   type ParsedInitMarketInstruction,
   type ParsedPlaceInstruction,
@@ -141,7 +145,12 @@ import {
   type SweepAsyncInput,
   type WithdrawAsyncInput,
 } from "../instructions";
-import { findGamePda, findPlayerPda, findPoolPda } from "../pdas";
+import {
+  findCallerPlayerPda,
+  findGamePda,
+  findPlayerPda,
+  findPoolPda,
+} from "../pdas";
 
 export const SKECH_PROGRAM_ADDRESS =
   "2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV" as Address<"2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV">;
@@ -220,17 +229,23 @@ export function identifySkechAccount(
 }
 
 export enum SkechEvent {
+  AdminProposed,
+  AdminSet,
   BarPosted,
   ConfigSet,
   Deposited,
   FeesCollected,
+  IouRateSet,
   MarketSet,
+  OracleSet,
   Owed,
+  PausedSet,
   Placed,
   Redeemed,
   SessionRevoked,
   SessionSet,
   Settled,
+  TreasurySet,
   Withdrawn,
 }
 
@@ -238,6 +253,28 @@ export function identifySkechEvent(
   event: { data: ReadonlyUint8Array } | ReadonlyUint8Array,
 ): SkechEvent {
   const data = "data" in event ? event.data : event;
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([129, 249, 226, 227, 199, 82, 110, 243]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.AdminProposed;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([157, 245, 205, 226, 118, 125, 183, 97]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.AdminSet;
+  }
   if (
     containsBytes(
       data,
@@ -286,6 +323,17 @@ export function identifySkechEvent(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([252, 90, 54, 68, 6, 233, 252, 130]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.IouRateSet;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([64, 19, 78, 233, 226, 142, 234, 83]),
       ),
       0,
@@ -297,12 +345,34 @@ export function identifySkechEvent(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([115, 135, 7, 243, 213, 60, 174, 119]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.OracleSet;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([156, 166, 181, 196, 145, 101, 94, 71]),
       ),
       0,
     )
   ) {
     return SkechEvent.Owed;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([171, 125, 127, 156, 233, 81, 68, 66]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.PausedSet;
   }
   if (
     containsBytes(
@@ -363,6 +433,17 @@ export function identifySkechEvent(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([69, 231, 163, 135, 254, 194, 109, 166]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.TreasurySet;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([20, 89, 223, 198, 194, 124, 219, 13]),
       ),
       0,
@@ -379,6 +460,7 @@ export enum SkechInstruction {
   AcceptAdmin,
   CollectFees,
   Deposit,
+  Expire,
   InitMarket,
   Initialize,
   Place,
@@ -436,6 +518,17 @@ export function identifySkechInstruction(
     )
   ) {
     return SkechInstruction.Deposit;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([243, 83, 205, 58, 57, 201, 247, 146]),
+      ),
+      0,
+    )
+  ) {
+    return SkechInstruction.Expire;
   }
   if (
     containsBytes(
@@ -665,6 +758,9 @@ export type ParsedSkechInstruction<
       instructionType: SkechInstruction.Deposit;
     } & ParsedDepositInstruction<TProgram>)
   | ({
+      instructionType: SkechInstruction.Expire;
+    } & ParsedExpireInstruction<TProgram>)
+  | ({
       instructionType: SkechInstruction.InitMarket;
     } & ParsedInitMarketInstruction<TProgram>)
   | ({
@@ -746,6 +842,13 @@ export function parseSkechInstruction<TProgram extends string>(
       return {
         instructionType: SkechInstruction.Deposit,
         ...parseDepositInstruction(instruction),
+      };
+    }
+    case SkechInstruction.Expire: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: SkechInstruction.Expire,
+        ...parseExpireInstruction(instruction),
       };
     }
     case SkechInstruction.InitMarket: {
@@ -920,6 +1023,9 @@ export type SkechPluginInstructions = {
   deposit: (
     input: MakeOptional<DepositAsyncInput, "payer">,
   ) => ReturnType<typeof getDepositInstructionAsync> & SelfPlanAndSendFunctions;
+  expire: (
+    input: ExpireAsyncInput,
+  ) => ReturnType<typeof getExpireInstructionAsync> & SelfPlanAndSendFunctions;
   initMarket: (
     input: InitMarketAsyncInput,
   ) => ReturnType<typeof getInitMarketInstructionAsync> &
@@ -997,6 +1103,7 @@ export type SkechPluginPdas = {
   game: typeof findGamePda;
   pool: typeof findPoolPda;
   player: typeof findPlayerPda;
+  callerPlayer: typeof findCallerPlayerPda;
 };
 
 export type SkechPluginRequirements = ClientWithRpc<
@@ -1037,6 +1144,11 @@ export function skechProgram() {
                 ...input,
                 payer: input.payer ?? client.payer,
               }),
+            ),
+          expire: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getExpireInstructionAsync(input),
             ),
           initMarket: (input) =>
             addSelfPlanAndSendFunctions(
@@ -1140,7 +1252,12 @@ export function skechProgram() {
               getWithdrawInstructionAsync(input),
             ),
         },
-        pdas: { game: findGamePda, pool: findPoolPda, player: findPlayerPda },
+        pdas: {
+          game: findGamePda,
+          pool: findPoolPda,
+          player: findPlayerPda,
+          callerPlayer: findCallerPlayerPda,
+        },
         identifyAccount: identifySkechAccount,
         identifyInstruction: identifySkechInstruction,
         parseInstruction: parseSkechInstruction,
