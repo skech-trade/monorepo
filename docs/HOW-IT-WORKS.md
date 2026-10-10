@@ -328,7 +328,9 @@ all addresses of the program:
 - **`Game`** holds the terms, the oracle and the USDC vault. The house never holds the players' money.
 - **`Pool`**: every stake goes into one pool, and every hit is paid from it. The house's take is counted
   here too: a share of every stake as it is placed, and of the profit on every hit, both the admin's to
-  set (`set_config`). A fresh game starts at 4% and 10%; devnet charges 1% and 5% since 10 October 2026. `collect_fees` moves it to the treasury. Nothing else.
+  set (`set_config`): 4% of every stake and 10% of every profit (devnet charged 1% and 5% from 10 October 2026
+  until SKT starts on it, which moves it back). Of those, 3 of the 4 points and 8 of the 10 go to SKT holders
+  (below), 1 and 2 to the treasury; `collect_fees` moves the treasury's out. Nothing else.
 - **`Market`** and **`Bars`**: each market's difficulty, and a ring of its last 240 seconds of price. The
   ladder is computed in the program (`ladder.rs`, the same integers as `chain.ts`, checked row for row
   against `@skech/core`), so the oracle cannot pay a band more than its chance earns at the difficulty on
@@ -339,7 +341,9 @@ all addresses of the program:
   back once the pool can pay (`redeem`), and is paid 10% of the growth for it; a holder redeeming their own
   pays nothing. The house is never owed: its 10% of a profit is taken after the player is paid, from what
   the pool has left, and goes without the rest.
-- **`Bet`**, one per piece: its bands until each is decided. It is then closed, its rent back to the relayer.
+- **`Bet`**, one per piece: its bands until each is decided, and after them each band's chance as the oracle
+  quoted it, for SKT. It is then closed, its rent back to the relayer.
+- **`Rewards`** (one) and **`Holder`** (one per player): SKT, below.
 
 The EVM contracts the game was first written as (`packages/contracts/evm`) are kept in the repo, not
 deployed or used; the conformance cases (`packages/contracts/conformance`) still play both, so the two agree
@@ -400,8 +404,8 @@ has the rest.
 
 A piece must stake at least 1¢ (`MIN_PIECE_STAKE_E6`, `SOLANA_MIN_PIECE_STAKE`), as it arrives and after
 what the program would hand back, so a single dot goes in. Each piece is a transaction the relayer pays for,
-about 7,100 lamports with its share of settling (about $0.0008), and only the stake fee pays that back: 1% of
-10¢ does, 1% of 1¢ does not. So the apps hold ink back while the pen is down, drawn as it is, and send a line
+about 7,100 lamports with its share of settling (about $0.0008), and only the treasury's point of the stake fee
+pays that back: 1% of 10¢ does, 1% of 1¢ does not. So the apps hold ink back while the pen is down, drawn as it is, and send a line
 in pieces of about 10¢ (`BATCH_PIECE_STAKE_E6`), keeping at least 1¢ back for its end, which goes as a piece
 of its own when the pen lifts; a whole line under 1¢ is not sent ("Draw a little more"). Pieces under 10¢ are
 limited for each player instead of refused, 10 at once and 2 a second, so ink drawn in crumbs (near-certain
@@ -421,9 +425,81 @@ card waits until every piece of it has been taken or refused.
 ### Fees and the pool, by the numbers
 
 A half-dot at 10¢ with a 50% chance at difficulty 40, with the 4% stake fee: fair 2.080×, rung 2×.
-Placed: 5¢ leaves the balance, 0.2¢ (4%) is the house's, 4.8¢ joins the pool. Hit: 10¢ gross, 5¢
-profit, 0.5¢ (10%) the house's, 9.5¢ to the balance, paid from the pool. Missed: the 4.8¢ stays in the
-pool for the next hit. With the pool empty, the 9.5¢ is owed as IOU and paid off as others lose.
+Placed: 5¢ leaves the balance, 0.2¢ (4%) is fees (0.15¢ to SKT holders, 0.05¢ to the treasury), 4.8¢ joins
+the pool. Hit: 10¢ gross, 5¢ profit, 0.5¢ (10%) fees (0.4¢ to holders, 0.1¢ to the treasury), 9.5¢ to the
+balance, paid from the pool. Missed: the 4.8¢ stays in the pool for the next hit, and the miss mints SKT on
+5¢ · (1 − 0.5 · 2) / 0.5 = 0. With the pool empty, the 9.5¢ is owed as IOU and paid off as others lose; while it
+is owed, the holders' share of every fee goes to the pool to pay it.
+
+### SKT
+
+SKT is what losing earns back: a share of the fees. It is never sold, sent or unstaked. It is an internal
+balance on the player's own `Holder` account (`packages/contracts/solana/programs/skech/src/skt.rs`), counted in
+millionths like USDC, and every unit of it earns the same part of every holder's share. The apps show the
+balance and what it has earned in the account menu, with Claim, and a quiet "+120 SKT" after a round that
+came out behind.
+
+**What mints.** Every band that misses mints at its settlement, on its *basis*:
+
+    basis = stake · max(0, 1 − p·m) / (1 − p)
+
+where `p` is the chance the oracle quoted for the band (kept on the bet) and `m` the multiple it was placed at.
+A hit mints nothing; a band given back by `expire` mints nothing; a bet placed before SKT mints nothing. In
+expectation a band's basis is `(1 − p) · stake · (1 − p·m) / (1 − p) = stake · (1 − p·m)`, exactly what it can
+expect to lose, whatever its odds. So no way of drawing mints more SKT per dollar it can expect to lose:
+
+| | stake | expected loss | a miss counts | how often | expected basis |
+| --- | --- | --- | --- | --- | --- |
+| a 1% long shot at 96× | $1 | 1 − 0.01 · 96 = 4¢ | 4¢ / 0.99 = 4.04¢ | 99 in 100 | 4¢ |
+| ink at 90% paying 1.1× | $1 | 1 − 0.9 · 1.1 = 1¢ | 1¢ / 0.1 = 10¢ | 1 in 10 | 1¢ |
+
+A long shot's misses are many and small; near-certain ink's are rare and large; per expected dollar lost they
+come out the same. In the program's tests, 1,500 long shots and 6,000 pieces of ink at 50%, each strategy
+expecting to lose $15, minted within 0.5% of each other (`a_long_shot_mints_no_more_skt…`).
+
+The stake fee is not added to the basis. A hit pays its multiple on the whole stake, fee included, so the fee is
+taken from the pool's side and is already inside `stake · (1 − p·m)`: ink that is certain to hit at 1× loses
+nothing (the house's 4% comes out of the pool), and adding the fee would mint on it. A loss that would only
+shrink an IOU the player is owed cannot happen here: every stake comes from the player's USDC balance, never
+from an IOU.
+
+**How much.** A settlement's basis `B` mints at a rate that falls as the game's tracked gain `G` grows:
+
+    rate(G) = 100 · (S / (S + G))²  SKT per $1 of basis
+    minted  = ∫ from G to G + B of rate = 100 · S² · B / ((S + G)(S + G + B))
+
+`G` is every basis minted on so far (`Rewards::gain`): what players have lost to the game, in expectation. It
+counts as 0 while anything is owed as IOU, so losses that pay off a shortfall mint at the full rate. `S` is the
+admin's (`mint_scale`, default $10,000,000), so the rate falls across a gain of $0 to $100M:
+
+| tracked gain G | $0 | $1M | $5M | $10M | $30M | $100M |
+| --- | --- | --- | --- | --- | --- | --- |
+| SKT per $1 of basis | 100 | 82.6 | 44.4 | 25 | 6.25 | 0.83 |
+
+Minting the integral rather than the rate at `G` means one basis of `B` and two of `B/2` mint the same, to the unit,
+and the whole curve is worth `100 · S` SKT to everyone together, however much is lost. Integers throughout, in
+u128: the first term rounded down and the second up, so never more than the exact integral.
+
+**What it earns.** Of the 4% stake fee, 3 points go to SKT holders and 1 to the treasury; of the 10% profit fee, 8
+and 2 (`holder_fee_bps`, `holder_profit_fee_bps`, each at most its fee). The house keeps every rounding. The
+holders' share is added to an accumulator, `acc += share · 10¹⁸ / supply`, and a holder has earned
+`skt · (acc − acc_at) / 10¹⁸`, counted into `unclaimed` before their SKT changes, both rounded down. Two
+exceptions, as Papertrade has them: while anything is owed as IOU, the holders' share goes to the pool to pay it
+off (IOUs come first); while there is no SKT, it goes to the treasury. The treasury's profit cut, and the holders',
+come out of what the pool has left after paying the player, and are never owed. `claim` pays what a holder has
+earned into their balance, as a hit's winnings are paid, and a second claim pays nothing.
+
+**Invariants**, checked after every step of random games in the program's tests:
+
+- the vault holds exactly every balance, the pool, the treasury's uncollected fees and the holders' funds;
+- everything claimed and claimable is at most everything accrued to holders;
+- a player's SKT is at most 100 per dollar of their basis, and their basis at most the stakes they lost;
+- the supply is every holder's SKT, and `G` every basis.
+
+**Accounts.** `Rewards` (seeds `"rewards"`) holds the supply, the accumulator, the holders' funds and `G`, and
+SKT's terms. `Holder` (seeds `"holder"`, the wallet) holds a player's SKT, what it has earned and their basis; the
+first settlement with a live bet of theirs opens it, the relayer paying its rent (about 0.0017 SOL), so no account
+is made for anyone who never plays. Settling takes each bet as (bet, player, holder), nine to a transaction.
 
 ### Running it
 
