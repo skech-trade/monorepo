@@ -5,20 +5,15 @@ import { DIFFICULTY, MIN_DIFFICULTY } from "./dots";
  * dollars of paper money, the live price, the real game screen, and nothing
  * sent anywhere: no relayer, no chain, no wallet.
  *
- * The odds are easier than real play, and say so on a pill that never
- * leaves the screen. Easier is one setting, `PAPER_DIFFICULTY`, under the
- * least real play allows (`MIN_DIFFICULTY`): every section is priced and paid
- * by the same `ladderSection` at that setting, so the multiple on the map is
- * the multiple a hit pays. There are no fees on paper.
+ * The odds are real play's: the live game's setting when the relayer has
+ * said it, else the game's own. A practice run that paid more than the real
+ * game would sell a game that isn't there. There are no fees on paper, and
+ * a dot costs a cent (`PAPER_PER_DOT`), so ten dollars lasts the run.
  *
- * Calibrated with `scripts/check-paper.ts` on Coinbase BTC-USD, October 7–9
- * 2026 (861 moments, three screens, three pens, six strokes drawn near the
- * price; the library is September 1–16). Whether the price touches a stroke
- * is the market's, the same at every setting: 60% of those strokes were
- * touched, 74–79% of those drawn from, along or across the price. What the
- * setting moves is what a touch pays. At 55, real play's, they returned 78¢
- * a dollar and 29% of them came out ahead; at 0, the paper run's, 96¢ and
- * 33%. Easier, close to even, and still not a dollar back for every dollar.
+ * `scripts/check-paper.ts` measured, on Coinbase BTC-USD, October 7–9 2026,
+ * that whether the price touches a stroke is the market's, the same at every
+ * setting: 60% of strokes drawn near the price were touched. The setting
+ * only moves what a touch pays.
  *
  * Pure functions over a plain record, on the caller's clock (a monotonic one:
  * `performance.now()`), so the web and the phone run the same rules and the
@@ -40,13 +35,6 @@ export const PAPER_URGENT_MS = 5000;
 export const PAPER_LINGER_MS = 1600;
 /** The longest a run waits for its ink to settle after the clock runs out: ink reaches 31 s ahead. */
 export const PAPER_SETTLE_MAX_MS = 40_000;
-/**
- * How hard the paper run is: 0, the easy end of the scale `difficulty` is written for, where real play is
- * never under MIN_DIFFICULTY (50). Ink exactly on a rung returns `ladderBest`, 1.20 − 0.40 × d/100: $1.20
- * here, 98¢ at real play's 55.
- */
-export const PAPER_DIFFICULTY = 0;
-
 export type PaperPhase = "running" | "settling" | "over";
 
 export type PaperRun = {
@@ -141,10 +129,10 @@ export function paperResult(run: Pick<PaperRun, "balance" | "drawings">, money: 
 
 /**
  * The setting a drawing placed now is priced at, and the least it may be: the chain's on chain, the house's
- * slider or the game's own in practice, and the paper run's while one is on. Only the paper run goes under
- * MIN_DIFFICULTY; every other source is held to it, as `difficulty` always has.
+ * slider or the game's own in practice. A paper run plays the real game's: the chain's when known, never the
+ * house slider's.
  */
 export function levelFor({ paper, chain, house }: { paper: boolean; chain?: number | null; house?: number | null }): { level: number; least: number } {
-  if (paper) return { level: PAPER_DIFFICULTY, least: PAPER_DIFFICULTY };
+  if (paper) return { level: chain ?? DIFFICULTY, least: MIN_DIFFICULTY };
   return { level: chain ?? house ?? DIFFICULTY, least: MIN_DIFFICULTY };
 }
