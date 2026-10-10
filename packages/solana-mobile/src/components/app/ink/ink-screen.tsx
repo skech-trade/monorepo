@@ -19,7 +19,7 @@ import { hasAuth } from "@/lib/config";
 import { useAppActive } from "@/lib/lifecycle";
 import { useEngine } from "@/lib/engine";
 import { track } from "@/lib/analytics";
-import { celebrate, feel } from "@/lib/feel";
+import { celebrate, feel, stayAwake } from "@/lib/feel";
 import { FieldMaker } from "@/lib/field";
 import { library } from "@/lib/library";
 import { money, signed } from "@/lib/money";
@@ -627,6 +627,8 @@ export function InkScreen() {
           changed = true;
           const hitNow = bet.cells.filter((d, kk) => d.status === "hit" && before.cells[kk].status !== "hit");
           if (hitNow.length) {
+            // When the price was found touching the ink, for feel's timing log.
+            const seen = performance.now();
             const line = bet.group ?? bet.id;
             const acc = payouts.current.get(line) ?? { raw: 0, credited: 0 };
             payouts.current.set(line, acc);
@@ -640,8 +642,9 @@ export function InkScreen() {
             const lo = Math.min(...hitNow.map((d) => d.lo));
             const hi = Math.max(...hitNow.map((d) => d.hi));
             const recent = nowMs - (bar.t + 1000) < 3000;
-            // A hit is celebrated (heard, felt, a spray) only while its round is ahead: what it has paid so far is more
-            // than everything it has staked. A hit that still leaves the round behind is shown, quietly, and no more.
+            // Every hit pays more than its own ink cost: it is heard and felt the instant it is found, in the same
+            // frame as its "+$x". Only the spray waits for the round to be ahead (what it has paid so far is more
+            // than everything it has staked); the round's own celebration waits for it to end.
             let stake = lines.current.get(line)?.cost ?? 0;
             for (let j = 0; j < g.bets.length; j++) {
               const b = j === i ? bet : g.bets[j];
@@ -653,11 +656,11 @@ export function InkScreen() {
               g.fx.push({ kind: "hit", ...where, born: performance.now(), text: paid > 0 ? `+${money(paid)}` : undefined, line, big: best >= 10, profit: ahead });
               lastHit.current.set(line, { ...where, at: performance.now() });
             }
-            if (recent && ahead) {
+            if (recent) {
               const run = hitRun.current;
               run.n = performance.now() - run.at < 6000 ? run.n + 1 : 0;
               run.at = performance.now();
-              feel(best >= 10 ? "big" : run.n >= 2 ? "run" : "hit", { multiple: best, run: run.n });
+              feel(best >= 10 ? "big" : run.n >= 2 ? "run" : "hit", { multiple: best, run: run.n, seen });
             }
           }
           // Ink the price passed by: what it staked, shown as lost there, in red, as a hit shows what it paid.
@@ -703,7 +706,10 @@ export function InkScreen() {
     }
     // Practice drawings are kept for the next launch; paper ones are not, and must never come back as practice.
     if ((changed || credit) && !chainRef.current.real && !onPaper) setPractice({ open: g.bets.filter((b) => !decided(b)) });
-    setLive(new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size);
+    const inPlay = new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size;
+    setLive(inPlay);
+    // Ink in play can be hit at any moment: its sound must not wait on audio waking up.
+    if (inPlay) stayAwake();
     g.bets = g.bets.filter((b) => !decided(b) || b.cells.some((d) => d.t + 3000 > nowMs));
     updateTotals();
   }, [bars, ticks, skew, version, lib, updateTotals]);

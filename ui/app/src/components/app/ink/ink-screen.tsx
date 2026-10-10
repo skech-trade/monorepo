@@ -843,6 +843,8 @@ export function InkScreen() {
           // One burst a second, however many cells of ink the price crossed in it, with what they paid together.
           const fresh2 = bet.cells.filter((d, k) => d.status === "hit" && before.cells[k].status !== "hit");
           if (fresh2.length) {
+            // When the price was found touching the ink, for feel's timing log.
+            const seen = performance.now();
             const line = bet.group ?? bet.id;
             const acc = payouts.current.get(line) ?? { raw: 0, credited: 0 };
             payouts.current.set(line, acc);
@@ -861,8 +863,9 @@ export function InkScreen() {
             // Every hit gets its own toast, sound and touch: each one is a win. Hits judged late, from bars of prices
             // restored after a reload, are paid but not celebrated: ten at once would be noise, not news.
             const fresh3 = nowMs - (bar.t + 1000) < 3000;
-            // A hit is celebrated (heard, felt, a spray) only while its round is ahead: what it has paid so far is more
-            // than everything it has staked. A hit that still leaves the round behind is shown, quietly, and no more.
+            // Every hit pays more than its own ink cost: it is heard and felt the instant it is found, in the same
+            // frame as its "+$x". Only the spray waits for the round to be ahead (what it has paid so far is more
+            // than everything it has staked); the round's own celebration waits for it to end.
             let stake = lines.current.get(line)?.cost ?? 0;
             for (let j = 0; j < g.bets.length; j++) {
               const b = j === i ? bet : g.bets[j];
@@ -874,11 +877,11 @@ export function InkScreen() {
               g.fx.push({ kind: "hit", ...where, born: performance.now(), text: paid > 0 ? `+${money(paid)}` : undefined, line, big: best >= 10, profit: ahead });
               lastHit.current.set(line, { ...where, at: performance.now() });
             }
-            if (fresh3 && ahead) {
+            if (fresh3) {
               const run = hitRun.current;
               run.n = performance.now() - run.at < 6000 ? run.n + 1 : 0;
               run.at = performance.now();
-              feel(best >= 10 ? "big" : run.n >= 2 ? "run" : "hit", { multiple: best, streak: run.n });
+              feel(best >= 10 ? "big" : run.n >= 2 ? "run" : "hit", { multiple: best, run: run.n, seen });
             }
           }
           if (bet.status !== "live") break;
