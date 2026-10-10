@@ -88,7 +88,7 @@ export function AppBar() {
           </Pressable>
         ) : null}
         {me.ready && !me.signedIn && paper ? (
-          <Button onPress={() => gate.openSignIn("paper_bar")} size="md">
+          <Button onPress={() => gate.openSignIn("paper_bar")} size="md" variant="secondary">
             Sign in
           </Button>
         ) : null}
