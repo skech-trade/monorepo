@@ -196,13 +196,13 @@ pub fn rate_e6(scale: u64, g: u64) -> u128 {
 mod tests {
     use super::*;
 
-    const S: u64 = 10_000_000_000_000; // $10,000,000, the default
+    const S: u64 = 1_000_000_000_000; // $1,000,000, the default
     const E6: u64 = 1_000_000;
 
-    /// The integral in floating point.
+    /// The integral in floating point, in the form that does not cancel: 100 · S² · B / ((S + a)(S + a + B)).
     fn reference(scale: u64, from: u64, basis: u64) -> f64 {
-        let (s, a, b) = (scale as f64, from as f64, (from + basis) as f64);
-        100.0 * s * s * (1.0 / (s + a) - 1.0 / (s + b))
+        let (s, a, b) = (scale as f64, from as f64, basis as f64);
+        100.0 * (s / (s + a)) * (s / (s + a + b)) * b
     }
 
     fn rng(seed: &mut u64) -> u64 {
@@ -220,7 +220,7 @@ mod tests {
             (1_000_000 * E6, E6),
             (10_000_000 * E6, 10_000_000 * E6),
             (0, 100_000_000 * E6),
-            // Around $100M of tracked gain, where the default curve has all but run out.
+            // Around $100M of tracked gain, a hundred times the default scale, where the curve has all but run out.
             (100_000_000 * E6, E6),
             (100_000_000 * E6, 1_000_000 * E6),
             (1_000_000_000 * E6, E6),
@@ -271,19 +271,22 @@ mod tests {
 
     #[test]
     fn the_rate_is_the_table_in_the_docs() {
-        // At G = 0, $1M, $5M, $10M, $30M, $100M: 100, 82.6, 44.4, 25, 6.25, 0.83 SKT a dollar.
+        // At G = 0, $100k, $500k, $1M, $3M, $10M: 100, 82.6, 44.4, 25, 6.25, 0.83 SKT a dollar.
         let at = |usd: u64| rate_e6(S, usd * E6) as f64 / 1e6;
-        for (g, want) in [(0, 100.0), (1_000_000, 82.64), (5_000_000, 44.44), (10_000_000, 25.0), (30_000_000, 6.25), (100_000_000, 0.826)] {
+        for (g, want) in [(0, 100.0), (100_000, 82.64), (500_000, 44.44), (1_000_000, 25.0), (3_000_000, 6.25), (10_000_000, 0.826)] {
             assert!((at(g) - want).abs() < 0.01, "rate at ${g}: {} not {want}", at(g));
         }
-        // The first dollar mints all but a ten-millionth of 100 SKT.
-        assert_eq!(mint_amount(S, 0, E6), 99_999_990);
+        // The first dollar mints all but a millionth of 100 SKT.
+        assert_eq!(mint_amount(S, 0, E6), 99_999_900);
+        let at_1m = mint_amount(S, 1_000_000 * E6, E6);
+        assert!((24_999_900..=25_000_000).contains(&at_1m), "{at_1m}");
         let at_10m = mint_amount(S, 10_000_000 * E6, E6);
-        assert!((24_999_990..=25_000_000).contains(&at_10m), "{at_10m}");
+        assert!((826_440..=826_447).contains(&at_10m), "{at_10m}");
+        // Far past the scale, at $100M: (1/101)² of the rate.
         let at_100m = mint_amount(S, 100_000_000 * E6, E6);
-        assert!((826_440..=826_447).contains(&at_100m), "{at_100m}");
+        assert!((9_800..=9_804).contains(&at_100m), "{at_100m}");
         // However much is lost, even every u64 of it in one settlement, the whole curve is worth 100 · S, to everyone
-        // together: $1 billion of SKT at the default, and never an overflow.
+        // together: 100 million SKT at the default, and never an overflow.
         assert!(mint_amount(S, 0, 1_000_000_000 * E6) < 100 * S as u128);
         let all = mint_amount(S, 0, u64::MAX);
         assert!(all < 100 * S as u128 && all > 99 * S as u128, "{all}");

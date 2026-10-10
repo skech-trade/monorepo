@@ -1,13 +1,13 @@
 {
   "claim": 12279,
-  "holder_open": 7726,
+  "holder_open": 8851,
   "place_1": 32336,
   "place_16": 61066,
   "place_32": 91484,
   "place_8": 45753,
   "place_per_bump": 1500,
-  "post_and_settle_4_mixed": 121136,
-  "post_and_settle_4_mixed_open": 96528,
+  "post_and_settle_4_mixed": 121133,
+  "post_and_settle_4_mixed_open": 96521,
   "post_and_settle_4_one_band": 42806,
   "post_bar": 18055,
   "redeem": 13325

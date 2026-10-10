@@ -470,9 +470,9 @@ from an IOU.
 
 `G` is every basis minted on so far (`Rewards::gain`): what players have lost to the game, in expectation. It
 counts as 0 while anything is owed as IOU, so losses that pay off a shortfall mint at the full rate. `S` is the
-admin's (`mint_scale`, default $10,000,000), so the rate falls across a gain of $0 to $100M:
+admin's (`mint_scale`, default $1,000,000), so the rate falls across a gain of $0 to $10M:
 
-| tracked gain G | $0 | $1M | $5M | $10M | $30M | $100M |
+| tracked gain G | $0 | $100k | $500k | $1M | $3M | $10M |
 | --- | --- | --- | --- | --- | --- | --- |
 | SKT per $1 of basis | 100 | 82.6 | 44.4 | 25 | 6.25 | 0.83 |
 

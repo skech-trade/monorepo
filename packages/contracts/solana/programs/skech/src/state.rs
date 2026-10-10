@@ -321,9 +321,9 @@ pub struct RewardsConfig {
 }
 
 impl RewardsConfig {
-    /// 3 of the 4 stake points and 8 of the 10 profit points to holders; the curve's scale $10,000,000, so the rate falls
-    /// across a tracked gain of $0 to $100M: 100 SKT a dollar at 0, 25 at $10M, 0.83 at $100M.
-    pub const DEFAULT: RewardsConfig = RewardsConfig { holder_fee_bps: 300, holder_profit_fee_bps: 800, mint_scale: 10_000_000_000_000 };
+    /// 3 of the 4 stake points and 8 of the 10 profit points to holders; the curve's scale $1,000,000, so the rate falls
+    /// across a tracked gain of $0 to $10M: 100 SKT a dollar at 0, 25 at $1M, 0.83 at $10M.
+    pub const DEFAULT: RewardsConfig = RewardsConfig { holder_fee_bps: 300, holder_profit_fee_bps: 800, mint_scale: 1_000_000_000_000 };
 }
 
 /// SKT's global state: the supply, the holders' accumulator and the USDC set aside for them, and the tracked gain the

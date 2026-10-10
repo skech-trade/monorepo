@@ -58,7 +58,7 @@ const at = (units: number) => (AT + units) * UNIT;
 const flat = (second: number, price: number, high = price, low = price) => ({ second, prevClose: price, high, low, close: price });
 
 /** SKT's default terms, at the fees they are a part of. */
-const SKT = { holderFeeBps: 300, holderProfitFeeBps: 800, mintScale: 10_000_000_000_000 };
+const SKT = { holderFeeBps: 300, holderProfitFeeBps: 800, mintScale: 1_000_000_000_000 };
 
 const std = { players: { a: { deposit: 10_000_000, allowance: 5_000_000 } }, difficulty: 51, feeBps: 200, profitFeeBps: 1000, price: PRICE, unit: UNIT };
 
