@@ -21,9 +21,14 @@ export function RevealBand() {
           The price ran through five of these eight seconds. Those five paid.
         </Body>
       </div>
-      {/* Both twins ship; the stylesheet shows whichever the theme calls for, as the scenes do. */}
-      <Image alt="" aria-hidden="true" className={`${styles.art} ${styles.lightArt}`} sizes="(max-width: 63.999rem) calc(100vw - 3rem), 70rem" src={reveal} />
-      <Image alt="" aria-hidden="true" className={`${styles.art} ${styles.darkArt}`} sizes="(max-width: 63.999rem) calc(100vw - 3rem), 70rem" src={revealDark} />
+      {/*
+        Both twins ship; the stylesheet shows whichever the theme calls for, as the scenes do.
+
+        quality 96 because this is flat colour with hard edges, which is what a default-quality encode smears: at
+        75 the same frame comes back a third of the size, and the difference is all in the edges.
+      */}
+      <Image alt="" aria-hidden="true" className={`${styles.art} ${styles.lightArt}`} quality={96} sizes="(max-width: 63.999rem) calc(100vw - 7rem), 76rem" src={reveal} />
+      <Image alt="" aria-hidden="true" className={`${styles.art} ${styles.darkArt}`} quality={96} sizes="(max-width: 63.999rem) calc(100vw - 7rem), 76rem" src={revealDark} />
     </section>
   );
 }
