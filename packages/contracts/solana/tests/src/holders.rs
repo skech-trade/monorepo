@@ -215,8 +215,8 @@ fn no_surplus_is_shared_while_anything_is_owed() {
 #[test]
 fn no_wallet_mints_past_its_cap() {
     let mut t = T::new();
-    // A floor of 100 SKT, so a few dollars reach it.
-    let r = RewardsConfig { cap_floor: 100 * E6, ..t.g.rewards().config };
+    // The default cap, 10%, on a floor of 100 SKT, so a few dollars reach it.
+    let r = RewardsConfig { wallet_cap_bps: 1_000, cap_floor: 100 * E6, ..t.g.rewards().config };
     t.rewards_config(r);
     let (whale, others) = (t.g.player(1_000 * E6, 1_000 * E6), (0..3).map(|_| t.g.player(100 * E6, 100 * E6)).collect::<Vec<_>>());
     // Alone: 10 SKT, 10% of the floor, however much it loses.

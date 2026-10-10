@@ -41,11 +41,13 @@ pub fn share_surplus(ctx: Context<ShareSurplus>) -> Result<()> {
     require!(!ctx.accounts.game.paused, SkechError::Paused);
     let now = Clock::get()?.unix_timestamp;
     let (pool, rewards) = (&mut ctx.accounts.pool, &mut ctx.accounts.rewards);
+    rewards.catch_up(now);
     let amount = surplus(pool, rewards, now);
     require!(amount > 0, SkechError::NoSurplus);
-    pool.pool -= amount;
-    rewards.accrue(amount)?;
-    rewards.swept_total = rewards.swept_total.saturating_add(amount);
-    emit!(SurplusShared { amount, kept: pool.pool });
+    // While there are fewer shares than the cap's floor, only their part of it leaves the pool (`counted_shares`).
+    let shared = amount - rewards.accrue(amount, now)?;
+    pool.pool -= shared;
+    rewards.swept_total = rewards.swept_total.saturating_add(shared);
+    emit!(SurplusShared { amount: shared, kept: pool.pool });
     Ok(())
 }

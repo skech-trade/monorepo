@@ -45,7 +45,7 @@ export type Case = {
    * fees): its state also checks the supply, the holders' accumulator and funds, the tracked gain and every holder.
    * Without them the Solana runner sets SKT's split to nothing, so the fees are the EVM game's to the unit.
    */
-  skt?: { holderFeeBps: number; holderProfitFeeBps: number; mintScale: number };
+  skt?: { holderFeeBps: number; holderProfitFeeBps: number; mintScale: number; walletCapBps?: number; capFloor?: number };
   steps: Step[];
 };
 
@@ -57,8 +57,8 @@ const e8 = (usd: number) => Math.round(usd * 1e8);
 const at = (units: number) => (AT + units) * UNIT;
 const flat = (second: number, price: number, high = price, low = price) => ({ second, prevClose: price, high, low, close: price });
 
-/** SKT's default terms, at the fees they are a part of. */
-const SKT = { holderFeeBps: 300, holderProfitFeeBps: 800, mintScale: 1_000_000_000_000 };
+/** SKT's default terms, at the fees they are a part of; no wallet cap but in the case that tries it. */
+const SKT = { holderFeeBps: 300, holderProfitFeeBps: 800, mintScale: 1_000_000_000_000, walletCapBps: 10_000, capFloor: 0 };
 
 const std = { players: { a: { deposit: 10_000_000, allowance: 5_000_000 } }, difficulty: 51, feeBps: 200, profitFeeBps: 1000, price: PRICE, unit: UNIT };
 
@@ -350,6 +350,21 @@ export const CASES: Case[] = [
       // Two bands that miss in one settlement: their bases together, minted from where the tracked gain is.
       { place: { id: "two", player: "b", perDot: 1_000_000, sections: [{ second: 3, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 200_000_000 }, { second: 3, lo: AT - 5000, width: 5, stake: 2_000_000, chance: 900_000_000 }] } },
       { bar: { ...flat(3, PRICE), settle: ["two"] } },
+    ],
+  },
+  {
+    ...skt,
+    skt: { ...SKT, walletCapBps: 1_000, capFloor: 20_000_000 },
+    name: "SKT: no wallet past 10% of all SKT or of the floor (20 SKT), and every share counted against the larger",
+    steps: [
+      // B's dollar misses: 55 SKT by the curve, 2 by the cap (10% of the 20-SKT floor).
+      { place: { id: "b1", player: "b", perDot: 1_000_000, sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(1, PRICE), settle: ["b1"] } },
+      // A's nickel: of the holders' 0.15¢, B's 2 SKT of the 20-SKT floor take a tenth; the rest is the treasury's.
+      { place: { id: "a1", sections: [{ second: 2, lo: AT + 5000, width: 5, stake: 50_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(2, PRICE), settle: ["a1"] } },
+      { claim: "b" },
+      { claim: "a" },
     ],
   },
 ];

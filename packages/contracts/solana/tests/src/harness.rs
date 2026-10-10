@@ -155,7 +155,9 @@ impl Game {
         g.send(&[g.initialize_ix(&admin.pubkey())], &[&admin]).expect("initialize");
         g.send(&[g.ix(skech::accounts::InitMarket { admin: admin.pubkey(), game: game_pda(), market: market_pda(0), bars: bars_pda(0), system_program: system_program::ID }, skech::instruction::InitMarket { id: 0, name: "BTC-USD".into(), difficulty: 51 })], &[&admin])
             .expect("init market");
-        g.send(&[g.init_rewards_ix(Config::DEFAULT, RewardsConfig::DEFAULT)], &[&admin]).expect("init rewards");
+        // SKT's default terms but the wallet cap, which `holders.rs` and the conformance cases try where they mean to:
+        // the rest of the tests count every holder's part exactly.
+        g.send(&[g.init_rewards_ix(Config::DEFAULT, RewardsConfig { wallet_cap_bps: 10_000, ..RewardsConfig::DEFAULT })], &[&admin]).expect("init rewards");
         g.domain = g.game().domain;
         g
     }

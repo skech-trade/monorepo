@@ -26,8 +26,7 @@ const ACC_SCALE = 10n ** 24n;
 const MIN_TOTAL_SHARES = 1_000_000n;
 /** SKT's half-life, the wallet cap and its floor: the program's defaults. */
 const HALF_LIFE = 26n * 7n * 86_400n;
-const WALLET_CAP_BPS = 1_000n;
-const CAP_FLOOR = 1_000_000_000_000n;
+
 /** 2^(2^-i) for i = 1 to 32, times 2^62, rounded down: skt.rs `EXP2_TABLE`. */
 const EXP2_TABLE = [
   6521908912666391106n, 5484249825272419511n, 5029079263719320435n, 4815862801830788490n, 4712668792719003883n, 4661903986662671289n, 4636727017470743990n, 4624189567668517720n,
@@ -120,16 +119,30 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
     h.accAt = acc;
   };
   const owing = () => Object.values(owed).some((x) => x > 0n) || houseOwed > 0n;
+  // The wallet cap and its floor: the case's, or none.
+  const capBps = BigInt(skt?.walletCapBps ?? 10_000);
+  const capFloor = BigInt(skt?.capFloor ?? 0);
+  const weight = () => exp2Q32((t << 32n) / HALF_LIFE);
+  /** The shares a part is counted against: all of them, or the floor's worth while there are fewer (with a cap). */
+  const counted = () => {
+    if (capBps >= BPS) return totalShares;
+    const f = (capFloor * weight()) >> 32n;
+    return totalShares > f ? totalShares : f;
+  };
+  /** Share `amount` over `counted()`: what is set aside is rounded up; what is not shared is returned. */
   const accrue = (amount: bigint) => {
-    acc += (amount * ACC_SCALE) / totalShares;
-    holderFunds += amount;
+    const d = counted();
+    acc += (amount * ACC_SCALE) / d;
+    const shared = ceilDiv(amount * totalShares, d);
+    holderFunds += shared;
+    return amount - shared;
   };
   /** The holders' share of a stake's fee: to the pool while anything is owed, the treasury while there is no SKT. */
   const shareStakeFee = (amount: bigint) => {
     if (!amount) return;
     if (owing()) pool += amount;
     else if (totalShares < MIN_TOTAL_SHARES) fees += amount;
-    else accrue(amount);
+    else fees += accrue(amount);
   };
   /** The holders' share of a profit's fee: out of what the pool has left, or left in it while anything is owed. */
   const shareProfitFee = (amount: bigint) => {
@@ -137,7 +150,7 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
     if (!taken || owing()) return;
     pool -= taken;
     if (totalShares < MIN_TOTAL_SHARES) fees += taken;
-    else accrue(taken);
+    else fees += accrue(taken);
   };
   /**
    * A settlement's basis mints, from the tracked gain on, whatever is owed, and moves the gain on: as shares at today's
@@ -149,14 +162,17 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
     const curve = mintAmount(BigInt(skt!.mintScale), gain, basis);
     gain += basis;
     settleRewards(h);
-    const w = exp2Q32((t << 32n) / HALF_LIFE);
+    const w = weight();
     const full = (curve * w) >> 32n;
-    const floor = (CAP_FLOOR * w) >> 32n;
-    const sat = (x: bigint) => (x > 0n ? x : 0n);
-    const underFloor = sat((WALLET_CAP_BPS * floor) / BPS - h.shares);
-    const ofTotal = sat(WALLET_CAP_BPS * totalShares - BPS * h.shares) / (BPS - WALLET_CAP_BPS);
-    const room = underFloor > ofTotal ? underFloor : ofTotal;
-    const shares = full < room ? full : room;
+    let shares = full;
+    if (capBps < BPS) {
+      const floor = (capFloor * w) >> 32n;
+      const sat = (x: bigint) => (x > 0n ? x : 0n);
+      const underFloor = sat((capBps * floor) / BPS - h.shares);
+      const ofTotal = sat(capBps * totalShares - BPS * h.shares) / (BPS - capBps);
+      const room = underFloor > ofTotal ? underFloor : ofTotal;
+      if (room < shares) shares = room;
+    }
     const minted = shares === full ? curve : (shares << 32n) / w;
     h.shares += shares;
     h.basis += basis;

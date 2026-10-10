@@ -312,7 +312,7 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, o: Outcome, bet_info: &AccountInf
         b.pool.pool -= cut;
         b.pool.fees += cut;
         if let Some(r) = b.rewards.as_mut() {
-            r.share_profit_fee(b.pool, to_holders)?;
+            r.share_profit_fee(b.pool, to_holders, now)?;
         }
     }
     let mut refunded = 0;

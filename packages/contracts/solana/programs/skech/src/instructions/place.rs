@@ -148,7 +148,7 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
     pool.pool = pool.pool.checked_add(kept - fee).ok_or(SkechError::Overflow)?;
     pool.fees = pool.fees.checked_add(fee - to_holders).ok_or(SkechError::Overflow)?;
     let rewards = &mut ctx.accounts.rewards;
-    rewards.share_stake_fee(pool, to_holders)?;
+    rewards.share_stake_fee(pool, to_holders, now_ms / 1000)?;
     rewards.liability = rewards.liability.saturating_add(could_pay);
 
     let count = sections.len();

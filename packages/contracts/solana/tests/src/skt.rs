@@ -326,7 +326,7 @@ fn each_miss_mints_on_its_odds_weighted_loss_and_a_hit_on_nothing() {
 fn the_curve_decays_as_the_tracked_gain_grows() {
     let mut t = Table::new(Game::new());
     // S = $1, so a few dollars of basis walk the whole curve.
-    t.set_rewards(RewardsConfig { mint_scale: E6, ..RewardsConfig::DEFAULT });
+    t.set_rewards(RewardsConfig { mint_scale: E6, ..t.g.rewards().config });
     let (funder, x) = (t.g.player(50 * E6, 50 * E6), t.g.player(10 * E6, 10 * E6));
     // x's miss at 50% and 1.5x: a basis of 0.55 of its stake (0.25 expected loss and 0.025 of profit fee, over 0.5).
     // About a cent of basis each time.

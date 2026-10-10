@@ -150,7 +150,7 @@ const LONG: u32 = 10_000_000;
 fn with_a_dust_iou() -> T {
     let mut t = T::new();
     let admin = t.g.admin.insecure_clone();
-    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: E6, ..skech::state::RewardsConfig::DEFAULT });
+    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: E6, ..t.g.rewards().config });
     t.g.send(&[ix], &[&admin]).unwrap();
     let funder = t.g.player(100 * E6, 100 * E6);
     // $6 at 50%/1.5x with the 10% profit fee: a basis of $3.30, so G = 3.3S.
@@ -301,15 +301,15 @@ fn claims_while_paused_empty_claims_and_the_mint_scale() {
     let mut t = T::new();
     let admin = t.g.admin.insecure_clone();
     // The scale may be set before anything mints.
-    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: 2 * E6, ..skech::state::RewardsConfig::DEFAULT });
+    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: 2 * E6, ..t.g.rewards().config });
     t.g.send(&[ix], &[&admin]).expect("set before any SKT");
     let (a, b) = (t.g.player(10 * E6, 10 * E6), t.g.player(10 * E6, 10 * E6));
     t.play(&b, &[(FAR, 1_000_000, HALF)], HIT_AT);
     t.play(&a, &[(AT, 100_000, HALF)], HIT_AT);
     // Once SKT exists, no longer: the rest of the terms still may be.
-    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: 3 * E6, ..skech::state::RewardsConfig::DEFAULT });
+    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: 3 * E6, ..t.g.rewards().config });
     assert_eq!(custom_error(&t.g.send(&[ix], &[&admin])), Some(code(SkechError::MintScaleFixed)));
-    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: 2 * E6, holder_fee_bps: 200, ..skech::state::RewardsConfig::DEFAULT });
+    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: 2 * E6, holder_fee_bps: 200, ..t.g.rewards().config });
     t.g.send(&[ix], &[&admin]).expect("the split may change");
     // Paused: B still claims what its SKT earned.
     let pause = t.g.ix(skech::accounts::Admin { admin: admin.pubkey(), game: game_pda() }, skech::instruction::SetPaused { paused: true });

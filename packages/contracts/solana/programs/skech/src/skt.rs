@@ -92,15 +92,20 @@ pub fn route(pool: &Pool, rewards: &Rewards) -> Route {
 const ERA_LOG2: u128 = (ERA_HALVINGS as u128) << 32;
 
 impl Rewards {
-    /// The holders' share of a stake's fee: money that is in nobody's balance or pool yet.
-    pub fn share_stake_fee(&mut self, pool: &mut Pool, amount: u64) -> Result<()> {
+    /// The holders' share of a stake's fee: money that is in nobody's balance or pool yet. What the floor keeps from
+    /// holders (`accrue`) is the treasury's.
+    pub fn share_stake_fee(&mut self, pool: &mut Pool, amount: u64, now: i64) -> Result<()> {
         if amount == 0 {
             return Ok(());
         }
+        self.catch_up(now);
         match route(pool, self) {
             Route::Pool => pool.pool = pool.pool.checked_add(amount).ok_or(SkechError::Overflow)?,
             Route::Treasury => pool.fees = pool.fees.checked_add(amount).ok_or(SkechError::Overflow)?,
-            Route::Holders => self.accrue(amount)?,
+            Route::Holders => {
+                let left = self.accrue(amount, now)?;
+                pool.fees = pool.fees.checked_add(left).ok_or(SkechError::Overflow)?;
+            }
         }
         Ok(())
     }
@@ -108,11 +113,12 @@ impl Rewards {
     /// The holders' share of a profit's fee. It is in the pool, which pays the hit gross; it leaves the pool only as
     /// far as the pool has it left after the player and the treasury, as the treasury's cut does, and never as a debt.
     /// Owed IOUs, it simply stays there.
-    pub fn share_profit_fee(&mut self, pool: &mut Pool, amount: u64) -> Result<()> {
+    pub fn share_profit_fee(&mut self, pool: &mut Pool, amount: u64, now: i64) -> Result<()> {
         let taken = amount.min(pool.pool);
         if taken == 0 {
             return Ok(());
         }
+        self.catch_up(now);
         match route(pool, self) {
             Route::Pool => {}
             Route::Treasury => {
@@ -121,24 +127,45 @@ impl Rewards {
             }
             Route::Holders => {
                 pool.pool -= taken;
-                self.accrue(taken)?;
+                let left = self.accrue(taken, now)?;
+                pool.fees = pool.fees.checked_add(left).ok_or(SkechError::Overflow)?;
             }
         }
         Ok(())
     }
 
-    /// Share `amount` among every share there is. `acc` is rounded down: what the rounding leaves stays in
-    /// `holder_funds`, never anyone's. Only with at least MIN_TOTAL_SHARES shares (`route`).
-    pub fn accrue(&mut self, amount: u64) -> Result<()> {
-        require!(self.total_shares >= MIN_TOTAL_SHARES, SkechError::Overflow);
-        // amount · 1e24 < 2^144 would overflow: split it, amount · (SCALE / total) + amount · (SCALE % total) / total.
-        let t = self.total_shares;
-        let add = mul_div(amount as u128, ACC_SCALE, t).ok_or(SkechError::Overflow)?;
+    /// The shares a part is counted against: all of them, or, while there are fewer, the cap's floor (`cap_floor` SKT at
+    /// today's weight). A wallet's mints never take it past `wallet_cap_bps` of the larger (`mint`), and every share is
+    /// shared over the larger, so no wallet is ever paid more than that part of anything shared: not of its own fees
+    /// recycled, nor of the pool's surplus. With no cap, all the shares.
+    pub fn counted_shares(&self, now: i64) -> u128 {
+        if self.config.wallet_cap_bps as u64 >= BPS {
+            return self.total_shares;
+        }
+        self.total_shares.max((self.config.cap_floor as u128).saturating_mul(self.weight_q32(now)) >> 32)
+    }
+
+    /// Share `amount` among every share there is, counted against `counted_shares`: what is not shared (the floor's
+    /// part, while there are fewer shares than it) is returned, for the caller to give the treasury or keep. `acc` is
+    /// rounded down: what the rounding leaves stays in `holder_funds`, never anyone's. Only with at least
+    /// MIN_TOTAL_SHARES shares (`route`): with fewer, after catching up, nothing is shared.
+    pub fn accrue(&mut self, amount: u64, now: i64) -> Result<u64> {
+        // Into today's era first, so today's weight is under 2^ERA_HALVINGS. Too few shares left to share it: none of it.
+        self.catch_up(now);
+        if self.total_shares < MIN_TOTAL_SHARES {
+            return Ok(amount);
+        }
+        let (t, d) = (self.total_shares, self.counted_shares(now));
+        // amount · 1e24 can pass 2^128: through 256 bits.
+        let add = mul_div(amount as u128, ACC_SCALE, d).ok_or(SkechError::Overflow)?;
+        // Every holder's part, rounded down and counted on the accumulator's running total, adds up to at most the sum
+        // of t · amount / d over every share: each is set aside rounded up, so the parts never pass what is set aside.
+        let shared = mul_div_ceil(amount as u128, t, d).ok_or(SkechError::Overflow)? as u64;
         self.acc = self.acc.checked_add(add).ok_or(SkechError::Overflow)?;
-        self.holder_funds = self.holder_funds.checked_add(amount).ok_or(SkechError::Overflow)?;
-        self.accrued_total = self.accrued_total.checked_add(amount).ok_or(SkechError::Overflow)?;
-        emit!(HolderAccrued { amount, acc: self.acc, total_shares: t, era: self.era });
-        Ok(())
+        self.holder_funds = self.holder_funds.checked_add(shared).ok_or(SkechError::Overflow)?;
+        self.accrued_total = self.accrued_total.checked_add(shared).ok_or(SkechError::Overflow)?;
+        emit!(HolderAccrued { amount: shared, acc: self.acc, total_shares: t, era: self.era });
+        Ok(amount - shared)
     }
 
     /// A share's weight now, as its log2 times 2^32, from the anchor on.
@@ -216,6 +243,8 @@ impl Rewards {
         let cap = self.config.wallet_cap_bps as u128;
         let shares = if cap < BPS as u128 {
             let (t, h, f) = (self.total_shares, holder.shares, (self.config.cap_floor as u128 * w) >> 32);
+            // So the holder's shares stay within c of `counted_shares` from here on: the total only grows (or is divided
+            // with theirs at an era's end), and the floor's shares grow with the weight.
             let under_floor = (cap * f / BPS as u128).saturating_sub(h);
             let of_total = (cap * t).saturating_sub(BPS as u128 * h) / (BPS as u128 - cap);
             full.min(under_floor.max(of_total))
@@ -351,6 +380,13 @@ pub fn mul_div(a: u128, b: u128, d: u128) -> Option<u128> {
         }
     }
     Some(q)
+}
+
+/// `a · b / d`, rounded up.
+pub fn mul_div_ceil(a: u128, b: u128, d: u128) -> Option<u128> {
+    let q = mul_div(a, b, d)?;
+    let exact = mul_wide(q, d) == mul_wide(a, b);
+    Some(if exact { q } else { q + 1 })
 }
 
 /// The full 256-bit product, as (high, low) halves.
@@ -587,7 +623,7 @@ mod tests {
                         r.mint(&mut holders[i], basis, now).unwrap();
                     }
                     1 => now += (rng(&mut seed) % (40 * r.config.half_life_secs as u64)) as i64,
-                    _ if r.total_shares >= MIN_TOTAL_SHARES => r.accrue(rng(&mut seed) % 10_000_000_000).unwrap(),
+                    _ if r.total_shares >= MIN_TOTAL_SHARES => { r.accrue(rng(&mut seed) % 10_000_000_000, now).unwrap(); },
                     _ => {}
                 }
             }
@@ -672,7 +708,7 @@ mod tests {
         a.settle_rewards(&r).unwrap();
         let (sa, sb) = (r.balance_of(a.shares, a.era, H) as f64, r.balance_of(b.shares, b.era, H) as f64);
         assert!(sb / sa > 1.9 && sb / sa < 2.0, "{sa} {sb}");
-        r.accrue(1_000_000).unwrap();
+        r.accrue(1_000_000, H).unwrap();
         a.settle_rewards(&r).unwrap();
         b.settle_rewards(&r).unwrap();
         // Split by shares, which is by balance now: B about two thirds.
@@ -700,12 +736,12 @@ mod tests {
             while now < jump_years * year {
                 now += year / 12;
                 r.mint(&mut steady, 1_000_000_000, now).unwrap();
-                r.accrue(10_000_000_000).unwrap();
+                r.accrue(10_000_000_000, now).unwrap();
                 assert!(r.total_shares < 1 << 75 && r.anchor_log2 < (ERA_HALVINGS as u64) << 32);
             }
             // A late player, and the whale untouched the whole time, then everyone settles.
             r.mint(&mut late, 1_000_000_000, now).unwrap();
-            r.accrue(10_000_000_000).unwrap();
+            r.accrue(10_000_000_000, now).unwrap();
             // Every u64 of basis besides, at once: no overflow.
             let mut probe = Holder::default();
             r.mint(&mut probe, u64::MAX, now).unwrap();
@@ -743,6 +779,11 @@ mod tests {
         r.mint(&mut whale, 1_000_000 * 1_000_000, 0).unwrap();
         let cap = r.config.cap_floor / 10;
         assert!(r.balance_of(whale.shares, 0, 0) <= cap && r.balance_of(whale.shares, 0, 0) > cap - 10, "{}", r.balance_of(whale.shares, 0, 0));
+        // It holds all the SKT there is, but every share is counted against the floor: it is paid a tenth of anything
+        // shared, its own fees recycled included, and the rest is not shared (the treasury's, or the pool's).
+        let left = r.accrue(1_000_000, 0).unwrap();
+        whale.settle_rewards(&r).unwrap();
+        assert!(whale.unclaimed <= 100_000 && whale.unclaimed >= 99_990 && left >= 899_999, "{} {left}", whale.unclaimed);
         // Others mint: the whale may grow to 10% of the total and no further.
         let mut others: Vec<Holder> = (0..50).map(|_| Holder::default()).collect();
         let mut seed = 21u64;
@@ -753,6 +794,12 @@ mod tests {
             r.mint(&mut whale, 1 + rng(&mut seed) % 200_000_000_000, now).unwrap();
             let floor = (r.config.cap_floor as u128 * r.weight_q32(now)) >> 32;
             assert!(whale.shares * 10 <= r.total_shares.max(floor) + 10, "step {i}: {} of {}", whale.shares, r.total_shares);
+            // So it is never paid more than a tenth of what is shared.
+            whale.settle_rewards(&r).unwrap();
+            let mark = whale.unclaimed;
+            r.accrue(10_000_000, now).unwrap();
+            whale.settle_rewards(&r).unwrap();
+            assert!(whale.unclaimed - mark <= 1_000_000, "step {i}: paid {} of 10,000,000", whale.unclaimed - mark);
         }
         assert!(whale.shares * 10 > r.total_shares * 9 / 10, "the whale reached its cap");
         // With no cap, the same losses mint the curve.

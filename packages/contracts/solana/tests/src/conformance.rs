@@ -40,6 +40,8 @@ struct SktIn {
     holder_fee_bps: u16,
     holder_profit_fee_bps: u16,
     mint_scale: u64,
+    wallet_cap_bps: Option<u16>,
+    cap_floor: Option<u64>,
 }
 #[derive(Deserialize)]
 struct PlayerIn {
@@ -197,7 +199,7 @@ fn run(c: &Case) {
     config.max_per_dot = 10_000_000;
     config.max_piece_stake = 1_000_000_000;
     // SKT's split first, so the case's fees (2%, which the default 3% split does not fit in) pass.
-    let split = c.skt.as_ref().map(|s| skech::state::RewardsConfig { holder_fee_bps: s.holder_fee_bps, holder_profit_fee_bps: s.holder_profit_fee_bps, mint_scale: s.mint_scale, ..skech::state::RewardsConfig::DEFAULT }).unwrap_or(skech::state::RewardsConfig { holder_fee_bps: 0, holder_profit_fee_bps: 0, ..skech::state::RewardsConfig::DEFAULT });
+    let split = c.skt.as_ref().map(|s| skech::state::RewardsConfig { holder_fee_bps: s.holder_fee_bps, holder_profit_fee_bps: s.holder_profit_fee_bps, mint_scale: s.mint_scale, wallet_cap_bps: s.wallet_cap_bps.unwrap_or(10_000), cap_floor: s.cap_floor.unwrap_or(0), ..skech::state::RewardsConfig::DEFAULT }).unwrap_or(skech::state::RewardsConfig { holder_fee_bps: 0, holder_profit_fee_bps: 0, ..skech::state::RewardsConfig::DEFAULT });
     let zero = skech::state::RewardsConfig { holder_fee_bps: 0, holder_profit_fee_bps: 0, ..split };
     g.send(&[g.set_rewards_config_ix(zero), g.set_config_ix(config), g.set_rewards_config_ix(split)], &[&admin]).expect("config");
     let market = g.ix(skech::accounts::SetMarket { admin: admin.pubkey(), game: game_pda(), market: market_pda(0) }, skech::instruction::SetMarket { active: true, difficulty: c.difficulty });
