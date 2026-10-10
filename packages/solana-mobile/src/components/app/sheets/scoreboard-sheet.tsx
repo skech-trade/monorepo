@@ -4,7 +4,7 @@ import Svg, { Circle, Line as SvgLine, Path } from "react-native-svg";
 import { fmtMultiple } from "@/components/app/ink/stage";
 import { Button, Sheet, useColors } from "@/components/ui";
 import { money, signed } from "@/lib/money";
-import { usePractice } from "@/lib/practice";
+import { usePracticeOf } from "@/lib/practice";
 import { curve, resetScoreboard, type Scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { useDark } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -23,7 +23,8 @@ function useSuccessInk() {
  */
 export function ScoreboardSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const s = useScoreboard();
-  const all = usePractice();
+  // Only the all-time bests: the rest of the store moves with every piece placed.
+  const all = usePracticeOf("bestHit", "bestStreak");
   const rounds = s.rounds.length;
   const ahead = s.rounds.filter((r) => r.won > r.cost);
   // From the first round to the last: pure, and what the session actually spanned.

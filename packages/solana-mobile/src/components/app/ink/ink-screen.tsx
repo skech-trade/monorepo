@@ -2,7 +2,7 @@ import { sha256 } from "@noble/hashes/sha256";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "@/components/ui/icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { BURST, type Tier, winTier } from "@skech/core/cheer";
 import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,14 +19,14 @@ import { useGate, useGatePanels } from "@/components/app/gate";
 import { BitcoinMark, Button, Popover, raised, Sheet, Spinner, Switch, useColors } from "@/components/ui";
 import { hasAuth } from "@/lib/config";
 import { useAppActive } from "@/lib/lifecycle";
-import { useEngine } from "@/lib/engine";
+import { type Market, useEngine } from "@/lib/engine";
 import { track } from "@/lib/analytics";
 import { celebrate, feel, stayAwake } from "@/lib/feel";
 import { FieldMaker } from "@/lib/field";
 import { library } from "@/lib/library";
 import { money, signed, skt as sktAmount } from "@/lib/money";
 import { endPaperRun, paper, paperCredit, paperDebit, paperDrew, paperTick, pausePaperRun, resumePaperRun, startPaperRun, usePaper, usePaperPhase } from "@/lib/paper";
-import { cents, practice, record, setPractice, usePractice } from "@/lib/practice";
+import { cents, practice, record, setPractice, usePracticeOf } from "@/lib/practice";
 import { type Incoming, leastPiece } from "@/lib/relayer";
 import { scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { setDark, useDark } from "@/lib/theme";
@@ -188,6 +188,69 @@ function Price({ value, className }: { value: number; className?: string }) {
   );
 }
 
+/*
+  Three things on this screen change faster than it should re-render: the price, with every trade batch; the terms of
+  the stroke under the pen, with every move; and the practice balance, with every piece placed. Each is its own small
+  component that listens for its own value, as on the web, so the screen around them renders only when something
+  else changes.
+*/
+
+/** The price in the market row, from the feed as each trade batch lands. */
+function LivePrice({ feed, className }: { feed: Market; className?: string }) {
+  const price = useSyncExternalStore(feed.subscribe, () => feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0);
+  return price ? <Price className={className} value={price} /> : <View className="my-[3px] h-6 w-32 rounded-md bg-muted" />;
+}
+
+/** The practice balance, read here so only the figure renders as each piece goes in. */
+function PracticeBalance({ children }: { children: (balance: number) => React.ReactNode }) {
+  const { balance } = usePracticeOf("balance");
+  return <>{children(balance)}</>;
+}
+
+/** A value that changes faster than the screen should re-render, for the one part that shows it. */
+type Signal<T> = { get: () => T; set: (next: T) => void; subscribe: (fn: () => void) => () => void };
+function signal<T>(initial: T): Signal<T> {
+  let value = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (next) => {
+      value = next;
+      for (const fn of listeners) fn();
+    },
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => void listeners.delete(fn);
+    },
+  };
+}
+
+/** While drawing: what the stroke has put in play, and the most it can earn. */
+function PreviewPill({ preview: store, top }: { preview: Signal<Preview | null>; top: number }) {
+  const preview = useSyncExternalStore(store.subscribe, store.get);
+  if (!preview) return null;
+  return (
+    <View className="absolute inset-x-0 z-20 items-center" pointerEvents="none" style={{ top }}>
+      <Arrive motion={MOTION.pillIn}>
+        <View className="flex-row gap-4 rounded-full border-[0.5px] border-border bg-raised px-4 py-2" style={raised}>
+          {preview.inPlay.length ? (
+            <>
+              <Text className="text-[14px] text-muted-foreground">
+                In play <Text className="font-semibold text-foreground">{money(preview.cost)}</Text>
+              </Text>
+              <Text className="text-[14px] text-muted-foreground">
+                Could earn <Text className="font-semibold text-brand">{money(preview.high)}</Text>
+              </Text>
+            </>
+          ) : (
+            <Text className="text-[14px] text-muted-foreground">Move to a spot with a multiplier on it</Text>
+          )}
+        </View>
+      </Arrive>
+    </View>
+  );
+}
+
 function ToggleRow({ title, detail, checked, onChange }: { title: string; detail: string; checked: boolean; onChange: (next: boolean) => void }) {
   return (
     <View className="min-h-[60px] flex-row items-center gap-3 px-4">
@@ -285,7 +348,8 @@ export function InkScreen() {
   useEffect(() => {
     feedRef.current = feed;
   });
-  const state = usePractice();
+  // Not the balance (PracticeBalance) nor the drawings in play (only kept, never shown): those change many times a second.
+  const state = usePracticeOf("perDot", "brush", "taught", "houseDifficulty", "sound", "haptics");
   const chain = useChain();
   const chainRef = useRef(chain);
   useEffect(() => {
@@ -313,7 +377,9 @@ export function InkScreen() {
     };
   }, []);
 
-  const [preview, setPreview] = useState<Preview | null>(null);
+  /* The stroke's terms, for the pill; the screen itself only needs to know whether there is a stroke. */
+  const [preview] = useState(() => signal<Preview | null>(null));
+  const [previewing, setPreviewing] = useState(false);
   // Settings and How it works are held by the gate, so the account menu opens them too.
   const { help, setHelp, settings: settingsOpen, setSettings: setSettingsOpen } = useGatePanels();
   const [returnedInk, setReturnedInk] = useState<{ id: string; amount: number } | null>(null);
@@ -658,8 +724,13 @@ export function InkScreen() {
   }, [letGo]);
 
   const restored = useRef(false);
-  const { bars, ticks, skew, version } = feed;
-  useEffect(() => {
+  /*
+    Run for every trade batch, straight from the feed, not from a render: the screen does not re-render for a trade.
+    Everything it reads is in refs or the feed's store, so a callback from an earlier render judges the same as a
+    fresh one would; it is made again only when the paths or the feed change. As the web's `judgeTrades`.
+  */
+  const judgeTrades = useCallback(() => {
+    const { bars, ticks, skew } = feed;
     const g = game.current;
     g.bars = bars;
     g.ticks = ticks;
@@ -816,7 +887,11 @@ export function InkScreen() {
     if (inPlay) stayAwake();
     g.bets = g.bets.filter((b) => !decided(b) || b.cells.some((d) => d.t + 3000 > nowMs) || waiting.has(b.id));
     updateTotals();
-  }, [bars, ticks, skew, version, lib, updateTotals]);
+  }, [feed, lib, updateTotals]);
+  useEffect(() => {
+    judgeTrades();
+    return feed.subscribe(judgeTrades);
+  }, [feed, judgeTrades]);
 
   /* Ink goes in as it is drawn: every few moments while the pen is down, the ink added since the last piece opens on the next second. */
   const onPlace = useCallback(
@@ -1129,14 +1204,17 @@ export function InkScreen() {
   };
 
   const painted = useRef(0);
-  const onPreview = useCallback((p: Preview | null) => {
-    setPreview(p);
-    const n = p?.inPlay.length ?? 0;
-    if (n > painted.current) feel("tick");
-    painted.current = n;
-  }, []);
+  const onPreview = useCallback(
+    (p: Preview | null) => {
+      preview.set(p);
+      setPreviewing(p !== null);
+      const n = p?.inPlay.length ?? 0;
+      if (n > painted.current) feel("tick");
+      painted.current = n;
+    },
+    [preview],
+  );
 
-  const shownBalance = forReal ? chain.balance : state.balance;
   const onboarding = useOnboarding(live);
   // Less in the balance than one piece stakes (1¢), with nothing in play: the deposit sheet, not the chart.
   const leastUsd = Number(leastPiece(chain.hello)) / 1e6;
@@ -1146,7 +1224,6 @@ export function InkScreen() {
     topUp.current = false;
     if (chain.balance < leastUsd) gate.openDeposit("short");
   }, [live, real, chain.account, chain.balance, gate, leastUsd]);
-  const price = feed.ticks.at(-1)?.p ?? feed.bars.at(-1)?.c ?? 0;
   /*
     Signed out, the phone plays for practice money, as the web did before there was a game on chain: the game is
     there to try. Signing in (the bar) puts real USDC on Solana in play.
@@ -1171,18 +1248,22 @@ export function InkScreen() {
   // What How it works explains: the paper run, real USDC (a build that signs in), or practice money.
   const helpMode = paperOn ? "paper" : forReal ? "real" : "practice";
   // The balance, green and a little larger for a moment when money comes back, and what just moved it under it.
+  const balanceFigure = (shownBalance: number) =>
+    cheer ? (
+      <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} key={cheer.key} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
+    ) : (
+      <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
+    );
   const balance = (
     <>
       <Text className="text-[12px] text-muted-foreground">Balance</Text>
-      <Bump on={gained > 0}>
-        {cheer ? (
-          <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} key={cheer.key} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
-        ) : (
-          <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
-        )}
-      </Bump>
+      <Bump on={gained > 0}>{forReal ? balanceFigure(chain.balance) : <PracticeBalance>{balanceFigure}</PracticeBalance>}</Bump>
       <Ledger />
     </>
+  );
+  const helpSections = useMemo(
+    () => howItWorks({ mode: helpMode, terms: chain.hello?.terms, difficulty: helpMode === "real" ? (chain.hello?.difficulty ?? level) : level, horizon: RULES.horizon, network: chain.hello?.label, testMoney: Boolean(chain.hello?.faucet), device: "phone" }),
+    [helpMode, chain.hello, level],
   );
 
   return (
@@ -1210,7 +1291,7 @@ export function InkScreen() {
                 <Text className="font-semibold text-[13px] text-muted-foreground">Bitcoin</Text>
                 <ChevronDownIcon color={c.muted} size={12} strokeWidth={2.4} />
               </View>
-              {price ? <Price className={cn("font-bold text-foreground", width < 430 ? "text-[21px]" : "text-[24px]")} value={price} /> : <View className="my-[3px] h-6 w-32 rounded-md bg-muted" />}
+              <LivePrice className={cn("font-bold text-foreground", width < 430 ? "text-[21px]" : "text-[24px]")} feed={feed} />
             </View>
           </Pressable>
           {paperOn && !me.signedIn ? (
@@ -1219,7 +1300,7 @@ export function InkScreen() {
             <View className="flex-row items-center gap-[14px]">
               {/* The one balance on screen. Playing for real it opens the wallet: deposit, withdraw. */}
               {real ? (
-                <WalletButton accessibilityLabel={`Balance ${money(shownBalance)}. Deposit or withdraw`} className="items-end">
+                <WalletButton accessibilityLabel={`Balance ${money(forReal ? chain.balance : practice().balance)}. Deposit or withdraw`} className="items-end">
                   {balance}
                 </WalletButton>
               ) : (
@@ -1250,25 +1331,8 @@ export function InkScreen() {
       ) : null}
 
       {paperOn ? <PaperClock top={top + 112} /> : null}
-      {preview ? (
-        <View className="absolute inset-x-0 z-20 items-center" pointerEvents="none" style={{ top: top + 112 + (paperOn ? clockRoom : 0) }}>
-          <Arrive motion={MOTION.pillIn}>
-            <View className="flex-row gap-4 rounded-full border-[0.5px] border-border bg-raised px-4 py-2" style={raised}>
-              {preview.inPlay.length ? (
-                <>
-                  <Text className="text-[14px] text-muted-foreground">
-                    In play <Text className="font-semibold text-foreground">{money(preview.cost)}</Text>
-                  </Text>
-                  <Text className="text-[14px] text-muted-foreground">
-                    Could earn <Text className="font-semibold text-brand">{money(preview.high)}</Text>
-                  </Text>
-                </>
-              ) : (
-                <Text className="text-[14px] text-muted-foreground">Move to a spot with a multiplier on it</Text>
-              )}
-            </View>
-          </Arrive>
-        </View>
+      {previewing ? (
+        <PreviewPill preview={preview} top={top + 112 + (paperOn ? clockRoom : 0)} />
       ) : paperOn ? (
         !state.taught && fresh && paperPhase === "running" ? (
           <Pill top={pillTop + clockRoom}>
@@ -1284,7 +1348,7 @@ export function InkScreen() {
       ) : null}
 
       {/* The round just over: a profit springs in, in the middle; a loss is a small toast bottom right, as on the web's phone. */}
-      {over && !preview ? (
+      {over && !previewing ? (
         <View className={cn("absolute z-20", overWon ? "inset-x-0 items-center" : "right-4")} key={over.key} pointerEvents="none" style={{ bottom: bottom + 78 }}>
           <Arrive motion={overBig ? MOTION.cardBig : overWon ? MOTION.cardIn : MOTION.cardSoft}>
             <View className={cn("border-[0.5px] bg-raised", overWon ? "items-center rounded-[20px] px-[22px] py-2.5" : "items-end rounded-2xl px-[18px] py-[9px]", "border-border")} style={raised}>
@@ -1316,7 +1380,7 @@ export function InkScreen() {
         </View>
       ) : null}
 
-      {refused && !preview && !over ? (
+      {refused && !previewing && !over ? (
         <Arrive key={`refused:${refused.id}`} motion={MOTION.pillUp} pointerEvents="none" style={{ position: "absolute", right: 16, bottom: bottom + 78, zIndex: 20 }}>
           <View accessibilityLiveRegion="polite" className="rounded-full border-[0.5px] border-border bg-raised px-3 py-1.5" style={raised}>
             <Text className="text-[12px] text-muted-foreground">
@@ -1324,7 +1388,7 @@ export function InkScreen() {
             </Text>
           </View>
         </Arrive>
-      ) : sktNote?.lost && !preview && !over ? (
+      ) : sktNote?.lost && !previewing && !over ? (
         <Arrive key={`skt:${sktNote.line}`} motion={MOTION.pillUp} pointerEvents="none" style={{ position: "absolute", right: 16, bottom: bottom + 78, zIndex: 20 }}>
           <View accessibilityLiveRegion="polite" className="rounded-full border-[0.5px] border-border bg-raised px-3 py-1.5" style={raised}>
             <Text className="text-[12px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
@@ -1332,7 +1396,7 @@ export function InkScreen() {
             </Text>
           </View>
         </Arrive>
-      ) : returnedInk && !preview && !over ? (
+      ) : returnedInk && !previewing && !over ? (
         <Arrive key={returnedInk.id} motion={MOTION.pillUp} pointerEvents="none" style={{ position: "absolute", right: 16, bottom: bottom + 78, zIndex: 20 }}>
           <View className="rounded-full border-[0.5px] border-border bg-raised px-3 py-1.5" style={raised}>
             <Text className="text-[12px] text-muted-foreground">
@@ -1401,7 +1465,7 @@ export function InkScreen() {
           <View>
             <Text className="text-[13px] text-muted-foreground">{forReal ? "Balance" : "Practice balance"}</Text>
             <Text className="font-semibold text-[17px] text-foreground" style={{ fontVariant: ["tabular-nums"] }}>
-              {money(forReal ? chain.balance : state.balance)}
+              {forReal ? money(chain.balance) : <PracticeBalance>{money}</PracticeBalance>}
             </Text>
           </View>
           {forReal ? (
@@ -1469,7 +1533,7 @@ export function InkScreen() {
       </Sheet>
 
       <Sheet description={howItWorksSummary({ mode: helpMode, network: chain.hello?.label })} onClose={() => setHelp(false)} open={help} title="How it works">
-        {howItWorks({ mode: helpMode, terms: chain.hello?.terms, difficulty: helpMode === "real" ? (chain.hello?.difficulty ?? level) : level, horizon: RULES.horizon, network: chain.hello?.label, testMoney: Boolean(chain.hello?.faucet), device: "phone" }).map((section) => (
+        {helpSections.map((section) => (
           <View className="gap-1.5" key={section.title}>
             <Text className="font-semibold text-[16px] text-foreground">{section.title}</Text>
             {section.lines.map((line) => (
