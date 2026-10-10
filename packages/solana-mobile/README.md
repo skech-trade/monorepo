@@ -1,6 +1,9 @@
 # solana-mobile
 
-Solana Foundation's [kit-expo-privy](https://solana.com/developers/templates/kit-expo-privy) template ([source](https://github.com/solana-foundation/templates/tree/main/mobile/kit-expo-privy), commit `9e4bbfc`, MIT), copied as is. It's listed as excluded in the root `workspaces` (`!packages/solana-mobile`) on purpose: it's an npm project with its own `package-lock.json`, so its React Native dependencies never mix with the web apps'. Run everything from this folder with `npm`.
+skech on phones: the web app, screen for screen, playing for USDC on Solana devnet through the same relayer, with the
+same free trial, fees and SKT. Its How it works sheet says what the web's does, from `@skech/core/explain`.
+
+It began as Solana Foundation's [kit-expo-privy](https://solana.com/developers/templates/kit-expo-privy) template ([source](https://github.com/solana-foundation/templates/tree/main/mobile/kit-expo-privy), commit `9e4bbfc`, MIT). It's listed as excluded in the root `workspaces` (`!packages/solana-mobile`) on purpose: it's an npm project with its own `package-lock.json`, so its React Native dependencies never mix with the web apps'. Run everything from this folder with `npm`.
 
 This is an [Expo](https://expo.dev) project pre-configured with [Uniwind](https://uniwind.dev/) for styling and Solana libraries.
 
@@ -54,7 +57,7 @@ In the output, you'll find options to open the app in an Android development bui
 
 This template requires native modules and Mobile Wallet Adapter support, so it does not support Expo Go or iOS simulator.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+The screens are in `src/app`. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
 ## Test wallet connections
 

@@ -97,6 +97,7 @@ The game is on devnet (2026-10-01). Every address is in `packages/contracts/depl
 |---|---|
 | Program | `2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV` (upgrade authority: the deployer, `7Qfww9…Njng`) |
 | Game | `EQmnM7EP6ewPvjq81cCKmcKKzXFi5WGuciHfDtTCpyxF`, BTC-USD at difficulty 51: 4% of stakes, 10% of profit (3 and 8 points to SKT holders, 1 and 2 to the treasury; 75% of the pool's surplus to holders, 25% to the treasury) |
+| SKT | live since 2026-10-10: `Rewards` `EkpMFY…Vvd71`, carried in the lookup table `HvMYfL…RzXX` |
 | USDC | Circle's devnet mint, `4zMMC9…DncDU` |
 | Oracle and relayer | `3hNNKVAfS95A1Rqqss7xoRS8PZceQbKCS4HCfhDsGe9s`, 0.3 SOL |
 

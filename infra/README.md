@@ -121,11 +121,11 @@ not read.
 
 | State | Where | If it is lost |
 |---|---|---|
-| balances, bets, IOUs, fees | on chain: the Solana program's accounts | not possible to lose |
+| balances, bets, IOUs, fees, SKT | on chain: the Solana program's accounts | not possible to lose |
 | bets placed but not yet settled | `/var/lib/skech-relayer/.relayer-state.solana-<cluster>.<game>.json` | survives restarts and deploys; backed up every 15 minutes (below) |
 | the gas keeper's last swap and the day's USDC swapped | `/var/lib/skech-relayer/.relayer-state.keeper.solana-<cluster>.json` | the day's cap and the hour between swaps start over; backed up with the above |
-| sign-in, wallet | Coinbase CDP | Coinbase keeps it |
-| session key | the player's browser, IndexedDB | the player signs in again |
+| sign-in, wallet | Privy: the login and each player's embedded Solana wallet | Privy keeps it |
+| session key | the player's browser (IndexedDB), or the phone's secure store | the player signs in again |
 | profiles, avatars, follows, drawings and their results | Postgres, `skech_social` (`SOCIAL_DATABASE_URL`) | the numbers are read again from the chain; profiles, follows and drawings' shapes are not: the database's backups |
 | settings, practice money, scoreboard | the player's browser, local and session storage | per device on purpose |
 | waitlist emails | a Google Sheet, via `WAITLIST_SHEET_URL` in `ui/landing` | kept in the Sheet |

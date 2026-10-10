@@ -18,6 +18,7 @@ The game: one Anchor program, `skech`, on Solana. It is the same game as the EVM
 | Deposits | EIP-3009 authorization | `deposit` signed by the wallet, or `sweep` on a standing SPL approval, so USDC that lands in the wallet moves in by itself |
 | Gas | players never hold the chain's coin | players never hold SOL: the relayer is fee payer and pays every rent |
 | Initializing | the deployer | **only the program's upgrade authority**, so nobody can take a fresh deployment first; a vault someone created first is used, not a block; USDC must be an SPL Token mint (Token-2022's extensions could leave the vault short) |
+| Refused ink | any band the ladder gives a rung | also refused: **a band past the stake fee** (chance × rung over 1 − the fee, `ladder::within_fee`: certain ink at 1×, ink just under a rung) and **a band over 64 grid units** (`MAX_SECTION_WIDTH`). Such ink loses nothing, and with SKT churning it would move the pool to holders through the fee's share |
 | Terms | set by `initialize` | the same, `Config::DEFAULT` = `SkechGame.initialize`'s (a test on each side reads the Solidity) |
 
 Accounts: `Game` (terms, oracle, vault; read-only to players), `Pool` (the pool, the fees, the IOU index), `Market` and `Bars` per market, `Player` per wallet, `Bet` per piece, and for SKT `Rewards` (one: shares, the holders' accumulator and its last eras, their funds, the tracked gain, the decay's clock, live bets' liability, SKT's terms) and `Holder` per wallet (shares and their era, earnings, basis). All are PDAs of the program.
