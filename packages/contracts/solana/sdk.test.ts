@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { address } from "@solana/kit";
 import vectors from "./tests/vectors/piece.json";
-import { DEFAULT_CONFIG, domainFor, ed25519Instruction, pieceBytes, SKECH_PROGRAM_ADDRESS } from "./sdk";
+import { ACC_SCALE, claimableE6, DEFAULT_CONFIG, DEFAULT_REWARDS_CONFIG, domainFor, ed25519Instruction, findHolderPda, findRewardsPda, holderAddress, pieceBytes, rewardsAddress, SKECH_PROGRAM_ADDRESS } from "./sdk";
 
 test("the client is for the program the vectors come from", () => {
   expect(SKECH_PROGRAM_ADDRESS as string).toBe(address(vectors.program));
@@ -55,4 +55,24 @@ test("the default config is the EVM game's, as SkechGame.initialize writes it", 
   );
   const { maxSessionSecs: _, ...shared } = DEFAULT_CONFIG;
   expect(Object.fromEntries(Object.entries(shared).map(([k, v]) => [k, BigInt(v)]))).toEqual(evm);
+});
+
+test("SKT's addresses are the program's", async () => {
+  const wallet = address("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM");
+  expect(await holderAddress(wallet)).toBe((await findHolderPda({ authority: wallet }))[0]);
+  expect(await rewardsAddress()).toBe((await findRewardsPda())[0]);
+});
+
+test("SKT's default split is part of each default fee", () => {
+  expect(DEFAULT_REWARDS_CONFIG.holderFeeBps).toBeLessThanOrEqual(DEFAULT_CONFIG.feeBps);
+  expect(DEFAULT_REWARDS_CONFIG.holderProfitFeeBps).toBeLessThanOrEqual(DEFAULT_CONFIG.profitFeeBps);
+  expect([DEFAULT_CONFIG.feeBps - DEFAULT_REWARDS_CONFIG.holderFeeBps, DEFAULT_CONFIG.profitFeeBps - DEFAULT_REWARDS_CONFIG.holderProfitFeeBps]).toEqual([100, 200]);
+});
+
+test("what is claimable is what was counted and what the balance earned since, rounded down", () => {
+  expect(claimableE6({ skt: 100_000_000n, accAt: 0n, unclaimed: 7n }, { acc: 0n })).toBe(7n);
+  // 1,500 shared over 99,999,000 SKT units: the one holder gets 1,499.
+  const acc = (1_500n * ACC_SCALE) / 99_999_000n;
+  expect(claimableE6({ skt: 99_999_000n, accAt: 0n, unclaimed: 0n }, { acc })).toBe(1_499n);
+  expect(claimableE6({ skt: 99_999_000n, accAt: acc, unclaimed: 5n }, { acc })).toBe(5n);
 });

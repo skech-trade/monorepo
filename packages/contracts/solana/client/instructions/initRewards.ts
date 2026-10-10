@@ -14,8 +14,6 @@ import {
   getBytesEncoder,
   getStructDecoder,
   getStructEncoder,
-  getU8Decoder,
-  getU8Encoder,
   SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
   SolanaError,
   transformEncoder,
@@ -41,25 +39,34 @@ import {
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
-import { findGamePda, findPoolPda, findRewardsPda } from "../pdas";
+import { findGamePda, findRewardsPda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
+import {
+  getConfigDecoder,
+  getConfigEncoder,
+  getRewardsConfigDecoder,
+  getRewardsConfigEncoder,
+  type Config,
+  type ConfigArgs,
+  type RewardsConfig,
+  type RewardsConfigArgs,
+} from "../types";
 
-export const SETTLE_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
-  175, 42, 185, 87, 144, 131, 102, 212,
+export const INIT_REWARDS_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
+  24, 217, 207, 96, 28, 211, 144, 146,
 ]);
 
-export function getSettleDiscriminatorBytes(): ReadonlyUint8Array {
-  return fixEncoderSize(getBytesEncoder(), 8).encode(SETTLE_DISCRIMINATOR);
+export function getInitRewardsDiscriminatorBytes(): ReadonlyUint8Array {
+  return fixEncoderSize(getBytesEncoder(), 8).encode(
+    INIT_REWARDS_DISCRIMINATOR,
+  );
 }
 
-export type SettleInstruction<
+export type InitRewardsInstruction<
   TProgram extends string = typeof SKECH_PROGRAM_ADDRESS,
+  TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountGame extends string | AccountMeta<string> = string,
-  TAccountBars extends string | AccountMeta<string> = string,
-  TAccountPool extends string | AccountMeta<string> = string,
   TAccountRewards extends string | AccountMeta<string> = string,
-  TAccountRentReceiver extends string | AccountMeta<string> = string,
-  TAccountPayer extends string | AccountMeta<string> = string,
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -67,25 +74,16 @@ export type SettleInstruction<
   InstructionWithData<ReadonlyUint8Array> &
   InstructionWithAccounts<
     [
+      TAccountAdmin extends string
+        ? WritableSignerAccount<TAccountAdmin> &
+            AccountSignerMeta<TAccountAdmin>
+        : TAccountAdmin,
       TAccountGame extends string
-        ? ReadonlyAccount<TAccountGame>
+        ? WritableAccount<TAccountGame>
         : TAccountGame,
-      TAccountBars extends string
-        ? ReadonlyAccount<TAccountBars>
-        : TAccountBars,
-      TAccountPool extends string
-        ? WritableAccount<TAccountPool>
-        : TAccountPool,
       TAccountRewards extends string
         ? WritableAccount<TAccountRewards>
         : TAccountRewards,
-      TAccountRentReceiver extends string
-        ? WritableAccount<TAccountRentReceiver>
-        : TAccountRentReceiver,
-      TAccountPayer extends string
-        ? WritableSignerAccount<TAccountPayer> &
-            AccountSignerMeta<TAccountPayer>
-        : TAccountPayer,
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
@@ -93,108 +91,89 @@ export type SettleInstruction<
     ]
   >;
 
-export type SettleInstructionData = {
+export type InitRewardsInstructionData = {
   discriminator: ReadonlyUint8Array;
-  market: number;
+  config: Config;
+  rewardsConfig: RewardsConfig;
 };
 
-export type SettleInstructionDataArgs = { market: number };
+export type InitRewardsInstructionDataArgs = {
+  config: ConfigArgs;
+  rewardsConfig: RewardsConfigArgs;
+};
 
-export function getSettleInstructionDataEncoder(): FixedSizeEncoder<SettleInstructionDataArgs> {
+export function getInitRewardsInstructionDataEncoder(): FixedSizeEncoder<InitRewardsInstructionDataArgs> {
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
-      ["market", getU8Encoder()],
+      ["config", getConfigEncoder()],
+      ["rewardsConfig", getRewardsConfigEncoder()],
     ]),
-    (value) => ({ ...value, discriminator: SETTLE_DISCRIMINATOR }),
+    (value) => ({ ...value, discriminator: INIT_REWARDS_DISCRIMINATOR }),
   );
 }
 
-export function getSettleInstructionDataDecoder(): FixedSizeDecoder<SettleInstructionData> {
+export function getInitRewardsInstructionDataDecoder(): FixedSizeDecoder<InitRewardsInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
-    ["market", getU8Decoder()],
+    ["config", getConfigDecoder()],
+    ["rewardsConfig", getRewardsConfigDecoder()],
   ]);
 }
 
-export function getSettleInstructionDataCodec(): FixedSizeCodec<
-  SettleInstructionDataArgs,
-  SettleInstructionData
+export function getInitRewardsInstructionDataCodec(): FixedSizeCodec<
+  InitRewardsInstructionDataArgs,
+  InitRewardsInstructionData
 > {
   return combineCodec(
-    getSettleInstructionDataEncoder(),
-    getSettleInstructionDataDecoder(),
+    getInitRewardsInstructionDataEncoder(),
+    getInitRewardsInstructionDataDecoder(),
   );
 }
 
-export type SettleAsyncInput<
+export type InitRewardsAsyncInput<
+  TAccountAdmin extends InstructionSignerInput = InstructionSignerInput,
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
-  TAccountBars extends InstructionAccountInput = InstructionAccountInput,
-  TAccountPool extends InstructionAccountInput = InstructionAccountInput,
   TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
-  TAccountRentReceiver extends InstructionAccountInput =
-    InstructionAccountInput,
-  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
   TAccountSystemProgram extends InstructionAccountInput =
     InstructionAccountInput,
 > = {
+  admin: TAccountAdmin;
   game?: TAccountGame;
-  bars: TAccountBars;
-  pool?: TAccountPool;
   rewards?: TAccountRewards;
-  rentReceiver: TAccountRentReceiver;
-  /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
-  payer: TAccountPayer;
   systemProgram?: TAccountSystemProgram;
-  market: SettleInstructionDataArgs["market"];
+  config: InitRewardsInstructionDataArgs["config"];
+  rewardsConfig: InitRewardsInstructionDataArgs["rewardsConfig"];
 };
 
-export async function getSettleInstructionAsync<
+export async function getInitRewardsInstructionAsync<
+  TAccountAdmin extends InstructionSignerInput,
   TAccountGame extends InstructionAccountInput,
-  TAccountBars extends InstructionAccountInput,
-  TAccountPool extends InstructionAccountInput,
   TAccountRewards extends InstructionAccountInput,
-  TAccountRentReceiver extends InstructionAccountInput,
-  TAccountPayer extends InstructionSignerInput,
   TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
-  input: SettleAsyncInput<
+  input: InitRewardsAsyncInput<
+    TAccountAdmin,
     TAccountGame,
-    TAccountBars,
-    TAccountPool,
     TAccountRewards,
-    TAccountRentReceiver,
-    TAccountPayer,
     TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
-  SettleInstruction<
+  InitRewardsInstruction<
     TProgramAddress,
+    ResolvedInstructionAccountMeta<
+      TAccountAdmin,
+      InstructionAccountInputAddress<TAccountAdmin>
+    >,
     ResolvedInstructionAccountMeta<
       TAccountGame,
       InstructionAccountInputAddress<TAccountGame>
     >,
     ResolvedInstructionAccountMeta<
-      TAccountBars,
-      InstructionAccountInputAddress<TAccountBars>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountPool,
-      InstructionAccountInputAddress<TAccountPool>
-    >,
-    ResolvedInstructionAccountMeta<
       TAccountRewards,
       InstructionAccountInputAddress<TAccountRewards>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountRentReceiver,
-      InstructionAccountInputAddress<TAccountRentReceiver>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountPayer,
-      InstructionAccountInputAddress<TAccountPayer>
     >,
     ResolvedInstructionAccountMeta<
       TAccountSystemProgram,
@@ -210,20 +189,13 @@ export async function getSettleInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    game: { value: input.game ?? null, isSigner: false, isWritable: false },
-    bars: { value: input.bars ?? null, isSigner: false, isWritable: false },
-    pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
+    admin: { value: input.admin ?? null, isSigner: true, isWritable: true },
+    game: { value: input.game ?? null, isSigner: false, isWritable: true },
     rewards: {
       value: input.rewards ?? null,
       isSigner: false,
       isWritable: true,
     },
-    rentReceiver: {
-      value: input.rentReceiver ?? null,
-      isSigner: false,
-      isWritable: true,
-    },
-    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
     systemProgram: {
       value: input.systemProgram ?? null,
       isSigner: false,
@@ -242,9 +214,6 @@ export async function getSettleInstructionAsync<
   if (!accounts.game.value) {
     accounts.game.value = await findGamePda({ programAddress });
   }
-  if (!accounts.pool.value) {
-    accounts.pool.value = await findPoolPda({ programAddress });
-  }
   if (!accounts.rewards.value) {
     accounts.rewards.value = await findRewardsPda({ programAddress });
   }
@@ -255,43 +224,28 @@ export async function getSettleInstructionAsync<
 
   return Object.freeze({
     accounts: [
+      getAccountMeta("admin", accounts.admin),
       getAccountMeta("game", accounts.game),
-      getAccountMeta("bars", accounts.bars),
-      getAccountMeta("pool", accounts.pool),
       getAccountMeta("rewards", accounts.rewards),
-      getAccountMeta("rentReceiver", accounts.rentReceiver),
-      getAccountMeta("payer", accounts.payer),
       getAccountMeta("systemProgram", accounts.systemProgram),
     ],
-    data: getSettleInstructionDataEncoder().encode(
-      args as SettleInstructionDataArgs,
+    data: getInitRewardsInstructionDataEncoder().encode(
+      args as InitRewardsInstructionDataArgs,
     ),
     programAddress,
-  } as SettleInstruction<
+  } as InitRewardsInstruction<
     TProgramAddress,
+    ResolvedInstructionAccountMeta<
+      TAccountAdmin,
+      InstructionAccountInputAddress<TAccountAdmin>
+    >,
     ResolvedInstructionAccountMeta<
       TAccountGame,
       InstructionAccountInputAddress<TAccountGame>
     >,
     ResolvedInstructionAccountMeta<
-      TAccountBars,
-      InstructionAccountInputAddress<TAccountBars>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountPool,
-      InstructionAccountInputAddress<TAccountPool>
-    >,
-    ResolvedInstructionAccountMeta<
       TAccountRewards,
       InstructionAccountInputAddress<TAccountRewards>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountRentReceiver,
-      InstructionAccountInputAddress<TAccountRentReceiver>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountPayer,
-      InstructionAccountInputAddress<TAccountPayer>
     >,
     ResolvedInstructionAccountMeta<
       TAccountSystemProgram,
@@ -300,73 +254,48 @@ export async function getSettleInstructionAsync<
   >);
 }
 
-export type SettleInput<
+export type InitRewardsInput<
+  TAccountAdmin extends InstructionSignerInput = InstructionSignerInput,
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
-  TAccountBars extends InstructionAccountInput = InstructionAccountInput,
-  TAccountPool extends InstructionAccountInput = InstructionAccountInput,
   TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
-  TAccountRentReceiver extends InstructionAccountInput =
-    InstructionAccountInput,
-  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
   TAccountSystemProgram extends InstructionAccountInput =
     InstructionAccountInput,
 > = {
+  admin: TAccountAdmin;
   game: TAccountGame;
-  bars: TAccountBars;
-  pool: TAccountPool;
   rewards: TAccountRewards;
-  rentReceiver: TAccountRentReceiver;
-  /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
-  payer: TAccountPayer;
   systemProgram?: TAccountSystemProgram;
-  market: SettleInstructionDataArgs["market"];
+  config: InitRewardsInstructionDataArgs["config"];
+  rewardsConfig: InitRewardsInstructionDataArgs["rewardsConfig"];
 };
 
-export function getSettleInstruction<
+export function getInitRewardsInstruction<
+  TAccountAdmin extends InstructionSignerInput,
   TAccountGame extends InstructionAccountInput,
-  TAccountBars extends InstructionAccountInput,
-  TAccountPool extends InstructionAccountInput,
   TAccountRewards extends InstructionAccountInput,
-  TAccountRentReceiver extends InstructionAccountInput,
-  TAccountPayer extends InstructionSignerInput,
   TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
-  input: SettleInput<
+  input: InitRewardsInput<
+    TAccountAdmin,
     TAccountGame,
-    TAccountBars,
-    TAccountPool,
     TAccountRewards,
-    TAccountRentReceiver,
-    TAccountPayer,
     TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
-): SettleInstruction<
+): InitRewardsInstruction<
   TProgramAddress,
+  ResolvedInstructionAccountMeta<
+    TAccountAdmin,
+    InstructionAccountInputAddress<TAccountAdmin>
+  >,
   ResolvedInstructionAccountMeta<
     TAccountGame,
     InstructionAccountInputAddress<TAccountGame>
   >,
   ResolvedInstructionAccountMeta<
-    TAccountBars,
-    InstructionAccountInputAddress<TAccountBars>
-  >,
-  ResolvedInstructionAccountMeta<
-    TAccountPool,
-    InstructionAccountInputAddress<TAccountPool>
-  >,
-  ResolvedInstructionAccountMeta<
     TAccountRewards,
     InstructionAccountInputAddress<TAccountRewards>
-  >,
-  ResolvedInstructionAccountMeta<
-    TAccountRentReceiver,
-    InstructionAccountInputAddress<TAccountRentReceiver>
-  >,
-  ResolvedInstructionAccountMeta<
-    TAccountPayer,
-    InstructionAccountInputAddress<TAccountPayer>
   >,
   ResolvedInstructionAccountMeta<
     TAccountSystemProgram,
@@ -381,20 +310,13 @@ export function getSettleInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    game: { value: input.game ?? null, isSigner: false, isWritable: false },
-    bars: { value: input.bars ?? null, isSigner: false, isWritable: false },
-    pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
+    admin: { value: input.admin ?? null, isSigner: true, isWritable: true },
+    game: { value: input.game ?? null, isSigner: false, isWritable: true },
     rewards: {
       value: input.rewards ?? null,
       isSigner: false,
       isWritable: true,
     },
-    rentReceiver: {
-      value: input.rentReceiver ?? null,
-      isSigner: false,
-      isWritable: true,
-    },
-    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
     systemProgram: {
       value: input.systemProgram ?? null,
       isSigner: false,
@@ -417,43 +339,28 @@ export function getSettleInstruction<
 
   return Object.freeze({
     accounts: [
+      getAccountMeta("admin", accounts.admin),
       getAccountMeta("game", accounts.game),
-      getAccountMeta("bars", accounts.bars),
-      getAccountMeta("pool", accounts.pool),
       getAccountMeta("rewards", accounts.rewards),
-      getAccountMeta("rentReceiver", accounts.rentReceiver),
-      getAccountMeta("payer", accounts.payer),
       getAccountMeta("systemProgram", accounts.systemProgram),
     ],
-    data: getSettleInstructionDataEncoder().encode(
-      args as SettleInstructionDataArgs,
+    data: getInitRewardsInstructionDataEncoder().encode(
+      args as InitRewardsInstructionDataArgs,
     ),
     programAddress,
-  } as SettleInstruction<
+  } as InitRewardsInstruction<
     TProgramAddress,
+    ResolvedInstructionAccountMeta<
+      TAccountAdmin,
+      InstructionAccountInputAddress<TAccountAdmin>
+    >,
     ResolvedInstructionAccountMeta<
       TAccountGame,
       InstructionAccountInputAddress<TAccountGame>
     >,
     ResolvedInstructionAccountMeta<
-      TAccountBars,
-      InstructionAccountInputAddress<TAccountBars>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountPool,
-      InstructionAccountInputAddress<TAccountPool>
-    >,
-    ResolvedInstructionAccountMeta<
       TAccountRewards,
       InstructionAccountInputAddress<TAccountRewards>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountRentReceiver,
-      InstructionAccountInputAddress<TAccountRentReceiver>
-    >,
-    ResolvedInstructionAccountMeta<
-      TAccountPayer,
-      InstructionAccountInputAddress<TAccountPayer>
     >,
     ResolvedInstructionAccountMeta<
       TAccountSystemProgram,
@@ -462,38 +369,34 @@ export function getSettleInstruction<
   >);
 }
 
-export type ParsedSettleInstruction<
+export type ParsedInitRewardsInstruction<
   TProgram extends string = typeof SKECH_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    game: TAccountMetas[0];
-    bars: TAccountMetas[1];
-    pool: TAccountMetas[2];
-    rewards: TAccountMetas[3];
-    rentReceiver: TAccountMetas[4];
-    /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
-    payer: TAccountMetas[5];
-    systemProgram: TAccountMetas[6];
+    admin: TAccountMetas[0];
+    game: TAccountMetas[1];
+    rewards: TAccountMetas[2];
+    systemProgram: TAccountMetas[3];
   };
-  data: SettleInstructionData;
+  data: InitRewardsInstructionData;
 };
 
-export function parseSettleInstruction<
+export function parseInitRewardsInstruction<
   TProgram extends string,
   TAccountMetas extends readonly AccountMeta[],
 >(
   instruction: Instruction<TProgram> &
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
-): ParsedSettleInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 7) {
+): ParsedInitRewardsInstruction<TProgram, TAccountMetas> {
+  if (instruction.accounts.length < 4) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 7,
+        expectedAccountMetas: 4,
       },
     );
   }
@@ -506,14 +409,11 @@ export function parseSettleInstruction<
   return {
     programAddress: instruction.programAddress,
     accounts: {
+      admin: getNextAccount(),
       game: getNextAccount(),
-      bars: getNextAccount(),
-      pool: getNextAccount(),
       rewards: getNextAccount(),
-      rentReceiver: getNextAccount(),
-      payer: getNextAccount(),
       systemProgram: getNextAccount(),
     },
-    data: getSettleInstructionDataDecoder().decode(instruction.data),
+    data: getInitRewardsInstructionDataDecoder().decode(instruction.data),
   };
 }

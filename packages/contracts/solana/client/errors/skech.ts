@@ -70,7 +70,7 @@ export const SKECH_ERROR__ZERO_AMOUNT = 0x1789; // 6025
 export const SKECH_ERROR__BAD_SESSION = 0x178a; // 6026
 /** BadTokenAccount: Wrong token account */
 export const SKECH_ERROR__BAD_TOKEN_ACCOUNT = 0x178b; // 6027
-/** BadSettleAccounts: Settle accounts must come in (bet, player) pairs */
+/** BadSettleAccounts: Settle accounts must come in (bet, player, holder) triples */
 export const SKECH_ERROR__BAD_SETTLE_ACCOUNTS = 0x178c; // 6028
 /** NotUpgradeAuthority: Only the program's upgrade authority may initialize */
 export const SKECH_ERROR__NOT_UPGRADE_AUTHORITY = 0x178d; // 6029
@@ -131,7 +131,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [SKECH_ERROR__BAD_DIFFICULTY]: `Bad difficulty`,
     [SKECH_ERROR__BAD_QUOTE]: `The quote is malformed`,
     [SKECH_ERROR__BAD_SESSION]: `Bad session`,
-    [SKECH_ERROR__BAD_SETTLE_ACCOUNTS]: `Settle accounts must come in (bet, player) pairs`,
+    [SKECH_ERROR__BAD_SETTLE_ACCOUNTS]: `Settle accounts must come in (bet, player, holder) triples`,
     [SKECH_ERROR__BAD_TOKEN_ACCOUNT]: `Wrong token account`,
     [SKECH_ERROR__BALANCE]: `Balance`,
     [SKECH_ERROR__BAR_CONFLICT]: `A different bar is already posted for that second`,

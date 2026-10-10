@@ -37,27 +37,35 @@ import {
 import {
   getBarsCodec,
   getGameCodec,
+  getHolderCodec,
   getMarketCodec,
   getPlayerCodec,
   getPoolCodec,
+  getRewardsCodec,
   type Bars,
   type BarsArgs,
   type Game,
   type GameArgs,
+  type Holder,
+  type HolderArgs,
   type Market,
   type MarketArgs,
   type Player,
   type PlayerArgs,
   type Pool,
   type PoolArgs,
+  type Rewards,
+  type RewardsArgs,
 } from "../accounts";
 import {
   getAcceptAdminInstructionAsync,
+  getClaimInstructionAsync,
   getCollectFeesInstructionAsync,
   getDepositInstructionAsync,
   getExpireInstructionAsync,
   getInitializeInstructionAsync,
   getInitMarketInstructionAsync,
+  getInitRewardsInstructionAsync,
   getPlaceInstructionAsync,
   getPostBarAndSettleInstructionAsync,
   getPostBarInstructionAsync,
@@ -70,17 +78,20 @@ import {
   getSetMarketInstructionAsync,
   getSetOracleInstructionAsync,
   getSetPausedInstructionAsync,
+  getSetRewardsConfigInstructionAsync,
   getSetSessionInstructionAsync,
   getSettleInstructionAsync,
   getSetTreasuryInstructionAsync,
   getSweepInstructionAsync,
   getWithdrawInstructionAsync,
   parseAcceptAdminInstruction,
+  parseClaimInstruction,
   parseCollectFeesInstruction,
   parseDepositInstruction,
   parseExpireInstruction,
   parseInitializeInstruction,
   parseInitMarketInstruction,
+  parseInitRewardsInstruction,
   parsePlaceInstruction,
   parsePostBarAndSettleInstruction,
   parsePostBarInstruction,
@@ -93,23 +104,28 @@ import {
   parseSetMarketInstruction,
   parseSetOracleInstruction,
   parseSetPausedInstruction,
+  parseSetRewardsConfigInstruction,
   parseSetSessionInstruction,
   parseSettleInstruction,
   parseSetTreasuryInstruction,
   parseSweepInstruction,
   parseWithdrawInstruction,
   type AcceptAdminAsyncInput,
+  type ClaimAsyncInput,
   type CollectFeesAsyncInput,
   type DepositAsyncInput,
   type ExpireAsyncInput,
   type InitializeAsyncInput,
   type InitMarketAsyncInput,
+  type InitRewardsAsyncInput,
   type ParsedAcceptAdminInstruction,
+  type ParsedClaimInstruction,
   type ParsedCollectFeesInstruction,
   type ParsedDepositInstruction,
   type ParsedExpireInstruction,
   type ParsedInitializeInstruction,
   type ParsedInitMarketInstruction,
+  type ParsedInitRewardsInstruction,
   type ParsedPlaceInstruction,
   type ParsedPostBarAndSettleInstruction,
   type ParsedPostBarInstruction,
@@ -122,6 +138,7 @@ import {
   type ParsedSetMarketInstruction,
   type ParsedSetOracleInstruction,
   type ParsedSetPausedInstruction,
+  type ParsedSetRewardsConfigInstruction,
   type ParsedSetSessionInstruction,
   type ParsedSettleInstruction,
   type ParsedSetTreasuryInstruction,
@@ -139,6 +156,7 @@ import {
   type SetMarketAsyncInput,
   type SetOracleAsyncInput,
   type SetPausedAsyncInput,
+  type SetRewardsConfigAsyncInput,
   type SetSessionAsyncInput,
   type SettleAsyncInput,
   type SetTreasuryAsyncInput,
@@ -148,8 +166,10 @@ import {
 import {
   findCallerPlayerPda,
   findGamePda,
+  findHolderPda,
   findPlayerPda,
   findPoolPda,
+  findRewardsPda,
 } from "../pdas";
 
 export const SKECH_PROGRAM_ADDRESS =
@@ -158,9 +178,11 @@ export const SKECH_PROGRAM_ADDRESS =
 export enum SkechAccount {
   Bars,
   Game,
+  Holder,
   Market,
   Player,
   Pool,
+  Rewards,
 }
 
 export function identifySkechAccount(
@@ -188,6 +210,17 @@ export function identifySkechAccount(
     )
   ) {
     return SkechAccount.Game;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([37, 121, 1, 40, 55, 46, 199, 157]),
+      ),
+      0,
+    )
+  ) {
+    return SkechAccount.Holder;
   }
   if (
     containsBytes(
@@ -222,6 +255,17 @@ export function identifySkechAccount(
   ) {
     return SkechAccount.Pool;
   }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([12, 223, 68, 101, 63, 33, 38, 101]),
+      ),
+      0,
+    )
+  ) {
+    return SkechAccount.Rewards;
+  }
   throw new SolanaError(
     SOLANA_ERROR__PROGRAM_CLIENTS__FAILED_TO_IDENTIFY_ACCOUNT,
     { accountData: data, programName: "skech" },
@@ -232,16 +276,20 @@ export enum SkechEvent {
   AdminProposed,
   AdminSet,
   BarPosted,
+  Claimed,
   ConfigSet,
   Deposited,
   FeesCollected,
+  HolderAccrued,
   IouRateSet,
   MarketSet,
+  Minted,
   OracleSet,
   Owed,
   PausedSet,
   Placed,
   Redeemed,
+  RewardsConfigSet,
   SessionRevoked,
   SessionSet,
   Settled,
@@ -290,6 +338,17 @@ export function identifySkechEvent(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([217, 192, 123, 72, 108, 150, 248, 33]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.Claimed;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([15, 104, 59, 16, 236, 241, 8, 6]),
       ),
       0,
@@ -323,6 +382,17 @@ export function identifySkechEvent(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([137, 231, 250, 101, 27, 104, 206, 187]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.HolderAccrued;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([252, 90, 54, 68, 6, 233, 252, 130]),
       ),
       0,
@@ -340,6 +410,17 @@ export function identifySkechEvent(
     )
   ) {
     return SkechEvent.MarketSet;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([174, 131, 21, 57, 88, 117, 114, 121]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.Minted;
   }
   if (
     containsBytes(
@@ -395,6 +476,17 @@ export function identifySkechEvent(
     )
   ) {
     return SkechEvent.Redeemed;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([76, 187, 3, 143, 69, 155, 144, 107]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.RewardsConfigSet;
   }
   if (
     containsBytes(
@@ -458,10 +550,12 @@ export function identifySkechEvent(
 
 export enum SkechInstruction {
   AcceptAdmin,
+  Claim,
   CollectFees,
   Deposit,
   Expire,
   InitMarket,
+  InitRewards,
   Initialize,
   Place,
   PostBar,
@@ -475,6 +569,7 @@ export enum SkechInstruction {
   SetMarket,
   SetOracle,
   SetPaused,
+  SetRewardsConfig,
   SetSession,
   SetTreasury,
   Settle,
@@ -496,6 +591,17 @@ export function identifySkechInstruction(
     )
   ) {
     return SkechInstruction.AcceptAdmin;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([62, 198, 214, 193, 213, 159, 108, 210]),
+      ),
+      0,
+    )
+  ) {
+    return SkechInstruction.Claim;
   }
   if (
     containsBytes(
@@ -540,6 +646,17 @@ export function identifySkechInstruction(
     )
   ) {
     return SkechInstruction.InitMarket;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([24, 217, 207, 96, 28, 211, 144, 146]),
+      ),
+      0,
+    )
+  ) {
+    return SkechInstruction.InitRewards;
   }
   if (
     containsBytes(
@@ -688,6 +805,17 @@ export function identifySkechInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([113, 29, 223, 218, 217, 111, 85, 139]),
+      ),
+      0,
+    )
+  ) {
+    return SkechInstruction.SetRewardsConfig;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([156, 135, 126, 111, 184, 206, 194, 141]),
       ),
       0,
@@ -752,6 +880,9 @@ export type ParsedSkechInstruction<
       instructionType: SkechInstruction.AcceptAdmin;
     } & ParsedAcceptAdminInstruction<TProgram>)
   | ({
+      instructionType: SkechInstruction.Claim;
+    } & ParsedClaimInstruction<TProgram>)
+  | ({
       instructionType: SkechInstruction.CollectFees;
     } & ParsedCollectFeesInstruction<TProgram>)
   | ({
@@ -763,6 +894,9 @@ export type ParsedSkechInstruction<
   | ({
       instructionType: SkechInstruction.InitMarket;
     } & ParsedInitMarketInstruction<TProgram>)
+  | ({
+      instructionType: SkechInstruction.InitRewards;
+    } & ParsedInitRewardsInstruction<TProgram>)
   | ({
       instructionType: SkechInstruction.Initialize;
     } & ParsedInitializeInstruction<TProgram>)
@@ -803,6 +937,9 @@ export type ParsedSkechInstruction<
       instructionType: SkechInstruction.SetPaused;
     } & ParsedSetPausedInstruction<TProgram>)
   | ({
+      instructionType: SkechInstruction.SetRewardsConfig;
+    } & ParsedSetRewardsConfigInstruction<TProgram>)
+  | ({
       instructionType: SkechInstruction.SetSession;
     } & ParsedSetSessionInstruction<TProgram>)
   | ({
@@ -828,6 +965,13 @@ export function parseSkechInstruction<TProgram extends string>(
       return {
         instructionType: SkechInstruction.AcceptAdmin,
         ...parseAcceptAdminInstruction(instruction),
+      };
+    }
+    case SkechInstruction.Claim: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: SkechInstruction.Claim,
+        ...parseClaimInstruction(instruction),
       };
     }
     case SkechInstruction.CollectFees: {
@@ -856,6 +1000,13 @@ export function parseSkechInstruction<TProgram extends string>(
       return {
         instructionType: SkechInstruction.InitMarket,
         ...parseInitMarketInstruction(instruction),
+      };
+    }
+    case SkechInstruction.InitRewards: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: SkechInstruction.InitRewards,
+        ...parseInitRewardsInstruction(instruction),
       };
     }
     case SkechInstruction.Initialize: {
@@ -949,6 +1100,13 @@ export function parseSkechInstruction<TProgram extends string>(
         ...parseSetPausedInstruction(instruction),
       };
     }
+    case SkechInstruction.SetRewardsConfig: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: SkechInstruction.SetRewardsConfig,
+        ...parseSetRewardsConfigInstruction(instruction),
+      };
+    }
     case SkechInstruction.SetSession: {
       assertIsInstructionWithAccounts(instruction);
       return {
@@ -1004,11 +1162,15 @@ export type SkechPlugin = {
 export type SkechPluginAccounts = {
   bars: ReturnType<typeof getBarsCodec> & SelfFetchFunctions<BarsArgs, Bars>;
   game: ReturnType<typeof getGameCodec> & SelfFetchFunctions<GameArgs, Game>;
+  holder: ReturnType<typeof getHolderCodec> &
+    SelfFetchFunctions<HolderArgs, Holder>;
   market: ReturnType<typeof getMarketCodec> &
     SelfFetchFunctions<MarketArgs, Market>;
   player: ReturnType<typeof getPlayerCodec> &
     SelfFetchFunctions<PlayerArgs, Player>;
   pool: ReturnType<typeof getPoolCodec> & SelfFetchFunctions<PoolArgs, Pool>;
+  rewards: ReturnType<typeof getRewardsCodec> &
+    SelfFetchFunctions<RewardsArgs, Rewards>;
 };
 
 export type SkechPluginInstructions = {
@@ -1016,6 +1178,9 @@ export type SkechPluginInstructions = {
     input: AcceptAdminAsyncInput,
   ) => ReturnType<typeof getAcceptAdminInstructionAsync> &
     SelfPlanAndSendFunctions;
+  claim: (
+    input: ClaimAsyncInput,
+  ) => ReturnType<typeof getClaimInstructionAsync> & SelfPlanAndSendFunctions;
   collectFees: (
     input: CollectFeesAsyncInput,
   ) => ReturnType<typeof getCollectFeesInstructionAsync> &
@@ -1024,11 +1189,15 @@ export type SkechPluginInstructions = {
     input: MakeOptional<DepositAsyncInput, "payer">,
   ) => ReturnType<typeof getDepositInstructionAsync> & SelfPlanAndSendFunctions;
   expire: (
-    input: ExpireAsyncInput,
+    input: MakeOptional<ExpireAsyncInput, "payer">,
   ) => ReturnType<typeof getExpireInstructionAsync> & SelfPlanAndSendFunctions;
   initMarket: (
     input: InitMarketAsyncInput,
   ) => ReturnType<typeof getInitMarketInstructionAsync> &
+    SelfPlanAndSendFunctions;
+  initRewards: (
+    input: InitRewardsAsyncInput,
+  ) => ReturnType<typeof getInitRewardsInstructionAsync> &
     SelfPlanAndSendFunctions;
   initialize: (
     input: InitializeAsyncInput,
@@ -1041,7 +1210,7 @@ export type SkechPluginInstructions = {
     input: PostBarAsyncInput,
   ) => ReturnType<typeof getPostBarInstructionAsync> & SelfPlanAndSendFunctions;
   postBarAndSettle: (
-    input: PostBarAndSettleAsyncInput,
+    input: MakeOptional<PostBarAndSettleAsyncInput, "payer">,
   ) => ReturnType<typeof getPostBarAndSettleInstructionAsync> &
     SelfPlanAndSendFunctions;
   proposeAdmin: (
@@ -1079,6 +1248,10 @@ export type SkechPluginInstructions = {
     input: SetPausedAsyncInput,
   ) => ReturnType<typeof getSetPausedInstructionAsync> &
     SelfPlanAndSendFunctions;
+  setRewardsConfig: (
+    input: SetRewardsConfigAsyncInput,
+  ) => ReturnType<typeof getSetRewardsConfigInstructionAsync> &
+    SelfPlanAndSendFunctions;
   setSession: (
     input: MakeOptional<SetSessionAsyncInput, "payer">,
   ) => ReturnType<typeof getSetSessionInstructionAsync> &
@@ -1088,7 +1261,7 @@ export type SkechPluginInstructions = {
   ) => ReturnType<typeof getSetTreasuryInstructionAsync> &
     SelfPlanAndSendFunctions;
   settle: (
-    input: SettleAsyncInput,
+    input: MakeOptional<SettleAsyncInput, "payer">,
   ) => ReturnType<typeof getSettleInstructionAsync> & SelfPlanAndSendFunctions;
   sweep: (
     input: SweepAsyncInput,
@@ -1101,8 +1274,10 @@ export type SkechPluginInstructions = {
 
 export type SkechPluginPdas = {
   game: typeof findGamePda;
-  pool: typeof findPoolPda;
+  rewards: typeof findRewardsPda;
   player: typeof findPlayerPda;
+  holder: typeof findHolderPda;
+  pool: typeof findPoolPda;
   callerPlayer: typeof findCallerPlayerPda;
 };
 
@@ -1122,15 +1297,22 @@ export function skechProgram() {
         accounts: {
           bars: addSelfFetchFunctions(client, getBarsCodec()),
           game: addSelfFetchFunctions(client, getGameCodec()),
+          holder: addSelfFetchFunctions(client, getHolderCodec()),
           market: addSelfFetchFunctions(client, getMarketCodec()),
           player: addSelfFetchFunctions(client, getPlayerCodec()),
           pool: addSelfFetchFunctions(client, getPoolCodec()),
+          rewards: addSelfFetchFunctions(client, getRewardsCodec()),
         },
         instructions: {
           acceptAdmin: (input) =>
             addSelfPlanAndSendFunctions(
               client,
               getAcceptAdminInstructionAsync(input),
+            ),
+          claim: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getClaimInstructionAsync(input),
             ),
           collectFees: (input) =>
             addSelfPlanAndSendFunctions(
@@ -1148,12 +1330,20 @@ export function skechProgram() {
           expire: (input) =>
             addSelfPlanAndSendFunctions(
               client,
-              getExpireInstructionAsync(input),
+              getExpireInstructionAsync({
+                ...input,
+                payer: input.payer ?? client.payer,
+              }),
             ),
           initMarket: (input) =>
             addSelfPlanAndSendFunctions(
               client,
               getInitMarketInstructionAsync(input),
+            ),
+          initRewards: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getInitRewardsInstructionAsync(input),
             ),
           initialize: (input) =>
             addSelfPlanAndSendFunctions(
@@ -1176,7 +1366,10 @@ export function skechProgram() {
           postBarAndSettle: (input) =>
             addSelfPlanAndSendFunctions(
               client,
-              getPostBarAndSettleInstructionAsync(input),
+              getPostBarAndSettleInstructionAsync({
+                ...input,
+                payer: input.payer ?? client.payer,
+              }),
             ),
           proposeAdmin: (input) =>
             addSelfPlanAndSendFunctions(
@@ -1223,6 +1416,11 @@ export function skechProgram() {
               client,
               getSetPausedInstructionAsync(input),
             ),
+          setRewardsConfig: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getSetRewardsConfigInstructionAsync(input),
+            ),
           setSession: (input) =>
             addSelfPlanAndSendFunctions(
               client,
@@ -1239,7 +1437,10 @@ export function skechProgram() {
           settle: (input) =>
             addSelfPlanAndSendFunctions(
               client,
-              getSettleInstructionAsync(input),
+              getSettleInstructionAsync({
+                ...input,
+                payer: input.payer ?? client.payer,
+              }),
             ),
           sweep: (input) =>
             addSelfPlanAndSendFunctions(
@@ -1254,8 +1455,10 @@ export function skechProgram() {
         },
         pdas: {
           game: findGamePda,
-          pool: findPoolPda,
+          rewards: findRewardsPda,
           player: findPlayerPda,
+          holder: findHolderPda,
+          pool: findPoolPda,
           callerPlayer: findCallerPlayerPda,
         },
         identifyAccount: identifySkechAccount,

@@ -42,21 +42,22 @@ import {
 import { findGamePda, findRewardsPda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
 import {
-  getConfigDecoder,
-  getConfigEncoder,
-  type Config,
-  type ConfigArgs,
+  getRewardsConfigDecoder,
+  getRewardsConfigEncoder,
+  type RewardsConfig,
+  type RewardsConfigArgs,
 } from "../types";
 
-export const SET_CONFIG_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
-  108, 158, 154, 175, 212, 98, 52, 66,
-]);
+export const SET_REWARDS_CONFIG_DISCRIMINATOR: ReadonlyUint8Array =
+  new Uint8Array([113, 29, 223, 218, 217, 111, 85, 139]);
 
-export function getSetConfigDiscriminatorBytes(): ReadonlyUint8Array {
-  return fixEncoderSize(getBytesEncoder(), 8).encode(SET_CONFIG_DISCRIMINATOR);
+export function getSetRewardsConfigDiscriminatorBytes(): ReadonlyUint8Array {
+  return fixEncoderSize(getBytesEncoder(), 8).encode(
+    SET_REWARDS_CONFIG_DISCRIMINATOR,
+  );
 }
 
-export type SetConfigInstruction<
+export type SetRewardsConfigInstruction<
   TProgram extends string = typeof SKECH_PROGRAM_ADDRESS,
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountGame extends string | AccountMeta<string> = string,
@@ -71,71 +72,76 @@ export type SetConfigInstruction<
             AccountSignerMeta<TAccountAdmin>
         : TAccountAdmin,
       TAccountGame extends string
-        ? WritableAccount<TAccountGame>
+        ? ReadonlyAccount<TAccountGame>
         : TAccountGame,
       TAccountRewards extends string
-        ? ReadonlyAccount<TAccountRewards>
+        ? WritableAccount<TAccountRewards>
         : TAccountRewards,
       ...TRemainingAccounts,
     ]
   >;
 
-export type SetConfigInstructionData = {
+export type SetRewardsConfigInstructionData = {
   discriminator: ReadonlyUint8Array;
-  config: Config;
+  rewardsConfig: RewardsConfig;
 };
 
-export type SetConfigInstructionDataArgs = { config: ConfigArgs };
+export type SetRewardsConfigInstructionDataArgs = {
+  rewardsConfig: RewardsConfigArgs;
+};
 
-export function getSetConfigInstructionDataEncoder(): FixedSizeEncoder<SetConfigInstructionDataArgs> {
+export function getSetRewardsConfigInstructionDataEncoder(): FixedSizeEncoder<SetRewardsConfigInstructionDataArgs> {
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
-      ["config", getConfigEncoder()],
+      ["rewardsConfig", getRewardsConfigEncoder()],
     ]),
-    (value) => ({ ...value, discriminator: SET_CONFIG_DISCRIMINATOR }),
+    (value) => ({ ...value, discriminator: SET_REWARDS_CONFIG_DISCRIMINATOR }),
   );
 }
 
-export function getSetConfigInstructionDataDecoder(): FixedSizeDecoder<SetConfigInstructionData> {
+export function getSetRewardsConfigInstructionDataDecoder(): FixedSizeDecoder<SetRewardsConfigInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
-    ["config", getConfigDecoder()],
+    ["rewardsConfig", getRewardsConfigDecoder()],
   ]);
 }
 
-export function getSetConfigInstructionDataCodec(): FixedSizeCodec<
-  SetConfigInstructionDataArgs,
-  SetConfigInstructionData
+export function getSetRewardsConfigInstructionDataCodec(): FixedSizeCodec<
+  SetRewardsConfigInstructionDataArgs,
+  SetRewardsConfigInstructionData
 > {
   return combineCodec(
-    getSetConfigInstructionDataEncoder(),
-    getSetConfigInstructionDataDecoder(),
+    getSetRewardsConfigInstructionDataEncoder(),
+    getSetRewardsConfigInstructionDataDecoder(),
   );
 }
 
-export type SetConfigAsyncInput<
+export type SetRewardsConfigAsyncInput<
   TAccountAdmin extends InstructionSignerInput = InstructionSignerInput,
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
   TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
 > = {
   admin: TAccountAdmin;
   game?: TAccountGame;
-  /** Read for SKT's split of the fees, which the new terms must leave room for. */
   rewards?: TAccountRewards;
-  config: SetConfigInstructionDataArgs["config"];
+  rewardsConfig: SetRewardsConfigInstructionDataArgs["rewardsConfig"];
 };
 
-export async function getSetConfigInstructionAsync<
+export async function getSetRewardsConfigInstructionAsync<
   TAccountAdmin extends InstructionSignerInput,
   TAccountGame extends InstructionAccountInput,
   TAccountRewards extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
-  input: SetConfigAsyncInput<TAccountAdmin, TAccountGame, TAccountRewards>,
+  input: SetRewardsConfigAsyncInput<
+    TAccountAdmin,
+    TAccountGame,
+    TAccountRewards
+  >,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
-  SetConfigInstruction<
+  SetRewardsConfigInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<
       TAccountAdmin,
@@ -160,11 +166,11 @@ export async function getSetConfigInstructionAsync<
   // Original accounts.
   const originalAccounts = {
     admin: { value: input.admin ?? null, isSigner: true, isWritable: false },
-    game: { value: input.game ?? null, isSigner: false, isWritable: true },
+    game: { value: input.game ?? null, isSigner: false, isWritable: false },
     rewards: {
       value: input.rewards ?? null,
       isSigner: false,
-      isWritable: false,
+      isWritable: true,
     },
   };
   const accounts = originalAccounts as Record<
@@ -189,11 +195,11 @@ export async function getSetConfigInstructionAsync<
       getAccountMeta("game", accounts.game),
       getAccountMeta("rewards", accounts.rewards),
     ],
-    data: getSetConfigInstructionDataEncoder().encode(
-      args as SetConfigInstructionDataArgs,
+    data: getSetRewardsConfigInstructionDataEncoder().encode(
+      args as SetRewardsConfigInstructionDataArgs,
     ),
     programAddress,
-  } as SetConfigInstruction<
+  } as SetRewardsConfigInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<
       TAccountAdmin,
@@ -210,27 +216,26 @@ export async function getSetConfigInstructionAsync<
   >);
 }
 
-export type SetConfigInput<
+export type SetRewardsConfigInput<
   TAccountAdmin extends InstructionSignerInput = InstructionSignerInput,
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
   TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
 > = {
   admin: TAccountAdmin;
   game: TAccountGame;
-  /** Read for SKT's split of the fees, which the new terms must leave room for. */
   rewards: TAccountRewards;
-  config: SetConfigInstructionDataArgs["config"];
+  rewardsConfig: SetRewardsConfigInstructionDataArgs["rewardsConfig"];
 };
 
-export function getSetConfigInstruction<
+export function getSetRewardsConfigInstruction<
   TAccountAdmin extends InstructionSignerInput,
   TAccountGame extends InstructionAccountInput,
   TAccountRewards extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
-  input: SetConfigInput<TAccountAdmin, TAccountGame, TAccountRewards>,
+  input: SetRewardsConfigInput<TAccountAdmin, TAccountGame, TAccountRewards>,
   config?: { programAddress?: TProgramAddress },
-): SetConfigInstruction<
+): SetRewardsConfigInstruction<
   TProgramAddress,
   ResolvedInstructionAccountMeta<
     TAccountAdmin,
@@ -254,11 +259,11 @@ export function getSetConfigInstruction<
   // Original accounts.
   const originalAccounts = {
     admin: { value: input.admin ?? null, isSigner: true, isWritable: false },
-    game: { value: input.game ?? null, isSigner: false, isWritable: true },
+    game: { value: input.game ?? null, isSigner: false, isWritable: false },
     rewards: {
       value: input.rewards ?? null,
       isSigner: false,
-      isWritable: false,
+      isWritable: true,
     },
   };
   const accounts = originalAccounts as Record<
@@ -275,11 +280,11 @@ export function getSetConfigInstruction<
       getAccountMeta("game", accounts.game),
       getAccountMeta("rewards", accounts.rewards),
     ],
-    data: getSetConfigInstructionDataEncoder().encode(
-      args as SetConfigInstructionDataArgs,
+    data: getSetRewardsConfigInstructionDataEncoder().encode(
+      args as SetRewardsConfigInstructionDataArgs,
     ),
     programAddress,
-  } as SetConfigInstruction<
+  } as SetRewardsConfigInstruction<
     TProgramAddress,
     ResolvedInstructionAccountMeta<
       TAccountAdmin,
@@ -296,7 +301,7 @@ export function getSetConfigInstruction<
   >);
 }
 
-export type ParsedSetConfigInstruction<
+export type ParsedSetRewardsConfigInstruction<
   TProgram extends string = typeof SKECH_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
@@ -304,20 +309,19 @@ export type ParsedSetConfigInstruction<
   accounts: {
     admin: TAccountMetas[0];
     game: TAccountMetas[1];
-    /** Read for SKT's split of the fees, which the new terms must leave room for. */
     rewards: TAccountMetas[2];
   };
-  data: SetConfigInstructionData;
+  data: SetRewardsConfigInstructionData;
 };
 
-export function parseSetConfigInstruction<
+export function parseSetRewardsConfigInstruction<
   TProgram extends string,
   TAccountMetas extends readonly AccountMeta[],
 >(
   instruction: Instruction<TProgram> &
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
-): ParsedSetConfigInstruction<TProgram, TAccountMetas> {
+): ParsedSetRewardsConfigInstruction<TProgram, TAccountMetas> {
   if (instruction.accounts.length < 3) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
@@ -340,6 +344,6 @@ export function parseSetConfigInstruction<
       game: getNextAccount(),
       rewards: getNextAccount(),
     },
-    data: getSetConfigInstructionDataDecoder().decode(instruction.data),
+    data: getSetRewardsConfigInstructionDataDecoder().decode(instruction.data),
   };
 }

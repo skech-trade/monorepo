@@ -7,11 +7,13 @@
  */
 
 export * from "./acceptAdmin";
+export * from "./claim";
 export * from "./collectFees";
 export * from "./deposit";
 export * from "./expire";
 export * from "./initialize";
 export * from "./initMarket";
+export * from "./initRewards";
 export * from "./place";
 export * from "./postBar";
 export * from "./postBarAndSettle";
@@ -24,6 +26,7 @@ export * from "./setIouRate";
 export * from "./setMarket";
 export * from "./setOracle";
 export * from "./setPaused";
+export * from "./setRewardsConfig";
 export * from "./setSession";
 export * from "./settle";
 export * from "./setTreasury";

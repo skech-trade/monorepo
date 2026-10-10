@@ -20,6 +20,7 @@ import {
   SolanaError,
   transformEncoder,
   type AccountMeta,
+  type AccountSignerMeta,
   type Address,
   type FixedSizeCodec,
   type FixedSizeDecoder,
@@ -30,15 +31,17 @@ import {
   type ReadonlyAccount,
   type ReadonlyUint8Array,
   type WritableAccount,
+  type WritableSignerAccount,
 } from "@solana/kit";
 import {
   getAccountMetaFactory,
   type InstructionAccountInput,
   type InstructionAccountInputAddress,
+  type InstructionSignerInput,
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
-import { findGamePda, findPoolPda } from "../pdas";
+import { findGamePda, findPoolPda, findRewardsPda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
 
 export const EXPIRE_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
@@ -54,7 +57,11 @@ export type ExpireInstruction<
   TAccountGame extends string | AccountMeta<string> = string,
   TAccountBars extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
+  TAccountRewards extends string | AccountMeta<string> = string,
   TAccountRentReceiver extends string | AccountMeta<string> = string,
+  TAccountPayer extends string | AccountMeta<string> = string,
+  TAccountSystemProgram extends string | AccountMeta<string> =
+    "11111111111111111111111111111111",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -69,9 +76,19 @@ export type ExpireInstruction<
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
         : TAccountPool,
+      TAccountRewards extends string
+        ? WritableAccount<TAccountRewards>
+        : TAccountRewards,
       TAccountRentReceiver extends string
         ? WritableAccount<TAccountRentReceiver>
         : TAccountRentReceiver,
+      TAccountPayer extends string
+        ? WritableSignerAccount<TAccountPayer> &
+            AccountSignerMeta<TAccountPayer>
+        : TAccountPayer,
+      TAccountSystemProgram extends string
+        ? ReadonlyAccount<TAccountSystemProgram>
+        : TAccountSystemProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -114,13 +131,21 @@ export type ExpireAsyncInput<
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
   TAccountBars extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput =
+    InstructionAccountInput,
+  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
+  TAccountSystemProgram extends InstructionAccountInput =
     InstructionAccountInput,
 > = {
   game?: TAccountGame;
   bars: TAccountBars;
   pool?: TAccountPool;
+  rewards?: TAccountRewards;
   rentReceiver: TAccountRentReceiver;
+  /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
+  payer: TAccountPayer;
+  systemProgram?: TAccountSystemProgram;
   market: ExpireInstructionDataArgs["market"];
 };
 
@@ -128,14 +153,20 @@ export async function getExpireInstructionAsync<
   TAccountGame extends InstructionAccountInput,
   TAccountBars extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput,
+  TAccountPayer extends InstructionSignerInput,
+  TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
   input: ExpireAsyncInput<
     TAccountGame,
     TAccountBars,
     TAccountPool,
-    TAccountRentReceiver
+    TAccountRewards,
+    TAccountRentReceiver,
+    TAccountPayer,
+    TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
@@ -154,8 +185,20 @@ export async function getExpireInstructionAsync<
       InstructionAccountInputAddress<TAccountPool>
     >,
     ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
+    >,
+    ResolvedInstructionAccountMeta<
       TAccountRentReceiver,
       InstructionAccountInputAddress<TAccountRentReceiver>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountPayer,
+      InstructionAccountInputAddress<TAccountPayer>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountSystemProgram,
+      InstructionAccountInputAddress<TAccountSystemProgram>
     >
   >
 > {
@@ -170,10 +213,21 @@ export async function getExpireInstructionAsync<
     game: { value: input.game ?? null, isSigner: false, isWritable: false },
     bars: { value: input.bars ?? null, isSigner: false, isWritable: false },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
+    rewards: {
+      value: input.rewards ?? null,
+      isSigner: false,
+      isWritable: true,
+    },
     rentReceiver: {
       value: input.rentReceiver ?? null,
       isSigner: false,
       isWritable: true,
+    },
+    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
+    systemProgram: {
+      value: input.systemProgram ?? null,
+      isSigner: false,
+      isWritable: false,
     },
   };
   const accounts = originalAccounts as Record<
@@ -191,13 +245,23 @@ export async function getExpireInstructionAsync<
   if (!accounts.pool.value) {
     accounts.pool.value = await findPoolPda({ programAddress });
   }
+  if (!accounts.rewards.value) {
+    accounts.rewards.value = await findRewardsPda({ programAddress });
+  }
+  if (!accounts.systemProgram.value) {
+    accounts.systemProgram.value =
+      "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
 
   return Object.freeze({
     accounts: [
       getAccountMeta("game", accounts.game),
       getAccountMeta("bars", accounts.bars),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("rewards", accounts.rewards),
       getAccountMeta("rentReceiver", accounts.rentReceiver),
+      getAccountMeta("payer", accounts.payer),
+      getAccountMeta("systemProgram", accounts.systemProgram),
     ],
     data: getExpireInstructionDataEncoder().encode(
       args as ExpireInstructionDataArgs,
@@ -218,8 +282,20 @@ export async function getExpireInstructionAsync<
       InstructionAccountInputAddress<TAccountPool>
     >,
     ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
+    >,
+    ResolvedInstructionAccountMeta<
       TAccountRentReceiver,
       InstructionAccountInputAddress<TAccountRentReceiver>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountPayer,
+      InstructionAccountInputAddress<TAccountPayer>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountSystemProgram,
+      InstructionAccountInputAddress<TAccountSystemProgram>
     >
   >);
 }
@@ -228,13 +304,21 @@ export type ExpireInput<
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
   TAccountBars extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput =
+    InstructionAccountInput,
+  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
+  TAccountSystemProgram extends InstructionAccountInput =
     InstructionAccountInput,
 > = {
   game: TAccountGame;
   bars: TAccountBars;
   pool: TAccountPool;
+  rewards: TAccountRewards;
   rentReceiver: TAccountRentReceiver;
+  /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
+  payer: TAccountPayer;
+  systemProgram?: TAccountSystemProgram;
   market: ExpireInstructionDataArgs["market"];
 };
 
@@ -242,14 +326,20 @@ export function getExpireInstruction<
   TAccountGame extends InstructionAccountInput,
   TAccountBars extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput,
+  TAccountPayer extends InstructionSignerInput,
+  TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
   input: ExpireInput<
     TAccountGame,
     TAccountBars,
     TAccountPool,
-    TAccountRentReceiver
+    TAccountRewards,
+    TAccountRentReceiver,
+    TAccountPayer,
+    TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
 ): ExpireInstruction<
@@ -267,8 +357,20 @@ export function getExpireInstruction<
     InstructionAccountInputAddress<TAccountPool>
   >,
   ResolvedInstructionAccountMeta<
+    TAccountRewards,
+    InstructionAccountInputAddress<TAccountRewards>
+  >,
+  ResolvedInstructionAccountMeta<
     TAccountRentReceiver,
     InstructionAccountInputAddress<TAccountRentReceiver>
+  >,
+  ResolvedInstructionAccountMeta<
+    TAccountPayer,
+    InstructionAccountInputAddress<TAccountPayer>
+  >,
+  ResolvedInstructionAccountMeta<
+    TAccountSystemProgram,
+    InstructionAccountInputAddress<TAccountSystemProgram>
   >
 > {
   // Program address.
@@ -282,10 +384,21 @@ export function getExpireInstruction<
     game: { value: input.game ?? null, isSigner: false, isWritable: false },
     bars: { value: input.bars ?? null, isSigner: false, isWritable: false },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
+    rewards: {
+      value: input.rewards ?? null,
+      isSigner: false,
+      isWritable: true,
+    },
     rentReceiver: {
       value: input.rentReceiver ?? null,
       isSigner: false,
       isWritable: true,
+    },
+    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
+    systemProgram: {
+      value: input.systemProgram ?? null,
+      isSigner: false,
+      isWritable: false,
     },
   };
   const accounts = originalAccounts as Record<
@@ -296,12 +409,21 @@ export function getExpireInstruction<
   // Original args.
   const args = { ...input };
 
+  // Resolve default values.
+  if (!accounts.systemProgram.value) {
+    accounts.systemProgram.value =
+      "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
+
   return Object.freeze({
     accounts: [
       getAccountMeta("game", accounts.game),
       getAccountMeta("bars", accounts.bars),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("rewards", accounts.rewards),
       getAccountMeta("rentReceiver", accounts.rentReceiver),
+      getAccountMeta("payer", accounts.payer),
+      getAccountMeta("systemProgram", accounts.systemProgram),
     ],
     data: getExpireInstructionDataEncoder().encode(
       args as ExpireInstructionDataArgs,
@@ -322,8 +444,20 @@ export function getExpireInstruction<
       InstructionAccountInputAddress<TAccountPool>
     >,
     ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
+    >,
+    ResolvedInstructionAccountMeta<
       TAccountRentReceiver,
       InstructionAccountInputAddress<TAccountRentReceiver>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountPayer,
+      InstructionAccountInputAddress<TAccountPayer>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountSystemProgram,
+      InstructionAccountInputAddress<TAccountSystemProgram>
     >
   >);
 }
@@ -337,7 +471,11 @@ export type ParsedExpireInstruction<
     game: TAccountMetas[0];
     bars: TAccountMetas[1];
     pool: TAccountMetas[2];
-    rentReceiver: TAccountMetas[3];
+    rewards: TAccountMetas[3];
+    rentReceiver: TAccountMetas[4];
+    /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
+    payer: TAccountMetas[5];
+    systemProgram: TAccountMetas[6];
   };
   data: ExpireInstructionData;
 };
@@ -350,12 +488,12 @@ export function parseExpireInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedExpireInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 4) {
+  if (instruction.accounts.length < 7) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 4,
+        expectedAccountMetas: 7,
       },
     );
   }
@@ -371,7 +509,10 @@ export function parseExpireInstruction<
       game: getNextAccount(),
       bars: getNextAccount(),
       pool: getNextAccount(),
+      rewards: getNextAccount(),
       rentReceiver: getNextAccount(),
+      payer: getNextAccount(),
+      systemProgram: getNextAccount(),
     },
     data: getExpireInstructionDataDecoder().decode(instruction.data),
   };

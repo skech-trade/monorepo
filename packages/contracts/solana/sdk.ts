@@ -4,7 +4,7 @@
  * generated client in `./client`.
  */
 import { type Address, address, getAddressEncoder, getProgramDerivedAddress, getU32Encoder, getU64Encoder, type Instruction, type ReadonlyUint8Array } from "@solana/kit";
-import { type Config, getPlaceInstructionDataEncoder, SKECH_PROGRAM_ADDRESS, type SectionArgArgs } from "./client";
+import { type Config, getPlaceInstructionDataEncoder, type Holder, type Rewards, type RewardsConfig, SKECH_PROGRAM_ADDRESS, type SectionArgArgs } from "./client";
 
 export * from "./client";
 
@@ -116,6 +116,21 @@ export const DEFAULT_CONFIG: Config = {
   maxSessionSecs: 30n * 86_400n,
 };
 
+/* ---- SKT (state.rs, skt.rs) ---- */
+
+/** `RewardsConfig::DEFAULT`: 3 of the 4 stake points and 8 of the 10 profit points to SKT holders; the curve's scale $100,000. */
+export const DEFAULT_REWARDS_CONFIG: RewardsConfig = { holderFeeBps: 300, holderProfitFeeBps: 800, mintScale: 100_000_000_000n };
+/** SKT is counted in millionths, as USDC is. */
+export const SKT_DECIMALS = 6;
+/** The holders' accumulator's scale. */
+export const ACC_SCALE = 10n ** 18n;
+
+/** What a holder's SKT has earned and not been claimed, USDC e6: exactly what `claim` would pay now. */
+export function claimableE6(holder: Pick<Holder, "skt" | "accAt" | "unclaimed">, rewards: Pick<Rewards, "acc">): bigint {
+  const fresh = rewards.acc > holder.accAt ? (holder.skt * (rewards.acc - holder.accAt)) / ACC_SCALE : 0n;
+  return holder.unclaimed + fresh;
+}
+
 /* ---- addresses ---- */
 
 const enc = getAddressEncoder();
@@ -130,6 +145,10 @@ export const poolAddress = (program?: Address) => pda(["pool"], program).then((r
 export const marketAddress = (id: number, program?: Address) => pda(["market", Uint8Array.of(id)], program).then((r) => r[0]);
 export const barsAddress = (id: number, program?: Address) => pda(["bars", Uint8Array.of(id)], program).then((r) => r[0]);
 export const playerAddress = (wallet: Address, program?: Address) => pda(["player", enc.encode(wallet)], program).then((r) => r[0]);
+/** SKT's global account: supply, the holders' accumulator, their funds, the tracked gain. */
+export const rewardsAddress = (program?: Address) => pda(["rewards"], program).then((r) => r[0]);
+/** A player's SKT: balance, earnings, net result and its low. Opened by their first settlement. */
+export const holderAddress = (wallet: Address, program?: Address) => pda(["holder", enc.encode(wallet)], program).then((r) => r[0]);
 /** A piece's bet, at its canonical bump (the only address `place` takes), and that bump: `place` searches down from
  * 255 for it, and each bump below 255 costs it `place_per_bump` compute units more. */
 export const betAddress = (wallet: Address, drawing: bigint, index: number, program?: Address) =>

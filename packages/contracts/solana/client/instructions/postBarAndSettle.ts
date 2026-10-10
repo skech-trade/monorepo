@@ -32,6 +32,7 @@ import {
   type ReadonlySignerAccount,
   type ReadonlyUint8Array,
   type WritableAccount,
+  type WritableSignerAccount,
 } from "@solana/kit";
 import {
   getAccountMetaFactory,
@@ -41,7 +42,7 @@ import {
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
-import { findGamePda, findPoolPda } from "../pdas";
+import { findGamePda, findPoolPda, findRewardsPda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
 import {
   getBarInputDecoder,
@@ -66,7 +67,11 @@ export type PostBarAndSettleInstruction<
   TAccountMarketAccount extends string | AccountMeta<string> = string,
   TAccountBars extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
+  TAccountRewards extends string | AccountMeta<string> = string,
   TAccountRentReceiver extends string | AccountMeta<string> = string,
+  TAccountPayer extends string | AccountMeta<string> = string,
+  TAccountSystemProgram extends string | AccountMeta<string> =
+    "11111111111111111111111111111111",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -88,9 +93,19 @@ export type PostBarAndSettleInstruction<
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
         : TAccountPool,
+      TAccountRewards extends string
+        ? WritableAccount<TAccountRewards>
+        : TAccountRewards,
       TAccountRentReceiver extends string
         ? WritableAccount<TAccountRentReceiver>
         : TAccountRentReceiver,
+      TAccountPayer extends string
+        ? WritableSignerAccount<TAccountPayer> &
+            AccountSignerMeta<TAccountPayer>
+        : TAccountPayer,
+      TAccountSystemProgram extends string
+        ? ReadonlyAccount<TAccountSystemProgram>
+        : TAccountSystemProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -142,7 +157,11 @@ export type PostBarAndSettleAsyncInput<
     InstructionAccountInput,
   TAccountBars extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput =
+    InstructionAccountInput,
+  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
+  TAccountSystemProgram extends InstructionAccountInput =
     InstructionAccountInput,
 > = {
   oracle: TAccountOracle;
@@ -150,8 +169,12 @@ export type PostBarAndSettleAsyncInput<
   marketAccount: TAccountMarketAccount;
   bars: TAccountBars;
   pool?: TAccountPool;
+  rewards?: TAccountRewards;
   /** Gets back the rent of the bets closed here: only those it paid for are closed. */
   rentReceiver: TAccountRentReceiver;
+  /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs. The oracle, usually. */
+  payer: TAccountPayer;
+  systemProgram?: TAccountSystemProgram;
   market: PostBarAndSettleInstructionDataArgs["market"];
   bar: PostBarAndSettleInstructionDataArgs["bar"];
 };
@@ -162,7 +185,10 @@ export async function getPostBarAndSettleInstructionAsync<
   TAccountMarketAccount extends InstructionAccountInput,
   TAccountBars extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput,
+  TAccountPayer extends InstructionSignerInput,
+  TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
   input: PostBarAndSettleAsyncInput<
@@ -171,7 +197,10 @@ export async function getPostBarAndSettleInstructionAsync<
     TAccountMarketAccount,
     TAccountBars,
     TAccountPool,
-    TAccountRentReceiver
+    TAccountRewards,
+    TAccountRentReceiver,
+    TAccountPayer,
+    TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
@@ -198,8 +227,20 @@ export async function getPostBarAndSettleInstructionAsync<
       InstructionAccountInputAddress<TAccountPool>
     >,
     ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
+    >,
+    ResolvedInstructionAccountMeta<
       TAccountRentReceiver,
       InstructionAccountInputAddress<TAccountRentReceiver>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountPayer,
+      InstructionAccountInputAddress<TAccountPayer>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountSystemProgram,
+      InstructionAccountInputAddress<TAccountSystemProgram>
     >
   >
 > {
@@ -220,10 +261,21 @@ export async function getPostBarAndSettleInstructionAsync<
     },
     bars: { value: input.bars ?? null, isSigner: false, isWritable: true },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
+    rewards: {
+      value: input.rewards ?? null,
+      isSigner: false,
+      isWritable: true,
+    },
     rentReceiver: {
       value: input.rentReceiver ?? null,
       isSigner: false,
       isWritable: true,
+    },
+    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
+    systemProgram: {
+      value: input.systemProgram ?? null,
+      isSigner: false,
+      isWritable: false,
     },
   };
   const accounts = originalAccounts as Record<
@@ -241,6 +293,13 @@ export async function getPostBarAndSettleInstructionAsync<
   if (!accounts.pool.value) {
     accounts.pool.value = await findPoolPda({ programAddress });
   }
+  if (!accounts.rewards.value) {
+    accounts.rewards.value = await findRewardsPda({ programAddress });
+  }
+  if (!accounts.systemProgram.value) {
+    accounts.systemProgram.value =
+      "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
 
   return Object.freeze({
     accounts: [
@@ -249,7 +308,10 @@ export async function getPostBarAndSettleInstructionAsync<
       getAccountMeta("marketAccount", accounts.marketAccount),
       getAccountMeta("bars", accounts.bars),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("rewards", accounts.rewards),
       getAccountMeta("rentReceiver", accounts.rentReceiver),
+      getAccountMeta("payer", accounts.payer),
+      getAccountMeta("systemProgram", accounts.systemProgram),
     ],
     data: getPostBarAndSettleInstructionDataEncoder().encode(
       args as PostBarAndSettleInstructionDataArgs,
@@ -278,8 +340,20 @@ export async function getPostBarAndSettleInstructionAsync<
       InstructionAccountInputAddress<TAccountPool>
     >,
     ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
+    >,
+    ResolvedInstructionAccountMeta<
       TAccountRentReceiver,
       InstructionAccountInputAddress<TAccountRentReceiver>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountPayer,
+      InstructionAccountInputAddress<TAccountPayer>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountSystemProgram,
+      InstructionAccountInputAddress<TAccountSystemProgram>
     >
   >);
 }
@@ -291,7 +365,11 @@ export type PostBarAndSettleInput<
     InstructionAccountInput,
   TAccountBars extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput =
+    InstructionAccountInput,
+  TAccountPayer extends InstructionSignerInput = InstructionSignerInput,
+  TAccountSystemProgram extends InstructionAccountInput =
     InstructionAccountInput,
 > = {
   oracle: TAccountOracle;
@@ -299,8 +377,12 @@ export type PostBarAndSettleInput<
   marketAccount: TAccountMarketAccount;
   bars: TAccountBars;
   pool: TAccountPool;
+  rewards: TAccountRewards;
   /** Gets back the rent of the bets closed here: only those it paid for are closed. */
   rentReceiver: TAccountRentReceiver;
+  /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs. The oracle, usually. */
+  payer: TAccountPayer;
+  systemProgram?: TAccountSystemProgram;
   market: PostBarAndSettleInstructionDataArgs["market"];
   bar: PostBarAndSettleInstructionDataArgs["bar"];
 };
@@ -311,7 +393,10 @@ export function getPostBarAndSettleInstruction<
   TAccountMarketAccount extends InstructionAccountInput,
   TAccountBars extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput,
   TAccountRentReceiver extends InstructionAccountInput,
+  TAccountPayer extends InstructionSignerInput,
+  TAccountSystemProgram extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
   input: PostBarAndSettleInput<
@@ -320,7 +405,10 @@ export function getPostBarAndSettleInstruction<
     TAccountMarketAccount,
     TAccountBars,
     TAccountPool,
-    TAccountRentReceiver
+    TAccountRewards,
+    TAccountRentReceiver,
+    TAccountPayer,
+    TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
 ): PostBarAndSettleInstruction<
@@ -346,8 +434,20 @@ export function getPostBarAndSettleInstruction<
     InstructionAccountInputAddress<TAccountPool>
   >,
   ResolvedInstructionAccountMeta<
+    TAccountRewards,
+    InstructionAccountInputAddress<TAccountRewards>
+  >,
+  ResolvedInstructionAccountMeta<
     TAccountRentReceiver,
     InstructionAccountInputAddress<TAccountRentReceiver>
+  >,
+  ResolvedInstructionAccountMeta<
+    TAccountPayer,
+    InstructionAccountInputAddress<TAccountPayer>
+  >,
+  ResolvedInstructionAccountMeta<
+    TAccountSystemProgram,
+    InstructionAccountInputAddress<TAccountSystemProgram>
   >
 > {
   // Program address.
@@ -367,10 +467,21 @@ export function getPostBarAndSettleInstruction<
     },
     bars: { value: input.bars ?? null, isSigner: false, isWritable: true },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
+    rewards: {
+      value: input.rewards ?? null,
+      isSigner: false,
+      isWritable: true,
+    },
     rentReceiver: {
       value: input.rentReceiver ?? null,
       isSigner: false,
       isWritable: true,
+    },
+    payer: { value: input.payer ?? null, isSigner: true, isWritable: true },
+    systemProgram: {
+      value: input.systemProgram ?? null,
+      isSigner: false,
+      isWritable: false,
     },
   };
   const accounts = originalAccounts as Record<
@@ -381,6 +492,12 @@ export function getPostBarAndSettleInstruction<
   // Original args.
   const args = { ...input };
 
+  // Resolve default values.
+  if (!accounts.systemProgram.value) {
+    accounts.systemProgram.value =
+      "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
+  }
+
   return Object.freeze({
     accounts: [
       getAccountMeta("oracle", accounts.oracle),
@@ -388,7 +505,10 @@ export function getPostBarAndSettleInstruction<
       getAccountMeta("marketAccount", accounts.marketAccount),
       getAccountMeta("bars", accounts.bars),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("rewards", accounts.rewards),
       getAccountMeta("rentReceiver", accounts.rentReceiver),
+      getAccountMeta("payer", accounts.payer),
+      getAccountMeta("systemProgram", accounts.systemProgram),
     ],
     data: getPostBarAndSettleInstructionDataEncoder().encode(
       args as PostBarAndSettleInstructionDataArgs,
@@ -417,8 +537,20 @@ export function getPostBarAndSettleInstruction<
       InstructionAccountInputAddress<TAccountPool>
     >,
     ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
+    >,
+    ResolvedInstructionAccountMeta<
       TAccountRentReceiver,
       InstructionAccountInputAddress<TAccountRentReceiver>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountPayer,
+      InstructionAccountInputAddress<TAccountPayer>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountSystemProgram,
+      InstructionAccountInputAddress<TAccountSystemProgram>
     >
   >);
 }
@@ -434,8 +566,12 @@ export type ParsedPostBarAndSettleInstruction<
     marketAccount: TAccountMetas[2];
     bars: TAccountMetas[3];
     pool: TAccountMetas[4];
+    rewards: TAccountMetas[5];
     /** Gets back the rent of the bets closed here: only those it paid for are closed. */
-    rentReceiver: TAccountMetas[5];
+    rentReceiver: TAccountMetas[6];
+    /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs. The oracle, usually. */
+    payer: TAccountMetas[7];
+    systemProgram: TAccountMetas[8];
   };
   data: PostBarAndSettleInstructionData;
 };
@@ -448,12 +584,12 @@ export function parsePostBarAndSettleInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedPostBarAndSettleInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 6) {
+  if (instruction.accounts.length < 9) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 6,
+        expectedAccountMetas: 9,
       },
     );
   }
@@ -471,7 +607,10 @@ export function parsePostBarAndSettleInstruction<
       marketAccount: getNextAccount(),
       bars: getNextAccount(),
       pool: getNextAccount(),
+      rewards: getNextAccount(),
       rentReceiver: getNextAccount(),
+      payer: getNextAccount(),
+      systemProgram: getNextAccount(),
     },
     data: getPostBarAndSettleInstructionDataDecoder().decode(instruction.data),
   };
