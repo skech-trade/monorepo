@@ -39,7 +39,7 @@ fn a_piece_is_placed_once_not_again_at_another_bump() {
         let bytes = piece.try_to_vec().unwrap();
         let ed = Game::ed25519_ix(&p.session, &bytes, 1, 8, bytes.len() as u16);
         let mut place = g.place_ix(&piece, &quote);
-        place.accounts[7].pubkey = bet;
+        place.accounts[8].pubkey = bet;
         assert_eq!(custom_error(&g.send(&[ed, place], &[])), Some(code(SkechError::Mismatch)));
     }
     assert_eq!(g.player_state(&p).balance, balance, "charged once");

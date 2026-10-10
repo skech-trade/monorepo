@@ -39,7 +39,7 @@ fn the_widest_piece_fits_one_transaction_with_a_lookup_table() {
     // What every placement shares goes in the table; the player, the bet and the programs cannot.
     let table = AddressLookupTableAccount {
         key: Pubkey::new_unique(),
-        addresses: vec![game_pda(), market_pda(0), bars_pda(0), pool_pda(), anchor_lang::solana_program::sysvar::instructions::ID, anchor_lang::system_program::ID],
+        addresses: vec![game_pda(), market_pda(0), bars_pda(0), pool_pda(), rewards_pda(), anchor_lang::solana_program::sysvar::instructions::ID, anchor_lang::system_program::ID],
     };
     let msg = v0::Message::try_compile(&g.relayer.pubkey(), &[limit, price, ed, place], &[table], g.svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&g.relayer]).unwrap();

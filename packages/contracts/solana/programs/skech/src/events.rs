@@ -144,3 +144,34 @@ pub struct TreasurySet {
 pub struct IouRateSet {
     pub rate: u64,
 }
+
+/// `player` went past their deepest net loss: it is `net_loss_new_low` now (USDC e6), and the new stretch of it minted
+/// `skt` (SKT e6) at an average `rate` of SKT per dollar (times 1e6).
+#[event]
+pub struct Minted {
+    pub player: Pubkey,
+    pub skt: u64,
+    pub rate: u64,
+    pub net_loss_new_low: u64,
+}
+
+/// The holders' share of a fee, `amount` USDC e6, shared among `supply` SKT: `acc` is what each SKT unit has earned
+/// since the start, times 1e18.
+#[event]
+pub struct HolderAccrued {
+    pub amount: u64,
+    pub acc: u128,
+    pub supply: u64,
+}
+
+/// `player` claimed `amount` USDC e6 of what their SKT earned, into their balance.
+#[event]
+pub struct Claimed {
+    pub player: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct RewardsConfigSet {
+    pub config: crate::state::RewardsConfig,
+}

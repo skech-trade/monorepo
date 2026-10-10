@@ -62,7 +62,7 @@ pub enum SkechError {
     BadSession,
     #[msg("Wrong token account")]
     BadTokenAccount,
-    #[msg("Settle accounts must come in (bet, player) pairs")]
+    #[msg("Settle accounts must come in (bet, player, holder) triples")]
     BadSettleAccounts,
     #[msg("Only the program's upgrade authority may initialize")]
     NotUpgradeAuthority,

@@ -72,7 +72,9 @@ fn a_piece_is_placed_hit_missed_and_closed() {
     assert!(g.account::<skech::state::Bet>(&bet).is_none());
     assert_eq!(g.player_state(&p).balance, 10 * E6 - 100_000 + 72_500);
     let fees_paid = relayer_before - g.svm.get_balance(&g.relayer.pubkey()).unwrap();
-    assert!(fees_paid < 50_000, "the bet's rent came back: only fees spent, {fees_paid} lamports");
+    // And the player's SKT account, opened by their first settlement, is the relayer's rent to pay, once.
+    let holder_rent = g.svm.minimum_balance_for_rent_exemption(skech::state::Holder::SPACE);
+    assert!(fees_paid < 50_000 + holder_rent && fees_paid >= holder_rent, "the bet's rent came back: only fees and the holder's rent spent, {fees_paid} lamports");
 
     // The vault holds exactly the balances, the pool and the fees.
     let pool = g.pool();
@@ -320,7 +322,7 @@ fn the_admin_is_handed_over_in_two_steps_and_the_config_is_checked() {
     let next = Keypair::new();
     let mut bad = g.game().config;
     bad.fee_bps = 2001;
-    let set = g.ix(skech::accounts::Admin { admin: admin.pubkey(), game: game_pda() }, skech::instruction::SetConfig { config: bad });
+    let set = g.set_config_ix(bad);
     assert_eq!(custom_error(&g.send(&[set], &[&admin])), Some(code(SkechError::BadConfig)));
     let propose = g.ix(skech::accounts::Admin { admin: admin.pubkey(), game: game_pda() }, skech::instruction::ProposeAdmin { admin: next.pubkey() });
     let r = g.send(&[propose], &[&admin]).unwrap();
@@ -379,7 +381,8 @@ fn a_band_never_posted_is_given_back_once_it_never_can_be() {
     assert_eq!(g.pool().fees, fee);
     let pool = g.pool();
     assert_eq!(token_balance(&g.svm, &g.vault()), g.player_state(&p).balance + pool.pool + pool.fees);
-    assert!(relayer_before - g.svm.get_balance(&g.relayer.pubkey()).unwrap() < 50_000, "the rent came back");
+    let holder_rent = g.svm.minimum_balance_for_rent_exemption(skech::state::Holder::SPACE);
+    assert!(relayer_before - g.svm.get_balance(&g.relayer.pubkey()).unwrap() < 50_000 + holder_rent, "the rent came back");
 }
 
 #[test]
@@ -395,12 +398,8 @@ fn an_oracle_that_stops_leaves_every_stake_to_come_back() {
     g.set_time(S + 10 + skech::state::BAR_LATE);
     let anyone = Keypair::new();
     g.svm.airdrop(&anyone.pubkey(), 1_000_000_000).unwrap();
-    let mut ix = g.ix(
-        skech::accounts::Settle { game: game_pda(), bars: bars_pda(0), pool: pool_pda(), rent_receiver: g.relayer.pubkey() },
-        skech::instruction::Expire { market: 0 },
-    );
-    ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(bet, false));
-    ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(player_pda(&p.wallet.pubkey()), false));
+    let accounts = skech::accounts::Settle { payer: anyone.pubkey(), ..g.settle_accounts(g.relayer.pubkey()) };
+    let ix = Game::with_bets(g.ix(accounts, skech::instruction::Expire { market: 0 }), &[(bet, p.wallet.pubkey())]);
     let msg = solana_message::Message::new(&[ix], Some(&anyone.pubkey()));
     let tx = solana_transaction::Transaction::new(&[&anyone], msg, g.svm.latest_blockhash());
     g.svm.send_transaction(tx).expect("expired");
@@ -457,9 +456,7 @@ fn a_bet_someone_else_paid_the_rent_of_is_settled_and_left_for_them_to_close() {
     assert_eq!(pa.balance, pb.balance + pb.iou_basis, "both paid");
     // Whoever paid it closes it, and has the rent back.
     let before = g.svm.get_balance(&other.pubkey()).unwrap();
-    let mut ix = g.ix(skech::accounts::Settle { game: game_pda(), bars: bars_pda(0), pool: pool_pda(), rent_receiver: other.pubkey() }, skech::instruction::Settle { market: 0 });
-    ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(bet_b, false));
-    ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(player_pda(&b.wallet.pubkey()), false));
+    let ix = Game::with_bets(g.ix(g.settle_accounts(other.pubkey()), skech::instruction::Settle { market: 0 }), &[(bet_b, b.wallet.pubkey())]);
     g.send(&[ix], &[]).unwrap();
     assert!(g.account::<skech::state::Bet>(&bet_b).is_none());
     assert!(g.svm.get_balance(&other.pubkey()).unwrap() > before);

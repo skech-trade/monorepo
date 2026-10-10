@@ -10,6 +10,8 @@ pub const MARKET_SEED: &[u8] = b"market";
 pub const BARS_SEED: &[u8] = b"bars";
 pub const PLAYER_SEED: &[u8] = b"player";
 pub const BET_SEED: &[u8] = b"bet";
+pub const REWARDS_SEED: &[u8] = b"rewards";
+pub const HOLDER_SEED: &[u8] = b"holder";
 
 /// Seconds ahead a band may be.
 pub const HORIZON: u8 = 30;
@@ -277,4 +279,77 @@ impl Bet {
     pub fn space(sections: usize) -> usize {
         Self::FIXED + sections * BetSection::INIT_SPACE
     }
+}
+
+/* ---- SKT: what losing earns back, and the holders' share of the fees (skt.rs has the rules) ---- */
+
+/// SKT a dollar of new net loss mints while the tracked gain is nothing: 100. SKT and USDC are both in millionths.
+pub const SKT_PER_USDC: u128 = 100;
+/// The holders' accumulator is USDC e6 per SKT unit, times this.
+pub const ACC_SCALE: u128 = 1_000_000_000_000_000_000;
+/// The most `mint_scale` may be, USDC e6: 100 · S² must fit in a u128.
+pub const MAX_MINT_SCALE: u64 = 1_000_000_000_000_000_000;
+
+/// SKT's terms, set beside `Config`: `Config` lives in `Game`, whose layout stays as it is on chain.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, PartialEq, Eq, Debug)]
+pub struct RewardsConfig {
+    /// Of every stake, to SKT holders: part of `Config::fee_bps`, never more.
+    pub holder_fee_bps: u16,
+    /// Of every hit's profit, to SKT holders: part of `Config::profit_fee_bps`, never more.
+    pub holder_profit_fee_bps: u16,
+    /// `S` in the mint curve, USDC e6: at tracked gain G a dollar of new net loss mints 100 · (S / (S + G))² SKT.
+    pub mint_scale: u64,
+}
+
+impl RewardsConfig {
+    /// 3 of the 4 stake points and 8 of the 10 profit points to holders; the curve's scale $100,000.
+    pub const DEFAULT: RewardsConfig = RewardsConfig { holder_fee_bps: 300, holder_profit_fee_bps: 800, mint_scale: 100_000_000_000 };
+}
+
+/// SKT's global state: the supply, the holders' accumulator and the USDC set aside for them, and the tracked gain the
+/// mint curve reads. Every SKT stays staked on the `Holder` it was minted to: there is no token to move.
+#[account]
+#[derive(InitSpace)]
+pub struct Rewards {
+    pub config: RewardsConfig,
+    /// SKT outstanding, millionths. Only ever minted.
+    pub supply: u64,
+    /// USDC e6 each SKT unit has earned since the start, times `ACC_SCALE`. Never falls.
+    pub acc: u128,
+    /// USDC e6 in the vault that is the holders': accrued and not yet claimed, the accumulator's rounding dust with it.
+    pub holder_funds: u64,
+    /// Every holder share ever accrued, and every claim paid out: `holder_funds` is the one less the other.
+    pub accrued_total: u64,
+    pub claimed_total: u64,
+    /// The tracked gain, USDC e6: every player's net loss added up (stakes settled less what settling credited them,
+    /// IOUs at face) since SKT began. Signed: players as a whole may be up.
+    pub gain: i64,
+    pub bump: u8,
+    /// Room for what comes later, without a realloc.
+    pub _reserved: [u8; 64],
+}
+
+/// A player's SKT: their balance (always staked), what it has earned, and the low-water mark of their net result
+/// that decides what they mint. Keyed by their wallet; created at the first settlement that decides a band of theirs.
+#[account]
+#[derive(InitSpace, Default)]
+pub struct Holder {
+    pub player: Pubkey,
+    /// SKT, millionths.
+    pub skt: u64,
+    /// `Rewards::acc` when what this balance had earned was last counted into `unclaimed`.
+    pub acc_at: u128,
+    /// USDC e6 earned and not yet claimed.
+    pub unclaimed: u64,
+    pub claimed: u64,
+    /// Lifetime net result, USDC e6: what settling credited them (paid and owed) less the stakes it decided.
+    pub net: i64,
+    /// The deepest net loss they have ever been at (`-net` at its lowest): SKT mints only past it.
+    pub worst: u64,
+    pub bump: u8,
+    pub _reserved: [u8; 32],
+}
+
+impl Holder {
+    pub const SPACE: usize = 8 + Holder::INIT_SPACE;
 }

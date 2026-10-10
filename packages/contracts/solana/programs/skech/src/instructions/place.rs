@@ -18,7 +18,10 @@ use crate::error::SkechError;
 use crate::events::Placed;
 use crate::ladder;
 use crate::piece::{verify_session_sig, PieceMessage, QuoteArgs};
+use crate::skt;
 use crate::state::*;
+// Named, not only globbed: the prelude has a `Rewards` too (the sysvar).
+use crate::state::Rewards;
 
 #[derive(Accounts)]
 #[instruction(piece: PieceMessage)]
@@ -36,6 +39,9 @@ pub struct Place<'info> {
     pub bars: AccountLoader<'info, Bars>,
     #[account(mut, seeds = [POOL_SEED], bump = pool.bump)]
     pub pool: Box<Account<'info, Pool>>,
+    /// For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention.
+    #[account(mut, seeds = [REWARDS_SEED], bump = rewards.bump)]
+    pub rewards: Box<Account<'info, Rewards>>,
     #[account(mut, seeds = [PLAYER_SEED, piece.player.as_ref()], bump = player.bump)]
     pub player: Box<Account<'info, Player>>,
     /// The new bet, at seeds [BET_SEED, player, drawing, index]: created here only if the piece goes in.
@@ -121,13 +127,16 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
     // Everything checks out: only now is anything written.
     // Rounded up, as on Monad: a stake split small never slips under the fee.
     let fee = (kept * c.fee_bps as u64).div_ceil(BPS);
+    // The holders' part of it, rounded down; the treasury's the rest.
+    let to_holders = skt::holder_part(kept, a.rewards.config.holder_fee_bps, c.fee_bps);
     let (unit, per_dot, open_at, difficulty) = (piece.unit, piece.per_dot as u64, piece.open_at, piece.difficulty);
     let player = &mut ctx.accounts.player;
     player.balance -= kept;
     player.session.allowance -= kept;
     let pool = &mut ctx.accounts.pool;
     pool.pool = pool.pool.checked_add(kept - fee).ok_or(SkechError::Overflow)?;
-    pool.fees = pool.fees.checked_add(fee).ok_or(SkechError::Overflow)?;
+    pool.fees = pool.fees.checked_add(fee - to_holders).ok_or(SkechError::Overflow)?;
+    ctx.accounts.rewards.share_stake_fee(pool, to_holders)?;
 
     let count = sections.len();
     let bet = Bet {
@@ -173,8 +182,13 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
 /// Create a program account at a PDA, even if someone has already sent lamports to its address to stop it being
 /// created: top it up to rent-exempt, allocate, assign.
 pub fn create_pda<'info>(payer: &Signer<'info>, target: &UncheckedAccount<'info>, system: &Program<'info, System>, space: usize, owner: &Pubkey, seeds: &[&[u8]]) -> Result<()> {
+    create_pda_at(payer, &target.to_account_info(), system, space, owner, seeds)
+}
+
+/// `create_pda`, for an account passed among the remaining accounts.
+pub fn create_pda_at<'info>(payer: &Signer<'info>, target: &AccountInfo<'info>, system: &Program<'info, System>, space: usize, owner: &Pubkey, seeds: &[&[u8]]) -> Result<()> {
     let rent = Rent::get()?.minimum_balance(space);
-    let (p, t, s) = (payer.to_account_info(), target.to_account_info(), system.to_account_info());
+    let (p, t, s) = (payer.to_account_info(), target.clone(), system.to_account_info());
     let have = t.lamports();
     if have == 0 {
         invoke_signed(&system_instruction::create_account(p.key, t.key, rent, space as u64, owner), &[p, t, s], &[seeds])?;

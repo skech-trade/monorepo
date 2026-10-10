@@ -18,11 +18,12 @@ pub mod events;
 pub mod instructions;
 pub mod ladder;
 pub mod piece;
+pub mod skt;
 pub mod state;
 
 use instructions::*;
 use piece::{PieceMessage, QuoteArgs};
-use state::Config;
+use state::{Config, RewardsConfig};
 
 declare_id!("2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV");
 
@@ -43,8 +44,15 @@ pub mod skech {
     pub fn set_market(ctx: Context<SetMarket>, active: bool, difficulty: u8) -> Result<()> {
         admin::set_market(ctx, active, difficulty)
     }
-    pub fn set_config(ctx: Context<Admin>, config: Config) -> Result<()> {
+    pub fn set_config(ctx: Context<SetConfig>, config: Config) -> Result<()> {
         admin::set_config(ctx, config)
+    }
+    /// Start SKT (`Rewards`), setting the game's terms with it. Once only, by the admin.
+    pub fn init_rewards(ctx: Context<InitRewards>, config: Config, rewards: RewardsConfig) -> Result<()> {
+        admin::init_rewards(ctx, config, rewards)
+    }
+    pub fn set_rewards_config(ctx: Context<SetRewardsConfig>, rewards: RewardsConfig) -> Result<()> {
+        admin::set_rewards_config(ctx, rewards)
     }
     pub fn set_oracle(ctx: Context<Admin>, oracle: Pubkey) -> Result<()> {
         admin::set_oracle(ctx, oracle)
@@ -112,5 +120,12 @@ pub mod skech {
     }
     pub fn collect_fees(ctx: Context<CollectFees>) -> Result<()> {
         iou::collect_fees(ctx)
+    }
+
+    /* ---- SKT ---- */
+
+    /// What the player's SKT has earned, into their balance.
+    pub fn claim(ctx: Context<Claim>) -> Result<()> {
+        claim::claim(ctx)
     }
 }

@@ -64,6 +64,12 @@ pub fn player_pda(wallet: &Pubkey) -> Pubkey {
 pub fn bet_pda(wallet: &Pubkey, drawing: u64, index: u32) -> (Pubkey, u8) {
     pda(&[BET_SEED, wallet.as_ref(), &drawing.to_le_bytes(), &index.to_le_bytes()])
 }
+pub fn rewards_pda() -> Pubkey {
+    pda(&[REWARDS_SEED]).0
+}
+pub fn holder_pda(wallet: &Pubkey) -> Pubkey {
+    pda(&[HOLDER_SEED, wallet.as_ref()]).0
+}
 
 /// The code a custom program error carries: Anchor's offset plus its place in the enum.
 pub fn code(e: skech::error::SkechError) -> u32 {
@@ -149,8 +155,29 @@ impl Game {
         g.send(&[g.initialize_ix(&admin.pubkey())], &[&admin]).expect("initialize");
         g.send(&[g.ix(skech::accounts::InitMarket { admin: admin.pubkey(), game: game_pda(), market: market_pda(0), bars: bars_pda(0), system_program: system_program::ID }, skech::instruction::InitMarket { id: 0, name: "BTC-USD".into(), difficulty: 51 })], &[&admin])
             .expect("init market");
+        g.send(&[g.init_rewards_ix(Config::DEFAULT, RewardsConfig::DEFAULT)], &[&admin]).expect("init rewards");
         g.domain = g.game().domain;
         g
+    }
+
+    pub fn init_rewards_ix(&self, config: Config, rewards: RewardsConfig) -> Instruction {
+        self.ix(
+            skech::accounts::InitRewards { admin: self.admin.pubkey(), game: game_pda(), rewards: rewards_pda(), system_program: system_program::ID },
+            skech::instruction::InitRewards { config, rewards },
+        )
+    }
+
+    pub fn set_config_ix(&self, config: Config) -> Instruction {
+        self.ix(skech::accounts::SetConfig { admin: self.admin.pubkey(), game: game_pda(), rewards: rewards_pda() }, skech::instruction::SetConfig { config })
+    }
+
+    pub fn set_rewards_config_ix(&self, rewards: RewardsConfig) -> Instruction {
+        self.ix(skech::accounts::SetRewardsConfig { admin: self.admin.pubkey(), game: game_pda(), rewards: rewards_pda() }, skech::instruction::SetRewardsConfig { rewards })
+    }
+
+    pub fn claim_ix(&self, p: &Player) -> Instruction {
+        let w = p.wallet.pubkey();
+        self.ix(skech::accounts::Claim { authority: w, game: game_pda(), rewards: rewards_pda(), player: player_pda(&w), holder: holder_pda(&w) }, skech::instruction::Claim {})
     }
 
     pub fn initialize_ix(&self, authority: &Pubkey) -> Instruction {
@@ -218,6 +245,13 @@ impl Game {
     }
     pub fn player_state(&self, p: &Player) -> skech::state::Player {
         self.account(&player_pda(&p.wallet.pubkey())).unwrap()
+    }
+    pub fn rewards(&self) -> skech::state::Rewards {
+        self.account(&rewards_pda()).unwrap()
+    }
+    /// The player's SKT account, or an empty one if no settlement has opened it yet.
+    pub fn holder(&self, wallet: &Pubkey) -> skech::state::Holder {
+        self.account(&holder_pda(wallet)).unwrap_or_default()
     }
     pub fn vault(&self) -> Pubkey {
         get_associated_token_address_with_program_id(&game_pda(), &self.mint, &spl_token::ID)
@@ -316,6 +350,7 @@ impl Game {
                 market: market_pda(piece.market),
                 bars: bars_pda(piece.market),
                 pool: pool_pda(),
+                rewards: rewards_pda(),
                 player: player_pda(&piece.player),
                 bet,
                 instructions: anchor_lang::solana_program::sysvar::instructions::ID,
@@ -338,26 +373,48 @@ impl Game {
         self.place_signed(piece, quote, &s)
     }
 
-    /// `settle`, or `expire`, on (bet, wallet) pairs, with the relayer taking back the rent.
-    pub fn settle_on(&mut self, expire: bool, bets: &[(Pubkey, Pubkey)]) -> Result<TransactionMetadata, FailedTransactionMetadata> {
-        let accounts = skech::accounts::Settle { game: game_pda(), bars: bars_pda(0), pool: pool_pda(), rent_receiver: self.relayer.pubkey() };
-        let mut ix = if expire { self.ix(accounts, skech::instruction::Expire { market: 0 }) } else { self.ix(accounts, skech::instruction::Settle { market: 0 }) };
+    /// The `Settle` accounts, with `rent_receiver` taking back the rent and the relayer paying any holder's.
+    pub fn settle_accounts(&self, rent_receiver: Pubkey) -> skech::accounts::Settle {
+        skech::accounts::Settle { game: game_pda(), bars: bars_pda(0), pool: pool_pda(), rewards: rewards_pda(), rent_receiver, payer: self.relayer.pubkey(), system_program: system_program::ID }
+    }
+
+    /// (bet, player, holder) for each (bet, wallet), as settling takes them.
+    pub fn with_bets(mut ix: Instruction, bets: &[(Pubkey, Pubkey)]) -> Instruction {
         for (bet, wallet) in bets {
             ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(*bet, false));
             ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(player_pda(wallet), false));
+            ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(holder_pda(wallet), false));
         }
-        self.send(&[ix], &[])
+        ix
+    }
+
+    /// `settle`, or `expire`, on (bet, wallet) pairs, with the relayer taking back the rent.
+    pub fn settle_on(&mut self, expire: bool, bets: &[(Pubkey, Pubkey)]) -> Result<TransactionMetadata, FailedTransactionMetadata> {
+        let accounts = self.settle_accounts(self.relayer.pubkey());
+        let ix = if expire { self.ix(accounts, skech::instruction::Expire { market: 0 }) } else { self.ix(accounts, skech::instruction::Settle { market: 0 }) };
+        self.send(&[Game::with_bets(ix, bets)], &[])
+    }
+
+    pub fn post_and_settle_ix(&self, second: i64, prev_close: u64, high: u64, low: u64, close: u64, bets: &[(Pubkey, Pubkey)]) -> Instruction {
+        let ix = self.ix(
+            skech::accounts::PostBarAndSettle {
+                oracle: self.relayer.pubkey(),
+                game: game_pda(),
+                market_account: market_pda(0),
+                bars: bars_pda(0),
+                pool: pool_pda(),
+                rewards: rewards_pda(),
+                rent_receiver: self.relayer.pubkey(),
+                payer: self.relayer.pubkey(),
+                system_program: system_program::ID,
+            },
+            skech::instruction::PostBarAndSettle { market: 0, bar: skech::instructions::BarInput { second, prev_close, high, low, close } },
+        );
+        Game::with_bets(ix, bets)
     }
 
     pub fn post_and_settle(&mut self, second: i64, prev_close: u64, high: u64, low: u64, close: u64, bets: &[(Pubkey, Pubkey)]) -> Result<TransactionMetadata, FailedTransactionMetadata> {
-        let mut ix = self.ix(
-            skech::accounts::PostBarAndSettle { oracle: self.relayer.pubkey(), game: game_pda(), market_account: market_pda(0), bars: bars_pda(0), pool: pool_pda(), rent_receiver: self.relayer.pubkey() },
-            skech::instruction::PostBarAndSettle { market: 0, bar: skech::instructions::BarInput { second, prev_close, high, low, close } },
-        );
-        for (bet, wallet) in bets {
-            ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(*bet, false));
-            ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(player_pda(wallet), false));
-        }
+        let ix = self.post_and_settle_ix(second, prev_close, high, low, close, bets);
         self.send(&[ix], &[])
     }
 }
