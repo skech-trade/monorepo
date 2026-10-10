@@ -5,7 +5,7 @@ import { AppState, type LayoutChangeEvent, Platform, View } from "react-native";
 import { Gesture, GestureDetector, State } from "react-native-gesture-handler";
 import { useReducedMotion, useSharedValue } from "react-native-reanimated";
 import { type Bar, type Field, openFor } from "@skech/core/dots";
-import { CHART_STEP_PX, type Cell, drawingLayout, INK_CELL, type InkBet, type Pen, PEN_CELLS, type Stroke, VIEW_SECONDS } from "@skech/core/ink";
+import { type BetCell, CHART_STEP_PX, type Cell, drawingLayout, INK_CELL, type InkBet, type Pen, PEN_CELLS, type Stroke, VIEW_SECONDS } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
 import type { Tick } from "@/lib/engine";
 import { feel, pen as penSound } from "@/lib/feel";
@@ -28,7 +28,14 @@ import { livePens, type LivePen, penFlush, penLift, remoteDrawings, visibleSocia
  * sprays; a hit while the round is still behind only rings. `burst`: a round that came out ahead, its confetti thrown
  * (by the screen's own canvas, `Game.burst`) from where the price last met its ink, as much as its `tier` earns.
  */
-export type Fx = { kind: "hit" | "miss" | "placed" | "drop" | "burst"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean; profit?: boolean; tier?: number; thrown?: boolean };
+export type Fx = { kind: "hit" | "miss" | "placed" | "drop" | "burst"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean; profit?: boolean; tier?: number; thrown?: boolean; piece?: string };
+/**
+ * Ink that was in play and is not any more, because the chain did not take it (refused, voided, never answered, or
+ * given back): it fades out over `GONE_MS` from where it was, rather than vanishing; the web's `Gone`. `whole`:
+ * nothing else of its drawing is left, so its faint line fades too; otherwise the line stays, faint there.
+ */
+export type Gone = { stroke: Stroke; cells: Cell[]; edgeCells: number; step: number; born: number; whole: boolean };
+export const GONE_MS = 300;
 export type Preview = { multipleLow: number; multipleHigh: number; units: number; cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[]; keyboard?: boolean };
 
 export type Game = {
@@ -49,6 +56,8 @@ export type Game = {
   bets: InkBet[];
   quote: ((st: Stroke) => Preview | null) | null;
   fx: Fx[];
+  /** Ink fading out, newest last: see `Gone`. */
+  gone?: Gone[];
   dark: boolean;
   /** Throws a profitable round's confetti from (x, y) on the stage, on the UI thread. */
   burst?: (x: number, y: number, tier: number) => void;
@@ -716,7 +725,7 @@ export const Stage = memo(function Stage({
           let group = groups.get(id);
           if (!group) groups.set(id, (group = { id, stroke: bet.stroke, cells: [], edgeCells: bet.edgeCells ?? 0, step: bet.step }));
           else if (bet.stroke.pts.length > group.stroke.pts.length) group.stroke = bet.stroke;
-          group.cells.push(...(bet.status === "opening" ? bet.drawn : bet.cells));
+          for (const q of bet.status === "opening" ? bet.drawn : bet.cells) if (!(q as BetCell).expired) group.cells.push(q);
         }
         renderedGroups = [...groups.values()];
       }
@@ -724,6 +733,17 @@ export const Stage = memo(function Stage({
         if (group.id !== pen?.drawing) {
           ink(c, group.stroke, color(pal.ink, 0.3));
           inkInPlay(c, group.stroke, group.cells, solid, group.edgeCells, group.step);
+        }
+      }
+      // What the chain did not take, fading from solid to what is left of it: the faint line (0.886 over it is the
+      // solid 0.92 drawn over faint ink), or nothing. Only while it fades, and with Reduce Motion not at all.
+      if (g.gone?.length) {
+        if (still.current || g.gone.every((q) => ms - q.born >= GONE_MS)) g.gone = [];
+        for (const q of g.gone) {
+          const left = 1 - Math.min(1, (ms - q.born) / GONE_MS);
+          if (left <= 0) continue;
+          if (q.whole) ink(c, q.stroke, color(pal.ink, 0.3 * left));
+          inkInPlay(c, q.stroke, q.cells, color(pal.ink, (q.whole ? 0.92 : 0.886) * left), q.edgeCells, q.step);
         }
       }
       if (pen) {
@@ -741,7 +761,7 @@ export const Stage = memo(function Stage({
       c.drawRect(Skia.XYWHRect(0, 0, nx, h), eraser);
       // Ink the price missed turns red as the price passes it, and fades.
       for (const bet of g.bets) {
-        const misses = bet.cells.filter((q) => q.status === "miss" && at - (q.t + 1000) < 2200);
+        const misses = bet.cells.filter((q) => q.status === "miss" && !q.expired && at - (q.t + 1000) < 2200);
         if (!misses.length) continue;
         const pad = (bet.edgeCells ?? 0) * bet.step * INK_CELL;
         const age = Math.max(0, Math.min(1, (at - (Math.max(...misses.map((q) => q.t)) + 1000)) / 2200));
