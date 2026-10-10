@@ -1,5 +1,5 @@
 import { sha256 } from "@noble/hashes/sha256";
-import { BlurTargetView, BlurView } from "expo-blur";
+import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "@/components/ui/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -253,14 +253,14 @@ function PaperClock({ top }: { top: number }) {
 }
 
 /** The end of a paper run: what it came to, and the two ways on, on the way-in card (onboarding.tsx). */
-function PaperEnd({ onSignIn, onAgain, blurTarget }: { onSignIn: () => void; onAgain: () => void; blurTarget: React.RefObject<View | null> }) {
+function PaperEnd({ onSignIn, onAgain }: { onSignIn: () => void; onAgain: () => void }) {
   const run = usePaper();
   const dark = useDark();
   if (!run || run.phase !== "over") return null;
   const { headline } = paperResult(run, money);
   return (
     <View accessibilityLabel="Your practice run" className="absolute inset-0 z-30 items-center justify-center px-4">
-      <BlurView blurTarget={blurTarget} experimentalBlurMethod="dimezisBlurView" intensity={60} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }} tint={dark ? "dark" : "light"} />
+      <BlurView intensity={60} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }} tint={dark ? "dark" : "light"} />
       <Arrive motion={MOTION.cardIn} style={{ width: "100%", alignItems: "center" }}>
         <View className="w-full max-w-[360px] rounded-[28px] bg-raised p-6" style={raised}>
           <Text className="font-semibold text-[22px] text-foreground">{headline}</Text>
@@ -332,7 +332,6 @@ export function InkScreen() {
     }, 3200);
     return () => clearTimeout(timer);
   }, [refused]);
-  const blurTarget = useRef<View>(null);
   const dark = useDark();
   /*
     A paper run: "Try it free", signed out, on paper money held only in memory (lib/paper.ts). Its ink is priced,
@@ -1158,8 +1157,6 @@ export function InkScreen() {
 
   return (
     <View className="flex-1 overflow-hidden bg-background">
-      {/* What the signed-out and end-of-run cards blur: on Android a blur needs its target named. */}
-      <BlurTargetView pointerEvents="box-none" ref={blurTarget} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
       {/* The stage fills the screen; the market row, the pills and the dock float over it. */}
       {/* The stage as the web lays it out: from under the status bar, down to where the web's dock would sit, so
           the chart keeps the same room under the bar and over the dock. */}
@@ -1312,13 +1309,11 @@ export function InkScreen() {
         </View>
       </Arrive>
 
-      </BlurTargetView>
-
       {/* Signed out: the game plays on behind, blurred. Signing in is the way to play; a tap anywhere opens it. Or
           thirty seconds on paper money first, to feel the game before signing in for it. */}
       {forReal && me.ready && !me.signedIn && !paperOn ? (
         <Pressable className="absolute inset-0 z-30 items-center justify-center gap-2" onPress={() => gate.openSignIn("overlay")}>
-          <BlurView blurTarget={blurTarget} experimentalBlurMethod="dimezisBlurView" intensity={60} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }} tint={dark ? "dark" : "light"} />
+          <BlurView intensity={60} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }} tint={dark ? "dark" : "light"} />
           <View className="w-64 gap-2">
             <Button className="w-full px-6" onPress={() => gate.openSignIn("overlay")}>
               Sign in to play
@@ -1331,7 +1326,6 @@ export function InkScreen() {
       ) : null}
       {paperOn ? (
         <PaperEnd
-          blurTarget={blurTarget}
           onAgain={() => startPaper(true)}
           onSignIn={() => {
             track("sign_in_opened", { from: "paper" });
