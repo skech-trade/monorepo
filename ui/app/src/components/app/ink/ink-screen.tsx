@@ -46,7 +46,7 @@ import { introReady } from "./ink-intro";
 import { homeBarRoom, HomeScreenBar, HomeScreenSheet, useHomeScreen } from "./home-screen";
 import { forReal, Onboarding, useOnboarding } from "./onboarding";
 import { SignInButton } from "@/components/app/sign-in";
-import { useGate } from "./gate";
+import { useGate, useGatePanels } from "./gate";
 import { useAccount } from "@/components/app/auth";
 
 /**
@@ -374,14 +374,14 @@ export function InkScreen() {
   /* The stroke's terms, for the pill; the screen itself only needs to know whether there is a stroke. */
   const [preview] = useState(() => signal<Preview | null>(null));
   const [previewing, setPreviewing] = useState(false);
-  const [help, setHelp] = useState(false);
+  // Settings and How it works are held by the gate, so the account menu opens them too.
+  const { help, setHelp, settings: settingsOpen, setSettings: setSettingsOpen } = useGatePanels();
   const [returnedInk, setReturnedInk] = useState<{ id: string; amount: number } | null>(null);
   useEffect(() => {
     if (!returnedInk) return;
     const timer = setTimeout(() => setReturnedInk(null), 3200);
     return () => clearTimeout(timer);
   }, [returnedInk]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const dark = useDark();
   /*
     A paper run: "Try it free", signed out, on paper money that lives only in memory (lib/paper.ts). Paper ink is
