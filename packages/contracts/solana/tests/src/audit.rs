@@ -210,3 +210,115 @@ fn with_an_iou_outstanding_splitting_a_loss_mints_no_more() {
         assert!(split <= one && one - split <= pieces as u64, "{pieces} pieces: {split} against {one} in one");
     }
 }
+
+/// Security L-1: every player with a live bet in a settlement had a Holder opened at the settler's cost, even if
+/// nothing of theirs could mint (a hit, a refund), and its rent was never returned. Now a Holder is opened only for a
+/// player whose bet mints here: sybils with hit-only or refunded bets cost the relayer no Holder rent.
+#[test]
+fn a_holder_is_opened_only_for_a_player_whose_bet_mints() {
+    let mut t = T::new();
+    let funder = t.g.player(100 * E6, 100 * E6);
+    t.play(&funder, &[(FAR, 1_000_000, HALF)], HIT_AT);
+    // A winner: its band hits. The relayer gets the bet's rent back and pays the fee, and nothing else.
+    let winner = t.g.player(10 * E6, 10 * E6);
+    let open_at = t.open();
+    let bet = t.place(&winner, open_at, &[(AT, 50_000, HALF)]);
+    let before = t.g.svm.get_balance(&t.g.relayer.pubkey()).unwrap();
+    let bet_rent = t.g.svm.get_balance(&bet).unwrap();
+    let m = t.settle(open_at, HIT_AT, &[(bet, key(&winner))]);
+    let s: Vec<skech::events::Settled> = events(&m.logs);
+    assert_eq!((s[0].hit_mask, s[0].closed), (1, true));
+    assert!(t.g.svm.get_account(&holder_pda(&key(&winner))).map_or(true, |a| a.data.is_empty()), "no holder for a winner");
+    let after = t.g.svm.get_balance(&t.g.relayer.pubkey()).unwrap();
+    assert_eq!(after, before + bet_rent - 5_000, "the relayer paid the fee and got the bet's rent back, no holder rent");
+    // A refund: a band whose second is never posted, given back by expire. No holder either.
+    let refunded = t.g.player(10 * E6, 10 * E6);
+    let open_at = t.open();
+    let bet = t.place(&refunded, open_at, &[(FAR, 50_000, HALF)]);
+    t.g.set_time(open_at / 1000 + skech::state::BAR_LATE + 5);
+    let m = t.g.settle_on(true, &[(bet, key(&refunded))]).unwrap();
+    let s: Vec<skech::events::Settled> = events(&m.logs);
+    assert_eq!((s[0].expired_mask, s[0].refunded), (1, 50_000));
+    assert!(t.g.svm.get_account(&holder_pda(&key(&refunded))).map_or(true, |a| a.data.is_empty()), "no holder for a refund");
+    // A loser: its miss mints, and its holder is opened then.
+    let loser = t.g.player(10 * E6, 10 * E6);
+    t.play(&loser, &[(FAR, 50_000, HALF)], HIT_AT);
+    assert!(t.g.holder(&key(&loser)).skt > 0);
+    // In one settlement, a hit and a miss of different players: only the loser's holder opens.
+    let (w2, l2) = (t.g.player(10 * E6, 10 * E6), t.g.player(10 * E6, 10 * E6));
+    let open_at = t.open();
+    let (bw, bl) = (t.place(&w2, open_at, &[(AT, 50_000, HALF)]), t.place(&l2, open_at, &[(FAR, 50_000, HALF)]));
+    t.settle(open_at, HIT_AT, &[(bw, key(&w2)), (bl, key(&l2))]);
+    assert!(t.g.svm.get_account(&holder_pda(&key(&w2))).map_or(true, |a| a.data.is_empty()));
+    assert!(t.g.holder(&key(&l2)).skt > 0);
+}
+
+/// Security L-2: until `init_rewards` ran after the upgrade, `expire` (and settle) could not run at all, so a live
+/// bet's stake waited on the admin. Now both run without SKT's account: the stake comes back, nothing mints, no holder
+/// opens, and the holders' share of a profit's fee goes to the treasury, as before SKT.
+#[test]
+fn before_init_rewards_bets_settle_and_expire() {
+    let mut t = T::new();
+    let (a, b) = (t.g.player(10 * E6, 10 * E6), t.g.player(10 * E6, 10 * E6));
+    t.play(&b, &[(FAR, 2_000_000, HALF)], HIT_AT);
+    let open_at = t.open();
+    let lose = t.place(&a, open_at, &[(FAR, 1_000_000, HALF)]);
+    let win = t.place(&b, open_at, &[(AT, 100_000, HALF)]);
+    // A band in second 5, whose bar never comes.
+    t.drawing += 1;
+    let piece = t.g.piece(&a, t.drawing, 0, open_at, &[(5, FAR, 5, 300_000)]);
+    t.g.place(&a, &piece, &QuoteArgs { price: PRICE, momentum: 0, received_at: open_at - 300, chances: vec![HALF] }).unwrap();
+    let stuck = bet_pda(&key(&a), t.drawing, 0).0;
+    // As if these bets were live at the upgrade, before `init_rewards`: no Rewards account.
+    t.g.svm.set_account(rewards_pda(), solana_account::Account::default()).unwrap();
+    let fees = t.g.pool().fees;
+    // Settled: the miss mints nothing and opens no holder; the hit's whole profit fee is the treasury's.
+    let m = t.settle(open_at, HIT_AT, &[(lose, key(&a)), (win, key(&b))]);
+    assert!(events::<skech::events::Minted>(&m.logs).is_empty());
+    assert!(t.g.svm.get_account(&holder_pda(&key(&a))).map_or(true, |x| x.data.is_empty()));
+    // 0.1 · 0.05 of profit (100,000 at 1.5x): 5,000 to the treasury, rounded up.
+    assert_eq!(t.g.pool().fees - fees, 5_000);
+    // Expired, its second never posted: the stake comes back.
+    let before = t.g.player_state(&a).balance;
+    t.g.set_time((open_at + 6_000) / 1000 + skech::state::BAR_LATE + 5);
+    let m = t.g.settle_on(true, &[(stuck, key(&a))]).expect("expire without Rewards");
+    let s: Vec<skech::events::Settled> = events(&m.logs);
+    assert_eq!((s[0].expired_mask, s[0].refunded, s[0].closed), (1, 300_000, true));
+    assert_eq!(t.g.player_state(&a).balance - before, 300_000);
+    // Nobody can settle without SKT's account by passing another empty one in its place once it exists, or before.
+    let open_at = t.open();
+    t.g.svm.set_account(rewards_pda(), solana_account::Account::default()).unwrap();
+    let mut ix = t.g.post_and_settle_ix(open_at + 1000, HIT_AT, HIT_AT, HIT_AT, HIT_AT, &[]);
+    ix.accounts[5].pubkey = Pubkey::new_unique();
+    t.g.set_time(open_at / 1000 + 4);
+    assert_eq!(custom_error(&t.g.send(&[ix], &[])), Some(code(SkechError::BadSettleAccounts)));
+}
+
+/// Info items. A claim works while the game is paused, as a withdrawal does; a claim with nothing to pay is refused
+/// rather than paid for; and SKT's mint scale cannot be changed once anything has minted.
+#[test]
+fn claims_while_paused_empty_claims_and_the_mint_scale() {
+    let mut t = T::new();
+    let admin = t.g.admin.insecure_clone();
+    // The scale may be set before anything mints.
+    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: 2 * E6, ..skech::state::RewardsConfig::DEFAULT });
+    t.g.send(&[ix], &[&admin]).expect("set before any SKT");
+    let (a, b) = (t.g.player(10 * E6, 10 * E6), t.g.player(10 * E6, 10 * E6));
+    t.play(&b, &[(FAR, 1_000_000, HALF)], HIT_AT);
+    t.play(&a, &[(AT, 100_000, HALF)], HIT_AT);
+    // Once SKT exists, no longer: the rest of the terms still may be.
+    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: 3 * E6, ..skech::state::RewardsConfig::DEFAULT });
+    assert_eq!(custom_error(&t.g.send(&[ix], &[&admin])), Some(code(SkechError::MintScaleFixed)));
+    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: 2 * E6, holder_fee_bps: 200, ..skech::state::RewardsConfig::DEFAULT });
+    t.g.send(&[ix], &[&admin]).expect("the split may change");
+    // Paused: B still claims what its SKT earned.
+    let pause = t.g.ix(skech::accounts::Admin { admin: admin.pubkey(), game: game_pda() }, skech::instruction::SetPaused { paused: true });
+    t.g.send(&[pause], &[&admin]).unwrap();
+    let w = b.wallet.insecure_clone();
+    let before = t.g.player_state(&b).balance;
+    t.g.send(&[t.g.claim_ix(&b)], &[&w]).expect("claimed while paused");
+    assert!(t.g.player_state(&b).balance > before);
+    // A second claim has nothing to pay: refused, so nobody pays a fee to move nothing.
+    let r = t.g.send(&[t.g.claim_ix(&b)], &[&w]);
+    assert_eq!(custom_error(&r), Some(code(SkechError::NothingToClaim)));
+}

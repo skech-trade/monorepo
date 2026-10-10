@@ -90,10 +90,15 @@ impl Table {
         self.settle(open_at, price, &[(bet, key(p))])
     }
 
+    /// What a claim paid: nothing to claim is refused (NothingToClaim), and pays nothing.
     fn claim(&mut self, p: &Player) -> u64 {
         let before = self.g.player_state(p).balance;
         let w = p.wallet.insecure_clone();
-        self.g.send(&[self.g.claim_ix(p)], &[&w]).unwrap_or_else(|f| panic!("claim: {:?} {:?}", f.err, f.meta.logs));
+        let r = self.g.send(&[self.g.claim_ix(p)], &[&w]);
+        if custom_error(&r) == Some(code(skech::error::SkechError::NothingToClaim)) {
+            return 0;
+        }
+        r.unwrap_or_else(|f| panic!("claim: {:?} {:?}", f.err, f.meta.logs));
         self.g.player_state(p).balance - before
     }
 
@@ -153,8 +158,10 @@ fn the_stake_fee_splits_3_and_1_and_the_profit_fee_8_and_2() {
     let paid = t.claim(&b);
     assert!((3_498..=3_500).contains(&paid), "{paid}");
     assert_eq!(t.claim(&b), 0);
-    // A never lost: no SKT, and its holder (opened by its settlement) has nothing to claim.
-    assert_eq!(t.claim(&a), 0);
+    // A never lost: no SKT, and no holder opened for it to claim from.
+    assert!(t.g.svm.get_account(&holder_pda(&key(&a))).map_or(true, |x| x.data.is_empty()));
+    let w = a.wallet.insecure_clone();
+    assert!(t.g.send(&[t.g.claim_ix(&a)], &[&w]).is_err());
     t.books_balance(&[&a, &b]);
 }
 

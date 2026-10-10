@@ -46,7 +46,7 @@ scfg.lateMs = game.config.lateMs;
 // SKT's account: every placement and settlement writes it. Until the admin starts it (init_rewards), the program
 // refuses them all.
 if (!(await fetchMaybeRewards(chain.rpc, chain.rewards)).exists) {
-  log("WARNING: SKT has not started on this game (no Rewards account): nothing can be placed or settled until the admin sends init_rewards (bun run deploy:solana --skip-program)");
+  log("WARNING: SKT has not started on this game (no Rewards account): nothing can be placed until the admin sends init_rewards (bun run deploy:solana --skip-program); bets already live still settle and expire, minting nothing");
   report("no-rewards", `the Solana game has no Rewards account at ${chain.rewards}`);
 }
 

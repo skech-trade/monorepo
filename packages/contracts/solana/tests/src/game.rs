@@ -72,7 +72,7 @@ fn a_piece_is_placed_hit_missed_and_closed() {
     assert!(g.account::<skech::state::Bet>(&bet).is_none());
     assert_eq!(g.player_state(&p).balance, 10 * E6 - 100_000 + 72_500);
     let fees_paid = relayer_before - g.svm.get_balance(&g.relayer.pubkey()).unwrap();
-    // And the player's SKT account, opened by their first settlement, is the relayer's rent to pay, once.
+    // And the player's SKT account, opened by the first settlement that mints for them, is the relayer's rent to pay, once.
     let holder_rent = g.svm.minimum_balance_for_rent_exemption(skech::state::Holder::SPACE);
     assert!(fees_paid < 50_000 + holder_rent && fees_paid >= holder_rent, "the bet's rent came back: only fees and the holder's rent spent, {fees_paid} lamports");
 

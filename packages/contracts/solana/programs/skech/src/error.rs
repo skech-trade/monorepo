@@ -76,4 +76,8 @@ pub enum SkechError {
     OwnRedeem,
     #[msg("Not the proposed admin")]
     NotPendingAdmin,
+    #[msg("Nothing to claim")]
+    NothingToClaim,
+    #[msg("SKT's mint scale is fixed once anything has minted")]
+    MintScaleFixed,
 }

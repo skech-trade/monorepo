@@ -13,7 +13,7 @@ import type { Holder, Player, Pool, Rewards } from "@skech/contracts/solana/sdk"
 import type { Token } from "@solana-program/token";
 import { remember } from "../limits";
 
-/** `holder` is the player's SKT, null until their first settlement; `rewards` SKT's own, null until it starts. */
+/** `holder` is the player's SKT, null until a settlement first mints for them; `rewards` SKT's own, null until it starts. */
 export type Snapshot = { player: Player | null; pool: Pool; token: Token | null; holder: Holder | null; rewards: Rewards | null; at: number };
 type Entry = { last: Snapshot | null; stale: boolean; started: number; running: Promise<Snapshot> | null; queued: Promise<Snapshot> | null };
 

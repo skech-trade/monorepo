@@ -126,7 +126,8 @@ pub struct InitRewards<'info> {
 }
 
 /// Start SKT, and set the game's terms with it in one go: a game whose fees are below SKT's split (devnet's 1% and 5%)
-/// is moved to terms that hold it, never left between. Once only; until it is sent, nothing is placed or settled.
+/// is moved to terms that hold it, never left between. Once only; until it is sent nothing is placed, though bets live
+/// across the upgrade settle and expire without it (`load_rewards`), minting nothing.
 pub fn init_rewards(ctx: Context<InitRewards>, config: Config, rewards: RewardsConfig) -> Result<()> {
     check_config(&config, &rewards)?;
     ctx.accounts.game.config = config;
@@ -148,9 +149,14 @@ pub struct SetRewardsConfig<'info> {
     pub rewards: Account<'info, Rewards>,
 }
 
-/// SKT's split of the fees and the mint curve's scale, from now on. What was accrued and minted stays.
+/// SKT's split of the fees and its other terms, from now on. What was accrued and minted stays. The mint curve's scale
+/// is fixed once anything has minted: the tracked gain and every SKT minted are on the old scale's curve, and a new
+/// scale would mint the next dollar as if the curve had been the new one all along (a larger scale, more than the
+/// curve's whole worth in all; a smaller one, a cliff). It may be set until then.
 pub fn set_rewards_config(ctx: Context<SetRewardsConfig>, rewards: RewardsConfig) -> Result<()> {
     check_config(&ctx.accounts.game.config, &rewards)?;
+    let r = &ctx.accounts.rewards;
+    require!(rewards.mint_scale == r.config.mint_scale || (r.gain == 0 && r.supply == 0), SkechError::MintScaleFixed);
     ctx.accounts.rewards.config = rewards;
     emit!(RewardsConfigSet { config: rewards });
     Ok(())

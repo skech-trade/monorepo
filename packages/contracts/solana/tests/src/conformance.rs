@@ -214,8 +214,17 @@ fn run(c: &Case) {
                 let who = &players[claim];
                 let before = g.player_state(who).balance;
                 let w = who.wallet.insecure_clone();
-                g.send(&[g.claim_ix(who)], &[&w]).unwrap_or_else(|f| panic!("{at}: claim refused ({:?}) {:?}", f.err, f.meta.logs));
-                assert_eq!(g.player_state(who).balance - before, want.claimed.expect("a claim step's expectation"), "{at}: claimed");
+                let r = g.send(&[g.claim_ix(who)], &[&w]);
+                let want = want.claimed.expect("a claim step's expectation");
+                // Nothing to claim is refused, so a claim is never paid for to move nothing; with no SKT account at all,
+                // there is nothing to claim from.
+                if want == 0 {
+                    let e = custom_error(&r);
+                    assert!(e == Some(code(SkechError::NothingToClaim)) || e == Some(anchor_lang::error::ErrorCode::AccountNotInitialized as u32), "{at}: an empty claim: {e:?}");
+                } else {
+                    r.unwrap_or_else(|f| panic!("{at}: claim refused ({:?}) {:?}", f.err, f.meta.logs));
+                }
+                assert_eq!(g.player_state(who).balance - before, want, "{at}: claimed");
             }
             Step::Difficulty { difficulty } => {
                 let ok = want.difficulty.as_ref().expect("a difficulty step's expectation").ok;

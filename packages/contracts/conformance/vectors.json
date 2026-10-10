@@ -3018,7 +3018,7 @@
         "holderProfitFeeBps": 800,
         "mintScale": 1000000000000
       },
-      "name": "SKT: a loss mints; then 3 of the 4 stake points and 8 of the 10 profit points accrue; a claim pays them, a second nothing",
+      "name": "SKT: a loss mints; then 3 of the 4 stake points and 8 of the 10 profit points accrue; a claim pays them, a second is refused",
       "steps": [
         {
           "place": {

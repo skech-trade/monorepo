@@ -47,15 +47,15 @@ pub struct PostBarAndSettle<'info> {
     pub bars: AccountLoader<'info, Bars>,
     #[account(mut, seeds = [POOL_SEED], bump = pool.bump)]
     pub pool: Box<Account<'info, Pool>>,
-    /// Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
-    /// one account with its owner and discriminator is the one.
+    /// SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`.
+    /// CHECK: read by `load_rewards`, written back by `store_rewards`.
     #[account(mut)]
-    pub rewards: Box<Account<'info, Rewards>>,
+    pub rewards: UncheckedAccount<'info>,
     /// Gets back the rent of the bets closed here: only those it paid for are closed.
     /// CHECK: compared with each bet's `rent_payer`.
     #[account(mut)]
     pub rent_receiver: UncheckedAccount<'info>,
-    /// Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs. The oracle, usually.
+    /// Pays the rent of a player's `Holder` the first time a settlement mints SKT for them. The oracle, usually.
     #[account(mut)]
     pub payer: Signer<'info>,
     pub system_program: Program<'info, System>,
@@ -70,17 +70,40 @@ pub struct Settle<'info> {
     pub bars: AccountLoader<'info, Bars>,
     #[account(mut, seeds = [POOL_SEED], bump = pool.bump)]
     pub pool: Box<Account<'info, Pool>>,
-    /// Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
-    /// one account with its owner and discriminator is the one.
+    /// SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`.
+    /// CHECK: read by `load_rewards`, written back by `store_rewards`.
     #[account(mut)]
-    pub rewards: Box<Account<'info, Rewards>>,
+    pub rewards: UncheckedAccount<'info>,
     /// CHECK: compared with each bet's `rent_payer`.
     #[account(mut)]
     pub rent_receiver: UncheckedAccount<'info>,
-    /// Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles.
+    /// Pays the rent of a player's `Holder` the first time a settlement mints SKT for them: whoever settles.
     #[account(mut)]
     pub payer: Signer<'info>,
     pub system_program: Program<'info, System>,
+}
+
+/// SKT's account, if `init_rewards` has made it. Not re-derived from its seeds when it is there (1,500 CU): only
+/// `init_rewards` makes a `Rewards`, once, at its seeds, so the one account with its owner and discriminator is the
+/// one. Before it is made (bets live across the upgrade that brought SKT, until the admin sends `init_rewards`),
+/// settling and expiring go on without it: nothing mints, no holder is opened, and the holders' share of a profit's
+/// fee goes to the treasury, as before SKT. Then the address passed must be its own, so nobody can settle without it
+/// once it exists by passing some other empty account.
+pub fn load_rewards(info: &AccountInfo, program_id: &Pubkey) -> Result<Option<Rewards>> {
+    if info.owner == program_id && !info.data_is_empty() {
+        require!(info.is_writable, SkechError::BadSettleAccounts);
+        return Ok(Some(Rewards::try_deserialize(&mut &info.try_borrow_data()?[..])?));
+    }
+    let (address, _) = Pubkey::find_program_address(&[REWARDS_SEED], program_id);
+    require_keys_eq!(address, info.key(), SkechError::BadSettleAccounts);
+    Ok(None)
+}
+
+pub fn store_rewards(info: &AccountInfo, rewards: &Option<Rewards>) -> Result<()> {
+    if let Some(r) = rewards {
+        r.try_serialize(&mut &mut info.try_borrow_mut_data()?[..])?;
+    }
+    Ok(())
 }
 
 /// What every bet in a settlement shares.
@@ -89,7 +112,8 @@ struct Batch<'a, 'info> {
     game: &'a Game,
     bars: &'a Bars,
     pool: &'a mut Pool,
-    rewards: &'a mut Rewards,
+    /// None before `init_rewards`: see `load_rewards`.
+    rewards: Option<Rewards>,
     rent_receiver: &'a UncheckedAccount<'info>,
     payer: &'a Signer<'info>,
     system_program: &'a Program<'info, System>,
@@ -97,7 +121,6 @@ struct Batch<'a, 'info> {
     now: i64,
     expire: bool,
 }
-
 fn post(game: &Game, bars: &mut Bars, market: u8, bar: &BarInput) -> Result<()> {
     require!(bar.second > 0 && bar.second % 1000 == 0 && bar.low > 0 && bar.prev_close > 0, SkechError::BadBar);
     require!(bar.low <= bar.high && bar.close >= bar.low && bar.close <= bar.high, SkechError::BadBar);
@@ -138,8 +161,10 @@ pub fn post_bar_and_settle<'info>(ctx: Context<'_, '_, 'info, 'info, PostBarAndS
         post(&a.game, &mut bars, market, &bar)?;
     }
     let bars = a.bars.load()?;
-    let mut b = Batch { program_id: ctx.program_id, game: &a.game, bars: &bars, pool: &mut a.pool, rewards: &mut a.rewards, rent_receiver: &a.rent_receiver, payer: &a.payer, system_program: &a.system_program, market, now: Clock::get()?.unix_timestamp, expire: false };
-    settle_all(&mut b, ctx.remaining_accounts)
+    let rewards = load_rewards(&a.rewards, ctx.program_id)?;
+    let mut b = Batch { program_id: ctx.program_id, game: &a.game, bars: &bars, pool: &mut a.pool, rewards, rent_receiver: &a.rent_receiver, payer: &a.payer, system_program: &a.system_program, market, now: Clock::get()?.unix_timestamp, expire: false };
+    settle_all(&mut b, ctx.remaining_accounts)?;
+    store_rewards(&a.rewards, &b.rewards)
 }
 
 /// Settle bets on the bars already posted: bands in a posted second are hit or missed; the rest wait. Anyone may.
@@ -158,41 +183,64 @@ fn settle_or_expire<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>, ma
     let a = ctx.accounts;
     require!(!a.game.paused, SkechError::Paused);
     let bars = a.bars.load()?;
-    let mut b = Batch { program_id: ctx.program_id, game: &a.game, bars: &bars, pool: &mut a.pool, rewards: &mut a.rewards, rent_receiver: &a.rent_receiver, payer: &a.payer, system_program: &a.system_program, market, now: Clock::get()?.unix_timestamp, expire };
-    settle_all(&mut b, ctx.remaining_accounts)
+    let rewards = load_rewards(&a.rewards, ctx.program_id)?;
+    let mut b = Batch { program_id: ctx.program_id, game: &a.game, bars: &bars, pool: &mut a.pool, rewards, rent_receiver: &a.rent_receiver, payer: &a.payer, system_program: &a.system_program, market, now: Clock::get()?.unix_timestamp, expire };
+    settle_all(&mut b, ctx.remaining_accounts)?;
+    store_rewards(&a.rewards, &b.rewards)
 }
 
 fn settle_all<'info>(b: &mut Batch<'_, 'info>, accounts: &'info [AccountInfo<'info>]) -> Result<()> {
     require!(accounts.len() % 3 == 0, SkechError::BadSettleAccounts);
-    // Every Holder the batch needs is opened before anything is settled: a call to the system program after a closed
-    // bet's rent has been moved by hand would leave this instruction's lamports out of balance, which the runtime refuses.
+    // Every bet is decided first, and a Holder opened only for a player whose bet mints here: a hit, a refund or a bet
+    // that only closes costs nobody a Holder's rent. All of them before anything is settled: a call to the system
+    // program after a closed bet's rent has been moved by hand would leave this instruction's lamports out of balance,
+    // which the runtime refuses.
+    let mut outcomes = Vec::with_capacity(accounts.len() / 3);
     for t in accounts.chunks(3) {
-        open_holder(b, &t[0], &t[2])?;
+        let o = decide(b, &t[0])?;
+        if let Some(o) = &o {
+            if o.basis > 0 && b.rewards.is_some() {
+                open_holder(b, o.bet.player, &t[2])?;
+            }
+        }
+        outcomes.push(o);
     }
-    for t in accounts.chunks(3) {
-        settle_one(b, &t[0], &t[1], &t[2])?;
+    for (t, o) in accounts.chunks(3).zip(outcomes) {
+        if let Some(o) = o {
+            settle_one(b, o, &t[0], &t[1], &t[2])?;
+        }
     }
     Ok(())
 }
 
-fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, player_info: &AccountInfo<'info>, holder_info: &AccountInfo<'info>) -> Result<()> {
-    let (program_id, now) = (b.program_id, b.now);
-    // Already closed (settled in an earlier transaction): nothing to do, and not an error, so a retry is harmless.
-    if bet_info.owner != program_id || bet_info.data_is_empty() {
-        return Ok(());
+/// What settling one bet does: which bands hit, miss or are given back, what it pays, what it mints on.
+struct Outcome {
+    bet: Bet,
+    hits: u32,
+    decided: u32,
+    expired: u32,
+    gross_pay: u64,
+    stake_hit: u64,
+    stake_back: u64,
+    basis: u64,
+    closable: bool,
+}
+
+/// Decide a bet on the bars posted, writing nothing. None: already closed (settled in an earlier transaction, so a
+/// retry is harmless), or nothing to do yet.
+fn decide(b: &Batch, bet_info: &AccountInfo) -> Result<Option<Outcome>> {
+    let now = b.now;
+    if bet_info.owner != b.program_id || bet_info.data_is_empty() {
+        return Ok(None);
     }
-    require!(bet_info.is_writable && player_info.is_writable && player_info.owner == program_id, SkechError::BadSettleAccounts);
-    let (mut bet, chances) = {
+    let (bet, chances) = {
         let data = bet_info.try_borrow_data()?;
         let bet = Bet::try_deserialize(&mut &data[..])?;
         // Each band's chance, kept after the bet; none for a bet placed before SKT, whose misses mint nothing.
         let chances = Bet::chances(&data, bet.sections.len());
         (bet, chances)
     };
-    let mut player = Player::try_deserialize(&mut &player_info.try_borrow_data()?[..])?;
-    require_keys_eq!(player.authority, bet.player, SkechError::BadSettleAccounts);
     require!(bet.market == b.market, SkechError::BadSettleAccounts);
-
     let live = bet.live_mask;
     let (mut hits, mut decided, mut expired) = (0u32, 0u32, 0u32);
     let (mut gross_pay, mut stake_hit, mut stake_back, mut basis) = (0u64, 0u64, 0u64, 0u64);
@@ -224,9 +272,18 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
     // here if someone else paid its rent: it waits for them, and the rest of the batch goes on.
     let closable = now * 1000 > bet.open_at + b.game.config.place_grace_ms as i64 && b.rent_receiver.key() == bet.rent_payer;
     if decided == 0 && !(live == 0 && closable) {
-        return Ok(());
+        return Ok(None);
     }
-    bet.live_mask = live & !decided;
+    Ok(Some(Outcome { bet, hits, decided, expired, gross_pay, stake_hit, stake_back, basis, closable }))
+}
+
+fn settle_one<'info>(b: &mut Batch<'_, 'info>, o: Outcome, bet_info: &AccountInfo<'info>, player_info: &AccountInfo<'info>, holder_info: &AccountInfo<'info>) -> Result<()> {
+    let now = b.now;
+    require!(bet_info.is_writable && player_info.is_writable && player_info.owner == b.program_id, SkechError::BadSettleAccounts);
+    let Outcome { mut bet, hits, decided, expired, gross_pay, stake_hit, stake_back, basis, closable } = o;
+    let mut player = Player::try_deserialize(&mut &player_info.try_borrow_data()?[..])?;
+    require_keys_eq!(player.authority, bet.player, SkechError::BadSettleAccounts);
+    bet.live_mask &= !decided;
     bet.hit_mask |= hits;
     let (mut paid, mut owed) = (0, 0);
     if gross_pay > 0 {
@@ -236,12 +293,15 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
         let profit_fee = (profit * c.profit_fee_bps as u64).div_ceil(BPS);
         (paid, owed) = pay(b.pool, &mut player, gross_pay - profit_fee, now);
         // The player is paid first. The house's cut comes after, out of what the pool has left, and is never owed: a
-        // shortfall is never made worse by a debt growing to the house. The holders' share is taken the same way.
-        let to_holders = skt::holder_part(profit, b.rewards.config.holder_profit_fee_bps, c.profit_fee_bps);
+        // shortfall is never made worse by a debt growing to the house. The holders' share is taken the same way;
+        // before SKT has started, it is the treasury's.
+        let to_holders = b.rewards.as_ref().map_or(0, |r| skt::holder_part(profit, r.config.holder_profit_fee_bps, c.profit_fee_bps));
         let cut = (profit_fee - to_holders).min(b.pool.pool);
         b.pool.pool -= cut;
         b.pool.fees += cut;
-        b.rewards.share_profit_fee(b.pool, to_holders)?;
+        if let Some(r) = b.rewards.as_mut() {
+            r.share_profit_fee(b.pool, to_holders)?;
+        }
     }
     let mut refunded = 0;
     if stake_back > 0 {
@@ -253,9 +313,9 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
     }
     if decided != 0 {
         player.try_serialize(&mut &mut player_info.try_borrow_mut_data()?[..])?;
-        if basis > 0 {
-            let mut holder = holder_of(b, holder_info, bet.player)?;
-            b.rewards.mint(&mut holder, basis)?;
+        if let (true, Some(r)) = (basis > 0, b.rewards.as_mut()) {
+            let mut holder = holder_of(b.program_id, holder_info, bet.player)?;
+            r.mint(&mut holder, basis)?;
             holder.try_serialize(&mut &mut holder_info.try_borrow_mut_data()?[..])?;
         }
     }
@@ -277,29 +337,23 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
     Ok(())
 }
 
-/// Open the `Holder` of a live bet's player at the payer's cost, if it is not there yet: at its address only, for
-/// that player only.
-fn open_holder<'info>(b: &Batch<'_, 'info>, bet_info: &AccountInfo<'info>, info: &AccountInfo<'info>) -> Result<()> {
-    if bet_info.owner != b.program_id || bet_info.data_is_empty() || (info.owner == b.program_id && !info.data_is_empty()) {
+/// Open `player`'s `Holder` at the payer's cost, if it is not there yet: at its address only, for that player only.
+fn open_holder<'info>(b: &Batch<'_, 'info>, player: Pubkey, info: &AccountInfo<'info>) -> Result<()> {
+    if info.owner == b.program_id && !info.data_is_empty() {
         return Ok(());
     }
-    // The bet's player, the first field after its discriminator.
-    let player = {
-        let data = bet_info.try_borrow_data()?;
-        require!(data.len() >= 40 && data[..8] == *Bet::DISCRIMINATOR, SkechError::BadSettleAccounts);
-        Pubkey::new_from_array(data[8..40].try_into().unwrap())
-    };
     let (address, bump) = Pubkey::find_program_address(&[HOLDER_SEED, player.as_ref()], b.program_id);
     require!(address == info.key() && info.is_writable, SkechError::BadSettleAccounts);
     create_pda_at(b.payer, info, b.system_program, Holder::SPACE, b.program_id, &[HOLDER_SEED, player.as_ref(), &[bump]])?;
-    let holder = Holder { player, acc_at: b.rewards.acc, bump, ..Default::default() };
+    let acc = b.rewards.as_ref().map_or(0, |r| r.acc);
+    let holder = Holder { player, acc_at: acc, bump, ..Default::default() };
     holder.try_serialize(&mut &mut info.try_borrow_mut_data()?[..])
 }
 
 /// The player's `Holder`. Only the program makes an account with a Holder's discriminator, and only at the player's
 /// own address: one that names this player is theirs.
-fn holder_of<'info>(b: &Batch<'_, 'info>, info: &AccountInfo<'info>, player: Pubkey) -> Result<Holder> {
-    require!(info.is_writable && info.owner == b.program_id, SkechError::BadSettleAccounts);
+fn holder_of(program_id: &Pubkey, info: &AccountInfo, player: Pubkey) -> Result<Holder> {
+    require!(info.is_writable && info.owner == program_id, SkechError::BadSettleAccounts);
     let h = Holder::try_deserialize(&mut &info.try_borrow_data()?[..])?;
     require_keys_eq!(h.player, player, SkechError::BadSettleAccounts);
     Ok(h)

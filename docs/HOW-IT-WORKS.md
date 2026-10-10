@@ -513,8 +513,9 @@ earned into their balance, as a hit's winnings are paid, and a second claim pays
 
 **Accounts.** `Rewards` (seeds `"rewards"`) holds the supply, the accumulator, the holders' funds and `G`, and
 SKT's terms. `Holder` (seeds `"holder"`, the wallet) holds a player's SKT, what it has earned and their basis; the
-first settlement with a live bet of theirs opens it, the relayer paying its rent (about 0.0017 SOL), so no account
-is made for anyone who never plays. Settling takes each bet as (bet, player, holder), nine to a transaction.
+first settlement that mints for them opens it, the relayer paying its rent (about 0.0017 SOL), so no account is
+made for anyone who never loses: a hit, a refund or a close opens nothing, and sybils that never lose cost the relayer
+no rent. Settling takes each bet as (bet, player, holder), nine to a transaction.
 
 ### Running it
 

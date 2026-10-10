@@ -309,7 +309,7 @@ export const CASES: Case[] = [
   /* ---- SKT: the Solana program's alone ---- */
   {
     ...skt,
-    name: "SKT: a loss mints; then 3 of the 4 stake points and 8 of the 10 profit points accrue; a claim pays them, a second nothing",
+    name: "SKT: a loss mints; then 3 of the 4 stake points and 8 of the 10 profit points accrue; a claim pays them, a second is refused",
     steps: [
       // B's dollar misses: no SKT yet, so the holders' 3 points of the fee go to the treasury.
       { place: { id: "lose", player: "b", perDot: 1_000_000, sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 500_000_000 }] } },

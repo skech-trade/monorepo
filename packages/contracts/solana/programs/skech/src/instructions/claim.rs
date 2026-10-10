@@ -26,16 +26,14 @@ pub struct Claim<'info> {
     pub holder: Box<Account<'info, Holder>>,
 }
 
-/// Everything earned so far into the balance. Nothing earned, nothing moves.
+/// Everything earned so far into the balance. Paused or not, as a withdrawal is: what was earned is the holder's, and
+/// a pause stops play, not the money already won. Nothing earned fails, so a claim is never paid for to move nothing.
 pub fn claim(ctx: Context<Claim>) -> Result<()> {
-    require!(!ctx.accounts.game.paused, SkechError::Paused);
     let rewards = &mut ctx.accounts.rewards;
     let holder = &mut ctx.accounts.holder;
     holder.settle_rewards(rewards.acc)?;
     let amount = holder.unclaimed;
-    if amount == 0 {
-        return Ok(());
-    }
+    require!(amount > 0, SkechError::NothingToClaim);
     // Never more than is set aside: every holder's earnings are rounded down from it.
     rewards.holder_funds = rewards.holder_funds.checked_sub(amount).ok_or(SkechError::Overflow)?;
     rewards.claimed_total = rewards.claimed_total.checked_add(amount).ok_or(SkechError::Overflow)?;

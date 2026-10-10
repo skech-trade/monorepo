@@ -355,7 +355,7 @@ pub struct Rewards {
 }
 
 /// A player's SKT: their balance (always staked), what it has earned, and the basis it was minted on. Keyed by their
-/// wallet; opened by the first settlement with a live bet of theirs in it.
+/// wallet; opened by the first settlement that mints for them, so nobody who never loses costs its rent.
 #[account]
 #[derive(InitSpace, Default, PartialEq, Eq, Debug)]
 pub struct Holder {

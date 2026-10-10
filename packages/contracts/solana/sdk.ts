@@ -149,7 +149,7 @@ export const barsAddress = (id: number, program?: Address) => pda(["bars", Uint8
 export const playerAddress = (wallet: Address, program?: Address) => pda(["player", enc.encode(wallet)], program).then((r) => r[0]);
 /** SKT's global account: supply, the holders' accumulator, their funds, the tracked gain. */
 export const rewardsAddress = (program?: Address) => pda(["rewards"], program).then((r) => r[0]);
-/** A player's SKT: balance, earnings, net result and its low. Opened by their first settlement. */
+/** A player's SKT: balance, earnings, net result and its low. Opened by the first settlement that mints for them. */
 export const holderAddress = (wallet: Address, program?: Address) => pda(["holder", enc.encode(wallet)], program).then((r) => r[0]);
 /** A piece's bet, at its canonical bump (the only address `place` takes), and that bump: `place` searches down from
  * 255 for it, and each bump below 255 costs it `place_per_bump` compute units more. */
