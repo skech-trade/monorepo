@@ -428,15 +428,25 @@ export const Stage = memo(function Stage({
       Everyone else's ink (lib/social.ts), as on the web: a drawing's pieces joined into one line, made once per
       version of the drawing; lines being drawn right now, made again only when more of them shows.
     */
-    type Line = { t0: number; p0: number; rt: number; rp: number; path: SkPath };
-    const pathFrom = (pts: readonly { t: number; p: number }[], rt: number, rp: number, n = pts.length) => {
-      const path = Skia.Path.Make();
+    /*
+      Laid out in pixels, not in the drawer's own units: those are square on the screen they were drawn on, not on
+      this one, and a pen stroked under a scale that is not square comes out an oval, a tap a flat egg. So the points
+      are scaled onto this screen, the pen kept round at the drawer's height, and only moved by the frame. Made again
+      only when the scale does (or, for a live pen, when more of it shows).
+    */
+    type Scaled = { kt: number; kp: number; n: number; r: number; path: SkPath };
+    type Line = { t0: number; p0: number; rp: number; pts: { t: number; p: number }[]; scaled: Scaled | null };
+    const scaledOf = (l: { rp: number; pts: readonly { t: number; p: number }[] }, made: Scaled | null | undefined, n: number): Scaled => {
+      const kt = pxMs(), kp = pitchY / game.current.step;
+      if (made && made.kt === kt && made.kp === kp && made.n === n) return made;
+      const path = Skia.Path.Make(), pts = l.pts;
       for (let i = 0; i < n; i++) {
-        if (i) path.lineTo(pts[i].t / rt, pts[i].p / rp);
-        else path.moveTo(pts[i].t / rt, pts[i].p / rp);
+        if (i) path.lineTo(pts[i].t * kt, -pts[i].p * kp);
+        else path.moveTo(pts[i].t * kt, -pts[i].p * kp);
       }
-      if (n === 1) path.lineTo(pts[0].t / rt + 1e-3, pts[0].p / rp);
-      return path;
+      // A tap: a point the round caps can close around, so it shows as the pen's own circle.
+      if (n === 1) path.lineTo(pts[0].t * kt + 0.01, -pts[0].p * kp);
+      return { kt, kp, n, r: l.rp * kp, path };
     };
     const remoteLines = new WeakMap<PublicDrawing, Line | null>();
     const remoteLine = (d: PublicDrawing): Line | null => {
@@ -448,16 +458,17 @@ export const Stage = memo(function Stage({
       if (first) {
         const pts: { t: number; p: number }[] = [];
         for (const q of pieces) for (const pt of q.stroke!.pts) if (!pts.length || pt.t !== pts[pts.length - 1].t || pt.p !== pts[pts.length - 1].p) pts.push(pt);
-        made = { t0: first.t0, p0: first.p0, rt: first.rt, rp: first.rp, path: pathFrom(pts, first.rt, first.rp) };
+        made = { t0: first.t0, p0: first.p0, rp: first.rp, pts, scaled: null };
       }
       remoteLines.set(d, made);
       return made;
     };
-    const penLines = new WeakMap<LivePen, { n: number; path: SkPath }>();
+    const remotePath = (l: Line) => (l.scaled = scaledOf(l, l.scaled, l.pts.length));
+    const penLines = new WeakMap<LivePen, Scaled>();
     const penLine = (p: LivePen) => {
-      let made = penLines.get(p);
-      if (!made || made.n !== p.shown) penLines.set(p, (made = { n: p.shown, path: pathFrom(p.pts, p.rt, p.rp, p.shown) }));
-      return made.path;
+      const was = penLines.get(p), made = scaledOf(p, was, p.shown);
+      if (made !== was) penLines.set(p, made);
+      return made;
     };
     const figures = new WeakMap<PublicDrawing, string>();
     /** This player's pen, to everyone else, ten times a second while it is down: nothing runs on a finger's move. */
@@ -744,15 +755,13 @@ export const Stage = memo(function Stage({
         hairline either side in the muted text colour, nothing filled. The body is stroked, then its middle rubbed out
         of the layer, which holds only other players' ink so far. Lines being drawn right now read a touch more.
       */
-      const remote = (l: { t0: number; p0: number; rt: number; rp: number }, path: SkPath, col: Float32Array, edge: number) => {
-        const sx = l.rt * pxMs(), sy = (l.rp * pitchY) / g.step;
+      const remote = (l: { t0: number; p0: number }, scaled: Scaled, col: Float32Array, edge: number) => {
         c.save();
+        // Moved, never stretched: the pen, its caps and the hairline either side are round in pixels.
         c.translate(x(l.t0), y(l.p0));
-        c.scale(sx, -sy);
-        c.drawPath(path, paintOf(col, 2));
-        // The hairline in pixels, whatever the line's own scale (another screen's may not be square on this one).
-        hollow.setStrokeWidth(Math.max(0, 2 - (2 * edge) / Math.sqrt(sx * sy)));
-        c.drawPath(path, hollow);
+        c.drawPath(scaled.path, paintOf(col, 2 * scaled.r));
+        hollow.setStrokeWidth(Math.max(0, 2 * (scaled.r - edge)));
+        c.drawPath(scaled.path, hollow);
         c.restore();
       };
       const people = remoteDrawings().slice(0, phone() ? 12 : 18);
@@ -764,7 +773,7 @@ export const Stage = memo(function Stage({
         const l = remoteLine(drawing);
         if (!l || l.t0 > viewTo || drawing.pieces.every((q) => q.openAt + 30_000 < viewFrom)) continue;
         const fade = drawing.complete ? Math.max(0, 1 - age / 15_000) : 1;
-        remote(l, l.path, color(pal.muted, quiet * fade), 1.25);
+        remote(l, remotePath(l), color(pal.muted, quiet * fade), 1.25);
       }
       for (const p of pens) if (p.shown) remote(p, penLine(p), color(pal.muted, pal.dark ? 0.6 : 0.55), 1.5);
       if (renderedBets !== g.bets) {
