@@ -45,9 +45,12 @@ export const MIN_DIFFICULTY = 50;
  * September the house kept about a quarter of what was drawn, a quarter of
  * lines won, and about a third of the rows near the price were on offer
  * (`check-ink.ts`, DIFFICULTY=, prints every level).
+ *
+ * `least` is the floor: MIN_DIFFICULTY for everything real. Only the paper
+ * run (`paper.ts`), which has no money in it, passes its own, lower one.
  */
-export function difficulty(d: number) {
-  const k = Math.min(100, Math.max(MIN_DIFFICULTY, d)) / 100;
+export function difficulty(d: number, least: number = MIN_DIFFICULTY) {
+  const k = Math.min(100, Math.max(least, d)) / 100;
   return {
     difficulty: Math.round(k * 100),
     rtp: Math.round((0.94 - 0.32 * k) * 1000) / 1000,
@@ -105,10 +108,10 @@ export const RULES = {
 
 /**
  * Set how hard the game is, for everything priced from now on: drawings
- * already opened keep the multiples they opened on.
+ * already opened keep the multiples they opened on. `least` as `difficulty`.
  */
-export function setDifficulty(d: number) {
-  Object.assign(RULES, difficulty(d));
+export function setDifficulty(d: number, least: number = MIN_DIFFICULTY) {
+  Object.assign(RULES, difficulty(d, least));
 }
 
 /** What one dot costs, in practice dollars. The first is the default. */

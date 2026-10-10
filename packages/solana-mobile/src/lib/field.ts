@@ -18,7 +18,7 @@ const BEHIND_SLICE_MS = 12;
 /** Paths a slice starts with; tuned from how long the last slice took, so each takes about `SLICE_MS`. */
 let perSlice = 400;
 
-export type FieldAsk = { id: number; f: Features; at: number; step: number; cell: number; difficulty: number };
+export type FieldAsk = { id: number; f: Features; at: number; step: number; cell: number; difficulty: number; least: number };
 
 export class FieldMaker {
   private job: { ask: FieldAsk; run: (n: number) => boolean; result: () => Field; began: number } | null = null;
@@ -44,7 +44,7 @@ export class FieldMaker {
   }
 
   private start(ask: FieldAsk) {
-    setDifficulty(ask.difficulty);
+    setDifficulty(ask.difficulty, ask.least);
     // Only what the phone prices with: bands (no per-row chances), as far ahead as the screen reaches.
     const j = fieldJob(this.lib, ask.f, ask.at, ask.step, ask.cell, INK_EDGE_CELLS, { perRow: false, seconds: PHONE_SECONDS });
     this.job = { ask, run: j.run, result: j.result, began: performance.now() };
@@ -78,7 +78,7 @@ export class FieldMaker {
     if (finished) {
       this.job = null;
       // The difficulty the paths were laid for, as the web's worker keeps its own.
-      setDifficulty(job.ask.difficulty);
+      setDifficulty(job.ask.difficulty, job.ask.least);
       this.done(job.ask.id, job.result());
       const next = this.next;
       this.next = null;
