@@ -130,10 +130,36 @@ fn compute_units() {
     println!("post a bar and settle 4 one-band bets: {open} CU, {opening} CU opening their holders ({per_holder} each)");
     out.insert("post_and_settle_4_one_band".into(), open.into());
     out.insert("holder_open".into(), per_holder.into());
-    let p = &fresh[0];
+    // A claim that pays: the first player's bands missed, so it holds SKT, and the fees since have earned it some.
+    let p = &players[0].0;
+    let before = g.player_state(p).balance;
     let r = g.send(&[g.claim_ix(p)], &[&p.wallet]).expect("claimed");
+    assert!(g.player_state(p).balance > before, "the claim paid");
     println!("claim: {} CU", r.compute_units_consumed);
     out.insert("claim".into(), r.compute_units_consumed.into());
+    // Redeeming an IOU: a long shot the empty pool owes, then a loss that refills it.
+    let mut g = Game::new();
+    let (winner, loser) = (g.player(10 * E6, 5 * E6), g.player(100 * E6, 100 * E6));
+    let at = S + 100;
+    g.set_time(at);
+    let win = g.piece(&winner, 1, 0, (at + 1) * 1000, &[(1, 415_000, 5, 50_000)]);
+    g.place(&winner, &win, &g.quote(&win, 10_000_000)).expect("placed");
+    g.set_time(at + 5);
+    g.post_and_settle((at + 2) * 1000, 83_000 * E8, 83_000 * E8, 83_000 * E8, 83_000 * E8, &[(bet_pda(&winner.wallet.pubkey(), 1, 0).0, winner.wallet.pubkey())]).expect("settled");
+    assert!(g.player_state(&winner).iou_shares > 0, "owed");
+    // The loser's stake is in the pool as soon as it is placed.
+    let mut lose = g.piece(&loser, 1, 0, (at + 6) * 1000, &[(1, 425_000, 5, 10_000_000)]);
+    lose.per_dot = 1_000_000;
+    lose.price_time = lose.open_at - 1_500;
+    let quote = skech::piece::QuoteArgs { received_at: lose.open_at - 300, ..g.quote(&lose, 500_000_000) };
+    g.place(&loser, &lose, &quote).expect("placed");
+    let redeem = g.ix(
+        skech::accounts::Redeem { caller: g.relayer.pubkey(), game: game_pda(), pool: pool_pda(), holder: player_pda(&winner.wallet.pubkey()), caller_player: None, system_program: anchor_lang::system_program::ID },
+        skech::instruction::Redeem { shares: u128::MAX },
+    );
+    let r = g.send(&[redeem], &[]).expect("redeemed");
+    println!("redeem: {} CU", r.compute_units_consumed);
+    out.insert("redeem".into(), r.compute_units_consumed.into());
     let _ = AccountMeta::new(Pubkey::default(), false);
     if std::env::var("SNAPSHOT").is_ok() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../snapshots/compute.json");
