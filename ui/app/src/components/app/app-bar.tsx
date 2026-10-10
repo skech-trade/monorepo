@@ -76,7 +76,7 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
         {showTheme ? <ThemeToggle className={cn("size-11 rounded-full border-0 bg-secondary sm:size-11 [&_svg]:size-5", community && "max-sm:hidden")} /> : null}
         {lead}
         {hasAuth && me.ready && !me.signedIn && paper ? (
-          <Button className="h-11 rounded-full px-5 font-semibold sm:h-11" onClick={() => gate.openSignIn("paper_bar")}>
+          <Button className="h-11 rounded-full border-0 bg-secondary px-5 font-semibold sm:h-11" onClick={() => gate.openSignIn("paper_bar")} variant="secondary">
             Sign in
           </Button>
         ) : null}
