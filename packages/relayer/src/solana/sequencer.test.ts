@@ -38,25 +38,26 @@ const msg = (stakes: number[]): SolanaPieceMsg => ({
 
 describe("the least a piece stakes", () => {
   test("says why, in dollars", () => {
-    expect(tooLittle(99_999n, 100_000n)).toBe("A piece must be at least $0.10");
-    expect(tooLittle(100_000n, 100_000n)).toBeNull();
+    expect(tooLittle(9_999n, 10_000n)).toBe("A piece must be at least $0.01");
+    expect(tooLittle(10_000n, 10_000n)).toBeNull();
     expect(tooLittle(1n, 0n)).toBeNull();
   });
 
-  test("is 10¢ unless set", () => {
+  test("is 1¢ unless set", () => {
+    expect(MIN_PIECE_STAKE_E6).toBe(10_000n);
     expect(sequencer().terms.minPieceStake).toBe(MIN_PIECE_STAKE_E6);
   });
 
   test("turns a piece under it away as it arrives, its sections added up", async () => {
     const s = sequencer();
-    const small = await s.accept(msg([40_000, 59_999]));
+    const small = await s.accept(msg([4_000, 5_999]));
     expect(small.ok).toBe(false);
-    expect(!small.ok && small.why).toBe("A piece must be at least $0.10");
+    expect(!small.ok && small.why).toBe("A piece must be at least $0.01");
     expect(!small.ok && small.betId).toBeDefined();
     expect(s.stats.turnedAway["A piece must be at least $N.N"]).toBe(1);
-    // At the least, the piece goes on to the next look.
-    const enough = await s.accept(msg([40_000, 60_000]));
-    expect(!enough.ok && enough.why).toBe("Waiting for live prices");
+    // At the least, a single dot at 5¢ a dot, the piece goes on to the next look.
+    const dot = await s.accept(msg([50_000]));
+    expect(!dot.ok && dot.why).toBe("Waiting for live prices");
   });
 
   test("follows the relayer's figure", async () => {

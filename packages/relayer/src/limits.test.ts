@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { beat, Bucket, clientIp, Door, RATES, Rates, remember } from "./limits";
+import { beat, Bucket, clientIp, Door, RATES, Rates, remember, SMALL_PIECES, SmallPieces } from "./limits";
 
 /** A clock that moves only when told. */
 const clock = () => {
@@ -83,6 +83,39 @@ test("every socket hears a beat, those that joined since too", async () => {
   expect(heard[0].length).toBeGreaterThanOrEqual(3);
   expect(heard[1].length).toBeGreaterThanOrEqual(1);
   expect(JSON.parse(heard[0][0])).toEqual({ type: "beat" });
+});
+
+describe("small pieces", () => {
+  test("ten at once for a wallet, then two a second, whichever connection sends them", () => {
+    const c = clock();
+    const s = new SmallPieces(c.now);
+    let taken = 0;
+    for (let i = 0; i < 15; i++) if (s.take("Alice111")) taken++;
+    expect(taken).toBe(SMALL_PIECES[0]);
+    expect(SMALL_PIECES).toEqual([10, 2]);
+    // Another wallet has its own.
+    expect(s.take("Bob11111")).toBe(true);
+    // Addresses are base58: case matters.
+    expect(s.take("alice111")).toBe(true);
+    c.pass(499);
+    expect(s.take("Alice111")).toBe(false);
+    c.pass(1);
+    expect(s.take("Alice111")).toBe(true);
+    expect(s.take("Alice111")).toBe(false);
+    c.pass(10_000);
+    taken = 0;
+    for (let i = 0; i < 15; i++) if (s.take("Alice111")) taken++;
+    expect(taken).toBe(10);
+  });
+  test("remembers a bounded number of wallets", () => {
+    const c = clock();
+    const s = new SmallPieces(c.now, [1, 0]);
+    expect(s.take("w0")).toBe(true);
+    expect(s.take("w0")).toBe(false);
+    for (let i = 1; i <= 50_000; i++) s.take(`w${i}`);
+    // The oldest was let go: it starts afresh.
+    expect(s.take("w0")).toBe(true);
+  });
 });
 
 test("a remembered map keeps its newest", () => {

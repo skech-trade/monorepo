@@ -38,14 +38,19 @@ export const LATE_MS = 200;
 export const E8 = 100_000_000n;
 export const E6 = 1_000_000n;
 /**
- * The least one piece may stake, USDC e6: 10¢. Each piece is a Solana transaction the relayer pays for (about
- * 7,100 lamports with its share of settling, under a tenth of a cent), and only the stake fee pays it back:
- * at 1% of 10¢ it does, and ink drawn in crumbs costs whoever draws it more than it costs the game. The
- * relayer's own figure (SOLANA_MIN_PIECE_STAKE) comes in its hello's terms; this is its default.
+ * The least one piece may stake, USDC e6: 1¢, so a single dot at the cheapest price, or a tap, can be placed.
+ * The relayer's own figure (SOLANA_MIN_PIECE_STAKE) comes in its hello's terms; this is its default.
  */
-export const MIN_PIECE_STAKE_E6 = 100_000n;
+export const MIN_PIECE_STAKE_E6 = 10_000n;
 /** The same, in dollars. */
 export const MIN_PIECE_STAKE = Number(MIN_PIECE_STAKE_E6) / 1e6;
+/**
+ * The stake the apps gather ink into while the pen is down, USDC e6: 10¢. Each piece is a Solana transaction
+ * the relayer pays for (about 7,100 lamports with its share of settling, under a tenth of a cent), and only
+ * the stake fee pays it back: 1% of 10¢ does, 1% of 1¢ does not. So a line goes in 10¢ pieces and only its end,
+ * or a line too short for one, goes smaller; the relayer limits each player's pieces under this.
+ */
+export const BATCH_PIECE_STAKE_E6 = 100_000n;
 
 /* ------------------------------------------------------------------ */
 /* The ladder, in integers, as the chain computes it                   */
@@ -263,18 +268,18 @@ export function toSections(cells: Cell[], openAt: number, perDotE6: bigint, unit
 export const stakeOf = (sections: Section[]) => sections.reduce((n, s) => n + s.stake, 0n);
 
 /**
- * Where to cut ink held back from the chain so that no piece stakes under `least`, and the end of a line,
- * however short, always has held ink to go with. `marks` are the line as it stood at earlier reads since the
- * last piece went (`prev`, null before the first), oldest first; `areaOf` the dots a line covers on the
- * opening a piece placed now gets (null: none). The cut is at the latest mark with at least `least` drawn
- * after it, if the ink up to it stakes `least` too; -1 holds it all for now.
+ * Where to cut ink held back from the chain so that no piece stakes under `least`, and the end of a line
+ * always has at least `after` held to go as a piece of its own. `marks` are the line as it stood at earlier
+ * reads since the last piece went (`prev`, null before the first), oldest first; `areaOf` the dots a line
+ * covers on the opening a piece placed now gets (null: none). The cut is at the latest mark with at least
+ * `after` drawn since it, if the ink up to it stakes `least`; -1 holds it all for now.
  */
-export function cutAt<S>(prev: S | null, marks: readonly S[], now: S, areaOf: (s: S | null) => number, perDotE6: bigint, least: bigint): number {
+export function cutAt<S>(prev: S | null, marks: readonly S[], now: S, areaOf: (s: S | null) => number, perDotE6: bigint, least: bigint, after = least): number {
   const stake = (from: number, to: number) => (perDotE6 * BigInt(Math.floor(Math.max(0, to - from) * 1e9))) / 1_000_000_000n;
   const end = areaOf(now);
   for (let j = marks.length - 1; j >= 0; j--) {
     const at = areaOf(marks[j]);
-    if (stake(at, end) < least) continue;
+    if (stake(at, end) < after) continue;
     return stake(areaOf(prev), at) >= least ? j : -1;
   }
   return -1;

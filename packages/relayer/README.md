@@ -33,7 +33,7 @@ bun packages/relayer/scripts/keeper-quote.ts 0.2   # what Jupiter would charge t
 | `SOLANA_DEVNET_RPC_URL`, `SOLANA_MAINNET_BETA_RPC_URL` | the public RPC | A private RPC per cluster; `SOLANA_<CLUSTER>_WS_URL` for its websocket if not the same URL over ws |
 | `SOLANA_RPC_RPS` | `15` | Requests a second to the RPC, all told |
 | `SOLANA_PRIORITY_MICROLAMPORTS`, `SOLANA_PRIORITY_MAX_MICROLAMPORTS` | followed; capped at 50,000 (2,000,000 on mainnet) | A fixed priority fee, or the cap on the followed one |
-| `SOLANA_MIN_PIECE_STAKE` | `100000` (10¢) | The least one piece may stake, USDC millionths, as it arrives and after what the program would hand back. Each piece is a transaction the relayer pays for, and only the stake fee pays it back. In `hello`'s terms as `minPieceStake` |
+| `SOLANA_MIN_PIECE_STAKE` | `10000` (1¢) | The least one piece may stake, USDC millionths, as it arrives and after what the program would hand back: a single dot goes in. In `hello`'s terms as `minPieceStake` |
 | `NEXT_PUBLIC_ENGINE_URL` | `ws://localhost:3102/ws` | Where the engine is |
 | `RELAYER_SOLANA_PORT` | `3104` | |
 | `RELAYER_HOST` | `127.0.0.1` | Where to listen. Caddy fronts it on the box; `0.0.0.0` for a phone on the LAN |
@@ -99,4 +99,8 @@ Every message is checked before it is read (`src/wire.ts`) and, if it is wrong, 
 its sender waits for. What the relayer pays for is held to players with money in: a session only with a balance
 or USDC in the wallet, a deposit or withdrawal of at least 1 USDC (or the whole balance), a few an hour for one
 wallet or one address. A piece none of whose bands earns a rung is refused before it is sent. Each connection is
-rate limited by type of message (`src/limits.ts`).
+rate limited by type of message (`src/limits.ts`). Pieces staking under 10¢ (`BATCH_PIECE_STAKE_E6`) are also
+limited for each player, whichever connection sends them: 10 at once, 2 a second, then "Too many small pieces;
+draw a longer line". Each piece is a transaction the relayer pays about $0.0008 for, and a 1¢ piece's 1% fee does
+not cover it; the apps send a line in 10¢ pieces, so only its end, or a tap, is small. Only a piece the relayer
+would take counts, so nobody can use up another player's.

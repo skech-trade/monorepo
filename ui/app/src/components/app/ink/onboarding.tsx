@@ -27,7 +27,7 @@ export function useOnboarding(live: number): { step: Step; setupError: string | 
   const chain = useChain();
   const [setupError, setSetupError] = useState<string | null>(null);
   // Only once the relayer has said the balance: before that it reads zero, and the deposit sheet would open on
-  // someone with money. Not enough for one piece (10¢, the least the relayer sends), with nothing in play, is
+  // someone with money. Not enough for one piece (1¢, the least the relayer takes), with nothing in play, is
   // when to offer it: the same line the game draws for taps. It used to be the minimum deposit, a dollar, which
   // told someone with 72¢ to deposit while the game let them draw.
   const known = chain.account !== null;

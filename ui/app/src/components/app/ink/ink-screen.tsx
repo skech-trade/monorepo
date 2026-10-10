@@ -6,7 +6,7 @@ import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICU
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { areaCells, areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
-import { cutAt, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor, usdE6 } from "@skech/core/chain";
+import { BATCH_PIECE_STAKE_E6, cutAt, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor, usdE6 } from "@skech/core/chain";
 import { pieceBytes, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import { sha256 } from "@noble/hashes/sha256";
 import { type Hello, type Incoming, leastPiece } from "@/lib/relayer";
@@ -46,7 +46,7 @@ import { introReady } from "./ink-intro";
 import { homeBarRoom, HomeScreenBar, HomeScreenSheet, useHomeScreen } from "./home-screen";
 import { forReal, Onboarding, useOnboarding } from "./onboarding";
 import { SignInButton } from "@/components/app/sign-in";
-import { useGate } from "./gate";
+import { useGate, useGatePanels } from "./gate";
 import { useAccount } from "@/components/app/auth";
 
 /**
@@ -374,14 +374,14 @@ export function InkScreen() {
   /* The stroke's terms, for the pill; the screen itself only needs to know whether there is a stroke. */
   const [preview] = useState(() => signal<Preview | null>(null));
   const [previewing, setPreviewing] = useState(false);
-  const [help, setHelp] = useState(false);
+  // Settings and How it works are held by the gate, so the account menu opens them too.
+  const { help, setHelp, settings: settingsOpen, setSettings: setSettingsOpen } = useGatePanels();
   const [returnedInk, setReturnedInk] = useState<{ id: string; amount: number } | null>(null);
   useEffect(() => {
     if (!returnedInk) return;
     const timer = setTimeout(() => setReturnedInk(null), 3200);
     return () => clearTimeout(timer);
   }, [returnedInk]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const dark = useDark();
   /*
     A paper run: "Try it free", signed out, on paper money that lives only in memory (lib/paper.ts). Paper ink is
@@ -843,6 +843,8 @@ export function InkScreen() {
           // One burst a second, however many cells of ink the price crossed in it, with what they paid together.
           const fresh2 = bet.cells.filter((d, k) => d.status === "hit" && before.cells[k].status !== "hit");
           if (fresh2.length) {
+            // When the price was found touching the ink, for feel's timing log.
+            const seen = performance.now();
             const line = bet.group ?? bet.id;
             const acc = payouts.current.get(line) ?? { raw: 0, credited: 0 };
             payouts.current.set(line, acc);
@@ -861,8 +863,9 @@ export function InkScreen() {
             // Every hit gets its own toast, sound and touch: each one is a win. Hits judged late, from bars of prices
             // restored after a reload, are paid but not celebrated: ten at once would be noise, not news.
             const fresh3 = nowMs - (bar.t + 1000) < 3000;
-            // A hit is celebrated (heard, felt, a spray) only while its round is ahead: what it has paid so far is more
-            // than everything it has staked. A hit that still leaves the round behind is shown, quietly, and no more.
+            // Every hit pays more than its own ink cost: it is heard and felt the instant it is found, in the same
+            // frame as its "+$x". Only the spray waits for the round to be ahead (what it has paid so far is more
+            // than everything it has staked); the round's own celebration waits for it to end.
             let stake = lines.current.get(line)?.cost ?? 0;
             for (let j = 0; j < g.bets.length; j++) {
               const b = j === i ? bet : g.bets[j];
@@ -874,11 +877,11 @@ export function InkScreen() {
               g.fx.push({ kind: "hit", ...where, born: performance.now(), text: paid > 0 ? `+${money(paid)}` : undefined, line, big: best >= 10, profit: ahead });
               lastHit.current.set(line, { ...where, at: performance.now() });
             }
-            if (fresh3 && ahead) {
+            if (fresh3) {
               const run = hitRun.current;
               run.n = performance.now() - run.at < 6000 ? run.n + 1 : 0;
               run.at = performance.now();
-              feel(best >= 10 ? "big" : run.n >= 2 ? "run" : "hit", { multiple: best, streak: run.n });
+              feel(best >= 10 ? "big" : run.n >= 2 ? "run" : "hit", { multiple: best, run: run.n, seen });
             }
           }
           if (bet.status !== "live") break;
@@ -960,11 +963,13 @@ export function InkScreen() {
       if (forReal && !ch.real && !onPaper) return ch.player ? "Connecting…" : "Sign in to play";
       if (ch.real && !ch.sessionOk) return "Getting ready, one moment";
       /*
-        On chain each piece is a transaction the relayer pays for, and must stake its least (10¢). Ink is held
-        back, drawn as it is, until a piece and the ink after it both reach that (`cutAt`): the piece goes up
-        to that read, and the end of the line, however short, goes with the ink still held when the pen lifts.
+        On chain each piece is a transaction the relayer pays for, and only a stake of about 10¢ pays its gas
+        back. Ink is held back, drawn as it is, and sent in pieces of 10¢ (`cutAt`), each up to a read with at
+        least the relayer's least (1¢) drawn after it: when the pen lifts, that end goes as a piece of its own,
+        and a whole line goes if it reaches the least. The relayer limits each player's pieces under 10¢.
       */
       const minStake = ch.real ? leastPiece(ch.hello) : 0n;
+      const batch = minStake > BATCH_PIECE_STAKE_E6 ? minStake : BATCH_PIECE_STAKE_E6;
       const hold = () => {
         d.marks.push(now);
         if (d.marks.length > MARKS) d.marks.shift();
@@ -975,7 +980,7 @@ export function InkScreen() {
       let cut = -1;
       if (ch.real && !done) {
         const at = openFor(placedAt + g.placeLead);
-        cut = cutAt(d.prev, d.marks, now, (st) => (st ? inkArea(st, at, settings.priceStep) : 0), toE6(settings.perDot), minStake);
+        cut = cutAt(d.prev, d.marks, now, (st) => (st ? inkArea(st, at, settings.priceStep) : 0), toE6(settings.perDot), batch, minStake);
         if (cut < 0) return hold();
         snap = d.marks[cut];
       }
@@ -998,7 +1003,7 @@ export function InkScreen() {
           finish();
           return done && !d.pieces ? "Draw ahead of the wait line" : null;
         }
-        if (stake < minStake) {
+        if (stake < (done ? minStake : batch)) {
           if (!done) return hold();
           finish();
           // The whole line too little to send: nothing is placed or charged. The end of a placed line falls
@@ -1265,7 +1270,7 @@ export function InkScreen() {
   const onboarding = useOnboarding(live);
   /*
     The game plays on for everyone; a tap from someone who cannot play yet opens the way to: Privy's sign-in
-    signed out, the deposit sheet with less in the balance than one piece stakes (10¢). It never reaches the
+    signed out, the deposit sheet with less in the balance than one piece stakes (1¢). It never reaches the
     chart, so no ink is drawn that could not be placed.
   */
   const leastUsd = Number(leastPiece(chain.hello)) / 1e6;

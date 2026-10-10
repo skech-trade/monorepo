@@ -11,7 +11,8 @@
     "./bars": "./src/bars.ts",
     "./paper": "./src/paper.ts",
     "./social": "./src/social.ts",
-    "./cheer": "./src/cheer.ts"
+    "./cheer": "./src/cheer.ts",
+    "./cue": "./src/cue.ts"
   },
   "scripts": {
     "test": "bun test"

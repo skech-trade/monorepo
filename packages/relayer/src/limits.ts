@@ -152,6 +152,30 @@ export class Sponsor {
   }
 }
 
+/** Pieces under the batch size (10¢) one wallet may send, whichever connection: [at once, per second]. */
+export const SMALL_PIECES: [number, number] = [10, 2];
+
+/**
+ * Pieces staking under `BATCH_PIECE_STAKE_E6`, for one wallet across its connections. Each is a transaction the
+ * relayer pays more gas for than its 1% fee brings, so they are let through at a pace, not refused: the end of a
+ * line or a tap is one, and the apps gather the rest of a line into 10¢ pieces. Bigger pieces only have the
+ * connection's own rate.
+ */
+export class SmallPieces {
+  private byWallet = new Map<string, Bucket>();
+
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly rate: [number, number] = SMALL_PIECES,
+  ) {}
+
+  take(wallet: string): boolean {
+    let b = this.byWallet.get(wallet);
+    if (!b) remember(this.byWallet, wallet, (b = new Bucket(...this.rate, this.now)), 50_000);
+    return b.take();
+  }
+}
+
 /** Put `key` in `map` as the newest, and let the oldest go past `most`: a cache nobody can grow without end. */
 export function remember<K, V>(map: Map<K, V>, key: K, value: V, most: number) {
   map.delete(key);

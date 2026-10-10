@@ -36,7 +36,7 @@ export type Hello = {
   /** The relayer counts each player's transactions and answers `activity`. */
   activity?: boolean;
 };
-/** The least one piece may stake, USDC e6: the relayer's figure, or the game's 10¢ until it has said. */
+/** The least one piece may stake, USDC e6: the relayer's figure, or the game's 1¢ until it has said. */
 export const leastPiece = (hello: Hello | null | undefined) => BigInt(hello?.terms?.minPieceStake ?? MIN_PIECE_STAKE_E6);
 export type Account = {
   player: string;

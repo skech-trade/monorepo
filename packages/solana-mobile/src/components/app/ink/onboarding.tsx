@@ -23,7 +23,7 @@ export function useOnboarding(live: number): { step: Step; setupError: string | 
   const chain = useChain();
   const [setupError, setSetupError] = useState<string | null>(null);
   const known = chain.account !== null;
-  // Not enough for one piece (10¢, the least the relayer sends), with nothing in play.
+  // Not enough for one piece (1¢, the least the relayer takes), with nothing in play.
   const empty = known && chain.balance < Number(leastPiece(chain.hello)) / 1e6 && live === 0;
 
   let step: Step = null;

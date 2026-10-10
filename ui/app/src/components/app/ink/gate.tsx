@@ -16,15 +16,24 @@ import { track } from "@/lib/analytics";
  * camera's scanner) is not in the page's first load: each comes in its own
  * chunk once the page is up. Privy's panel is mounted by auth.tsx, likewise
  * after the page.
+ *
+ * Settings and How it works are the game's own sheets (ink-screen.tsx), held
+ * open here so the account menu can open them too: `useGate` opens them,
+ * `useGatePanels` is the game's hold on them.
  */
 
 const DepositModal = dynamic(() => import("./deposit-modal").then((m) => m.DepositModal), { ssr: false });
 const WithdrawSheet = dynamic(() => import("./withdraw-sheet").then((m) => m.WithdrawSheet), { ssr: false });
 
 /** `"tap"`: opened because a tap on the game could not be played. Those are counted: see FOUNDERS_AFTER. */
-type Gate = { openDeposit: (why?: "tap" | "short") => void; openSignIn: (from?: string) => void; openWithdraw: () => void };
-const GateCtx = createContext<Gate>({ openDeposit: () => undefined, openSignIn: () => undefined, openWithdraw: () => undefined });
+type Gate = { openDeposit: (why?: "tap" | "short" | "account_menu") => void; openSignIn: (from?: string) => void; openWithdraw: () => void; openSettings: () => void; openHelp: () => void };
+const GateCtx = createContext<Gate>({ openDeposit: () => undefined, openSignIn: () => undefined, openWithdraw: () => undefined, openSettings: () => undefined, openHelp: () => undefined });
 export const useGate = () => useContext(GateCtx);
+
+/** Whether Settings and How it works are open, apart from the gate so opening one re-renders only the game. */
+type Panels = { settings: boolean; setSettings: (open: boolean) => void; help: boolean; setHelp: (open: boolean) => void };
+const PanelsCtx = createContext<Panels>({ settings: false, setSettings: () => undefined, help: false, setHelp: () => undefined });
+export const useGatePanels = () => useContext(PanelsCtx);
 
 /*
   Someone who has tapped the game five times with nothing to play with and still not deposited is stuck, not
@@ -53,7 +62,7 @@ export function GateProvider({ children }: { children: ReactNode }) {
   const signIn = useSignIn();
   // Read once, at start: on the server there is no storage and it is 0; the sheet is closed there anyway.
   const [taps, setTaps] = useState(readTaps);
-  const openDeposit = useCallback((why?: "tap" | "short") => {
+  const openDeposit = useCallback((why?: "tap" | "short" | "account_menu") => {
     track("deposit_opened", { why: why ?? "button" });
     if (why === "tap") {
       const n = readTaps() + 1;
@@ -68,10 +77,15 @@ export function GateProvider({ children }: { children: ReactNode }) {
   }, [signIn]);
   const [withdraw, setWithdraw] = useState(false);
   const openWithdraw = useCallback(() => setWithdraw(true), []);
-  const gate = useMemo(() => ({ openDeposit, openSignIn, openWithdraw }), [openDeposit, openSignIn, openWithdraw]);
+  const [settings, setSettings] = useState(false);
+  const [help, setHelp] = useState(false);
+  const openSettings = useCallback(() => setSettings(true), []);
+  const openHelp = useCallback(() => setHelp(true), []);
+  const gate = useMemo(() => ({ openDeposit, openSignIn, openWithdraw, openSettings, openHelp }), [openDeposit, openSignIn, openWithdraw, openSettings, openHelp]);
+  const panels = useMemo(() => ({ settings, setSettings, help, setHelp }), [settings, help]);
   return (
     <GateCtx.Provider value={gate}>
-      {children}
+      <PanelsCtx.Provider value={panels}>{children}</PanelsCtx.Provider>
       <DepositModal
         onOpenChange={setDeposit}
         onPlayable={() => {
