@@ -327,8 +327,8 @@ all addresses of the program:
 
 - **`Game`** holds the terms, the oracle and the USDC vault. The house never holds the players' money.
 - **`Pool`**: every stake goes into one pool, and every hit is paid from it. The house's take is counted
-  here too: 4% of every stake as it is placed, and 10% of the profit on every hit, both the admin's to
-  set (`set_config`). `collect_fees` moves it to the treasury. Nothing else.
+  here too: a share of every stake as it is placed, and of the profit on every hit, both the admin's to
+  set (`set_config`). A fresh game starts at 4% and 10%; devnet charges 1% and 5% since 10 October 2026. `collect_fees` moves it to the treasury. Nothing else.
 - **`Market`** and **`Bars`**: each market's difficulty, and a ring of its last 240 seconds of price. The
   ladder is computed in the program (`ladder.rs`, the same integers as `chain.ts`, checked row for row
   against `@skech/core`), so the oracle cannot pay a band more than its chance earns at the difficulty on
