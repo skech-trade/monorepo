@@ -18,7 +18,7 @@ export function RevealBand() {
           Only the ink it runs through pays.
         </h2>
         <Body className={styles.lead}>
-          Your line becomes a row of seconds. The price came through five of these eight, and those five paid their rung. The other three are gone.
+          The price ran through five of these eight seconds. Those five paid.
         </Body>
       </div>
       {/* Both twins ship; the stylesheet shows whichever the theme calls for, as the scenes do. */}

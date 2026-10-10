@@ -1,13 +1,13 @@
 import Image from "next/image";
-import { DIFFICULTY, difficulty } from "@skech/core/dots";
+import { MAX_INK_MULTIPLE, MIN_INK_MULTIPLE } from "@skech/core/ink";
 import styles from "./features.module.css";
 
 /*
-  The most one dot can pay, read from the game's own settings rather than written here. The page said 50x while
-  the game paid 14x, and the artwork said 15x: three numbers, none of them the game's. A number the page cannot
-  set is a number it cannot get wrong.
+  What a section can pay, from the constant that means exactly that. RULES.maxMultiple is not it: that one shapes
+  the odds and sat at 14x, which is why this tile briefly said so.
 */
-const MOST = difficulty(DIFFICULTY).maxMultiple;
+const MOST = MAX_INK_MULTIPLE;
+const LEAST = Math.round(MIN_INK_MULTIPLE);
 
 /**
  * `slot` is the tile's place in the bento (features.module.css owns those names); `art` is what it shows. They are
@@ -25,36 +25,36 @@ const FEATURES = [
     slot: "leverage",
     art: { light: "ladder", dark: "ladder-dark" },
     size: [1254, 1254],
-    title: `Up to ${MOST}\u00d7 a dot`,
-    description: "Every dot sits on a rung. The less likely the ink, the more that rung pays.",
+    title: `${LEAST}\u00d7 to ${MOST}\u00d7`,
+    description: "The less likely the ink, the more it pays.",
   },
   {
     slot: "fees",
     art: { light: "fees", dark: "fees-dark" },
     size: [1200, 900],
     title: "Low trading fees",
-    description: "What the game takes is small, and it is the same whatever you draw.",
+    description: "Small, and the same whatever you draw.",
   },
   {
     slot: "markets",
     art: { light: "bitcoin", dark: "bitcoin-dark" },
     size: [1254, 1254],
     title: "Bitcoin, second by second",
-    description: "One market, judged one second at a time against the price it really traded at.",
+    description: "One market, judged a second at a time.",
   },
   {
     slot: "redraw",
     art: null,
     size: [0, 0],
     title: "Everyone\u2019s ink, live",
-    description: "Watch what other players are drawing while they draw it, and see where their lines landed.",
+    description: "See what everyone else is drawing, as they draw it.",
   },
   {
     slot: "rewards",
     art: { light: "practice", dark: "practice-dark" },
     size: [1402, 1122],
     title: "Try it free",
-    description: "A full run on the real odds, played with paper money. No wallet, no sign-in.",
+    description: "A full run on the real odds. No wallet, no sign-in.",
   },
 ] as const;
 

@@ -1,14 +1,13 @@
-import { DIFFICULTY, difficulty } from "@skech/core/dots";
+import { MAX_INK_MULTIPLE, MIN_INK_MULTIPLE } from "@skech/core/ink";
 import type { ReactNode } from "react";
 import { AmountWheel } from "./amount-wheel";
 import { StorySection } from "./story-section";
 import styles from "./story.module.css";
 import { smoothPath } from "./market-data";
 
-/* The ladder's ends, from the game rather than from this page. */
-const RULES = difficulty(DIFFICULTY);
-const MOST = RULES.maxMultiple;
-const LEAST = RULES.minMultiple;
+/* What a section can pay, from the game rather than from this page. */
+const MOST = MAX_INK_MULTIPLE;
+const LEAST = Math.round(MIN_INK_MULTIPLE);
 
 /** The three decisions, visible together in their actual order. */
 const STEPS: {
@@ -18,7 +17,7 @@ const STEPS: {
 }[] = [
   {
     title: "Pick what a dot costs",
-    caption: "Ten cents up to a dollar. Every dot on your line stakes the same.",
+    caption: "Ten cents up to a dollar, the same for every dot.",
     visual: <AmountWheel />,
   },
   {
@@ -28,7 +27,7 @@ const STEPS: {
   },
   {
     title: "The ink it runs through pays",
-    caption: `Every second the price spends inside your line pays its rung, up to ${MOST}×.`,
+    caption: "Each second the price spends inside your line pays.",
     visual: <Ladder />,
   },
 ];

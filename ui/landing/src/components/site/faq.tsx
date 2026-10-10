@@ -1,47 +1,30 @@
-import { DIFFICULTY, difficulty } from "@skech/core/dots";
+import { MAX_INK_MULTIPLE, MIN_INK_MULTIPLE } from "@skech/core/ink";
 import { ChevronDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Reveal } from "./motion";
 import { SectionScene } from "./illo";
 import styles from "./story.module.css";
 
-/* The ladder's ends, from the game rather than from this page. */
-const RULES = difficulty(DIFFICULTY);
-const MOST = RULES.maxMultiple;
-const LEAST = RULES.minMultiple;
+/* What a section can pay, from the game rather than from this page. */
+const MOST = MAX_INK_MULTIPLE;
+const LEAST = Math.round(MIN_INK_MULTIPLE);
 
 const FAQS = [
   {
     q: "What does my drawing actually do?",
-    a: "Your line is cut into one-second pieces. Each piece covers a small band of prices, and it pays if the price comes through that band during that second. The seconds it misses are gone.",
-  },
-  {
-    q: "Do I have to guess the right price?",
-    a: "Near enough, yes. A piece of your line covers a band of prices for one second and pays only if the price passes through it. A wider pen covers more of the chart and pays less for being there.",
-  },
-  {
-    q: "What if the price doesn't follow my line?",
-    a: "It will not, and it does not have to. Only the seconds the price spent inside your line pay. A line that catches half of them has done well.",
+    a: "Your line is cut into one-second pieces. Each covers a band of prices and pays if the price comes through it that second. The ones it misses are gone.",
   },
   {
     q: "How much does a hit pay?",
-    a: `Every piece sits on a rung, from ${LEAST}\u00d7 up to ${MOST}\u00d7. The rung is set by how likely that band was: ink where the price was never expected pays the most for being right.`,
-  },
-  {
-    q: "When is a drawing finished?",
-    a: "Each second of ink is judged as the price reaches it, from the price that second really traded at. When the last piece has been judged, the drawing is done.",
+    a: `Between ${LEAST}\u00d7 and ${MOST}\u00d7, set by how likely that band was. Ink where the price was never expected pays the most for being right.`,
   },
   {
     q: "Can I set a limit on what I lose?",
-    a: "You set it before you draw. Every dot costs what you chose, from ten cents to a dollar, and you can never lose more than the ink you put down.",
+    a: "You set it before you draw. Every dot costs what you chose, and you can never lose more than the ink you put down.",
   },
   {
     q: "Do you hold my money?",
-    a: "Your balance is USDC held by the game on Solana. Deposits, withdrawals and every drawing are transactions on chain, and skech pays the network fee for them.",
-  },
-  {
-    q: "Why has nobody built this before?",
-    a: "Following a hand-drawn line means keeping up with the hand. Chains only got fast enough for that recently.",
+    a: "Your balance is USDC held by the game on Solana. Deposits, withdrawals and every drawing are transactions on chain.",
   },
 ] as const;
 
