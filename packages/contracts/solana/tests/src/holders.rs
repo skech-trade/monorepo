@@ -176,6 +176,7 @@ fn the_pool_shares_its_surplus_and_can_still_pay_every_live_band() {
     assert_eq!(r.liability, 500_000 * 96 + 900_000 * 150 / 100, "what they could pay, gross");
     let pool = t.g.pool().pool;
     let m = t.g.send(&[t.g.share_surplus_ix()], &[]).expect("shared");
+    println!("share_surplus: {} CU", m.compute_units_consumed);
     let shared: Vec<skech::events::SurplusShared> = events(&m.logs);
     assert_eq!(shared[0].amount, pool - reserve - r.liability);
     assert_eq!(t.g.pool().pool, reserve + r.liability, "the pool keeps the reserve and every live bet's most");

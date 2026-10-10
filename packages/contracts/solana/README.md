@@ -20,27 +20,29 @@ The game: one Anchor program, `skech`, on Solana. It is the same game as the EVM
 | Initializing | the deployer | **only the program's upgrade authority**, so nobody can take a fresh deployment first; a vault someone created first is used, not a block; USDC must be an SPL Token mint (Token-2022's extensions could leave the vault short) |
 | Terms | set by `initialize` | the same, `Config::DEFAULT` = `SkechGame.initialize`'s (a test on each side reads the Solidity) |
 
-Accounts: `Game` (terms, oracle, vault; read-only to players), `Pool` (the pool, the fees, the IOU index), `Market` and `Bars` per market, `Player` per wallet, `Bet` per piece, and for SKT `Rewards` (one: supply, the holders' accumulator and funds, the tracked gain, SKT's terms) and `Holder` per wallet (SKT, earnings, basis). All are PDAs of the program.
+Accounts: `Game` (terms, oracle, vault; read-only to players), `Pool` (the pool, the fees, the IOU index), `Market` and `Bars` per market, `Player` per wallet, `Bet` per piece, and for SKT `Rewards` (one: shares, the holders' accumulator and its last eras, their funds, the tracked gain, the decay's clock, live bets' liability, SKT's terms) and `Holder` per wallet (shares and their era, earnings, basis). All are PDAs of the program.
 
-SKT (`src/skt.rs`, and `docs/HOW-IT-WORKS.md` § SKT) is Solana's alone: every band that misses mints on its odds-weighted loss, and holders share 3 of the 4 stake-fee points and 8 of the 10 profit-fee points. The EVM game has none; the conformance cases with SKT terms run on Solana only.
+SKT (`src/skt.rs`, and `docs/HOW-IT-WORKS.md` § SKT) is Solana's alone: every band that misses mints on its odds-weighted loss (the profit fee counted), SKT decays with a half-life, no wallet mints past 10% of all of it, and holders share 3 of the 4 stake-fee points, 8 of the 10 profit-fee points and the pool's surplus over its reserve and live bets' worst (`share_surplus`). The EVM game has none; the conformance cases with SKT terms run on Solana only.
 
 ## Numbers (LiteSVM, `snapshots/compute.json`)
 
 | | compute units |
 | --- | --- |
-| place, 1 band | 32,300 |
-| place, 32 bands | 91,500 |
+| place, 1 band | 34,300 |
+| place, 32 bands | 99,600 |
 | each bump of the bet's address below 255 | 1,500 more |
-| a bar alone | 18,100 |
-| a bar and 4 bets settled (1, 8, 16, 32 bands) | 96,500 |
-| the same, opening the 4 players' SKT holders | 124,100 |
-| a bar and 9 bets of 32 bands, every holder opened (the most a transaction holds) | 392,900 |
-| claim | 12,300 |
+| a bar alone | 18,900 |
+| a bar and 4 bets settled (1, 8, 16, 32 bands) | 109,900 |
+| the same, opening the 4 players' SKT holders | 135,800 to 143,300 (by their bumps) |
+| a bar and 9 bets of 32 bands, every holder opened (the most a transaction holds) | 436,200 |
+| settling, part by part: the instruction / each bet / each band / each band decided / each holder opened | 13,000 / 9,700 / 850 / 800 / 6,300 |
+| claim | 13,800 |
 | redeem | 13,300 |
+| share_surplus | 15,800 |
 
 `place` finds the bet's canonical bump itself (so a piece has one address), 1,500 units for each bump it tries below 255: the snapshot is taken at 255, and the relayer adds `place_per_bump` for the bump it already knows.
 
-The widest piece, 32 bands, is **1,153 bytes** in a v0 transaction with the lookup table the deploy creates (the limit is 1,232); a settlement holds nine bets of different players, each its bet, player and holder. The relayer sets every compute limit from `snapshots/compute.json`. The program is built for speed, not size (`opt-level = 3`): `z` would save 110 KB of rent (~0.8 SOL, once) and double every instruction's compute units.
+The widest piece, 32 bands, is **1,153 bytes** in a v0 transaction with the lookup table the deploy creates (the limit is 1,232); a settlement holds nine bets of different players, each its bet, player and holder. The relayer sets every compute limit from `snapshots/compute.json`, a settlement's by its parts. The program is built for speed, not size (`opt-level = 3`): `z` would save 110 KB of rent (~0.8 SOL, once) and double every instruction's compute units.
 
 ## Tools
 
@@ -81,7 +83,7 @@ It deploys the program, initializes the game (the deployer is admin, and must be
 
 The accounts keep their layout. Bets live seconds, so before upgrading, stop placing (stop the relayer's placements, or pause) and let the live bets settle, about 35 seconds; then `solana program deploy` over the same program id, regenerate the client, and restart the relayer with the new `snapshots/compute.json`. A game set up under the old defaults keeps its terms (a 2% fee, $10 a dot, $1,000 a piece): `deploy:solana --skip-program --set-config` moves it to the defaults (4% of stakes, 10% of profit).
 
-Upgrading a game set up before SKT: once the program is upgraded, nothing places or settles until SKT starts. `deploy:solana --skip-program` sends `init_rewards`, which creates `Rewards` and moves the fees to 4% and 10% in the same instruction (SKT's split must fit inside them), makes a lookup table with `rewards` in it and writes it to the deployment file; then deploy the relayer with that file. Bets placed before the upgrade settle as before and mint nothing.
+Upgrading a game set up before SKT: once the program is upgraded, nothing places until SKT starts; bets already live settle and expire without it, minting nothing. `deploy:solana --skip-program` sends `init_rewards`, which creates `Rewards` and moves the fees to 4% and 10% in the same instruction (SKT's split must fit inside them), makes a lookup table with `rewards` in it and writes it to the deployment file; then deploy the relayer with that file. Bets placed before the upgrade settle as before and mint nothing.
 
 ## Before mainnet
 
