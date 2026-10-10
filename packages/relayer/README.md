@@ -74,7 +74,7 @@ bun packages/relayer/scripts/e2e-solana.ts      # E2E_ENGINE_URL=ws://localhost:
 
 JSON over one WebSocket; the chain's numbers are decimal strings. On connect: `hello` with the cluster, the
 program and game, the oracle, the engine's signer, the game's domain, the difficulty, the grid units and the
-terms. Then:
+terms, with the least a piece may stake (`minPieceStake`). Then:
 
 ```jsonc
 // app -> relayer
