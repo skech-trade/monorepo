@@ -118,8 +118,8 @@ export const scfg = {
   /** The least a deposit or withdrawal the relayer pays for may move, USDC e6 (a withdrawal of the whole balance always goes): the app's least deposit. */
   minMoveE6: 1_000_000n,
   /**
-   * The least one piece may stake, USDC e6, as it arrives and as the program would place it: each is a transaction
-   * the relayer pays for, and only the stake fee pays it back (`MIN_PIECE_STAKE_E6`). Told to the apps in `hello`.
+   * The least one piece may stake, USDC e6, as it arrives and as the program would place it: 1¢ (`MIN_PIECE_STAKE_E6`),
+   * so a single dot goes in. Pieces under 10¢ are limited for each player instead (`SmallPieces`). Told to the apps in `hello`.
    */
   minPieceStake: BigInt(whole("SOLANA_MIN_PIECE_STAKE", Number(MIN_PIECE_STAKE_E6), 0, 1_000_000_000)),
   /** Compute units each instruction takes, measured in LiteSVM (`bun run solana:snapshot`). */

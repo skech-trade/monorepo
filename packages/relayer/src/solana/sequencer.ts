@@ -7,10 +7,10 @@
 import { ed25519 } from "@noble/curves/ed25519";
 import { type Address, address, getAddressEncoder, getBase16Encoder } from "@solana/kit";
 import { features, NICE, stepFor } from "@skech/core/dots";
-import { CHANCE_ONE, MIN_PIECE_STAKE_E6, momentumE6, rungE2, maxStakeE6, toE8, unitFor, usdE6, withMomentum, type Section } from "@skech/core/chain";
+import { BATCH_PIECE_STAKE_E6, CHANCE_ONE, MIN_PIECE_STAKE_E6, momentumE6, rungE2, maxStakeE6, toE8, unitFor, usdE6, withMomentum, type Section } from "@skech/core/chain";
 import { betAddress, ed25519Instruction, getPlaceInstruction, getSkechErrorMessage, HORIZON, MAX_SECTIONS, pieceBytes, playerAddress, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
-import { remember } from "../limits";
+import { remember, SmallPieces } from "../limits";
 import type { Pricer } from "../pricer";
 import { report } from "../sentry";
 import { verifyPrice } from "../verify";
@@ -50,10 +50,7 @@ const bytesOf = (s: unknown, n?: number): Uint8Array | null => {
   return n === undefined || b.length === n ? b : null;
 };
 const u = (n: unknown, max: number) => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= max;
-/**
- * Why a piece staking `stake` is turned away, or null. Each piece is a transaction the relayer pays for, and only
- * its stake fee pays that back: under `least`, ink drawn in crumbs would cost the game more than whoever drew it.
- */
+/** Why a piece staking `stake` is turned away, or null: under `least` (1¢ unless SOLANA_MIN_PIECE_STAKE says). */
 export const tooLittle = (stake: bigint, least: bigint) => (stake < least ? `A piece must be at least ${usdE6(least)}` : null);
 
 export class SolanaSequencer {
@@ -66,6 +63,8 @@ export class SolanaSequencer {
   private pending = new Map<Address, bigint>();
   private since = new Map<Address, { at: number; balance: bigint; allowance: bigint }[]>();
   stats = { accepted: 0, placed: 0, refused: 0, turnedAway: {} as Record<string, number> };
+  /** Pieces under 10¢, a few a second for each player: each costs the relayer more gas than its fee brings. */
+  small = new SmallPieces();
 
   constructor(
     private readonly cfg: SolanaConfig,
@@ -169,6 +168,8 @@ export class SolanaSequencer {
     // Looked at again here, with nothing awaited between it and taking the piece in: the same piece sent twice at
     // once passed the first look together.
     if (this.seen.has(bet)) return bad("Already sent", bet);
+    // Counted only for a piece that would be taken, signed by the player's session: nobody else can use up theirs.
+    if (stake < BATCH_PIECE_STAKE_E6 && !this.small.take(piece.player)) return bad("Too many small pieces; draw a longer line", bet);
 
     this.seen.add(bet);
     if (this.seen.size > 50_000) this.seen.delete(this.seen.values().next().value!);
