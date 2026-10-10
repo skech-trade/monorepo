@@ -8,6 +8,8 @@
 
 export * from "./bars";
 export * from "./game";
+export * from "./holder";
 export * from "./market";
 export * from "./player";
 export * from "./pool";
+export * from "./rewards";

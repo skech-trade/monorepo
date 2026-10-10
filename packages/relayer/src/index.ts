@@ -11,7 +11,7 @@
  */
 import { report, survive, trail } from "./sentry";
 import { join } from "node:path";
-import { domainFor } from "@skech/contracts/solana/sdk";
+import { domainFor, fetchMaybeRewards } from "@skech/contracts/solana/sdk";
 import { Engine } from "./engine";
 import { Pricer } from "./pricer";
 import { SolanaChain } from "./solana/chain";
@@ -43,6 +43,13 @@ if (game.oracle !== chain.signer.address) {
   report("not-oracle", `relayer ${chain.signer.address} is not the Solana game's oracle ${game.oracle}`);
 }
 scfg.lateMs = game.config.lateMs;
+// SKT's account: every placement and settlement writes it. Until the admin starts it (init_rewards), the program
+// refuses placements. Its split of the fees goes to the apps with the game's terms.
+let skt = await fetchMaybeRewards(chain.rpc, chain.rewards);
+if (!skt.exists) {
+  log("WARNING: SKT has not started on this game (no Rewards account): nothing can be placed until the admin sends init_rewards (bun run deploy:solana --skip-program); bets already live still settle and expire, minting nothing");
+  report("no-rewards", `the Solana game has no Rewards account at ${chain.rewards}`);
+}
 
 const engine = new Engine(scfg.engineUrl, log, scfg.engineSigner);
 engine.start();
@@ -66,7 +73,8 @@ settler = new SolanaSettler(scfg, engine, chain, server.notify, log, join(scfg.s
 sequencer = new SolanaSequencer(scfg, engine, pricer, chain, settler, server.notify, log, domain);
 const setTerms = (g: typeof game, d: number) => {
   sequencer.difficulty = d;
-  sequencer.terms = { minPerDot: g.config.minPerDot, maxPerDot: g.config.maxPerDot, maxPieceStake: g.config.maxPieceStake, minPieceStake: scfg.minPieceStake, maxPriceAgeMs: g.config.maxPriceAgeMs, feeBps: g.config.feeBps, profitFeeBps: g.config.profitFeeBps };
+  const split = skt.exists ? skt.data.config : { holderFeeBps: 0, holderProfitFeeBps: 0, halfLifeSecs: 0, surplusHolderBps: 0 };
+  sequencer.terms = { minPerDot: g.config.minPerDot, maxPerDot: g.config.maxPerDot, maxPieceStake: g.config.maxPieceStake, minPieceStake: scfg.minPieceStake, maxPriceAgeMs: g.config.maxPriceAgeMs, feeBps: g.config.feeBps, profitFeeBps: g.config.profitFeeBps, holderFeeBps: split.holderFeeBps, holderProfitFeeBps: split.holderProfitFeeBps, sktHalfLifeSecs: split.halfLifeSecs, surplusHolderBps: split.surplusHolderBps };
   scfg.lateMs = g.config.lateMs;
   settler.placeGraceMs = g.config.placeGraceMs;
   settler.minRedeem = g.config.minRedeem;
@@ -89,8 +97,9 @@ if (kio.usdcAccount !== scfg.deployment.treasury) log(`keeper: fees go to the tr
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
 // The difficulty and the terms live on chain: follow them, and tell every app when they change.
 setInterval(() => {
-  void chain.terms().then(([g, d]) => {
-    const changed = d !== sequencer.difficulty || json(g.config) !== json(game.config);
+  void Promise.all([chain.terms(), fetchMaybeRewards(chain.rpc, chain.rewards)]).then(([[g, d], r]) => {
+    const changed = d !== sequencer.difficulty || json(g.config) !== json(game.config) || json(r.exists ? r.data.config : null) !== json(skt.exists ? skt.data.config : null);
+    skt = r;
     if (d !== sequencer.difficulty) log(`difficulty is now ${d}`);
     setTerms(g, d);
     Object.assign(game, g);

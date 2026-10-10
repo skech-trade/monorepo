@@ -10,11 +10,18 @@ pub const MARKET_SEED: &[u8] = b"market";
 pub const BARS_SEED: &[u8] = b"bars";
 pub const PLAYER_SEED: &[u8] = b"player";
 pub const BET_SEED: &[u8] = b"bet";
+pub const REWARDS_SEED: &[u8] = b"rewards";
+pub const HOLDER_SEED: &[u8] = b"holder";
 
 /// Seconds ahead a band may be.
 pub const HORIZON: u8 = 30;
 /// Sections in one piece, at most: a piece with 32 fills a transaction (1232 bytes) with a lookup table.
 pub const MAX_SECTIONS: usize = 32;
+/// How tall a band may be, in grid units: the widest pen the apps offer, at the smallest chart they draw (a 120 px plot
+/// showing 6.75 market steps of 50 units each: 6750 / 120 = 56.25 units), with a little room over. A band past it is not
+/// ink a pen drew: one over the whole map at second 1 is all but certain, and churning certain ink would move the pool's
+/// money to SKT holders through the stake fee (`packages/core/src/chain.ts` `MAX_SECTION_WIDTH`, the same number).
+pub const MAX_SECTION_WIDTH: u16 = 64;
 /// Seconds of price the ring keeps: the horizon, the grace and plenty of room for a relayer that falls behind.
 pub const BAR_RING: usize = 240;
 /// How long after a second is over its bar may still be posted, seconds: inside the ring by the horizon and the most
@@ -274,7 +281,169 @@ pub struct Bet {
 impl Bet {
     /// Everything but the sections.
     pub const FIXED: usize = 8 + Bet::INIT_SPACE;
+    /// Where `live_mask` is in a bet's bytes, `hit_mask` right after it: the discriminator, the player (32), the
+    /// drawing (8), the index (4), the market and the difficulty (1 each).
+    pub const LIVE_MASK_AT: usize = 8 + 32 + 8 + 4 + 1 + 1;
+    /// The bet as it is serialized: what a bet placed before SKT is, all of it.
     pub fn space(sections: usize) -> usize {
         Self::FIXED + sections * BetSection::INIT_SPACE
     }
+    /// The bet and, after it, each section's chance as the oracle quoted it (u32, billionths, little-endian), which
+    /// SKT's basis reads: outside the struct, so the struct and every bet placed before it keep their bytes.
+    pub fn space_with_chances(sections: usize) -> usize {
+        Self::space(sections) + sections * 4
+    }
+    /// The chances after a bet of `sections` in `data`; none for a bet placed before they were kept.
+    pub fn chances(data: &[u8], sections: usize) -> Option<[u32; MAX_SECTIONS]> {
+        let at = Self::space(sections);
+        let bytes = data.get(at..at + sections * 4)?;
+        let mut out = [0u32; MAX_SECTIONS];
+        for (i, c) in bytes.chunks_exact(4).enumerate().take(MAX_SECTIONS) {
+            out[i] = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+        }
+        Some(out)
+    }
+}
+
+/* ---- SKT: what losing earns back, and the holders' share of the fees (skt.rs has the rules) ---- */
+
+/// SKT a dollar of basis mints while the tracked gain is nothing: 100. SKT and USDC are both in millionths.
+pub const SKT_PER_USDC: u128 = 100;
+/// The holders' accumulator is USDC e6 per share, times this. Fine enough that a single micro-USDC shared among the
+/// most shares there can be (under 2^74) still moves it; and with at least MIN_TOTAL_SHARES shares whenever anything
+/// accrues, an era's accumulator never passes every u64 of USDC times this over 1e6, under 2^128.
+pub const ACC_SCALE: u128 = 1_000_000_000_000_000_000_000_000;
+/// Fewer shares than this (one SKT at an era's start) and nothing is shared: the holders' part goes to the treasury.
+pub const MIN_TOTAL_SHARES: u128 = 1_000_000;
+/// The most `mint_scale` may be, USDC e6: $1B. The whole curve is worth 100 · S SKT, so every SKT ever minted is under
+/// 2^57, and a share (an SKT times its weight, under 2^ERA_HALVINGS) under 2^73.
+pub const MAX_MINT_SCALE: u64 = 1_000_000_000_000_000;
+/// Half-lives in an era. A share minted at time t weighs 2^((t − era start) / half-life), so 1 to 2^16 within one; at
+/// each era's end every share is divided by 2^16 (`Rewards::catch_up`), lazily for each holder, so no number grows
+/// without bound however long the game runs.
+pub const ERA_HALVINGS: u32 = 16;
+/// Eras whose closing accumulator is kept: a holder untouched for longer loses what their shares earned in the era
+/// they were last touched in (it stays in `holder_funds`; never anyone else's). At the shortest half-life that is 128
+/// half-lives, 10 years; at the default, 64. Two eras on, an untouched holder's shares are 2^-32 of a fresh mint's.
+pub const ERAS_KEPT: usize = 8;
+/// What the half-life may be set to, seconds: 4 weeks to 10 years.
+pub const MIN_HALF_LIFE_SECS: u32 = 28 * 86_400;
+pub const MAX_HALF_LIFE_SECS: u32 = 3_650 * 86_400;
+/// The least a wallet's cap may be, bps of all shares: 1%. 10,000 is no cap.
+pub const MIN_WALLET_CAP_BPS: u16 = 100;
+
+/// SKT's terms, set beside `Config`: `Config` lives in `Game`, whose layout stays as it is on chain.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, PartialEq, Eq, Debug)]
+pub struct RewardsConfig {
+    /// Of every stake, to SKT holders: part of `Config::fee_bps`, never more.
+    pub holder_fee_bps: u16,
+    /// Of every hit's profit, to SKT holders: part of `Config::profit_fee_bps`, never more.
+    pub holder_profit_fee_bps: u16,
+    /// `S` in the mint curve, USDC e6: at tracked gain G a dollar of basis mints 100 · (S / (S + G))² SKT. Fixed once
+    /// anything has minted.
+    pub mint_scale: u64,
+    /// SKT's half-life, seconds: a balance halves every this long, so a player keeps their share only by playing on.
+    pub half_life_secs: u32,
+    /// No mint takes a wallet past this share of all shares, bps (10,000: no cap)…
+    pub wallet_cap_bps: u16,
+    /// …or past that share of this much SKT (e6), whichever is more: so the first players mint while there is little.
+    pub cap_floor: u64,
+    /// USDC e6 the pool keeps, over what every live bet could pay, before any of its surplus is shared with holders.
+    pub surplus_reserve: u64,
+    /// Of the pool's surplus, to SKT holders, bps; the rest to the treasury.
+    pub surplus_holder_bps: u16,
+}
+
+impl RewardsConfig {
+    /// 3 of the 4 stake points and 8 of the 10 profit points to holders; the curve's scale $1,000,000, so the rate falls
+    /// across a tracked gain of $0 to $10M: 100 SKT a dollar at 0, 25 at $1M, 0.83 at $10M. A half-life of 26 weeks; no
+    /// wallet past 10% of all SKT, or past 100,000 SKT while there is under a million. The pool keeps $2,457,600 over
+    /// what live bets could pay: three times the most one piece can pay at the default terms (`max_piece_payout`); of
+    /// what it holds over that, 75% goes to holders and 25% to the treasury.
+    pub const DEFAULT: RewardsConfig = RewardsConfig {
+        holder_fee_bps: 300,
+        holder_profit_fee_bps: 800,
+        mint_scale: 1_000_000_000_000,
+        half_life_secs: 26 * 7 * 86_400,
+        wallet_cap_bps: 1_000,
+        cap_floor: 1_000_000_000_000,
+        surplus_reserve: 2_457_600_000_000,
+        surplus_holder_bps: 7_500,
+    };
+}
+
+/// The most one piece can pay, gross, at `c`: each of its MAX_SECTIONS bands at most 256 dots at the dearest dot
+/// (`ladder::max_stake`), and the whole at most its stake at the top rung.
+pub fn max_piece_payout(c: &Config) -> u64 {
+    let bands = MAX_SECTIONS as u128 * crate::ladder::MAX_DOTS as u128 * c.max_per_dot as u128;
+    let stake = c.max_piece_stake as u128 * *crate::ladder::RUNGS.last().unwrap() as u128 / 100;
+    bands.min(stake).min(u64::MAX as u128) as u64
+}
+
+/// SKT's global state: the shares, the holders' accumulator and the USDC set aside for them, the tracked gain the mint
+/// curve reads, the decay's clock, and what live bets could pay. Every SKT stays staked on the `Holder` it was minted to:
+/// there is no token to move.
+#[account]
+#[derive(InitSpace)]
+pub struct Rewards {
+    pub config: RewardsConfig,
+    /// SKT minted, ever, as each mint was worth when it was minted (millionths): the record, not what is held now.
+    pub supply: u64,
+    /// Every holder's shares, in this era's units: each SKT minted at time t adds 2^((t − era start) / half-life).
+    pub total_shares: u128,
+    /// USDC e6 each share has earned this era, times `ACC_SCALE`. Back to 0 at each era's start.
+    pub acc: u128,
+    /// USDC e6 in the vault that is the holders': accrued and not yet claimed, the accumulator's rounding dust with it.
+    pub holder_funds: u64,
+    /// Every holder share ever accrued, and every claim paid out: `holder_funds` is the one less the other.
+    pub accrued_total: u64,
+    pub claimed_total: u64,
+    /// The tracked gain, USDC e6: every basis SKT has been minted on since it began, which is what players have lost
+    /// to the game in expectation. The mint curve reads it.
+    pub gain: u64,
+    /// The era: shares and `acc` are in its units.
+    pub era: u32,
+    /// `acc` at the end of each of the last ERAS_KEPT eras, at era % ERAS_KEPT.
+    pub era_ends: [u128; ERAS_KEPT],
+    /// A share's weight at `anchor_time`, as its log2 times 2^32: under ERA_HALVINGS · 2^32 once caught up.
+    pub anchor_log2: u64,
+    pub anchor_time: i64,
+    /// The most every live bet placed since SKT started could pay, gross, every band hitting: what the pool keeps,
+    /// with the reserve, before any surplus is shared.
+    pub liability: u64,
+    /// Pool surplus shared with holders, ever.
+    pub swept_total: u64,
+    /// When SKT started: no surplus is shared until every bet placed before then, whose liability is not counted, is
+    /// decided or given back.
+    pub started_at: i64,
+    pub bump: u8,
+    /// Room for what comes later, without a realloc.
+    pub _reserved: [u8; 32],
+}
+
+/// A player's SKT: their shares (always staked; their SKT now is the shares over today's weight), what it has
+/// earned, and the basis it was minted on. Keyed by their wallet; opened by the first settlement that mints for them,
+/// so nobody who never loses costs its rent.
+#[account]
+#[derive(InitSpace, Default, PartialEq, Eq, Debug)]
+pub struct Holder {
+    pub player: Pubkey,
+    /// Shares, in era `era`'s units.
+    pub shares: u128,
+    pub era: u32,
+    /// `Rewards::acc` (of era `era`) when what these shares had earned was last counted into `unclaimed`.
+    pub acc_at: u128,
+    /// USDC e6 earned and not yet claimed.
+    pub unclaimed: u64,
+    pub claimed: u64,
+    /// Every basis their SKT was minted on, USDC e6: the odds-weighted loss of each band of theirs that missed.
+    pub basis: u64,
+    /// Every SKT minted to them, as each mint was worth when it was minted.
+    pub minted: u64,
+    pub bump: u8,
+    pub _reserved: [u8; 32],
+}
+
+impl Holder {
+    pub const SPACE: usize = 8 + Holder::INIT_SPACE;
 }

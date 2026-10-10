@@ -2,8 +2,9 @@
  * The relayer's door: one WebSocket per app (`hello`, `watch`, `account`, `piece`, `ack`, `placed`, `refused`,
  * `settled`, `activity`), and a build-and-submit for everything a wallet signs.
  *
- * A session, a deposit or a withdrawal is a transaction the wallet signs and the relayer pays for:
- *   app → { type: "build", kind: "session" | "deposit" | "withdraw" | "revoke", player, ... }
+ * A session, a deposit, a withdrawal or a claim of what the player's SKT earned is a transaction the wallet signs and
+ * the relayer pays for:
+ *   app → { type: "build", kind: "session" | "deposit" | "withdraw" | "revoke" | "claim", player, ... }
  *   relayer → { type: "built", id, kind, tx }          base64, the relayer's fee-payer signature already on it
  *   app → { type: "submit", id, tx }                   the same transaction, signed by the wallet (Coinbase or MWA)
  *   relayer → { type: "submitted", id, kind, ok, tx | why }
@@ -12,7 +13,7 @@
 import type { Server as BunServer, ServerWebSocket } from "bun";
 import { type Address, address, createNoopSigner, getBase16Decoder, type Instruction } from "@solana/kit";
 import { fetchMaybeToken, findAssociatedTokenPda, getApproveInstruction, getCreateAssociatedTokenIdempotentInstruction, TOKEN_PROGRAM_ADDRESS, type Token } from "@solana-program/token";
-import { getDepositInstruction, getRevokeSessionInstruction, getSetSessionInstruction, getWithdrawInstruction, playerAddress } from "@skech/contracts/solana/sdk";
+import { claimableE6, sktNowE6, getClaimInstruction, getDepositInstruction, getRevokeSessionInstruction, getSetSessionInstruction, getWithdrawInstruction, holderAddress, playerAddress } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
 import type { SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
@@ -164,7 +165,7 @@ export class SolanaServer {
   /** The player's account, no older than `maxAgeMs` (0: read after now), to `only` or to every socket watching them. */
   private async sendAccount(player: Address, only?: ServerWebSocket<Data>, maxAgeMs = 0, missingMs = maxAgeMs) {
     try {
-      const { player: p, pool, token } = await this.chain.accounts.get(player, maxAgeMs, missingMs);
+      const { player: p, pool, token, holder, rewards } = await this.chain.accounts.get(player, maxAgeMs, missingMs);
       const wallet = this.walletUsdc(token);
       const now = BigInt(Math.floor(Date.now() / 1000));
       const owed = p && p.iouShares > 0n ? (p.iouShares * (pool.iouIndexAt + pool.iouRate * (now - pool.iouTimeAt > 0n ? now - pool.iouTimeAt : 0n))) / 10n ** 18n : 0n;
@@ -175,6 +176,8 @@ export class SolanaServer {
         session: p ? { key: p.session.key, validUntil: p.session.validUntil, allowance: p.session.allowance } : null,
         owed,
         wallet,
+        // Their SKT now, e6, decayed as it is (it halves every half-life), and the USDC it has earned that a claim would pay now.
+        skt: { balance: holder && rewards ? sktNowE6(holder, rewards, now) : 0n, claimable: holder && rewards ? claimableE6(holder, rewards) : 0n },
       };
       if (only) only.send(json(msg));
       else this.toPlayer(player, msg);
@@ -295,7 +298,7 @@ export class SolanaServer {
     const wallet = createNoopSigner(player);
     const playerPda = await playerAddress(player, d.program);
     const [ata] = await findAssociatedTokenPda({ mint: d.usdcMint, owner: player, tokenProgram: TOKEN_PROGRAM_ADDRESS });
-    const { player: p, token: held } = await this.chain.accounts.get(player, 1_000);
+    const { player: p, token: held, holder, rewards } = await this.chain.accounts.get(player, 1_000);
     const inWallet = held ? held.amount : 0n;
     const min = this.cfg.minMoveE6;
     const ixs: Instruction[] = [];
@@ -343,6 +346,13 @@ export class SolanaServer {
         if (!p) throw new Error("No session to end");
         ixs.push(getRevokeSessionInstruction({ authority: wallet, player: playerPda }));
         break;
+      case "claim": {
+        // What it pays is the player's own, already in the vault: only built when there is something to pay.
+        if (!p || !holder || !rewards || claimableE6(holder, rewards) === 0n) throw new Error("Nothing to claim");
+        ixs.push(getClaimInstruction({ authority: wallet, game: d.game, rewards: this.chain.rewards, player: playerPda, holder: await holderAddress(player, d.program) }));
+        units = Math.ceil((this.cfg.compute.claim ?? 20_000) * 1.25) + 5_000;
+        break;
+      }
       default:
         throw new Error(`Unknown kind ${String(msg.kind)}`);
     }

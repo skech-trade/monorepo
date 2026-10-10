@@ -293,6 +293,235 @@
             "houseOwed": 0
           }
         }
+      ],
+      "expectSolana": [
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 4,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 10000,
+                "rung": 1600
+              },
+              {
+                "second": 6,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 10000,
+                "rung": 12800
+              }
+            ],
+            "staked": 20000,
+            "fee": 400,
+            "refunded": 40000
+          },
+          "state": {
+            "balance": {
+              "a": 9980000
+            },
+            "allowance": {
+              "a": 4980000
+            },
+            "pool": 19600,
+            "fees": 400,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        }
+      ]
+    },
+    {
+      "players": {
+        "a": {
+          "deposit": 10000000,
+          "allowance": 5000000
+        }
+      },
+      "difficulty": 51,
+      "feeBps": 400,
+      "profitFeeBps": 1000,
+      "price": 8300000000000,
+      "unit": 20000000,
+      "name": "certain ink: Solana offers no band returning more than the stake fee leaves, nor one taller than the widest pen",
+      "steps": [
+        {
+          "place": {
+            "id": "tall",
+            "sections": [
+              {
+                "second": 1,
+                "lo": 414960,
+                "width": 65,
+                "stake": 50000,
+                "chance": 999000000
+              }
+            ]
+          }
+        },
+        {
+          "place": {
+            "id": "p",
+            "sections": [
+              {
+                "second": 1,
+                "lo": 414970,
+                "width": 64,
+                "stake": 50000,
+                "chance": 999900000
+              },
+              {
+                "second": 2,
+                "lo": 415000,
+                "width": 5,
+                "stake": 50000,
+                "chance": 480000000
+              },
+              {
+                "second": 3,
+                "lo": 415000,
+                "width": 5,
+                "stake": 50000,
+                "chance": 481000000
+              }
+            ]
+          }
+        }
+      ],
+      "expect": [
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8299200000000,
+                "hi": 8300500000000,
+                "stake": 50000,
+                "rung": 100
+              }
+            ],
+            "staked": 50000,
+            "fee": 2000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 9950000
+            },
+            "allowance": {
+              "a": 4950000
+            },
+            "pool": 48000,
+            "fees": 2000,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8299400000000,
+                "hi": 8300680000000,
+                "stake": 50000,
+                "rung": 100
+              },
+              {
+                "second": 2,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 50000,
+                "rung": 200
+              },
+              {
+                "second": 3,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 50000,
+                "rung": 200
+              }
+            ],
+            "staked": 150000,
+            "fee": 6000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 9800000
+            },
+            "allowance": {
+              "a": 4800000
+            },
+            "pool": 192000,
+            "fees": 8000,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        }
+      ],
+      "expectSolana": [
+        {
+          "place": {
+            "ok": false,
+            "refused": "Sections"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 2,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 50000,
+                "rung": 200
+              }
+            ],
+            "staked": 50000,
+            "fee": 2000,
+            "refunded": 100000
+          },
+          "state": {
+            "balance": {
+              "a": 9950000
+            },
+            "allowance": {
+              "a": 4950000
+            },
+            "pool": 48000,
+            "fees": 2000,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        }
       ]
     },
     {
@@ -518,6 +747,93 @@
             "houseOwed": 0
           }
         }
+      ],
+      "expectSolana": [
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8400000000000,
+                "hi": 8400100000000,
+                "stake": 5000000,
+                "rung": 150
+              }
+            ],
+            "staked": 5000000,
+            "fee": 100000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 25000000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 20000000
+            },
+            "pool": 4900000,
+            "fees": 100000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": false,
+            "refused": "NotOffered"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 25000000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 20000000
+            },
+            "pool": 4900000,
+            "fees": 100000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "loser",
+              "hitMask": 0,
+              "missMask": 1,
+              "paid": 0,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 25000000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 20000000
+            },
+            "pool": 4900000,
+            "fees": 100000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        }
       ]
     },
     {
@@ -728,6 +1044,70 @@
             },
             "pool": 78400,
             "fees": 1600,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        }
+      ],
+      "expectSolana": [
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 3,
+                "lo": 8300800000000,
+                "hi": 8300900000000,
+                "stake": 20000,
+                "rung": 600
+              }
+            ],
+            "staked": 20000,
+            "fee": 400,
+            "refunded": 20000
+          },
+          "state": {
+            "balance": {
+              "a": 9980000
+            },
+            "allowance": {
+              "a": 4980000
+            },
+            "pool": 19600,
+            "fees": 400,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 3,
+                "lo": 8299100000000,
+                "hi": 8299200000000,
+                "stake": 20000,
+                "rung": 600
+              }
+            ],
+            "staked": 20000,
+            "fee": 400,
+            "refunded": 20000
+          },
+          "state": {
+            "balance": {
+              "a": 9960000
+            },
+            "allowance": {
+              "a": 4960000
+            },
+            "pool": 39200,
+            "fees": 800,
             "owed": {
               "a": 0
             },
@@ -1536,6 +1916,93 @@
             "houseOwed": 0
           }
         }
+      ],
+      "expectSolana": [
+        {
+          "place": {
+            "ok": false,
+            "refused": "NotOffered"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 30000000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 25000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 50000,
+                "rung": 9600
+              }
+            ],
+            "staked": 50000,
+            "fee": 1000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 9950000,
+              "b": 30000000
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 25000000
+            },
+            "pool": 49000,
+            "fees": 1000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "winner",
+              "hitMask": 1,
+              "missMask": 0,
+              "paid": 49000,
+              "owed": 4276000
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 9999000,
+              "b": 30000000
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 25000000
+            },
+            "pool": 0,
+            "fees": 1000,
+            "owed": {
+              "a": 4276000,
+              "b": 0
+            },
+            "houseOwed": 0
+          }
+        }
       ]
     },
     {
@@ -2335,6 +2802,147 @@
             "houseOwed": 0
           }
         }
+      ],
+      "expectSolana": [
+        {
+          "difficulty": {
+            "ok": false,
+            "refused": "BadDifficulty"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "difficulty": {
+            "ok": false,
+            "refused": "BadDifficulty"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "difficulty": {
+            "ok": false,
+            "refused": "BadDifficulty"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": false,
+            "refused": "Difficulty"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "difficulty": {
+            "ok": true
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": false,
+            "refused": "NotOffered"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        },
+        {
+          "place": {
+            "ok": false,
+            "refused": "Difficulty"
+          },
+          "state": {
+            "balance": {
+              "a": 10000000
+            },
+            "allowance": {
+              "a": 5000000
+            },
+            "pool": 0,
+            "fees": 0,
+            "owed": {
+              "a": 0
+            },
+            "houseOwed": 0
+          }
+        }
       ]
     },
     {
@@ -2385,6 +2993,1665 @@
               "a": 0
             },
             "houseOwed": 0
+          }
+        }
+      ]
+    },
+    {
+      "players": {
+        "a": {
+          "deposit": 10000000,
+          "allowance": 5000000
+        },
+        "b": {
+          "deposit": 30000000,
+          "allowance": 25000000
+        }
+      },
+      "difficulty": 51,
+      "feeBps": 400,
+      "profitFeeBps": 1000,
+      "price": 8300000000000,
+      "unit": 20000000,
+      "skt": {
+        "holderFeeBps": 300,
+        "holderProfitFeeBps": 800,
+        "mintScale": 1000000000000,
+        "walletCapBps": 10000,
+        "capFloor": 0
+      },
+      "name": "SKT: a loss mints; then 3 of the 4 stake points and 8 of the 10 profit points accrue; a claim pays them, a second is refused",
+      "steps": [
+        {
+          "place": {
+            "id": "lose",
+            "player": "b",
+            "perDot": 1000000,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 420000,
+                "width": 5,
+                "stake": 1000000,
+                "chance": 500000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 1,
+            "prevClose": 8300000000000,
+            "high": 8300000000000,
+            "low": 8300000000000,
+            "close": 8300000000000,
+            "settle": [
+              "lose"
+            ]
+          }
+        },
+        {
+          "place": {
+            "id": "win",
+            "sections": [
+              {
+                "second": 2,
+                "lo": 415000,
+                "width": 5,
+                "stake": 50000,
+                "chance": 500000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 2,
+            "prevClose": 8300000000000,
+            "high": 8300000000000,
+            "low": 8300000000000,
+            "close": 8300000000000,
+            "settle": [
+              "win"
+            ]
+          }
+        },
+        {
+          "claim": "b"
+        },
+        {
+          "claim": "b"
+        },
+        {
+          "claim": "a"
+        }
+      ],
+      "expect": [
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8400000000000,
+                "hi": 8400100000000,
+                "stake": 1000000,
+                "rung": 150
+              }
+            ],
+            "staked": 1000000,
+            "fee": 40000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 24000000
+            },
+            "pool": 960000,
+            "fees": 40000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "0",
+              "totalShares": "0",
+              "acc": "0",
+              "holderFunds": 0,
+              "gain": 0,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "lose",
+              "hitMask": 0,
+              "missMask": 1,
+              "paid": 0,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 24000000
+            },
+            "pool": 960000,
+            "fees": 40000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "54999969",
+              "totalShares": "54999969",
+              "acc": "0",
+              "holderFunds": 0,
+              "gain": 550000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "54999969",
+                  "basis": 550000,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 2,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 50000,
+                "rung": 150
+              }
+            ],
+            "staked": 50000,
+            "fee": 2000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 9950000,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24000000
+            },
+            "pool": 1008000,
+            "fees": 40500,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "54999969",
+              "totalShares": "54999969",
+              "acc": "27272742644636763340",
+              "holderFunds": 1500,
+              "gain": 550000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "54999969",
+                  "basis": 550000,
+                  "claimable": 1499
+                }
+              }
+            }
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "win",
+              "hitMask": 1,
+              "missMask": 0,
+              "paid": 72500,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 10022500,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24000000
+            },
+            "pool": 933000,
+            "fees": 41000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "54999969",
+              "totalShares": "54999969",
+              "acc": "63636399504152447794",
+              "holderFunds": 3500,
+              "gain": 550000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "54999969",
+                  "basis": 550000,
+                  "claimable": 3499
+                }
+              }
+            }
+          }
+        },
+        {
+          "claimed": 3499,
+          "state": {
+            "balance": {
+              "a": 10022500,
+              "b": 29003499
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24000000
+            },
+            "pool": 933000,
+            "fees": 41000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "54999969",
+              "totalShares": "54999969",
+              "acc": "63636399504152447794",
+              "holderFunds": 1,
+              "gain": 550000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "54999969",
+                  "basis": 550000,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "claimed": 0,
+          "state": {
+            "balance": {
+              "a": 10022500,
+              "b": 29003499
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24000000
+            },
+            "pool": 933000,
+            "fees": 41000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "54999969",
+              "totalShares": "54999969",
+              "acc": "63636399504152447794",
+              "holderFunds": 1,
+              "gain": 550000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "54999969",
+                  "basis": 550000,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "claimed": 0,
+          "state": {
+            "balance": {
+              "a": 10022500,
+              "b": 29003499
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24000000
+            },
+            "pool": 933000,
+            "fees": 41000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "54999969",
+              "totalShares": "54999969",
+              "acc": "63636399504152447794",
+              "holderFunds": 1,
+              "gain": 550000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "54999969",
+                  "basis": 550000,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "players": {
+        "a": {
+          "deposit": 10000000,
+          "allowance": 5000000
+        },
+        "b": {
+          "deposit": 30000000,
+          "allowance": 25000000
+        }
+      },
+      "difficulty": 51,
+      "feeBps": 400,
+      "profitFeeBps": 1000,
+      "price": 8300000000000,
+      "unit": 20000000,
+      "skt": {
+        "holderFeeBps": 300,
+        "holderProfitFeeBps": 800,
+        "mintScale": 1000000000000,
+        "walletCapBps": 10000,
+        "capFloor": 0
+      },
+      "name": "SKT: while a win is owed, the holders' share goes to the pool, and a loss mints on the curve all the same",
+      "steps": [
+        {
+          "place": {
+            "id": "first",
+            "player": "b",
+            "perDot": 1000000,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 420000,
+                "width": 5,
+                "stake": 100000,
+                "chance": 500000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 1,
+            "prevClose": 8300000000000,
+            "high": 8300000000000,
+            "low": 8300000000000,
+            "close": 8300000000000,
+            "settle": [
+              "first"
+            ]
+          }
+        },
+        {
+          "place": {
+            "id": "long",
+            "sections": [
+              {
+                "second": 2,
+                "lo": 415000,
+                "width": 5,
+                "stake": 50000,
+                "chance": 10000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 2,
+            "prevClose": 8300000000000,
+            "high": 8300000000000,
+            "low": 8300000000000,
+            "close": 8300000000000,
+            "settle": [
+              "long"
+            ]
+          }
+        },
+        {
+          "place": {
+            "id": "refill",
+            "player": "b",
+            "perDot": 1000000,
+            "sections": [
+              {
+                "second": 3,
+                "lo": 420000,
+                "width": 5,
+                "stake": 1000000,
+                "chance": 500000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 3,
+            "prevClose": 8300000000000,
+            "high": 8300000000000,
+            "low": 8300000000000,
+            "close": 8300000000000,
+            "settle": [
+              "refill"
+            ]
+          }
+        },
+        {
+          "claim": "b"
+        }
+      ],
+      "expect": [
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8400000000000,
+                "hi": 8400100000000,
+                "stake": 100000,
+                "rung": 150
+              }
+            ],
+            "staked": 100000,
+            "fee": 4000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 29900000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 24900000
+            },
+            "pool": 96000,
+            "fees": 4000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "0",
+              "totalShares": "0",
+              "acc": "0",
+              "holderFunds": 0,
+              "gain": 0,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "first",
+              "hitMask": 0,
+              "missMask": 1,
+              "paid": 0,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 29900000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 24900000
+            },
+            "pool": 96000,
+            "fees": 4000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "5499999",
+              "totalShares": "5499999",
+              "acc": "0",
+              "holderFunds": 0,
+              "gain": 55000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "5499999",
+                  "basis": 55000,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 2,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 50000,
+                "rung": 9600
+              }
+            ],
+            "staked": 50000,
+            "fee": 2000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 9950000,
+              "b": 29900000
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24900000
+            },
+            "pool": 144000,
+            "fees": 4500,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "5499999",
+              "totalShares": "5499999",
+              "acc": "272727322314058602556",
+              "holderFunds": 1500,
+              "gain": 55000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "5499999",
+                  "basis": 55000,
+                  "claimable": 1499
+                }
+              }
+            }
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "long",
+              "hitMask": 1,
+              "missMask": 0,
+              "paid": 144000,
+              "owed": 4181000
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 10094000,
+              "b": 29900000
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24900000
+            },
+            "pool": 0,
+            "fees": 4500,
+            "owed": {
+              "a": 4181000,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "5499999",
+              "totalShares": "5499999",
+              "acc": "272727322314058602556",
+              "holderFunds": 1500,
+              "gain": 55000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "5499999",
+                  "basis": 55000,
+                  "claimable": 1499
+                }
+              }
+            }
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 3,
+                "lo": 8400000000000,
+                "hi": 8400100000000,
+                "stake": 1000000,
+                "rung": 150
+              }
+            ],
+            "staked": 1000000,
+            "fee": 40000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 10094000,
+              "b": 28900000
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 23900000
+            },
+            "pool": 990000,
+            "fees": 14500,
+            "owed": {
+              "a": 4181000,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "5499999",
+              "totalShares": "5499999",
+              "acc": "272727322314058602556",
+              "holderFunds": 1500,
+              "gain": 55000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "5499999",
+                  "basis": 55000,
+                  "claimable": 1499
+                }
+              }
+            }
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "refill",
+              "hitMask": 0,
+              "missMask": 1,
+              "paid": 0,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 10094000,
+              "b": 28900000
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 23900000
+            },
+            "pool": 990000,
+            "fees": 14500,
+            "owed": {
+              "a": 4181000,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "60499962",
+              "totalShares": "60499966",
+              "acc": "272727322314058602556",
+              "holderFunds": 1500,
+              "gain": 605000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "60499966",
+                  "basis": 605000,
+                  "claimable": 1499
+                }
+              }
+            }
+          }
+        },
+        {
+          "claimed": 1499,
+          "state": {
+            "balance": {
+              "a": 10094000,
+              "b": 28901499
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 23900000
+            },
+            "pool": 990000,
+            "fees": 14500,
+            "owed": {
+              "a": 4181000,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "60499962",
+              "totalShares": "60499966",
+              "acc": "272727322314058602556",
+              "holderFunds": 1,
+              "gain": 605000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "60499966",
+                  "basis": 605000,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "players": {
+        "a": {
+          "deposit": 10000000,
+          "allowance": 5000000
+        },
+        "b": {
+          "deposit": 30000000,
+          "allowance": 25000000
+        }
+      },
+      "difficulty": 51,
+      "feeBps": 400,
+      "profitFeeBps": 1000,
+      "price": 8300000000000,
+      "unit": 20000000,
+      "skt": {
+        "holderFeeBps": 300,
+        "holderProfitFeeBps": 800,
+        "mintScale": 1000000000000,
+        "walletCapBps": 10000,
+        "capFloor": 0
+      },
+      "name": "SKT: each miss mints on its odds-weighted loss, a hit on nothing, at the curve's falling rate",
+      "steps": [
+        {
+          "place": {
+            "id": "long",
+            "sections": [
+              {
+                "second": 1,
+                "lo": 415000,
+                "width": 5,
+                "stake": 11000,
+                "chance": 10000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 1,
+            "prevClose": 8299500000000,
+            "high": 8299500000000,
+            "low": 8299500000000,
+            "close": 8299500000000,
+            "settle": [
+              "long"
+            ]
+          }
+        },
+        {
+          "place": {
+            "id": "near",
+            "sections": [
+              {
+                "second": 2,
+                "lo": 420000,
+                "width": 5,
+                "stake": 100000,
+                "chance": 500000000
+              },
+              {
+                "second": 2,
+                "lo": 415000,
+                "width": 5,
+                "stake": 100000,
+                "chance": 500000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 2,
+            "prevClose": 8299500000000,
+            "high": 8300000000000,
+            "low": 8299500000000,
+            "close": 8300000000000,
+            "settle": [
+              "near"
+            ]
+          }
+        },
+        {
+          "place": {
+            "id": "two",
+            "player": "b",
+            "perDot": 1000000,
+            "sections": [
+              {
+                "second": 3,
+                "lo": 420000,
+                "width": 5,
+                "stake": 1000000,
+                "chance": 200000000
+              },
+              {
+                "second": 3,
+                "lo": 410000,
+                "width": 5,
+                "stake": 2000000,
+                "chance": 900000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 3,
+            "prevClose": 8300000000000,
+            "high": 8300000000000,
+            "low": 8300000000000,
+            "close": 8300000000000,
+            "settle": [
+              "two"
+            ]
+          }
+        }
+      ],
+      "expect": [
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 11000,
+                "rung": 9600
+              }
+            ],
+            "staked": 11000,
+            "fee": 440,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 9989000,
+              "b": 30000000
+            },
+            "allowance": {
+              "a": 4989000,
+              "b": 25000000
+            },
+            "pool": 10560,
+            "fees": 440,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "0",
+              "totalShares": "0",
+              "acc": "0",
+              "holderFunds": 0,
+              "gain": 0,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "long",
+              "hitMask": 0,
+              "missMask": 1,
+              "paid": 0,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 9989000,
+              "b": 30000000
+            },
+            "allowance": {
+              "a": 4989000,
+              "b": 25000000
+            },
+            "pool": 10560,
+            "fees": 440,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "149999",
+              "totalShares": "149999",
+              "acc": "0",
+              "holderFunds": 0,
+              "gain": 1500,
+              "holders": {
+                "a": {
+                  "shares": "149999",
+                  "basis": 1500,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 2,
+                "lo": 8400000000000,
+                "hi": 8400100000000,
+                "stake": 100000,
+                "rung": 150
+              },
+              {
+                "second": 2,
+                "lo": 8300000000000,
+                "hi": 8300100000000,
+                "stake": 100000,
+                "rung": 150
+              }
+            ],
+            "staked": 200000,
+            "fee": 8000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 9789000,
+              "b": 30000000
+            },
+            "allowance": {
+              "a": 4789000,
+              "b": 25000000
+            },
+            "pool": 202560,
+            "fees": 8440,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "149999",
+              "totalShares": "149999",
+              "acc": "0",
+              "holderFunds": 0,
+              "gain": 1500,
+              "holders": {
+                "a": {
+                  "shares": "149999",
+                  "basis": 1500,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "near",
+              "hitMask": 2,
+              "missMask": 1,
+              "paid": 145000,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 9934000,
+              "b": 30000000
+            },
+            "allowance": {
+              "a": 4789000,
+              "b": 25000000
+            },
+            "pool": 52560,
+            "fees": 13440,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "5649998",
+              "totalShares": "5649998",
+              "acc": "0",
+              "holderFunds": 0,
+              "gain": 56500,
+              "holders": {
+                "a": {
+                  "shares": "5649998",
+                  "basis": 56500,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 3,
+                "lo": 8400000000000,
+                "hi": 8400100000000,
+                "stake": 1000000,
+                "rung": 400
+              }
+            ],
+            "staked": 1000000,
+            "fee": 40000,
+            "refunded": 2000000
+          },
+          "state": {
+            "balance": {
+              "a": 9934000,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 4789000,
+              "b": 24000000
+            },
+            "pool": 1012560,
+            "fees": 23440,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "5649998",
+              "totalShares": "5649998",
+              "acc": "5309736392827041708687",
+              "holderFunds": 30000,
+              "gain": 56500,
+              "holders": {
+                "a": {
+                  "shares": "5649998",
+                  "basis": 56500,
+                  "claimable": 29999
+                },
+                "b": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "two",
+              "hitMask": 0,
+              "missMask": 1,
+              "paid": 0,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 9934000,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 4789000,
+              "b": 24000000
+            },
+            "pool": 1012560,
+            "fees": 23440,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "38149983",
+              "totalShares": "38149985",
+              "acc": "5309736392827041708687",
+              "holderFunds": 30000,
+              "gain": 381500,
+              "holders": {
+                "a": {
+                  "shares": "5649998",
+                  "basis": 56500,
+                  "claimable": 29999
+                },
+                "b": {
+                  "shares": "32499987",
+                  "basis": 325000,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "players": {
+        "a": {
+          "deposit": 10000000,
+          "allowance": 5000000
+        },
+        "b": {
+          "deposit": 30000000,
+          "allowance": 25000000
+        }
+      },
+      "difficulty": 51,
+      "feeBps": 400,
+      "profitFeeBps": 1000,
+      "price": 8300000000000,
+      "unit": 20000000,
+      "skt": {
+        "holderFeeBps": 300,
+        "holderProfitFeeBps": 800,
+        "mintScale": 1000000000000,
+        "walletCapBps": 1000,
+        "capFloor": 20000000
+      },
+      "name": "SKT: no wallet past 10% of all SKT or of the floor (20 SKT), and every share counted against the larger",
+      "steps": [
+        {
+          "place": {
+            "id": "b1",
+            "player": "b",
+            "perDot": 1000000,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 420000,
+                "width": 5,
+                "stake": 1000000,
+                "chance": 500000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 1,
+            "prevClose": 8300000000000,
+            "high": 8300000000000,
+            "low": 8300000000000,
+            "close": 8300000000000,
+            "settle": [
+              "b1"
+            ]
+          }
+        },
+        {
+          "place": {
+            "id": "a1",
+            "sections": [
+              {
+                "second": 2,
+                "lo": 420000,
+                "width": 5,
+                "stake": 50000,
+                "chance": 500000000
+              }
+            ]
+          }
+        },
+        {
+          "bar": {
+            "second": 2,
+            "prevClose": 8300000000000,
+            "high": 8300000000000,
+            "low": 8300000000000,
+            "close": 8300000000000,
+            "settle": [
+              "a1"
+            ]
+          }
+        },
+        {
+          "claim": "b"
+        },
+        {
+          "claim": "a"
+        }
+      ],
+      "expect": [
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 1,
+                "lo": 8400000000000,
+                "hi": 8400100000000,
+                "stake": 1000000,
+                "rung": 150
+              }
+            ],
+            "staked": 1000000,
+            "fee": 40000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 24000000
+            },
+            "pool": 960000,
+            "fees": 40000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "0",
+              "totalShares": "0",
+              "acc": "0",
+              "holderFunds": 0,
+              "gain": 0,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "b1",
+              "hitMask": 0,
+              "missMask": 1,
+              "paid": 0,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 10000000,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 5000000,
+              "b": 24000000
+            },
+            "pool": 960000,
+            "fees": 40000,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "2000000",
+              "totalShares": "2000000",
+              "acc": "0",
+              "holderFunds": 0,
+              "gain": 550000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "2000000",
+                  "basis": 550000,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "place": {
+            "ok": true,
+            "sections": [
+              {
+                "second": 2,
+                "lo": 8400000000000,
+                "hi": 8400100000000,
+                "stake": 50000,
+                "rung": 150
+              }
+            ],
+            "staked": 50000,
+            "fee": 2000,
+            "refunded": 0
+          },
+          "state": {
+            "balance": {
+              "a": 9950000,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24000000
+            },
+            "pool": 1008000,
+            "fees": 41850,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "2000000",
+              "totalShares": "2000000",
+              "acc": "75000000000000000000",
+              "holderFunds": 150,
+              "gain": 550000,
+              "holders": {
+                "a": {
+                  "shares": "0",
+                  "basis": 0,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "2000000",
+                  "basis": 550000,
+                  "claimable": 150
+                }
+              }
+            }
+          }
+        },
+        {
+          "settled": [
+            {
+              "id": "a1",
+              "hitMask": 0,
+              "missMask": 1,
+              "paid": 0,
+              "owed": 0
+            }
+          ],
+          "state": {
+            "balance": {
+              "a": 9950000,
+              "b": 29000000
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24000000
+            },
+            "pool": 1008000,
+            "fees": 41850,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "3999999",
+              "totalShares": "4000000",
+              "acc": "75000000000000000000",
+              "holderFunds": 150,
+              "gain": 577500,
+              "holders": {
+                "a": {
+                  "shares": "2000000",
+                  "basis": 27500,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "2000000",
+                  "basis": 550000,
+                  "claimable": 150
+                }
+              }
+            }
+          }
+        },
+        {
+          "claimed": 150,
+          "state": {
+            "balance": {
+              "a": 9950000,
+              "b": 29000150
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24000000
+            },
+            "pool": 1008000,
+            "fees": 41850,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "3999999",
+              "totalShares": "4000000",
+              "acc": "75000000000000000000",
+              "holderFunds": 0,
+              "gain": 577500,
+              "holders": {
+                "a": {
+                  "shares": "2000000",
+                  "basis": 27500,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "2000000",
+                  "basis": 550000,
+                  "claimable": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "claimed": 0,
+          "state": {
+            "balance": {
+              "a": 9950000,
+              "b": 29000150
+            },
+            "allowance": {
+              "a": 4950000,
+              "b": 24000000
+            },
+            "pool": 1008000,
+            "fees": 41850,
+            "owed": {
+              "a": 0,
+              "b": 0
+            },
+            "houseOwed": 0,
+            "skt": {
+              "supply": "3999999",
+              "totalShares": "4000000",
+              "acc": "75000000000000000000",
+              "holderFunds": 0,
+              "gain": 577500,
+              "holders": {
+                "a": {
+                  "shares": "2000000",
+                  "basis": 27500,
+                  "claimable": 0
+                },
+                "b": {
+                  "shares": "2000000",
+                  "basis": 550000,
+                  "claimable": 0
+                }
+              }
+            }
           }
         }
       ]

@@ -1,12 +1,12 @@
 import * as Clipboard from "expo-clipboard";
-import { ActivityIcon, ArrowDownLeftIcon, ArrowUpRightIcon, CheckIcon, ChevronRightIcon, CircleQuestionMarkIcon, CopyIcon, LogOutIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, TrophyIcon } from "@/components/ui/icons";
+import { ActivityIcon, ArrowDownLeftIcon, ArrowUpRightIcon, CheckIcon, ChevronRightIcon, CircleQuestionMarkIcon, CoinsIcon, CopyIcon, LogOutIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, TrophyIcon } from "@/components/ui/icons";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { playerName } from "@skech/core/social";
 import { Button, Popover, Row, useColors, Wordmark } from "@/components/ui";
 import { shortAddress } from "@/lib/market";
-import { money } from "@/lib/money";
+import { money, skt } from "@/lib/money";
 import { useSocialPick } from "@/lib/social";
 import { usePaperPhase } from "@/lib/paper";
 import { setDark, useDark } from "@/lib/theme";
@@ -161,6 +161,19 @@ export function AppBar() {
               >
                 Withdraw
               </Row>
+              {chain.skt ? (
+                <Row
+                  disabled={chain.skt.claimable < 0.01 || chain.claiming}
+                  icon={<CoinsIcon color={c.fg} size={18} />}
+                  onPress={() => {
+                    setMenu(false);
+                    void chain.claim();
+                  }}
+                  trailing={chain.claiming ? "Claiming…" : `Claim ${money(chain.skt.claimable)}`}
+                >
+                  SKT <Text className="text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>{skt(chain.skt.balance)}</Text>
+                </Row>
+              ) : null}
               {counted ? (
                 <Row
                   icon={<ActivityIcon color={c.fg} size={18} />}

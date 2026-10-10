@@ -53,8 +53,33 @@ contract ConformanceCases is ConformanceRunner {
         checkState(9940000, 0, 4940000, 0, 58800, 1200, 0, 0, 0);
     }
 
-    /// near-certain ink pays its fair multiple, to the hundredth, never under 1x
+    /// certain ink: Solana offers no band returning more than the stake fee leaves, nor one taller than the widest pen
     function test_case_2() public {
+        begin(51, 400, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
+        // "tall"
+        clearPiece();
+        addSection(1, 414960, 65, 50000, 999000000);
+        place("tall", 0, 100000, 51, 0, -400, 100);
+        clearExpected();
+        expectBand(1, 8299200000000, 8300500000000, 50000, 100);
+        checkPlaced("tall", 0, 50000, 2000);
+        checkState(9950000, 0, 4950000, 0, 48000, 2000, 0, 0, 0);
+        // "p"
+        clearPiece();
+        addSection(1, 414970, 64, 50000, 999900000);
+        addSection(2, 415000, 5, 50000, 480000000);
+        addSection(3, 415000, 5, 50000, 481000000);
+        place("p", 0, 100000, 51, 0, -400, 100);
+        clearExpected();
+        expectBand(1, 8299400000000, 8300680000000, 50000, 100);
+        expectBand(2, 8300000000000, 8300100000000, 50000, 200);
+        expectBand(3, 8300000000000, 8300100000000, 50000, 200);
+        checkPlaced("p", 0, 150000, 6000);
+        checkState(9800000, 0, 4800000, 0, 192000, 8000, 0, 0, 0);
+    }
+
+    /// near-certain ink pays its fair multiple, to the hundredth, never under 1x
+    function test_case_3() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 30000000, 25000000);
         // "loser"
         clearPiece();
@@ -90,7 +115,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// difficulty 100: the floor eases to 1x
-    function test_case_3() public {
+    function test_case_4() public {
         begin(100, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -105,7 +130,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// momentum takes its margin off the side the price moved toward only
-    function test_case_4() public {
+    function test_case_5() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -130,7 +155,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// a big band stakes only what 256 dots pay for; the rest is refunded
-    function test_case_5() public {
+    function test_case_6() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -143,7 +168,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// a band with no chance is not offered; the rest goes in
-    function test_case_6() public {
+    function test_case_7() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -163,7 +188,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// a band whose second is already posted is not offered
-    function test_case_7() public {
+    function test_case_8() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         barAt(1, 8300000000000, 8300000000000, 8300000000000, 8300000000000);
         settle();
@@ -180,7 +205,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// bands are judged one unit wider each way, inclusive
-    function test_case_8() public {
+    function test_case_9() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -204,7 +229,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// the previous close counts: a jump across the ink crosses it
-    function test_case_9() public {
+    function test_case_10() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -225,7 +250,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// a win the pool cannot pay is owed; the house's cut is not
-    function test_case_10() public {
+    function test_case_11() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -243,7 +268,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// another player's losses are what pays a winner
-    function test_case_11() public {
+    function test_case_12() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 30000000, 25000000);
         // "loser"
         clearPiece();
@@ -271,7 +296,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// fees round up, so dust stakes and small profits still pay them
-    function test_case_12() public {
+    function test_case_13() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 30000000, 25000000);
         // "loser"
         clearPiece();
@@ -299,7 +324,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// fees at their bounds
-    function test_case_13() public {
+    function test_case_14() public {
         begin(51, 2000, 5000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "p"
         clearPiece();
@@ -317,7 +342,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// refusals, and nothing moves for them
-    function test_case_14() public {
+    function test_case_15() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         // "difficulty"
         clearPiece();
@@ -372,7 +397,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// a difficulty under 50 is refused, and pieces keep to the one set
-    function test_case_15() public {
+    function test_case_16() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 10000000, 5000000, 0, 0);
         setDifficulty(49, false);
         checkState(10000000, 0, 5000000, 0, 0, 0, 0, 0, 0);
@@ -405,7 +430,7 @@ contract ConformanceCases is ConformanceRunner {
     }
 
     /// more than the balance is refused
-    function test_case_16() public {
+    function test_case_17() public {
         begin(51, 200, 1000, 8300000000000, 20000000, 40000, 5000000, 0, 0);
         // "p"
         clearPiece();

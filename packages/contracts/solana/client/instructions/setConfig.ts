@@ -26,6 +26,7 @@ import {
   type Instruction,
   type InstructionWithAccounts,
   type InstructionWithData,
+  type ReadonlyAccount,
   type ReadonlySignerAccount,
   type ReadonlyUint8Array,
   type WritableAccount,
@@ -59,6 +60,7 @@ export type SetConfigInstruction<
   TProgram extends string = typeof SKECH_PROGRAM_ADDRESS,
   TAccountAdmin extends string | AccountMeta<string> = string,
   TAccountGame extends string | AccountMeta<string> = string,
+  TAccountRewards extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -71,6 +73,9 @@ export type SetConfigInstruction<
       TAccountGame extends string
         ? WritableAccount<TAccountGame>
         : TAccountGame,
+      TAccountRewards extends string
+        ? ReadonlyAccount<TAccountRewards>
+        : TAccountRewards,
       ...TRemainingAccounts,
     ]
   >;
@@ -112,18 +117,25 @@ export function getSetConfigInstructionDataCodec(): FixedSizeCodec<
 export type SetConfigAsyncInput<
   TAccountAdmin extends InstructionSignerInput = InstructionSignerInput,
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
 > = {
   admin: TAccountAdmin;
   game?: TAccountGame;
+  /**
+   * Read for SKT's split of the fees, which the new terms must leave room for. Its owner and discriminator make
+   * it the one `Rewards` (see `Place`).
+   */
+  rewards: TAccountRewards;
   config: SetConfigInstructionDataArgs["config"];
 };
 
 export async function getSetConfigInstructionAsync<
   TAccountAdmin extends InstructionSignerInput,
   TAccountGame extends InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
-  input: SetConfigAsyncInput<TAccountAdmin, TAccountGame>,
+  input: SetConfigAsyncInput<TAccountAdmin, TAccountGame, TAccountRewards>,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
   SetConfigInstruction<
@@ -135,6 +147,10 @@ export async function getSetConfigInstructionAsync<
     ResolvedInstructionAccountMeta<
       TAccountGame,
       InstructionAccountInputAddress<TAccountGame>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
     >
   >
 > {
@@ -148,6 +164,11 @@ export async function getSetConfigInstructionAsync<
   const originalAccounts = {
     admin: { value: input.admin ?? null, isSigner: true, isWritable: false },
     game: { value: input.game ?? null, isSigner: false, isWritable: true },
+    rewards: {
+      value: input.rewards ?? null,
+      isSigner: false,
+      isWritable: false,
+    },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -166,6 +187,7 @@ export async function getSetConfigInstructionAsync<
     accounts: [
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("game", accounts.game),
+      getAccountMeta("rewards", accounts.rewards),
     ],
     data: getSetConfigInstructionDataEncoder().encode(
       args as SetConfigInstructionDataArgs,
@@ -180,6 +202,10 @@ export async function getSetConfigInstructionAsync<
     ResolvedInstructionAccountMeta<
       TAccountGame,
       InstructionAccountInputAddress<TAccountGame>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
     >
   >);
 }
@@ -187,18 +213,25 @@ export async function getSetConfigInstructionAsync<
 export type SetConfigInput<
   TAccountAdmin extends InstructionSignerInput = InstructionSignerInput,
   TAccountGame extends InstructionAccountInput = InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
 > = {
   admin: TAccountAdmin;
   game: TAccountGame;
+  /**
+   * Read for SKT's split of the fees, which the new terms must leave room for. Its owner and discriminator make
+   * it the one `Rewards` (see `Place`).
+   */
+  rewards: TAccountRewards;
   config: SetConfigInstructionDataArgs["config"];
 };
 
 export function getSetConfigInstruction<
   TAccountAdmin extends InstructionSignerInput,
   TAccountGame extends InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput,
   TProgramAddress extends Address = typeof SKECH_PROGRAM_ADDRESS,
 >(
-  input: SetConfigInput<TAccountAdmin, TAccountGame>,
+  input: SetConfigInput<TAccountAdmin, TAccountGame, TAccountRewards>,
   config?: { programAddress?: TProgramAddress },
 ): SetConfigInstruction<
   TProgramAddress,
@@ -209,6 +242,10 @@ export function getSetConfigInstruction<
   ResolvedInstructionAccountMeta<
     TAccountGame,
     InstructionAccountInputAddress<TAccountGame>
+  >,
+  ResolvedInstructionAccountMeta<
+    TAccountRewards,
+    InstructionAccountInputAddress<TAccountRewards>
   >
 > {
   // Program address.
@@ -221,6 +258,11 @@ export function getSetConfigInstruction<
   const originalAccounts = {
     admin: { value: input.admin ?? null, isSigner: true, isWritable: false },
     game: { value: input.game ?? null, isSigner: false, isWritable: true },
+    rewards: {
+      value: input.rewards ?? null,
+      isSigner: false,
+      isWritable: false,
+    },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -234,6 +276,7 @@ export function getSetConfigInstruction<
     accounts: [
       getAccountMeta("admin", accounts.admin),
       getAccountMeta("game", accounts.game),
+      getAccountMeta("rewards", accounts.rewards),
     ],
     data: getSetConfigInstructionDataEncoder().encode(
       args as SetConfigInstructionDataArgs,
@@ -248,6 +291,10 @@ export function getSetConfigInstruction<
     ResolvedInstructionAccountMeta<
       TAccountGame,
       InstructionAccountInputAddress<TAccountGame>
+    >,
+    ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
     >
   >);
 }
@@ -260,6 +307,11 @@ export type ParsedSetConfigInstruction<
   accounts: {
     admin: TAccountMetas[0];
     game: TAccountMetas[1];
+    /**
+     * Read for SKT's split of the fees, which the new terms must leave room for. Its owner and discriminator make
+     * it the one `Rewards` (see `Place`).
+     */
+    rewards: TAccountMetas[2];
   };
   data: SetConfigInstructionData;
 };
@@ -272,12 +324,12 @@ export function parseSetConfigInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedSetConfigInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 2) {
+  if (instruction.accounts.length < 3) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 2,
+        expectedAccountMetas: 3,
       },
     );
   }
@@ -289,7 +341,11 @@ export function parseSetConfigInstruction<
   };
   return {
     programAddress: instruction.programAddress,
-    accounts: { admin: getNextAccount(), game: getNextAccount() },
+    accounts: {
+      admin: getNextAccount(),
+      game: getNextAccount(),
+      rewards: getNextAccount(),
+    },
     data: getSetConfigInstructionDataDecoder().decode(instruction.data),
   };
 }

@@ -70,7 +70,7 @@ export const SKECH_ERROR__ZERO_AMOUNT = 0x1789; // 6025
 export const SKECH_ERROR__BAD_SESSION = 0x178a; // 6026
 /** BadTokenAccount: Wrong token account */
 export const SKECH_ERROR__BAD_TOKEN_ACCOUNT = 0x178b; // 6027
-/** BadSettleAccounts: Settle accounts must come in (bet, player) pairs */
+/** BadSettleAccounts: Settle accounts must come in (bet, player, holder) triples */
 export const SKECH_ERROR__BAD_SETTLE_ACCOUNTS = 0x178c; // 6028
 /** NotUpgradeAuthority: Only the program's upgrade authority may initialize */
 export const SKECH_ERROR__NOT_UPGRADE_AUTHORITY = 0x178d; // 6029
@@ -84,6 +84,12 @@ export const SKECH_ERROR__NOT_SPL_TOKEN = 0x1790; // 6032
 export const SKECH_ERROR__OWN_REDEEM = 0x1791; // 6033
 /** NotPendingAdmin: Not the proposed admin */
 export const SKECH_ERROR__NOT_PENDING_ADMIN = 0x1792; // 6034
+/** NothingToClaim: Nothing to claim */
+export const SKECH_ERROR__NOTHING_TO_CLAIM = 0x1793; // 6035
+/** MintScaleFixed: SKT's mint scale is fixed once anything has minted */
+export const SKECH_ERROR__MINT_SCALE_FIXED = 0x1794; // 6036
+/** NoSurplus: No surplus to share: something is owed, the pool is under its reserve and what live bets could pay, there is no SKT, or SKT started too recently */
+export const SKECH_ERROR__NO_SURPLUS = 0x1795; // 6037
 
 export type SkechError =
   | typeof SKECH_ERROR__ALLOWANCE
@@ -102,8 +108,11 @@ export type SkechError =
   | typeof SKECH_ERROR__INSUFFICIENT
   | typeof SKECH_ERROR__LATE
   | typeof SKECH_ERROR__MARKET_INACTIVE
+  | typeof SKECH_ERROR__MINT_SCALE_FIXED
   | typeof SKECH_ERROR__MISMATCH
+  | typeof SKECH_ERROR__NO_SURPLUS
   | typeof SKECH_ERROR__NOT_ADMIN
+  | typeof SKECH_ERROR__NOTHING_TO_CLAIM
   | typeof SKECH_ERROR__NOTHING_TO_REDEEM
   | typeof SKECH_ERROR__NOT_OFFERED
   | typeof SKECH_ERROR__NOT_ORACLE
@@ -131,7 +140,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [SKECH_ERROR__BAD_DIFFICULTY]: `Bad difficulty`,
     [SKECH_ERROR__BAD_QUOTE]: `The quote is malformed`,
     [SKECH_ERROR__BAD_SESSION]: `Bad session`,
-    [SKECH_ERROR__BAD_SETTLE_ACCOUNTS]: `Settle accounts must come in (bet, player) pairs`,
+    [SKECH_ERROR__BAD_SETTLE_ACCOUNTS]: `Settle accounts must come in (bet, player, holder) triples`,
     [SKECH_ERROR__BAD_TOKEN_ACCOUNT]: `Wrong token account`,
     [SKECH_ERROR__BALANCE]: `Balance`,
     [SKECH_ERROR__BAR_CONFLICT]: `A different bar is already posted for that second`,
@@ -141,8 +150,11 @@ if (process.env["NODE_ENV"] !== "production") {
     [SKECH_ERROR__INSUFFICIENT]: `Not enough`,
     [SKECH_ERROR__LATE]: `Late`,
     [SKECH_ERROR__MARKET_INACTIVE]: `The market is not active`,
+    [SKECH_ERROR__MINT_SCALE_FIXED]: `SKT's mint scale is fixed once anything has minted`,
     [SKECH_ERROR__MISMATCH]: `Mismatch`,
+    [SKECH_ERROR__NO_SURPLUS]: `No surplus to share: something is owed, the pool is under its reserve and what live bets could pay, there is no SKT, or SKT started too recently`,
     [SKECH_ERROR__NOT_ADMIN]: `Not the admin`,
+    [SKECH_ERROR__NOTHING_TO_CLAIM]: `Nothing to claim`,
     [SKECH_ERROR__NOTHING_TO_REDEEM]: `Nothing to redeem`,
     [SKECH_ERROR__NOT_OFFERED]: `NotOffered`,
     [SKECH_ERROR__NOT_ORACLE]: `Not the oracle`,

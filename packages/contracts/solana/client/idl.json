@@ -45,6 +45,87 @@
       "args": []
     },
     {
+      "name": "claim",
+      "docs": [
+        "What the player's SKT has earned, into their balance."
+      ],
+      "discriminator": [
+        62,
+        198,
+        214,
+        193,
+        213,
+        159,
+        108,
+        210
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "player"
+          ]
+        },
+        {
+          "name": "game",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "rewards",
+          "docs": [
+            "Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the",
+            "one account with its owner and discriminator is the one."
+          ],
+          "writable": true
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  108,
+                  97,
+                  121,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holder",
+          "docs": [
+            "Not re-derived from its seeds either: a `Holder` is only ever made at its player's own address, so the one",
+            "that names this wallet is theirs."
+          ],
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "collect_fees",
       "discriminator": [
         164,
@@ -265,8 +346,27 @@
           }
         },
         {
+          "name": "rewards",
+          "docs": [
+            "SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`."
+          ],
+          "writable": true
+        },
+        {
           "name": "rent_receiver",
           "writable": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of a player's `Holder` the first time a settlement mints SKT for them: whoever settles."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -338,6 +438,91 @@
         {
           "name": "difficulty",
           "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "init_rewards",
+      "docs": [
+        "Start SKT (`Rewards`), setting the game's terms with it. Once only, by the admin."
+      ],
+      "discriminator": [
+        24,
+        217,
+        207,
+        96,
+        28,
+        211,
+        144,
+        146
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "game"
+          ]
+        },
+        {
+          "name": "game",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "rewards",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "config",
+          "type": {
+            "defined": {
+              "name": "Config"
+            }
+          }
+        },
+        {
+          "name": "rewards_config",
+          "type": {
+            "defined": {
+              "name": "RewardsConfig"
+            }
+          }
         }
       ]
     },
@@ -576,6 +761,15 @@
           }
         },
         {
+          "name": "rewards",
+          "docs": [
+            "For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention.",
+            "Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the",
+            "one account with its owner and discriminator is the one."
+          ],
+          "writable": true
+        },
+        {
           "name": "player",
           "writable": true,
           "pda": {
@@ -753,11 +947,30 @@
           }
         },
         {
+          "name": "rewards",
+          "docs": [
+            "SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`."
+          ],
+          "writable": true
+        },
+        {
           "name": "rent_receiver",
           "docs": [
             "Gets back the rent of the bets closed here: only those it paid for are closed."
           ],
           "writable": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of a player's `Holder` the first time a settlement mints SKT for them. The oracle, usually."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1069,6 +1282,13 @@
               }
             ]
           }
+        },
+        {
+          "name": "rewards",
+          "docs": [
+            "Read for SKT's split of the fees, which the new terms must leave room for. Its owner and discriminator make",
+            "it the one `Rewards` (see `Place`)."
+          ]
         }
       ],
       "args": [
@@ -1286,6 +1506,61 @@
       ]
     },
     {
+      "name": "set_rewards_config",
+      "discriminator": [
+        113,
+        29,
+        223,
+        218,
+        217,
+        111,
+        85,
+        139
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "game"
+          ]
+        },
+        {
+          "name": "game",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "rewards",
+          "docs": [
+            "The one `Rewards`, by its owner and discriminator (see `Place`)."
+          ],
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "rewards_config",
+          "type": {
+            "defined": {
+              "name": "RewardsConfig"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "set_session",
       "discriminator": [
         156,
@@ -1459,8 +1734,27 @@
           }
         },
         {
+          "name": "rewards",
+          "docs": [
+            "SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`."
+          ],
+          "writable": true
+        },
+        {
           "name": "rent_receiver",
           "writable": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays the rent of a player's `Holder` the first time a settlement mints SKT for them: whoever settles."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1469,6 +1763,78 @@
           "type": "u8"
         }
       ]
+    },
+    {
+      "name": "share_surplus",
+      "docs": [
+        "What the pool holds over its reserve and what live bets could pay, to SKT holders. Anyone may."
+      ],
+      "discriminator": [
+        177,
+        38,
+        112,
+        45,
+        149,
+        172,
+        224,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "game",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "rewards",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100,
+                  115
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
     },
     {
       "name": "sweep",
@@ -1672,6 +2038,19 @@
       ]
     },
     {
+      "name": "Holder",
+      "discriminator": [
+        37,
+        121,
+        1,
+        40,
+        55,
+        46,
+        199,
+        157
+      ]
+    },
+    {
       "name": "Market",
       "discriminator": [
         219,
@@ -1708,6 +2087,19 @@
         177,
         109,
         188
+      ]
+    },
+    {
+      "name": "Rewards",
+      "discriminator": [
+        12,
+        223,
+        68,
+        101,
+        63,
+        33,
+        38,
+        101
       ]
     }
   ],
@@ -1752,6 +2144,19 @@
       ]
     },
     {
+      "name": "Claimed",
+      "discriminator": [
+        217,
+        192,
+        123,
+        72,
+        108,
+        150,
+        248,
+        33
+      ]
+    },
+    {
       "name": "ConfigSet",
       "discriminator": [
         15,
@@ -1791,6 +2196,19 @@
       ]
     },
     {
+      "name": "HolderAccrued",
+      "discriminator": [
+        137,
+        231,
+        250,
+        101,
+        27,
+        104,
+        206,
+        187
+      ]
+    },
+    {
       "name": "IouRateSet",
       "discriminator": [
         252,
@@ -1814,6 +2232,19 @@
         142,
         234,
         83
+      ]
+    },
+    {
+      "name": "Minted",
+      "discriminator": [
+        174,
+        131,
+        21,
+        57,
+        88,
+        117,
+        114,
+        121
       ]
     },
     {
@@ -1882,6 +2313,19 @@
       ]
     },
     {
+      "name": "RewardsConfigSet",
+      "discriminator": [
+        76,
+        187,
+        3,
+        143,
+        69,
+        155,
+        144,
+        107
+      ]
+    },
+    {
       "name": "SessionRevoked",
       "discriminator": [
         90,
@@ -1918,6 +2362,19 @@
         124,
         145,
         238
+      ]
+    },
+    {
+      "name": "SurplusShared",
+      "discriminator": [
+        62,
+        121,
+        185,
+        91,
+        27,
+        30,
+        76,
+        124
       ]
     },
     {
@@ -2091,7 +2548,7 @@
     {
       "code": 6028,
       "name": "BadSettleAccounts",
-      "msg": "Settle accounts must come in (bet, player) pairs"
+      "msg": "Settle accounts must come in (bet, player, holder) triples"
     },
     {
       "code": 6029,
@@ -2122,6 +2579,21 @@
       "code": 6034,
       "name": "NotPendingAdmin",
       "msg": "Not the proposed admin"
+    },
+    {
+      "code": 6035,
+      "name": "NothingToClaim",
+      "msg": "Nothing to claim"
+    },
+    {
+      "code": 6036,
+      "name": "MintScaleFixed",
+      "msg": "SKT's mint scale is fixed once anything has minted"
+    },
+    {
+      "code": 6037,
+      "name": "NoSurplus",
+      "msg": "No surplus to share: something is owed, the pool is under its reserve and what live bets could pay, there is no SKT, or SKT started too recently"
     }
   ],
   "types": [
@@ -2330,6 +2802,25 @@
           {
             "name": "rung",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Claimed",
+      "docs": [
+        "`player` claimed `amount` USDC e6 of what their SKT earned, into their balance."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
           }
         ]
       }
@@ -2551,6 +3042,107 @@
       }
     },
     {
+      "name": "Holder",
+      "docs": [
+        "A player's SKT: their shares (always staked; their SKT now is the shares over today's weight), what it has",
+        "earned, and the basis it was minted on. Keyed by their wallet; opened by the first settlement that mints for them,",
+        "so nobody who never loses costs its rent."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "docs": [
+              "Shares, in era `era`'s units."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "era",
+            "type": "u32"
+          },
+          {
+            "name": "acc_at",
+            "docs": [
+              "`Rewards::acc` (of era `era`) when what these shares had earned was last counted into `unclaimed`."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "unclaimed",
+            "docs": [
+              "USDC e6 earned and not yet claimed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "claimed",
+            "type": "u64"
+          },
+          {
+            "name": "basis",
+            "docs": [
+              "Every basis their SKT was minted on, USDC e6: the odds-weighted loss of each band of theirs that missed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "minted",
+            "docs": [
+              "Every SKT minted to them, as each mint was worth when it was minted."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "HolderAccrued",
+      "docs": [
+        "The holders' share of a fee (or of the pool's surplus), `amount` USDC e6, shared among `total_shares`: `acc` is",
+        "what each share has earned this era, `era`, times 1e24."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "acc",
+            "type": "u128"
+          },
+          {
+            "name": "total_shares",
+            "type": "u128"
+          },
+          {
+            "name": "era",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
       "name": "IouRateSet",
       "docs": [
         "What is owed grows by `rate` a second from now on, x1e18."
@@ -2622,6 +3214,42 @@
           {
             "name": "difficulty",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Minted",
+      "docs": [
+        "A settlement's misses minted `skt` (e6) to `player`, as `shares` at today's weight, on `basis` (USDC e6): `rate` SKT",
+        "per dollar of basis, x1e6. `capped`: SKT the curve gave that the wallet's cap kept from minting."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "skt",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u128"
+          },
+          {
+            "name": "capped",
+            "type": "u64"
+          },
+          {
+            "name": "rate",
+            "type": "u64"
+          },
+          {
+            "name": "basis",
+            "type": "u64"
           }
         ]
       }
@@ -3047,6 +3675,227 @@
       }
     },
     {
+      "name": "Rewards",
+      "docs": [
+        "SKT's global state: the shares, the holders' accumulator and the USDC set aside for them, the tracked gain the mint",
+        "curve reads, the decay's clock, and what live bets could pay. Every SKT stays staked on the `Holder` it was minted to:",
+        "there is no token to move."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "RewardsConfig"
+              }
+            }
+          },
+          {
+            "name": "supply",
+            "docs": [
+              "SKT minted, ever, as each mint was worth when it was minted (millionths): the record, not what is held now."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_shares",
+            "docs": [
+              "Every holder's shares, in this era's units: each SKT minted at time t adds 2^((t − era start) / half-life)."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "acc",
+            "docs": [
+              "USDC e6 each share has earned this era, times `ACC_SCALE`. Back to 0 at each era's start."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "holder_funds",
+            "docs": [
+              "USDC e6 in the vault that is the holders': accrued and not yet claimed, the accumulator's rounding dust with it."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "accrued_total",
+            "docs": [
+              "Every holder share ever accrued, and every claim paid out: `holder_funds` is the one less the other."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "claimed_total",
+            "type": "u64"
+          },
+          {
+            "name": "gain",
+            "docs": [
+              "The tracked gain, USDC e6: every basis SKT has been minted on since it began, which is what players have lost",
+              "to the game in expectation. The mint curve reads it."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "era",
+            "docs": [
+              "The era: shares and `acc` are in its units."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "era_ends",
+            "docs": [
+              "`acc` at the end of each of the last ERAS_KEPT eras, at era % ERAS_KEPT."
+            ],
+            "type": {
+              "array": [
+                "u128",
+                8
+              ]
+            }
+          },
+          {
+            "name": "anchor_log2",
+            "docs": [
+              "A share's weight at `anchor_time`, as its log2 times 2^32: under ERA_HALVINGS · 2^32 once caught up."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "anchor_time",
+            "type": "i64"
+          },
+          {
+            "name": "liability",
+            "docs": [
+              "The most every live bet placed since SKT started could pay, gross, every band hitting: what the pool keeps,",
+              "with the reserve, before any surplus is shared."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "swept_total",
+            "docs": [
+              "Pool surplus shared with holders, ever."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "started_at",
+            "docs": [
+              "When SKT started: no surplus is shared until every bet placed before then, whose liability is not counted, is",
+              "decided or given back."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Room for what comes later, without a realloc."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardsConfig",
+      "docs": [
+        "SKT's terms, set beside `Config`: `Config` lives in `Game`, whose layout stays as it is on chain."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "holder_fee_bps",
+            "docs": [
+              "Of every stake, to SKT holders: part of `Config::fee_bps`, never more."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "holder_profit_fee_bps",
+            "docs": [
+              "Of every hit's profit, to SKT holders: part of `Config::profit_fee_bps`, never more."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "mint_scale",
+            "docs": [
+              "`S` in the mint curve, USDC e6: at tracked gain G a dollar of basis mints 100 · (S / (S + G))² SKT. Fixed once",
+              "anything has minted."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "half_life_secs",
+            "docs": [
+              "SKT's half-life, seconds: a balance halves every this long, so a player keeps their share only by playing on."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "wallet_cap_bps",
+            "docs": [
+              "No mint takes a wallet past this share of all shares, bps (10,000: no cap)…"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "cap_floor",
+            "docs": [
+              "…or past that share of this much SKT (e6), whichever is more: so the first players mint while there is little."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "surplus_reserve",
+            "docs": [
+              "USDC e6 the pool keeps, over what every live bet could pay, before any of its surplus is shared with holders."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "surplus_holder_bps",
+            "docs": [
+              "Of the pool's surplus, to SKT holders, bps; the rest to the treasury."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardsConfigSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "config",
+            "type": {
+              "defined": {
+                "name": "RewardsConfig"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "SectionArg",
       "docs": [
         "A band, as signed: `lo` and `hi` are counted in grid units (so they sit on the grid by construction), `stake` in",
@@ -3198,6 +4047,30 @@
           },
           {
             "name": "refunded",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SurplusShared",
+      "docs": [
+        "What the pool held over the reserve and what every live bet could pay: `amount` USDC e6 shared with holders,",
+        "`treasury` to the treasury (its 25% and the cap floor's part of the holders'); `kept` stays in the pool."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "treasury",
+            "type": "u64"
+          },
+          {
+            "name": "kept",
             "type": "u64"
           }
         ]

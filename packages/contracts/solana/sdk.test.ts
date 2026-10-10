@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { address } from "@solana/kit";
+import { address, getAddressEncoder, getProgramDerivedAddress } from "@solana/kit";
 import vectors from "./tests/vectors/piece.json";
-import { DEFAULT_CONFIG, domainFor, ed25519Instruction, pieceBytes, SKECH_PROGRAM_ADDRESS } from "./sdk";
+import { exp2Q32 as referenceExp2 } from "../conformance/reference";
+import { ACC_SCALE, claimableE6, DEFAULT_CONFIG, exp2Q32, maxPiecePayoutE6, sktNowE6, DEFAULT_REWARDS_CONFIG, domainFor, ed25519Instruction, findRewardsPda, holderAddress, pieceBytes, rewardsAddress, SKECH_PROGRAM_ADDRESS } from "./sdk";
 
 test("the client is for the program the vectors come from", () => {
   expect(SKECH_PROGRAM_ADDRESS as string).toBe(address(vectors.program));
@@ -55,4 +56,56 @@ test("the default config is the EVM game's, as SkechGame.initialize writes it", 
   );
   const { maxSessionSecs: _, ...shared } = DEFAULT_CONFIG;
   expect(Object.fromEntries(Object.entries(shared).map(([k, v]) => [k, BigInt(v)]))).toEqual(evm);
+});
+
+test("SKT's addresses are the program's", async () => {
+  const wallet = address("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM");
+  // The program opens a holder at ["holder", wallet] (settle.rs, open_holder).
+  const [holder] = await getProgramDerivedAddress({ programAddress: SKECH_PROGRAM_ADDRESS, seeds: [new TextEncoder().encode("holder"), getAddressEncoder().encode(wallet)] });
+  expect(await holderAddress(wallet)).toBe(holder);
+  expect(await rewardsAddress()).toBe((await findRewardsPda())[0]);
+});
+
+test("SKT's default split is part of each default fee", () => {
+  expect(DEFAULT_REWARDS_CONFIG.holderFeeBps).toBeLessThanOrEqual(DEFAULT_CONFIG.feeBps);
+  expect(DEFAULT_REWARDS_CONFIG.holderProfitFeeBps).toBeLessThanOrEqual(DEFAULT_CONFIG.profitFeeBps);
+  expect([DEFAULT_CONFIG.feeBps - DEFAULT_REWARDS_CONFIG.holderFeeBps, DEFAULT_CONFIG.profitFeeBps - DEFAULT_REWARDS_CONFIG.holderProfitFeeBps]).toEqual([100, 200]);
+});
+
+test("what is claimable is what was counted and what the shares earned since, rounded down", () => {
+  const r = { acc: 0n, era: 0, eraEnds: Array(8).fill(0n) as bigint[] };
+  expect(claimableE6({ shares: 100_000_000n, era: 0, accAt: 0n, unclaimed: 7n }, r)).toBe(7n);
+  // 1,500 shared over 99,999,000 shares: the one holder gets 1,499.
+  const acc = (1_500n * ACC_SCALE) / 99_999_000n;
+  expect(claimableE6({ shares: 99_999_000n, era: 0, accAt: 0n, unclaimed: 0n }, { ...r, acc })).toBe(1_499n);
+  expect(claimableE6({ shares: 99_999_000n, era: 0, accAt: acc, unclaimed: 5n }, { ...r, acc })).toBe(5n);
+  // Two eras on: era 0's end on its shares, era 1's on them divided by 2^16, and this era's on them divided by 2^32.
+  const ends = Array(8).fill(0n) as bigint[];
+  ends[0] = acc;
+  ends[1] = acc * 65_536n;
+  const h = { shares: 99_999_000n * 65_536n * 65_536n, era: 0, accAt: 0n, unclaimed: 0n };
+  const got = claimableE6(h, { acc: acc * 65_536n * 65_536n, era: 2, eraEnds: ends });
+  expect(got).toBe((h.shares * acc) / ACC_SCALE + ((h.shares >> 16n) * ends[1]) / ACC_SCALE + ((h.shares >> 32n) * acc * 65_536n * 65_536n) / ACC_SCALE);
+});
+
+test("SKT halves every half-life, eras and all, as the program counts it", () => {
+  const config = DEFAULT_REWARDS_CONFIG;
+  const rewards = { anchorLog2: 0n, anchorTime: 0n, era: 0, config };
+  const h = { shares: 1_000_000_000_000n, era: 0 };
+  const half = BigInt(config.halfLifeSecs);
+  expect(sktNowE6(h, rewards, 0n)).toBe(1_000_000_000_000n);
+  for (const k of [1n, 2n, 10n, 15n, 16n, 17n, 40n]) {
+    const want = 1_000_000_000_000 / 2 ** Number(k);
+    const got = Number(sktNowE6(h, rewards, k * half));
+    expect(Math.abs(got - want)).toBeLessThanOrEqual(1 + want * 1e-9);
+  }
+  // The same table as the conformance reference's (and so the program's): 2^0.5 and 2^15.75.
+  for (const l of [1n << 31n, (15n << 32n) + (3n << 30n), 123_456_789n]) expect(exp2Q32(l)).toBe(referenceExp2(l));
+});
+
+test("the default reserve is three times what one piece can pay at the default terms", () => {
+  expect(maxPiecePayoutE6(DEFAULT_CONFIG)).toBe(819_200_000_000n);
+  expect(DEFAULT_REWARDS_CONFIG.surplusReserve).toBe(3n * 819_200_000_000n);
+  // Of the surplus, three quarters to holders.
+  expect(DEFAULT_REWARDS_CONFIG.surplusHolderBps).toBe(7_500);
 });

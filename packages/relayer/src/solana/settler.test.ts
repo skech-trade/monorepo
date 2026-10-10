@@ -1,15 +1,50 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Address, Instruction } from "@solana/kit";
+import { readFileSync } from "node:fs";
+import type { Address, Instruction, Signature } from "@solana/kit";
 import { pda, SKECH_PROGRAM_ADDRESS } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
-import type { SolanaChain } from "./chain";
+import type { SolanaChain, SolanaEvent } from "./chain";
 import type { SolanaConfig } from "./config";
-import { SolanaSettler } from "./settler";
+import { type Settled, SolanaSettler } from "./settler";
 
 const snapshot = JSON.parse(readFileSync(join(import.meta.dir, "../../../contracts/solana/snapshots/compute.json"), "utf8")) as Record<string, number>;
+const A = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM" as Address;
+const B = "2k9WY5YR357AGVVoBW6ouFHijEypTj8953fzSdD7HfRV" as Address;
+const settled = (bet: string, player: Address, missMask: number) => ({ name: "Settled", data: { bet, player, hitMask: 0, missMask, expiredMask: 0, paid: 0n, owed: 0n, closed: true } }) as SolanaEvent;
+const minted = (player: Address, skt: bigint) => ({ name: "Minted", data: { player, skt, rate: 0n, basis: 0n } }) as SolanaEvent;
+
+/** The settler's word to the apps on one settlement's events. */
+async function told(events: SolanaEvent[]) {
+  const dir = mkdtempSync(join(tmpdir(), "settler-"));
+  const out: Settled[] = [];
+  const accounts: Address[] = [];
+  const chain = { events: async () => events } as unknown as SolanaChain;
+  const s = new SolanaSettler({} as SolanaConfig, {} as Engine, chain, { settled: (x) => out.push(x), owed: () => {}, account: (p) => accounts.push(p) }, () => {}, join(dir, "state.json"));
+  await (s as unknown as { tell: (sig: Signature) => Promise<void> }).tell("sig" as Signature);
+  rmSync(dir, { recursive: true, force: true });
+  return { out, accounts };
+}
+
+describe("what a settlement minted", () => {
+  test("goes with the bet whose misses minted it, the Minted just before its Settled", async () => {
+    const { out, accounts } = await told([minted(A, 120_000_000n), settled("bet1", A, 1), settled("bet2", B, 0), minted(A, 5n), settled("bet3", A, 1)]);
+    expect(out.map((s) => [String(s.betId), s.minted])).toEqual([
+      ["bet1", 120_000_000n],
+      ["bet2", 0n],
+      ["bet3", 5n],
+    ]);
+    // Their SKT changed: their account is sent again.
+    expect(accounts).toContain(A);
+  });
+
+  test("is nothing for a bet that hit", async () => {
+    const { out } = await told([settled("bet1", A, 0)]);
+    expect(out[0].minted).toBe(0n);
+  });
+});
 
 /**
  * A chain that runs settlements for what they really cost: `cost` of the bets in each (by address) and the bar, and
@@ -18,12 +53,14 @@ const snapshot = JSON.parse(readFileSync(join(import.meta.dir, "../../../contrac
 async function liveSettler(opts: { bets: Map<number, Address[]>; cost: (bets: Address[], bar: boolean) => number; betsPerSettle?: number }) {
   const dir = mkdtempSync(join(tmpdir(), "settler-"));
   const program = SKECH_PROGRAM_ADDRESS;
-  const [game, bars, pool, market, signerAddr] = await Promise.all(["game", "bars", "pool", "market", "signer"].map((s) => pda([s], program).then((r) => r[0])));
+  const [game, bars, pool, market, signerAddr, rewards] = await Promise.all(["game", "bars", "pool", "market", "signer", "rewards"].map((s) => pda([s], program).then((r) => r[0])));
   const all = new Set([...opts.bets.values()].flat());
   const sent: { label: string; bar: boolean; bets: Address[]; cu: number; ok: boolean }[] = [];
   let n = 0;
   const chain = {
     signer: { address: signerAddr, signTransactions: async () => [] },
+    rewards,
+    betsPerSettle: opts.betsPerSettle ?? 9,
     send: async (label: string, ixs: Instruction[], cu: number) => {
       const ix = ixs[0];
       const bets = (ix.accounts ?? []).map((a) => a.address).filter((a) => all.has(a));
@@ -35,7 +72,7 @@ async function liveSettler(opts: { bets: Map<number, Address[]>; cost: (bets: Ad
     events: async () => [],
   } as unknown as SolanaChain;
   const engine = { now: () => 10_000_000, ready: () => true, book: { at: () => ({ h: 83_000, l: 83_000, c: 83_000 }), bars: [{ t: 0 }] } } as unknown as Engine;
-  const cfg = { compute: snapshot, deployment: { program, game, bars, pool, market }, market: 0, betsPerSettle: opts.betsPerSettle ?? 12 } as unknown as SolanaConfig;
+  const cfg = { compute: snapshot, deployment: { program, game, bars, pool, market }, market: 0 } as unknown as SolanaConfig;
   const s = new SolanaSettler(cfg, engine, chain, { settled: () => {}, owed: () => {}, account: () => {} }, () => {}, join(dir, "state.json"));
   const players = await Promise.all(Array.from({ length: 4 }, (_, i) => pda(["player", Uint8Array.of(i)], program).then((r) => r[0])));
   for (const [second, bets] of opts.bets) for (const [i, bet] of bets.entries()) for (let k = 0; k < 32; k++) s.watch(bet, players[i % players.length], 1n, { second, lo: BigInt(k), hi: BigInt(k + 1), stake: 1n, rung: 150 });
@@ -50,7 +87,7 @@ describe("a second full of bands", () => {
   test("is budgeted for its bands: its bar and every bet settle, and the next second after it", async () => {
     const [heavy, light] = [await betsAt(1, 9), await betsAt(2, 1)];
     // What they really cost: what the budget assumes, so every settlement it asks for runs.
-    const real = (bets: Address[], bar: boolean) => (bar ? snapshot.post_bar : snapshot.settle_base) + bets.length * (snapshot.settle_bet + 32 * (snapshot.settle_section + snapshot.settle_decided));
+    const real = (bets: Address[], bar: boolean) => (bar ? snapshot.post_bar : snapshot.settle_base) + bets.length * (snapshot.settle_bet + 32 * (snapshot.settle_section + snapshot.settle_decided) + snapshot.holder_open + 7 * snapshot.place_per_bump);
     const t = await liveSettler({ bets: new Map([[5_000_000, heavy], [5_001_000, light]]), cost: real });
     await t.tick();
     expect(t.sent.every((x) => x.ok)).toBe(true);

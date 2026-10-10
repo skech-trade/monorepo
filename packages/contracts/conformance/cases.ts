@@ -27,7 +27,9 @@ export type PlaceStep = {
 export type BarStep = { bar: { second: number; prevClose: number; high: number; low: number; close: number; settle: string[] } };
 /** The admin sets the market's difficulty: pieces from then on must be signed at it. */
 export type DifficultyStep = { difficulty: number };
-export type Step = PlaceStep | BarStep | DifficultyStep;
+/** The player claims what their SKT earned (Solana only). */
+export type ClaimStep = { claim: "a" | "b" };
+export type Step = PlaceStep | BarStep | DifficultyStep | ClaimStep;
 export type Case = {
   name: string;
   /** What each player has in the game, and what their session may stake. */
@@ -38,6 +40,12 @@ export type Case = {
   /** The market: its price (e8) on the opening second, the grid (e8). */
   price: number;
   unit: number;
+  /**
+   * SKT's terms. A case with them is the Solana program's alone (the EVM game, retired, has no SKT and keeps its old
+   * fees): its state also checks the supply, the holders' accumulator and funds, the tracked gain and every holder.
+   * Without them the Solana runner sets SKT's split to nothing, so the fees are the EVM game's to the unit.
+   */
+  skt?: { holderFeeBps: number; holderProfitFeeBps: number; mintScale: number; walletCapBps?: number; capFloor?: number };
   steps: Step[];
 };
 
@@ -49,7 +57,20 @@ const e8 = (usd: number) => Math.round(usd * 1e8);
 const at = (units: number) => (AT + units) * UNIT;
 const flat = (second: number, price: number, high = price, low = price) => ({ second, prevClose: price, high, low, close: price });
 
+/** SKT's default terms, at the fees they are a part of; no wallet cap but in the case that tries it. */
+const SKT = { holderFeeBps: 300, holderProfitFeeBps: 800, mintScale: 1_000_000_000_000, walletCapBps: 10_000, capFloor: 0 };
+
 const std = { players: { a: { deposit: 10_000_000, allowance: 5_000_000 } }, difficulty: 51, feeBps: 200, profitFeeBps: 1000, price: PRICE, unit: UNIT };
+
+const skt = {
+  players: { a: { deposit: 10_000_000, allowance: 5_000_000 }, b: { deposit: 30_000_000, allowance: 25_000_000 } },
+  difficulty: 51,
+  feeBps: 400,
+  profitFeeBps: 1000,
+  price: PRICE,
+  unit: UNIT,
+  skt: SKT,
+};
 
 export const CASES: Case[] = [
   {
@@ -78,6 +99,26 @@ export const CASES: Case[] = [
             { second: 4, lo: AT, width: 5, stake: 10_000, chance: 50_000_000 },
             { second: 5, lo: AT, width: 5, stake: 10_000, chance: 7_812_500 },
             { second: 6, lo: AT, width: 5, stake: 10_000, chance: 1_000_000 },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    ...std,
+    feeBps: 400,
+    name: "certain ink: Solana offers no band returning more than the stake fee leaves, nor one taller than the widest pen",
+    steps: [
+      // 65 units tall, over the widest pen (64): Solana refuses the piece.
+      { place: { id: "tall", sections: [{ second: 1, lo: AT - 40, width: 65, stake: 50_000, chance: 999_000_000 }] } },
+      // At d = 51 and 4%: all but certain ink at 1x is not offered, 48% at 2x (p·m 0.96) is, 48.1% at 2x (0.962) is not.
+      {
+        place: {
+          id: "p",
+          sections: [
+            { second: 1, lo: AT - 30, width: 64, stake: 50_000, chance: 999_900_000 },
+            { second: 2, lo: AT, width: 5, stake: 50_000, chance: 480_000_000 },
+            { second: 3, lo: AT, width: 5, stake: 50_000, chance: 481_000_000 },
           ],
         },
       },
@@ -263,5 +304,67 @@ export const CASES: Case[] = [
     price: PRICE,
     unit: UNIT,
     steps: [{ place: { id: "p", sections: [{ second: 1, lo: AT, width: 5, stake: 50_000, chance: 500_000_000 }] } }],
+  },
+
+  /* ---- SKT: the Solana program's alone ---- */
+  {
+    ...skt,
+    name: "SKT: a loss mints; then 3 of the 4 stake points and 8 of the 10 profit points accrue; a claim pays them, a second is refused",
+    steps: [
+      // B's dollar misses: no SKT yet, so the holders' 3 points of the fee go to the treasury.
+      { place: { id: "lose", player: "b", perDot: 1_000_000, sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(1, PRICE), settle: ["lose"] } },
+      // A's nickel: 0.15 of its 0.2 fee to B's SKT, and 2 of its 2.5 profit fee when it hits.
+      { place: { id: "win", sections: [{ second: 2, lo: AT, width: 5, stake: 50_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(2, PRICE), settle: ["win"] } },
+      { claim: "b" },
+      { claim: "b" },
+      { claim: "a" },
+    ],
+  },
+  {
+    ...skt,
+    name: "SKT: while a win is owed, the holders' share goes to the pool, and a loss mints on the curve all the same",
+    steps: [
+      { place: { id: "first", player: "b", perDot: 1_000_000, sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 100_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(1, PRICE), settle: ["first"] } },
+      // A 1% chance at 96x: far more than the pool holds, so most of it is owed.
+      { place: { id: "long", sections: [{ second: 2, lo: AT, width: 5, stake: 50_000, chance: 10_000_000 }] } },
+      { bar: { ...flat(2, PRICE), settle: ["long"] } },
+      // Owed: B's stake fee's holder share goes to the pool, to pay A, not to B's SKT.
+      { place: { id: "refill", player: "b", perDot: 1_000_000, sections: [{ second: 3, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(3, PRICE), settle: ["refill"] } },
+      { claim: "b" },
+    ],
+  },
+  {
+    ...skt,
+    name: "SKT: each miss mints on its odds-weighted loss, a hit on nothing, at the curve's falling rate",
+    steps: [
+      // A 1% long shot at 96x misses: 1.1¢ · (1 − 0.96 + 0.1 · 0.01 · 95) / 0.99, the profit fee a hit pays counted.
+      { place: { id: "long", sections: [{ second: 1, lo: AT, width: 5, stake: 11_000, chance: 10_000_000 }] } },
+      { bar: { ...flat(1, PRICE - e8(5)), settle: ["long"] } },
+      // Ink at 50% paying 1.5x misses: 10¢ · 0.25 / 0.5. And a hit beside it, in the same piece: nothing for it.
+      { place: { id: "near", sections: [{ second: 2, lo: AT + 5000, width: 5, stake: 100_000, chance: 500_000_000 }, { second: 2, lo: AT, width: 5, stake: 100_000, chance: 500_000_000 }] } },
+      { bar: { second: 2, prevClose: PRICE - e8(5), high: PRICE, low: PRICE - e8(5), close: PRICE, settle: ["near"] } },
+      // Two bands that miss in one settlement: their bases together, minted from where the tracked gain is.
+      { place: { id: "two", player: "b", perDot: 1_000_000, sections: [{ second: 3, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 200_000_000 }, { second: 3, lo: AT - 5000, width: 5, stake: 2_000_000, chance: 900_000_000 }] } },
+      { bar: { ...flat(3, PRICE), settle: ["two"] } },
+    ],
+  },
+  {
+    ...skt,
+    skt: { ...SKT, walletCapBps: 1_000, capFloor: 20_000_000 },
+    name: "SKT: no wallet past 10% of all SKT or of the floor (20 SKT), and every share counted against the larger",
+    steps: [
+      // B's dollar misses: 55 SKT by the curve, 2 by the cap (10% of the 20-SKT floor).
+      { place: { id: "b1", player: "b", perDot: 1_000_000, sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(1, PRICE), settle: ["b1"] } },
+      // A's nickel: of the holders' 0.15¢, B's 2 SKT of the 20-SKT floor take a tenth; the rest is the treasury's.
+      { place: { id: "a1", sections: [{ second: 2, lo: AT + 5000, width: 5, stake: 50_000, chance: 500_000_000 }] } },
+      { bar: { ...flat(2, PRICE), settle: ["a1"] } },
+      { claim: "b" },
+      { claim: "a" },
+    ],
   },
 ];

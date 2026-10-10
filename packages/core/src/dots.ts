@@ -104,7 +104,17 @@ export const RULES = {
   /** How tall a dot is, in the market's typical one-second moves. */
   // Rows this many one-second moves tall. At 1.2 a quiet market left the price's own row a near-certainty and the next one past the cap, so nothing in between; at 2.5 the ladder has steps, and the held-out week paid back the same (0.59 to 0.80 a day, Medium pen).
   stepSigmas: 2.5 as const,
+  /** See `setMaxReturn`. */
+  maxReturn: 1,
 };
+
+/**
+ * The most a band may return per dollar before fees, chance × multiple: 1 − the stake fee when playing for real (the
+ * chain does not offer ink that returns more, `withinFee`), and 1 otherwise, which the ladder never passes.
+ */
+export function setMaxReturn(r: number) {
+  RULES.maxReturn = Math.min(1, Math.max(0, r));
+}
 
 /**
  * Set how hard the game is, for everything priced from now on: drawings

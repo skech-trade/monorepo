@@ -7,22 +7,32 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 use crate::error::SkechError;
-use crate::events::{AdminProposed, AdminSet, ConfigSet, IouRateSet, MarketSet, OracleSet, PausedSet, TreasurySet};
+use crate::events::{AdminProposed, AdminSet, ConfigSet, IouRateSet, MarketSet, OracleSet, PausedSet, RewardsConfigSet, TreasurySet};
 use crate::ladder;
 use crate::program::Skech;
 use crate::state::*;
+// Named, not only globbed: the prelude has a `Rewards` too (the sysvar).
+use crate::state::Rewards;
 
 /// sha256("skech/v1" || program id || cluster): what every signed piece starts with.
 pub fn domain_for(program_id: &Pubkey, cluster: &str) -> [u8; 32] {
     hashv(&[b"skech/v1", program_id.as_ref(), cluster.as_bytes()]).to_bytes()
 }
 
-pub fn check_config(c: &Config) -> Result<()> {
+/// The game's terms and SKT's, together: the holders' part of each fee is part of that fee, never more of it.
+pub fn check_config(c: &Config, r: &RewardsConfig) -> Result<()> {
     require!(c.fee_bps <= MAX_FEE_BPS && c.profit_fee_bps <= MAX_PROFIT_FEE_BPS && c.sweep_bps <= MAX_SWEEP_BPS, SkechError::BadConfig);
     require!(c.min_per_dot > 0 && c.min_per_dot <= c.max_per_dot && c.max_per_dot <= u32::MAX as u64, SkechError::BadConfig);
     require!(c.max_piece_stake > 0, SkechError::BadConfig);
     require!((MIN_PLACE_GRACE_MS..=MAX_PLACE_GRACE_MS).contains(&c.place_grace_ms) && c.late_ms <= MAX_LATE_MS, SkechError::BadConfig);
     require!(c.max_price_age_ms > 0 && c.max_session_secs > 0, SkechError::BadConfig);
+    require!(r.holder_fee_bps <= c.fee_bps && r.holder_profit_fee_bps <= c.profit_fee_bps, SkechError::BadConfig);
+    require!(r.mint_scale > 0 && r.mint_scale <= MAX_MINT_SCALE, SkechError::BadConfig);
+    require!((MIN_HALF_LIFE_SECS..=MAX_HALF_LIFE_SECS).contains(&r.half_life_secs), SkechError::BadConfig);
+    require!((MIN_WALLET_CAP_BPS..=BPS as u16).contains(&r.wallet_cap_bps), SkechError::BadConfig);
+    // The pool always keeps at least what one piece could pay at these terms over what live bets could.
+    require!(r.surplus_reserve >= max_piece_payout(c), SkechError::BadConfig);
+    require!(r.surplus_holder_bps as u64 <= BPS, SkechError::BadConfig);
     Ok(())
 }
 
@@ -92,10 +102,76 @@ pub struct Admin<'info> {
     pub game: Account<'info, Game>,
 }
 
-pub fn set_config(ctx: Context<Admin>, config: Config) -> Result<()> {
-    check_config(&config)?;
+#[derive(Accounts)]
+pub struct SetConfig<'info> {
+    pub admin: Signer<'info>,
+    #[account(mut, seeds = [GAME_SEED], bump = game.bump, has_one = admin @ SkechError::NotAdmin)]
+    pub game: Account<'info, Game>,
+    /// Read for SKT's split of the fees, which the new terms must leave room for. Its owner and discriminator make
+    /// it the one `Rewards` (see `Place`).
+    pub rewards: Account<'info, Rewards>,
+}
+
+pub fn set_config(ctx: Context<SetConfig>, config: Config) -> Result<()> {
+    check_config(&config, &ctx.accounts.rewards.config)?;
     ctx.accounts.game.config = config;
     emit!(ConfigSet { config });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct InitRewards<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(mut, seeds = [GAME_SEED], bump = game.bump, has_one = admin @ SkechError::NotAdmin)]
+    pub game: Account<'info, Game>,
+    #[account(init, payer = admin, space = 8 + Rewards::INIT_SPACE, seeds = [REWARDS_SEED], bump)]
+    pub rewards: Account<'info, Rewards>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Start SKT, and set the game's terms with it in one go: a game whose fees are below SKT's split (devnet's 1% and 5%)
+/// is moved to terms that hold it, never left between. Once only; until it is sent nothing is placed, though bets live
+/// across the upgrade settle and expire without it (`load_rewards`), minting nothing.
+pub fn init_rewards(ctx: Context<InitRewards>, config: Config, rewards: RewardsConfig) -> Result<()> {
+    check_config(&config, &rewards)?;
+    ctx.accounts.game.config = config;
+    let r = &mut ctx.accounts.rewards;
+    r.config = rewards;
+    r.bump = ctx.bumps.rewards;
+    // The decay's clock and the surplus's start: from now.
+    let now = Clock::get()?.unix_timestamp;
+    r.anchor_time = now;
+    r.started_at = now;
+    emit!(ConfigSet { config });
+    emit!(RewardsConfigSet { config: rewards });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct SetRewardsConfig<'info> {
+    pub admin: Signer<'info>,
+    #[account(seeds = [GAME_SEED], bump = game.bump, has_one = admin @ SkechError::NotAdmin)]
+    pub game: Account<'info, Game>,
+    /// The one `Rewards`, by its owner and discriminator (see `Place`).
+    #[account(mut)]
+    pub rewards: Account<'info, Rewards>,
+}
+
+/// SKT's split of the fees and its other terms, from now on. What was accrued and minted stays. The mint curve's scale
+/// is fixed once anything has minted: the tracked gain and every SKT minted are on the old scale's curve, and a new
+/// scale would mint the next dollar as if the curve had been the new one all along (a larger scale, more than the
+/// curve's whole worth in all; a smaller one, a cliff). It may be set until then.
+pub fn set_rewards_config(ctx: Context<SetRewardsConfig>, rewards: RewardsConfig) -> Result<()> {
+    check_config(&ctx.accounts.game.config, &rewards)?;
+    let r = &mut ctx.accounts.rewards;
+    require!(rewards.mint_scale == r.config.mint_scale || (r.gain == 0 && r.supply == 0), SkechError::MintScaleFixed);
+    // A new half-life applies from now: every weight is kept where it is, and grows at the new pace after.
+    if rewards.half_life_secs != r.config.half_life_secs {
+        r.set_half_life(rewards.half_life_secs, Clock::get()?.unix_timestamp);
+    }
+    r.config = rewards;
+    emit!(RewardsConfigSet { config: rewards });
     Ok(())
 }
 

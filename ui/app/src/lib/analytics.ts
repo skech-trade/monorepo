@@ -54,6 +54,9 @@ export type Event =
   // Money out.
   | "withdraw_completed"
   | "withdraw_failed"
+  // What SKT earned, claimed.
+  | "claim_completed"
+  | "claim_failed"
   // Home Screen.
   | "home_screen_shown"
   | "home_screen_install_tapped"

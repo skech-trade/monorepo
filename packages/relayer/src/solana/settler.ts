@@ -3,12 +3,13 @@
  * few when many bets have ink there (a transaction holds a dozen). Then, when nothing is about to be due: IOUs paid
  * off as the pool refills, USDC that landed in approving wallets swept in, and the fees moved to the treasury.
  */
-import { AccountRole, type Address, type Instruction } from "@solana/kit";
+import { AccountRole, type Address, getAddressEncoder, type Instruction } from "@solana/kit";
 import { decodeToken, fetchMaybeToken, findAssociatedTokenPda, TOKEN_PROGRAM_ADDRESS, type Token } from "@solana-program/token";
 import { CLOSE_AFTER_MS } from "@skech/core/bars";
 import {
   decodePlayer,
   fetchBars,
+  fetchMaybeRewards,
   fetchPool,
   getCollectFeesInstruction,
   getExpireInstruction,
@@ -16,12 +17,16 @@ import {
   getRedeemHouseInstruction,
   getRedeemInstruction,
   getSettleInstruction,
+  getShareSurplusInstruction,
   getSkechErrorMessage,
   getSweepInstruction,
+  holderAddress,
+  pda,
   playerAddress,
   SKECH_ERROR__BAR_CONFLICT,
   SKECH_ERROR__BAR_DISCONTINUOUS,
   SKECH_ERROR__BAR_LATE,
+  surplusE6,
 } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
 import { report } from "../sentry";
@@ -31,8 +36,8 @@ import { type BetLoad, chunksFor, MAX_CU, settleCompute } from "./compute";
 import type { SolanaConfig } from "./config";
 import type { Band } from "./sequencer";
 
-/** `expiredMask`: bands given back, their second past posting; the refund is in `paid`. */
-export type Settled = { betId: Address; player: Address; hitMask: number; missMask: number; expiredMask: number; paid: bigint; owed: bigint; closed: boolean; tx: string };
+/** `expiredMask`: bands given back, their second past posting; the refund is in `paid`. `minted`: SKT e6 its misses minted. */
+export type Settled = { betId: Address; player: Address; hitMask: number; missMask: number; expiredMask: number; paid: bigint; owed: bigint; closed: boolean; minted: bigint; tx: string };
 export type Notify = { settled: (s: Settled) => void; owed: (to: Address, value: bigint) => void; account: (player: Address) => void };
 
 /** `count`: the bands the bet has on chain, each of which a settlement reads. */
@@ -57,6 +62,10 @@ export class SolanaSettler {
   /** Each second whose post failed: how many times in a row, and when to try it again. A revert that keeps coming is
    * not paid for every 100 ms, and it holds back no other second. */
   private failing = new Map<number, { failures: number; at: number }>();
+  /** Players whose SKT account is known to be open (they have minted): a settlement of theirs opens nothing. */
+  private opened = new Set<Address>();
+  /** Each player's holder bump: opening their holder searches down from 255 for it, at a cost. */
+  private bumps = new Map<Address, number>();
   private holders = new Set<Address>();
   /** Wallets that approved the game to sweep their USDC in. */
   private approved = new Set<Address>();
@@ -72,7 +81,7 @@ export class SolanaSettler {
   private closing = new Map<Address, { player: Address; due: number; tries: number }>();
   /** The smallest part of an IOU the program pays out (the game's minRedeem, USDC e6); set from the chain. */
   minRedeem = 0n;
-  stats = { bars: 0, settled: 0, redeemed: 0n, swept: 0n, collected: 0n };
+  stats = { bars: 0, settled: 0, redeemed: 0n, swept: 0n, collected: 0n, surplus: 0n };
   /** How long after its opening second a piece may still be placed, from the game's config. */
   placeGraceMs = 3_000;
 
@@ -136,10 +145,23 @@ export class SolanaSettler {
   /** What a bet weighs in a settlement on `second` (null: a close, deciding nothing). */
   private loadOf(bet: Address, second: number | null): BetLoad {
     const b = this.bets.get(bet);
+    const player = b?.player ?? this.closing.get(bet)?.player;
     const decided = b && second !== null ? b.bands.filter((x) => x.second === second).length : 0;
     // A bet whose bands the relayer no longer knows (a close) is budgeted at the most a bet has.
     const sections = b ? Math.max(b.count, b.bands.length) : 32;
-    return { sections, decided };
+    return { sections, decided, openBump: player && !this.opened.has(player) ? (this.bumps.get(player) ?? 248) : null };
+  }
+
+  /** Each player's holder bump, worked out once: before a settlement of theirs is budgeted. */
+  private async bumpsFor(bets: Address[]) {
+    const enc = getAddressEncoder();
+    for (const bet of bets) {
+      const player = this.bets.get(bet)?.player ?? this.closing.get(bet)?.player;
+      if (!player || this.bumps.has(player)) continue;
+      const [, bump] = await pda(["holder", enc.encode(player)], this.cfg.deployment.program);
+      if (this.bumps.size > 50_000) this.bumps.clear();
+      this.bumps.set(player, bump);
+    }
   }
 
   private computeFor(bets: Address[], second: number | null, bar: boolean) {
@@ -186,24 +208,27 @@ export class SolanaSettler {
     }
   }
 
+  /** Each bet's (bet, player, holder): the program opens a player's holder, at the relayer's cost, on their first settlement. */
   private async pairs(bets: Address[], playerOf = (bet: Address) => this.bets.get(bet)!.player) {
     const out: { address: Address; role: AccountRole }[] = [];
+    const program = this.cfg.deployment.program;
     for (const bet of bets) {
-      out.push({ address: bet, role: AccountRole.WRITABLE }, { address: await playerAddress(playerOf(bet), this.cfg.deployment.program), role: AccountRole.WRITABLE });
+      const wallet = playerOf(bet);
+      out.push({ address: bet, role: AccountRole.WRITABLE }, { address: await playerAddress(wallet, program), role: AccountRole.WRITABLE }, { address: await holderAddress(wallet, program), role: AccountRole.WRITABLE });
     }
     return out;
   }
 
-  /** What every settlement shares: the game, the ring, the pool, and the relayer taking back rent. */
+  /** What every settlement shares: the game, the ring, the pool, SKT's account, and the relayer taking back rent and paying a holder's. */
   private settleAccounts() {
     const d = this.cfg.deployment;
-    return { game: d.game, bars: d.bars, pool: d.pool, rentReceiver: this.chain.signer.address, market: this.cfg.market };
+    return { game: d.game, bars: d.bars, pool: d.pool, rewards: this.chain.rewards, rentReceiver: this.chain.signer.address, payer: this.chain.signer, market: this.cfg.market };
   }
 
   /** Close the bets that were decided inside their placing window, now it is over: a settle with nothing to decide. */
   private async close() {
     const now = Date.now();
-    const ready = [...this.closing].filter(([, c]) => c.due <= now).slice(0, this.cfg.betsPerSettle);
+    const ready = [...this.closing].filter(([, c]) => c.due <= now).slice(0, this.chain.betsPerSettle);
     if (!ready.length) return;
     for (const [bet, c] of ready) {
       // Retried until its Settled says closed; given up on after a few (someone else closed it).
@@ -211,6 +236,7 @@ export class SolanaSettler {
       if (++c.tries > 5) this.closing.delete(bet);
     }
     const bets = ready.map(([bet]) => bet);
+    await this.bumpsFor(bets);
     const ix = getSettleInstruction(this.settleAccounts());
     const s = await this.chain.send(`close ${bets.length}`, [withBets(ix, await this.pairs(bets, (b) => ready.find(([x]) => x === b)![1].player))], this.computeFor(bets, null, false));
     if (!s.err) void this.tell(s.signature);
@@ -237,9 +263,10 @@ export class SolanaSettler {
         };
     const bets = [...(this.watching.get(second) ?? [])].filter((x) => this.bets.has(x));
     const d = this.cfg.deployment;
+    await this.bumpsFor(bets);
     // As many bets a settlement as its bytes hold and its compute allows, by the bands each has and decides here: one
     // second full of bands is several settlements, not one that runs out of compute.
-    const chunks = chunksFor(this.cfg.compute, true, bets, (b) => this.loadOf(b, second), this.cfg.betsPerSettle);
+    const chunks = chunksFor(this.cfg.compute, true, bets, (b) => this.loadOf(b, second), this.chain.betsPerSettle);
     // The bar with the first bets; the rest settle on it right after, in parallel: they meet only on the pool.
     const postIx = (with_: Address[]) => this.pairs(with_).then((extra) => withBets(getPostBarAndSettleInstruction({ ...this.settleAccounts(), oracle: this.chain.signer, marketAccount: d.market, bar }), extra));
     let sent = await this.chain.send(`bar ${second} + ${chunks[0].length} bets`, [await postIx(chunks[0])], this.computeFor(chunks[0], second, true));
@@ -247,7 +274,7 @@ export class SolanaSettler {
       // Too long after its second to post: it never will be. Its bets' bands in it are given their stakes back.
       this.log(`settle: bar ${second} is too late to post; expiring its ${bets.length} bets`);
       const keep = new Set<Address>();
-      const done = await Promise.all(chunksFor(this.cfg.compute, false, bets, (b) => this.loadOf(b, second), this.cfg.betsPerSettle).filter((c) => c.length).map((c) => this.settleSplit("expire", second, c)));
+      const done = await Promise.all(chunksFor(this.cfg.compute, false, bets, (b) => this.loadOf(b, second), this.chain.betsPerSettle).filter((c) => c.length).map((c) => this.settleSplit("expire", second, c)));
       for (const r of done) for (const bet of r.failed) keep.add(bet);
       for (const r of done) for (const s of r.landed) void this.tell(s.signature);
       this.forget(second, keep);
@@ -330,15 +357,26 @@ export class SolanaSettler {
   /** Tell each player what their bets did, from the settlement's events. */
   private async tell(signature: Parameters<SolanaChain["events"]>[0]) {
     const touched = new Set<Address>();
+    // A bet's misses mint as it settles: the program says Minted just before that bet's Settled.
+    const minted = new Map<Address, bigint>();
     for (const ev of await this.chain.events(signature)) {
-      if (ev.name === "Settled") {
+      if (ev.name === "Minted") {
+        const a = ev.data as { player: Address; skt: bigint };
+        minted.set(a.player, (minted.get(a.player) ?? 0n) + a.skt);
+        touched.add(a.player);
+        // It minted, so its SKT account is open: its settlements open nothing from now on.
+        if (this.opened.size > 100_000) this.opened.clear();
+        this.opened.add(a.player);
+      } else if (ev.name === "Settled") {
         const a = ev.data as { bet: Address; player: Address; hitMask: number; missMask: number; expiredMask?: number; paid: bigint; owed: bigint; closed: boolean };
         if (a.closed) this.closing.delete(a.bet);
         else if (!this.bets.has(a.bet)) this.closing.set(a.bet, { player: a.player, due: Date.now() + this.placeGraceMs + 1_000, tries: 0 });
         // A close with nothing left to decide still tells the app the bet is done.
         if (a.hitMask || a.missMask) this.stats.settled++;
         if (a.paid > 0n || a.owed > 0n || Date.now() - (this.told.get(a.player) ?? 0) > 5_000) touched.add(a.player);
-        this.notify.settled({ betId: a.bet, player: a.player, hitMask: a.hitMask, missMask: a.missMask, expiredMask: a.expiredMask ?? 0, paid: a.paid, owed: a.owed, closed: a.closed, tx: signature });
+        const skt = minted.get(a.player) ?? 0n;
+        minted.delete(a.player);
+        this.notify.settled({ betId: a.bet, player: a.player, hitMask: a.hitMask, missMask: a.missMask, expiredMask: a.expiredMask ?? 0, paid: a.paid, owed: a.owed, closed: a.closed, minted: skt, tx: signature });
       } else if (ev.name === "Owed") {
         const a = ev.data as { to: Address; value: bigint };
         if (a.to !== "11111111111111111111111111111111") this.holders.add(a.to);
@@ -390,6 +428,17 @@ export class SolanaSettler {
         }
       }
       if (pool.houseShares > 0n && left > 0n) await this.chain.send("redeem house", [getRedeemHouseInstruction({ game: d.game, pool: d.pool })], 30_000);
+      // The pool's surplus over its reserve and what live bets could pay, to SKT holders: never while anything is owed
+      // (the program checks again), and only once it is worth a transaction.
+      const skt = await fetchMaybeRewards(rpc, this.chain.rewards).catch(() => null);
+      if (skt?.exists) {
+        const fresh = await fetchPool(rpc, d.pool);
+        const surplus = surplusE6(fresh.data, skt.data, BigInt(Math.floor(Date.now() / 1000)));
+        if (surplus >= this.cfg.surplusAboveE6) {
+          const s = await this.chain.send(`share ${surplus} surplus`, [getShareSurplusInstruction({ game: d.game, pool: d.pool, rewards: this.chain.rewards })], 30_000);
+          if (!s.err) this.stats.surplus += surplus;
+        }
+      }
       if (this.approved.size) {
         const wallets = [...this.approved];
         const atas = await Promise.all(wallets.map((w) => findAssociatedTokenPda({ mint: d.usdcMint, owner: w, tokenProgram: TOKEN_PROGRAM_ADDRESS }).then(([a]) => a)));

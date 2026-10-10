@@ -127,7 +127,7 @@ machine develops against. `.server.env` is gitignored for that.
 ## 4. A new deployment of the program
 
 The game is a Solana program (`packages/contracts/solana`), served by the relayer (`packages/relayer`, port 3104,
-`wss://…/solana/ws` on the box) to the web and phone apps. Its terms are 4% of stakes and 10% of profit.
+`wss://…/solana/ws` on the box) to the web and phone apps. Its terms are 4% of stakes and 10% of profit, of which 3 and 8 points go to SKT holders and 1 and 2 to the treasury; of the pool's surplus over its reserve, 75% to SKT holders and 25% to the treasury.
 
 1. **Deploy the program and set the game up**, once per cluster: `bun run deploy:solana` (devnet by default; `--mainnet` for mainnet-beta). It writes `packages/contracts/deployments/solana-<cluster>.json`; commit it and merge it. The deployer needs about 5 SOL for the program's rent; devnet SOL is free from `solana airdrop` or faucet.solana.com.
 2. **Give the relayer its key and SOL.** `SOLANA_RELAYER_KEYPAIR` locally, or `SOLANA_RELAYER_SECRET_KEY` (the 64 bytes as JSON) in `.env.local` for the box, plus `SKECH_SOLANA_CLUSTER`. Its key must be the game's oracle: the deploy uses `SOLANA_RELAYER_KEYPAIR`'s. It pays every fee and every rent (a bet's comes back when it settles): keep 1 SOL or more in it.

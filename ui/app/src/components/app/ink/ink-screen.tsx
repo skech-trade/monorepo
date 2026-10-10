@@ -2,7 +2,7 @@
 
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
+import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { areaCells, areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type Cell, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
@@ -28,7 +28,7 @@ import { cents, practice, record, setPractice, usePracticeOf } from "@/lib/pract
 import { endPaperRun, paper, paperCredit, paperDebit, paperDrew, paperTick, pausePaperRun, resumePaperRun, startPaperRun, usePaper, usePaperPhase } from "@/lib/paper";
 import { celebrate, feel, sound } from "@/lib/feel";
 import { type Tier, winTier } from "@skech/core/cheer";
-import { money, signed } from "@/lib/money";
+import { money, signed, skt as sktAmount } from "@/lib/money";
 import { scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { ScoreboardSheet } from "./scoreboard-sheet";
 import { addChange, Ledger } from "./ledger";
@@ -200,9 +200,22 @@ function lessProfitFee(bet: InkBet, before: InkBet, profitFeeBps: number): InkBe
   return touched ? { ...bet, cells } : bet;
 }
 
-/** What skech keeps, in the game's own numbers as the relayer sends them; without them, that it keeps some, and no number that could be wrong. */
-const feesLine = (terms: Hello["terms"] | undefined) =>
-  terms ? `skech keeps ${terms.feeBps / 100}% of every stake and ${terms.profitFeeBps / 100}% of every win.` : "skech keeps a share of every stake and of every win.";
+/** The fees and who they go to, in the game's own numbers as the relayer sends them; without them, no number that could be wrong. */
+const feesLine = (terms: Hello["terms"] | undefined) => {
+  const pct = (bps: number) => `${bps / 100}%`;
+  if (!terms) return "A share of every stake and of every win’s profit is taken as fees, split between SKT holders and skech.";
+  const { feeBps, profitFeeBps, holderFeeBps: h, holderProfitFeeBps: hp } = terms;
+  if (h === undefined || hp === undefined) return `${pct(feeBps)} of every stake and ${pct(profitFeeBps)} of every win’s profit are taken as fees, split between SKT holders and skech.`;
+  return `A fee of ${pct(feeBps)} of every stake: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of every win’s profit: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.${sktLine(terms)}`;
+};
+
+/** How SKT is earned and kept, in the game's own numbers. */
+const sktLine = (terms: NonNullable<Hello["terms"]>) => {
+  const weeks = terms.sktHalfLifeSecs ? Math.round(terms.sktHalfLifeSecs / 604_800) : null;
+  const s = terms.surplusHolderBps;
+  const surplus = s === undefined ? " Holders also share what the pool keeps beyond its reserve." : ` ${s / 100}% of the pool’s surplus above its reserve goes to SKT holders, ${100 - s / 100}% to skech.`;
+  return ` Losing earns SKT.${surplus}${weeks ? ` SKT halves every ${weeks} weeks: keep playing to keep your share.` : ""}`;
+};
 
 /** A price with its cents quieter than its dollars. */
 const Price = ({ value }: { value: number }) => {
@@ -440,6 +453,19 @@ export function InkScreen() {
     const t = setTimeout(() => setResult(null), result.won > result.cost ? 4200 : 2400);
     return () => clearTimeout(t);
   }, [result]);
+  /**
+   * SKT a round's misses minted, as the chain says it, by line; the rounds that came out behind; and the latest word,
+   * which shows as a quiet "+120 SKT": on the round's card while it is up, or alone once it has gone, and only for a
+   * round that came out behind. A loss is never celebrated: no sound, no colour.
+   */
+  const mintedBy = useRef(new Map<string, number>());
+  const lostLines = useRef(new Set<string>());
+  const [sktNote, setSktNote] = useState<{ line: string; skt: number; lost: boolean } | null>(null);
+  useEffect(() => {
+    if (!sktNote) return;
+    const t = setTimeout(() => setSktNote(null), 2400);
+    return () => clearTimeout(t);
+  }, [sktNote]);
   const [fresh, setFresh] = useState(false);
   const me = useAccount();
   // The way in holds its ink over the screen until there are live prices to show, and it is known who is playing:
@@ -516,10 +542,13 @@ export function InkScreen() {
     g.perDot = paperOn ? PAPER_PER_DOT : state.perDot;
     // How hard the game is: every drawing priced from now on, and the map, use it.
     setDifficulty(level, least);
+    // On chain, ink that would return more than the stake fee leaves is not offered: not on the map either.
+    const feeBps = real ? chain.hello?.terms?.feeBps : undefined;
+    setMaxReturn(feeBps === undefined ? 1 : 1 - feeBps / 10_000);
     if (g.field && g.field.rtp !== difficulty(level, least).rtp) g.field = null;
     g.pen = state.brush;
     g.cell = INK_CELL;
-  }, [state.perDot, state.brush, state.taught, level, least, paperOn]);
+  }, [state.perDot, state.brush, state.taught, level, least, paperOn, real, chain.hello?.terms?.feeBps]);
 
   /*
     Every quarter second: whether the page is dark, whether the prices are
@@ -659,6 +688,11 @@ export function InkScreen() {
     if (onPaper) paperRun.current = tier ? paperRun.current + 1 : 0;
     const streak = onPaper ? paperRun.current : scoreboard().streak;
     setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false, best: t.best, streak });
+    if (!tier) {
+      lostLines.current.add(line);
+      if (lostLines.current.size > 64) lostLines.current.delete(lostLines.current.values().next().value!);
+      setSktNote((n) => (n && n.line === line ? { ...n, lost: true } : n));
+    }
     const hit = lastHit.current.get(line);
     lastHit.current.delete(line);
     if (tier) {
@@ -1233,6 +1267,14 @@ export function InkScreen() {
         const key = betKeys.current.get(m.betId);
         const sent = key ? chainBets.current.get(key) : undefined;
         if (!sent || !key) return;
+        // What its misses minted, added to the round's.
+        const minted = Number(m.minted ?? 0);
+        if (minted > 0) {
+          const total = (mintedBy.current.get(sent.line) ?? 0) + minted;
+          mintedBy.current.set(sent.line, total);
+          if (mintedBy.current.size > 64) mintedBy.current.delete(mintedBy.current.keys().next().value!);
+          setSktNote({ line: sent.line, skt: total, lost: lostLines.current.has(sent.line) });
+        }
         const ch = chainRef.current;
         const i = g.bets.findIndex((b) => b.id === sent.id);
         if (i < 0) return;
@@ -1566,6 +1608,7 @@ export function InkScreen() {
                 <span className={cn(feedback.roundDetail, "figures")}>
                   {over.points ? `${Math.round((100 * over.hits) / over.points)}% of your ink hit` : ""}
                   {over.best ? ` · best ${fmtMultiple(over.best)}` : ""}
+                  {!overWon && sktNote?.line === over.key ? ` · +${sktAmount(sktNote.skt)} SKT` : ""}
                 </span>
               </div>
             </div>
@@ -1574,6 +1617,8 @@ export function InkScreen() {
 
       {refused && !previewing && !over ? (
         <div key={`refused:${refused.id}`} role="status" className={feedback.bottomPill}>{refusalLine(refused)} · <span className="figures font-semibold text-foreground">{money(refused.back)} back</span></div>
+      ) : sktNote?.lost && !previewing && !over ? (
+        <div key={`skt:${sktNote.line}`} role="status" className={feedback.bottomPill}><span className="figures">+{sktAmount(sktNote.skt)} SKT</span></div>
       ) : returnedInk && !previewing && !over ? (
         <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div>
       ) : null}

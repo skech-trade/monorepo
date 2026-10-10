@@ -4,7 +4,7 @@
  * with why, in the reply its sender is waiting for; nothing an app sends can throw. What only a handler can check
  * (a signature, a balance, the grid) is still checked there.
  */
-import { HORIZON, MAX_SECTIONS } from "@skech/core/chain";
+import { HORIZON, MAX_SECTION_WIDTH, MAX_SECTIONS } from "@skech/core/chain";
 
 export const U64_MAX = (1n << 64n) - 1n;
 
@@ -91,14 +91,14 @@ export const SOLANA: Record<string, Spec> = {
       priceSeen: uint,
       priceTime: uint,
       strokeHash: bytes(32),
-      sections: list(object({ second: int(1, HORIZON), lo: int(0, 0xffffffff), width: int(1, 0xffff), stake: int(1, 0xffffffff) }), MAX_SECTIONS, 1),
+      sections: list(object({ second: int(1, HORIZON), lo: int(0, 0xffffffff), width: int(1, MAX_SECTION_WIDTH), stake: int(1, 0xffffffff) }), MAX_SECTIONS, 1),
     }),
     sessionSig: bytes(64),
     priceSig: bytes(65),
     stroke: bytes(null, STROKE_BYTES),
   },
   build: (m) => {
-    const player = { kind: oneOf("session", "deposit", "withdraw", "revoke"), player: base58 };
+    const player = { kind: oneOf("session", "deposit", "withdraw", "revoke", "claim"), player: base58 };
     if (m.kind === "session") return { ...player, key: base58, validUntil: uint, allowance: uint, approve: optional(uint) };
     if (m.kind === "deposit") return { ...player, amount: uint };
     if (m.kind === "withdraw") return { ...player, amount: uint, to: optional(base58) };

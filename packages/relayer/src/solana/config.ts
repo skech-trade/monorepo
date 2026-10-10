@@ -115,6 +115,8 @@ export const scfg = {
    */
   sweepEveryMs: 300_000,
   collectAboveE6: 1_000_000n,
+  /** The pool's surplus is shared with SKT holders once it is at least this, USDC e6: $10, so a share is worth its fee. */
+  surplusAboveE6: BigInt(env("SOLANA_SURPLUS_ABOVE_E6") ?? 10_000_000),
   /** The least a deposit or withdrawal the relayer pays for may move, USDC e6 (a withdrawal of the whole balance always goes): the app's least deposit. */
   minMoveE6: 1_000_000n,
   /**
@@ -129,8 +131,8 @@ export const scfg = {
   priorityMax: Number(env("SOLANA_PRIORITY_MAX_MICROLAMPORTS") ?? (net.cluster === "mainnet-beta" ? 2_000_000 : 50_000)),
   /** Requests a second the relayer asks of its RPC, all told (budget.ts): under the plan's limit, which bills per request on mainnet. */
   rpcPerSec: Math.max(1, Number(env("SOLANA_RPC_RPS") ?? 15) || 15),
-  /** Bets settled in one transaction: two accounts each, 32 bytes a key, in 1232 bytes. */
-  betsPerSettle: 12,
+  /** Bets settled in one transaction: three accounts each (the bet, the player, their SKT), 32 bytes a key, in 1232 bytes. */
+  betsPerSettle: 9,
   keeper: keeper(),
 };
 export type SolanaConfig = typeof scfg;

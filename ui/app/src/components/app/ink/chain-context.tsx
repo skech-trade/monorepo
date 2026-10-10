@@ -39,6 +39,11 @@ export type Chain = {
   deposit: (usdc: number) => Promise<string | null>;
   /** Send `usdc` from the balance to `to` (a Solana address): the transaction on success, or why not, in the relayer's words. */
   withdraw: (usdc: number, to: string) => Promise<{ tx: string } | { why: string }>;
+  /** The player's SKT and the USDC it has earned, as the relayer last said; null before it has. */
+  skt: { balance: number; claimable: number } | null;
+  /** What the SKT has earned, into the balance: the transaction on success, or why not. */
+  claim: () => Promise<{ tx: string } | { why: string }>;
+  claiming: boolean;
   /** USDC sitting in the wallet on its way in, as the relayer last said; null before it has. */
   wallet: number | null;
   /** How much of the wallet's USDC the game may sweep in without asking. */
@@ -266,6 +271,33 @@ export function ChainProvider({ children }: { children: ReactNode }) {
     [player, client, me.signTransaction],
   );
 
+  const [sktBalance, sktClaimable] = [account?.skt?.balance, account?.skt?.claimable];
+  const skt = useMemo(() => (sktBalance !== undefined && sktClaimable !== undefined ? { balance: Number(sktBalance), claimable: Number(sktClaimable) / 1e6 } : null), [sktBalance, sktClaimable]);
+  const [claiming, setClaiming] = useState(false);
+  const claim = useCallback(async (): Promise<{ tx: string } | { why: string }> => {
+    if (!player) return { why: "Not connected" };
+    const amount = skt?.claimable ?? 0;
+    setClaiming(true);
+    try {
+      const before = saidRef.current;
+      const r = await client.transact("claim", {}, me.signTransaction);
+      if (!r.ok) {
+        track("claim_failed", { amount, why: r.why.slice(0, 120) });
+        return { why: r.why };
+      }
+      track("claim_completed", { amount });
+      // As a withdrawal: the relayer sends the new balance first, so it is counted here only if that has not come.
+      if (saidRef.current === before) nudgeRef.current(amount);
+      return { tx: r.tx };
+    } catch (e) {
+      track("claim_failed", { amount, why: why(e).slice(0, 120) });
+      reportError(e, { flow: "claim", amount });
+      return { why: why(e) };
+    } finally {
+      setClaiming(false);
+    }
+  }, [player, client, me.signTransaction, skt]);
+
   /*
     The wallet is this game's own, made at sign-in, so USDC that lands in it is on its way in. The relayer says
     what is in it with the account; nothing tells it when USDC arrives, so it is asked every few seconds, less
@@ -358,8 +390,8 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   }, [wallet]);
 
   const value = useMemo<Chain>(
-    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync, holds }),
-    [live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, wallet, approved, adding, landed, balance, nudge, resync, holds],
+    () => ({ real: live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, skt, claim, claiming, wallet, approved, adding, landed, balance, nudge, resync, holds }),
+    [live, player, client, hello, account, connected, key, sessionOk, enableSession, registering, deposit, withdraw, skt, claim, claiming, wallet, approved, adding, landed, balance, nudge, resync, holds],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -378,6 +410,9 @@ const OFF: Chain = {
   registering: false,
   deposit: async () => "Not signed in",
   withdraw: async () => ({ why: "Not signed in" }),
+  skt: null,
+  claim: async () => ({ why: "Not signed in" }),
+  claiming: false,
   wallet: null,
   approved: 0,
   adding: null,

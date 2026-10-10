@@ -1,13 +1,18 @@
 {
-  "place_1": 30319,
-  "place_16": 57219,
-  "place_32": 85685,
-  "place_8": 42882,
+  "claim": 13780,
+  "holder_open": 6333,
+  "place_1": 34317,
+  "place_16": 66002,
+  "place_32": 99572,
+  "place_8": 49113,
   "place_per_bump": 1500,
-  "post_and_settle_4_mixed": 87434,
-  "post_bar": 15920,
-  "settle_base": 10067,
-  "settle_bet": 3489,
-  "settle_decided": 274,
-  "settle_section": 996
+  "post_and_settle_4_mixed": 143344,
+  "post_and_settle_4_mixed_open": 109908,
+  "post_and_settle_4_one_band": 65741,
+  "post_bar": 18856,
+  "redeem": 13325,
+  "settle_base": 12984,
+  "settle_bet": 9710,
+  "settle_decided": 799,
+  "settle_section": 845
 }

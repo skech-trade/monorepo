@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BURST, type Tier, winTier } from "@skech/core/cheer";
 import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, stepFor } from "@skech/core/dots";
+import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { areaCells, areaCostOf, type Cell, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
 import { confirmPiece, expireCells, holdIds, paidOnChain, pay, refusalLine, refusals, type Refusals, unpay } from "@skech/core/optimistic";
@@ -23,10 +23,10 @@ import { track } from "@/lib/analytics";
 import { celebrate, feel, stayAwake } from "@/lib/feel";
 import { FieldMaker } from "@/lib/field";
 import { library } from "@/lib/library";
-import { money, signed } from "@/lib/money";
+import { money, signed, skt as sktAmount } from "@/lib/money";
 import { endPaperRun, paper, paperCredit, paperDebit, paperDrew, paperTick, pausePaperRun, resumePaperRun, startPaperRun, usePaper, usePaperPhase } from "@/lib/paper";
 import { cents, practice, record, setPractice, usePractice } from "@/lib/practice";
-import { type Incoming, leastPiece } from "@/lib/relayer";
+import { type Hello, type Incoming, leastPiece } from "@/lib/relayer";
 import { scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { setDark, useDark } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -130,6 +130,19 @@ const RESENDS = 2;
 const RESEND_BASE = 100_000;
 
 /** A piece as the session key signs it, and as it goes on the wire: bands in grid units, the chain's numbers as strings. */
+/** The fees and who they go to, in the game's own numbers as the relayer sends them; without them, no number that could be wrong. */
+function feesLine(terms: Hello["terms"] | undefined) {
+  const pct = (bps: number) => `${bps / 100}%`;
+  if (!terms) return "A share of what you put in and of the profit on every correct call is taken as fees, split between SKT holders and skech.";
+  const { feeBps, profitFeeBps, holderFeeBps: h, holderProfitFeeBps: hp } = terms;
+  if (h === undefined || hp === undefined) return `${pct(feeBps)} of what you put in and ${pct(profitFeeBps)} of the profit on every correct call are taken as fees, split between SKT holders and skech.`;
+  const weeks = terms.sktHalfLifeSecs ? Math.round(terms.sktHalfLifeSecs / 604_800) : null;
+  const s = terms.surplusHolderBps;
+  const surplus = s === undefined ? " Holders also share what the pool keeps beyond its reserve." : ` ${s / 100}% of the pool’s surplus above its reserve goes to SKT holders, ${100 - s / 100}% to skech.`;
+  const skt = ` Losing earns SKT.${surplus}${weeks ? ` SKT halves every ${weeks} weeks: keep playing to keep your share.` : ""}`;
+  return `A fee of ${pct(feeBps)} of what you put in: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of the profit on every correct call: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.${skt}`;
+}
+
 function pieceFor(ch: Chain, level: number, drawing: bigint, index: number, openAt: number, perDot: number, unit: number, quote: { price: string | number; time: string | number }, sections: ReturnType<typeof toSections>, stroke: Uint8Array) {
   const unitE8 = toE8(unit);
   const piece: SolanaPiece = {
@@ -349,6 +362,19 @@ export function InkScreen() {
     const t = setTimeout(() => setResult(null), result.won > result.cost ? 4200 : 2400);
     return () => clearTimeout(t);
   }, [result]);
+  /**
+   * SKT a round's misses minted, as the chain says it, by line; the rounds that came out behind; and the latest word,
+   * a quiet "+120 SKT" on the round's toast while it is up, or alone once it has gone, and only for a round that came
+   * out behind. A loss is never celebrated: no sound, no colour, no touch.
+   */
+  const mintedBy = useRef(new Map<string, number>());
+  const lostLines = useRef(new Set<string>());
+  const [sktNote, setSktNote] = useState<{ line: string; skt: number; lost: boolean } | null>(null);
+  useEffect(() => {
+    if (!sktNote) return;
+    const t = setTimeout(() => setSktNote(null), 2400);
+    return () => clearTimeout(t);
+  }, [sktNote]);
   const [fresh, setFresh] = useState(false);
   const me = useAccount();
   // The way in holds its ink over the screen until there are live prices to show, and it is known who is playing.
@@ -408,10 +434,13 @@ export function InkScreen() {
     // A paper run's price is its own, fixed for the run; the player's own pick waits for real play.
     g.perDot = paperOn ? PAPER_PER_DOT : state.perDot;
     setDifficulty(level, least);
+    // On chain, ink that would return more than the stake fee leaves is not offered: not on the map either.
+    const feeBps = real ? chain.hello?.terms?.feeBps : undefined;
+    setMaxReturn(feeBps === undefined ? 1 : 1 - feeBps / 10_000);
     if (g.field && g.field.rtp !== difficulty(level, least).rtp) g.field = null;
     g.pen = state.brush;
     g.cell = INK_CELL;
-  }, [state.perDot, state.brush, state.taught, level, least, paperOn]);
+  }, [state.perDot, state.brush, state.taught, level, least, paperOn, real, chain.hello?.terms?.feeBps]);
 
   /*
     Every tenth of a second: whether the prices are fresh, and the map for a drawing placed now, made a slice a
@@ -521,6 +550,11 @@ export function InkScreen() {
     if (onPaper) paperRun.current = tier ? paperRun.current + 1 : 0;
     const streak = onPaper ? paperRun.current : scoreboard().streak;
     setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false, best: t.best, streak });
+    if (!tier) {
+      lostLines.current.add(line);
+      if (lostLines.current.size > 64) lostLines.current.delete(lostLines.current.values().next().value!);
+      setSktNote((n) => (n && n.line === line ? { ...n, lost: true } : n));
+    }
     const hit = lastHit.current.get(line);
     lastHit.current.delete(line);
     if (tier) {
@@ -998,6 +1032,14 @@ export function InkScreen() {
         const key = betKeys.current.get(m.betId);
         const sent = key ? chainBets.current.get(key) : undefined;
         if (!sent || !key) return;
+        // What its misses minted, added to the round's.
+        const minted = Number(m.minted ?? 0);
+        if (minted > 0) {
+          const total = (mintedBy.current.get(sent.line) ?? 0) + minted;
+          mintedBy.current.set(sent.line, total);
+          if (mintedBy.current.size > 64) mintedBy.current.delete(mintedBy.current.keys().next().value!);
+          setSktNote({ line: sent.line, skt: total, lost: lostLines.current.has(sent.line) });
+        }
         const ch = chainRef.current;
         const i = g.bets.findIndex((b) => b.id === sent.id);
         if (i < 0) return;
@@ -1276,6 +1318,11 @@ export function InkScreen() {
                   {signed(overNet)}
                 </Text>
               )}
+              {!overWon && sktNote?.line === over.key ? (
+                <Text className="text-[12px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
+                  +{sktAmount(sktNote.skt)} SKT
+                </Text>
+              ) : null}
             </View>
           </Arrive>
         </View>
@@ -1286,6 +1333,14 @@ export function InkScreen() {
           <View accessibilityLiveRegion="polite" className="rounded-full border-[0.5px] border-border bg-raised px-3 py-1.5" style={raised}>
             <Text className="text-[12px] text-muted-foreground">
               {refusalLine(refused)} · <Text className="font-semibold text-foreground">{money(refused.back)} back</Text>
+            </Text>
+          </View>
+        </Arrive>
+      ) : sktNote?.lost && !preview && !over ? (
+        <Arrive key={`skt:${sktNote.line}`} motion={MOTION.pillUp} pointerEvents="none" style={{ position: "absolute", right: 16, bottom: bottom + 78, zIndex: 20 }}>
+          <View accessibilityLiveRegion="polite" className="rounded-full border-[0.5px] border-border bg-raised px-3 py-1.5" style={raised}>
+            <Text className="text-[12px] text-muted-foreground" style={{ fontVariant: ["tabular-nums"] }}>
+              +{sktAmount(sktNote.skt)} SKT
             </Text>
           </View>
         </Arrive>
@@ -1442,7 +1497,7 @@ export function InkScreen() {
           {paperOn
             ? `This practice run plays the real game\u2019s odds on paper money, with no fees and a cent a dot. Its paper money is gone when it ends.`
             : forReal
-            ? `${fees ? `skech keeps ${fees.feeBps / 100}% of what you put in and ${fees.profitFeeBps / 100}% of the profit on every correct call.` : "skech keeps a share of what you put in and of the profit on every correct call."} Profits are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
+            ? `${feesLine(fees)} Profits are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
             : "Your balance is practice money saved on this phone."}
         </Text>
       </Sheet>

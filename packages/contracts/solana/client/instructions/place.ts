@@ -77,6 +77,7 @@ export type PlaceInstruction<
   TAccountMarket extends string | AccountMeta<string> = string,
   TAccountBars extends string | AccountMeta<string> = string,
   TAccountPool extends string | AccountMeta<string> = string,
+  TAccountRewards extends string | AccountMeta<string> = string,
   TAccountPlayer extends string | AccountMeta<string> = string,
   TAccountBet extends string | AccountMeta<string> = string,
   TAccountInstructions extends string | AccountMeta<string> =
@@ -108,6 +109,9 @@ export type PlaceInstruction<
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
         : TAccountPool,
+      TAccountRewards extends string
+        ? WritableAccount<TAccountRewards>
+        : TAccountRewards,
       TAccountPlayer extends string
         ? WritableAccount<TAccountPlayer>
         : TAccountPlayer,
@@ -255,6 +259,7 @@ export type PlaceAsyncInput<
   TAccountMarket extends InstructionAccountInput = InstructionAccountInput,
   TAccountBars extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
   TAccountPlayer extends InstructionAccountInput = InstructionAccountInput,
   TAccountBet extends InstructionAccountInput = InstructionAccountInput,
   TAccountInstructions extends InstructionAccountInput =
@@ -270,6 +275,12 @@ export type PlaceAsyncInput<
   market: TAccountMarket;
   bars: TAccountBars;
   pool?: TAccountPool;
+  /**
+   * For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention.
+   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+   * one account with its owner and discriminator is the one.
+   */
+  rewards: TAccountRewards;
   player: TAccountPlayer;
   /** The new bet, at seeds [BET_SEED, player, drawing, index]: created here only if the piece goes in. */
   bet: TAccountBet;
@@ -301,6 +312,7 @@ export async function getPlaceInstructionAsync<
   TAccountMarket extends InstructionAccountInput,
   TAccountBars extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput,
   TAccountPlayer extends InstructionAccountInput,
   TAccountBet extends InstructionAccountInput,
   TAccountInstructions extends InstructionAccountInput,
@@ -314,6 +326,7 @@ export async function getPlaceInstructionAsync<
     TAccountMarket,
     TAccountBars,
     TAccountPool,
+    TAccountRewards,
     TAccountPlayer,
     TAccountBet,
     TAccountInstructions,
@@ -348,6 +361,10 @@ export async function getPlaceInstructionAsync<
       InstructionAccountInputAddress<TAccountPool>
     >,
     ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
+    >,
+    ResolvedInstructionAccountMeta<
       TAccountPlayer,
       InstructionAccountInputAddress<TAccountPlayer>
     >,
@@ -379,6 +396,11 @@ export async function getPlaceInstructionAsync<
     market: { value: input.market ?? null, isSigner: false, isWritable: false },
     bars: { value: input.bars ?? null, isSigner: false, isWritable: false },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
+    rewards: {
+      value: input.rewards ?? null,
+      isSigner: false,
+      isWritable: true,
+    },
     player: { value: input.player ?? null, isSigner: false, isWritable: true },
     bet: { value: input.bet ?? null, isSigner: false, isWritable: true },
     instructions: {
@@ -424,6 +446,7 @@ export async function getPlaceInstructionAsync<
       getAccountMeta("market", accounts.market),
       getAccountMeta("bars", accounts.bars),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("rewards", accounts.rewards),
       getAccountMeta("player", accounts.player),
       getAccountMeta("bet", accounts.bet),
       getAccountMeta("instructions", accounts.instructions),
@@ -460,6 +483,10 @@ export async function getPlaceInstructionAsync<
       InstructionAccountInputAddress<TAccountPool>
     >,
     ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
+    >,
+    ResolvedInstructionAccountMeta<
       TAccountPlayer,
       InstructionAccountInputAddress<TAccountPlayer>
     >,
@@ -485,6 +512,7 @@ export type PlaceInput<
   TAccountMarket extends InstructionAccountInput = InstructionAccountInput,
   TAccountBars extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput = InstructionAccountInput,
   TAccountPlayer extends InstructionAccountInput = InstructionAccountInput,
   TAccountBet extends InstructionAccountInput = InstructionAccountInput,
   TAccountInstructions extends InstructionAccountInput =
@@ -500,6 +528,12 @@ export type PlaceInput<
   market: TAccountMarket;
   bars: TAccountBars;
   pool: TAccountPool;
+  /**
+   * For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention.
+   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+   * one account with its owner and discriminator is the one.
+   */
+  rewards: TAccountRewards;
   player: TAccountPlayer;
   /** The new bet, at seeds [BET_SEED, player, drawing, index]: created here only if the piece goes in. */
   bet: TAccountBet;
@@ -531,6 +565,7 @@ export function getPlaceInstruction<
   TAccountMarket extends InstructionAccountInput,
   TAccountBars extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
+  TAccountRewards extends InstructionAccountInput,
   TAccountPlayer extends InstructionAccountInput,
   TAccountBet extends InstructionAccountInput,
   TAccountInstructions extends InstructionAccountInput,
@@ -544,6 +579,7 @@ export function getPlaceInstruction<
     TAccountMarket,
     TAccountBars,
     TAccountPool,
+    TAccountRewards,
     TAccountPlayer,
     TAccountBet,
     TAccountInstructions,
@@ -577,6 +613,10 @@ export function getPlaceInstruction<
     InstructionAccountInputAddress<TAccountPool>
   >,
   ResolvedInstructionAccountMeta<
+    TAccountRewards,
+    InstructionAccountInputAddress<TAccountRewards>
+  >,
+  ResolvedInstructionAccountMeta<
     TAccountPlayer,
     InstructionAccountInputAddress<TAccountPlayer>
   >,
@@ -607,6 +647,11 @@ export function getPlaceInstruction<
     market: { value: input.market ?? null, isSigner: false, isWritable: false },
     bars: { value: input.bars ?? null, isSigner: false, isWritable: false },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
+    rewards: {
+      value: input.rewards ?? null,
+      isSigner: false,
+      isWritable: true,
+    },
     player: { value: input.player ?? null, isSigner: false, isWritable: true },
     bet: { value: input.bet ?? null, isSigner: false, isWritable: true },
     instructions: {
@@ -646,6 +691,7 @@ export function getPlaceInstruction<
       getAccountMeta("market", accounts.market),
       getAccountMeta("bars", accounts.bars),
       getAccountMeta("pool", accounts.pool),
+      getAccountMeta("rewards", accounts.rewards),
       getAccountMeta("player", accounts.player),
       getAccountMeta("bet", accounts.bet),
       getAccountMeta("instructions", accounts.instructions),
@@ -682,6 +728,10 @@ export function getPlaceInstruction<
       InstructionAccountInputAddress<TAccountPool>
     >,
     ResolvedInstructionAccountMeta<
+      TAccountRewards,
+      InstructionAccountInputAddress<TAccountRewards>
+    >,
+    ResolvedInstructionAccountMeta<
       TAccountPlayer,
       InstructionAccountInputAddress<TAccountPlayer>
     >,
@@ -714,11 +764,17 @@ export type ParsedPlaceInstruction<
     market: TAccountMetas[3];
     bars: TAccountMetas[4];
     pool: TAccountMetas[5];
-    player: TAccountMetas[6];
+    /**
+     * For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention.
+     * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+     * one account with its owner and discriminator is the one.
+     */
+    rewards: TAccountMetas[6];
+    player: TAccountMetas[7];
     /** The new bet, at seeds [BET_SEED, player, drawing, index]: created here only if the piece goes in. */
-    bet: TAccountMetas[7];
-    instructions: TAccountMetas[8];
-    systemProgram: TAccountMetas[9];
+    bet: TAccountMetas[8];
+    instructions: TAccountMetas[9];
+    systemProgram: TAccountMetas[10];
   };
   data: PlaceInstructionData;
 };
@@ -731,12 +787,12 @@ export function parsePlaceInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedPlaceInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 10) {
+  if (instruction.accounts.length < 11) {
     throw new SolanaError(
       SOLANA_ERROR__PROGRAM_CLIENTS__INSUFFICIENT_ACCOUNT_METAS,
       {
         actualAccountMetas: instruction.accounts.length,
-        expectedAccountMetas: 10,
+        expectedAccountMetas: 11,
       },
     );
   }
@@ -755,6 +811,7 @@ export function parsePlaceInstruction<
       market: getNextAccount(),
       bars: getNextAccount(),
       pool: getNextAccount(),
+      rewards: getNextAccount(),
       player: getNextAccount(),
       bet: getNextAccount(),
       instructions: getNextAccount(),

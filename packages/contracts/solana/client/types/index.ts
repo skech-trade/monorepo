@@ -10,5 +10,6 @@ export * from "./bar";
 export * from "./barInput";
 export * from "./betSection";
 export * from "./config";
+export * from "./rewardsConfig";
 export * from "./sectionArg";
 export * from "./session";

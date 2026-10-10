@@ -10,8 +10,7 @@ describe("a settlement's compute", () => {
     const one = settleCompute(snapshot, true, [{ sections: 1, decided: 1 }]);
     const full = settleCompute(snapshot, true, [{ sections: 32, decided: 32 }]);
     expect(full).toBeGreaterThan(one + 31 * (snapshot.settle_section + snapshot.settle_decided));
-    // A holder to open, and one deep in its bump search, cost more (on a program with holders).
-    if (!snapshot.holder_open) return;
+    // A holder to open, and one deep in its bump search, cost more.
     const opening = settleCompute(snapshot, true, [{ sections: 1, decided: 1, openBump: 255 }]);
     expect(opening - one).toBeGreaterThanOrEqual(snapshot.holder_open);
     expect(settleCompute(snapshot, true, [{ sections: 1, decided: 1, openBump: 248 }]) - opening).toBeGreaterThanOrEqual(7 * snapshot.place_per_bump);
@@ -27,7 +26,7 @@ describe("a settlement's compute", () => {
     const bets = Array.from({ length: 9 }, () => ({ sections: 32, decided: 32, openBump: 248 }));
     const chunks = chunksFor(snapshot, true, bets, (b) => b, 9);
     // What LiteSVM measured them at (limits.rs `nine_dust_pieces_in_one_second_settle_within_the_budget`): under.
-    const parts = snapshot.post_bar + 9 * (snapshot.settle_bet + 32 * (snapshot.settle_section + snapshot.settle_decided)) + 9 * ((snapshot.holder_open ?? 0) + 7 * snapshot.place_per_bump);
+    const parts = snapshot.post_bar + 9 * (snapshot.settle_bet + 32 * (snapshot.settle_section + snapshot.settle_decided)) + 9 * (snapshot.holder_open + 7 * snapshot.place_per_bump);
     const asked = chunks.reduce((n, c, i) => n + settleCompute(snapshot, i === 0, c), 0);
     expect(asked).toBeGreaterThanOrEqual(parts);
     for (const [i, c] of chunks.entries()) expect(settleCompute(snapshot, i === 0, c)).toBeLessThan(MAX_CU);
