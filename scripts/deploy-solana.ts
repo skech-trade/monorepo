@@ -5,7 +5,7 @@
  *   bun run deploy:solana --mainnet        required as well on mainnet-beta: it spends real SOL
  *   bun run deploy:solana --skip-program   the program is already deployed: set the game up only
  *   bun run deploy:solana --set-config     also set the game's terms to the defaults (4% of stakes, 10% of profit), and SOLANA_CONFIG
- *   bun run deploy:solana --set-rewards    also set SKT's terms to the defaults (3 of the 4 points, 8 of the 10), and SOLANA_REWARDS_CONFIG
+ *   bun run deploy:solana --set-rewards    also set SKT's terms to the defaults (3 of the 4 points, 8 of the 10, 75% of the pool's surplus), and SOLANA_REWARDS_CONFIG
  *
  * A game without SKT (set up before it) is given it: `init_rewards` starts SKT and moves the game's fees to the
  * defaults in the same instruction, keeping its other terms (SOLANA_CONFIG and SOLANA_REWARDS_CONFIG apply). Until it
@@ -213,7 +213,7 @@ if (!skt.exists) {
   // SKT starts with the game's fees at the defaults, its other terms as they are: one instruction, never between.
   const config = terms("SOLANA_CONFIG", { ...(current ?? DEFAULT_CONFIG), feeBps: DEFAULT_CONFIG.feeBps, profitFeeBps: DEFAULT_CONFIG.profitFeeBps });
   const rewardsConfig = terms("SOLANA_REWARDS_CONFIG", DEFAULT_REWARDS_CONFIG);
-  await send(`SKT (${config.feeBps / 100}% of stakes, ${config.profitFeeBps / 100}% of profit; ${rewardsConfig.holderFeeBps} and ${rewardsConfig.holderProfitFeeBps} bps of them to holders)`, [
+  await send(`SKT (${config.feeBps / 100}% of stakes, ${config.profitFeeBps / 100}% of profit; ${rewardsConfig.holderFeeBps} and ${rewardsConfig.holderProfitFeeBps} bps of them, and ${rewardsConfig.surplusHolderBps / 100}% of the pool's surplus, to holders)`, [
     getInitRewardsInstruction({ admin: deployer, game, rewards, config, rewardsConfig }),
   ]);
 } else {

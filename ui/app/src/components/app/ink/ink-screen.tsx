@@ -212,7 +212,9 @@ const feesLine = (terms: Hello["terms"] | undefined) => {
 /** How SKT is earned and kept, in the game's own numbers. */
 const sktLine = (terms: NonNullable<Hello["terms"]>) => {
   const weeks = terms.sktHalfLifeSecs ? Math.round(terms.sktHalfLifeSecs / 604_800) : null;
-  return ` Losing earns SKT. Holders also share what the pool keeps beyond its reserve.${weeks ? ` SKT halves every ${weeks} weeks: keep playing to keep your share.` : ""}`;
+  const s = terms.surplusHolderBps;
+  const surplus = s === undefined ? " Holders also share what the pool keeps beyond its reserve." : ` ${s / 100}% of the pool’s surplus above its reserve goes to SKT holders, ${100 - s / 100}% to skech.`;
+  return ` Losing earns SKT.${surplus}${weeks ? ` SKT halves every ${weeks} weeks: keep playing to keep your share.` : ""}`;
 };
 
 /** A price with its cents quieter than its dollars. */

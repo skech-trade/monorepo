@@ -335,7 +335,8 @@ all addresses of the program:
   set (`set_config`): 4% of every stake and 10% of every profit (devnet charged 1% and 5% from 10 October 2026
   until SKT starts on it, which moves it back). Of those, 3 of the 4 points and 8 of the 10 go to SKT holders
   (below), 1 and 2 to the treasury; `collect_fees` moves the treasury's out. What the pool holds over a reserve
-  and over what every live bet could pay goes to SKT holders too (`share_surplus`, below). Nothing else.
+  and over what every live bet could pay goes 75% to SKT holders and 25% to the treasury (`share_surplus`, below).
+  Nothing else.
 - **`Market`** and **`Bars`**: each market's difficulty, and a ring of its last 240 seconds of price. The
   ladder is computed in the program (`ladder.rs`, the same integers as `chain.ts`, checked row for row
   against `@skech/core`), so the oracle cannot pay a band more than its chance earns at the difficulty on
@@ -513,8 +514,9 @@ so nobody pays a fee to move nothing (the relayer never builds one).
 
 **The pool's surplus.** The pool pays every hit, and the house's edge stays in it: nothing else ever took it out.
 `share_surplus` (anyone may send it; the relayer does on its five-minute sweep, once there is $10 to share) moves what
-the pool holds over **the reserve plus the most every live bet could pay** into the holders' accumulator, as a fee's
-share is. Every placement adds what its bands could pay if every one hit to `Rewards::liability`, and every settlement
+the pool holds over **the reserve plus the most every live bet could pay** out of it: `surplus_holder_bps` of it (75%,
+rounded down) into the holders' accumulator, as a fee's share is, and the rest (25%, the rounding with it) to the
+treasury. The admin may set the split anywhere from 0 to 10,000 bps. Every placement adds what its bands could pay if every one hit to `Rewards::liability`, and every settlement
 takes away what it decides, so after a share the pool still holds every live band's worst plus the reserve. It never
 runs while anything is owed as IOU (or to the house), nor in the first four minutes after SKT starts, while bets placed
 before it (not counted) can still be decided. The reserve (`surplus_reserve`) is the admin's, never under the most one
@@ -542,8 +544,7 @@ little SKT, whichever is more; what would pass it is not minted, though the trac
 The floor (`cap_floor`, 1M SKT) is SKT as if minted when SKT started and held by nobody: it decays as every SKT does,
 so it lets the first players mint (up to 100,000 SKT each) and then fades. And every share is counted against the
 larger of all shares and the floor's: what a wallet is paid is at most 10% of anything shared, its own fees and losses
-coming back to it through the pool included; what the floor keeps from holders goes to the treasury (or, of a surplus,
-stays in the pool). One check per mint and per share. It does not stop a player with many wallets: a sybil whale is
+coming back to it through the pool included; what the floor keeps from holders goes to the treasury. One check per mint and per share. It does not stop a player with many wallets: a sybil whale is
 capped at 10% per wallet, not in all.
 
 **Invariants**, checked after every step of random games in the program's tests:
@@ -572,15 +573,19 @@ the old scale's curve, and a new scale would mint the next dollar as if the curv
   10% of it.
 - A dust IOU changes nothing: the mint is the curve's integral from `G`, IOUs or not, and splitting a loss mints the
   same.
-- A whale that keeps itself at the cap, losing every day on its best strategy as others play near the price, gets back
-  0.95 to 0.99 of what it loses over one to five years at $100k to $10M a day; at most about 9% of its cost comes back
-  from its own play (the cap). Against others who play mostly long shots (whose quoted chance runs a little high, so
-  they lose more than their basis), it gets back 1.13 to 1.17: holders are paid (loss − treasury) per dollar of
-  others' basis, and that is over a dollar for them. Sending a quarter of the pool's surplus to the treasury (75% to
-  holders) brings every mix under 1 (0.82 near the price, 0.95 long shots, 0.85 everything offered). That parameter
-  is still open, and not set here.
+- A whale that keeps itself at the cap, losing every day on its best strategy as others play, never gets back what it
+  loses: over one to five years at $100k to $10M a day it gets back 0.64 to 0.82 when others play near the price, 0.76
+  to 0.85 when they play everything offered, and 0.79 to 0.95 when they play mostly long shots (whose quoted chance
+  runs a little high, so they lose more than their basis); the worst case found is 0.955, long shots at $3M a day for
+  five years. Holders are paid (loss − treasury) per dollar of others' basis; with all of the surplus to holders that
+  came to over a dollar against long shots (1.13 to 1.17 back), and the treasury's quarter of the surplus is what
+  brings it under. At most about 8% of a capped whale's cost comes back from its own play. Holders take about 0.21 a
+  dollar staked near the price once the pool is over its reserve (0.26 against long shots, 0.42 everything offered),
+  and the treasury about 0.067 (0.082, 0.138).
 - A whale losing early, at G = 0, mints at most 100,000 SKT (10% of the floor), for $961 of real loss; beyond that an
-  early loss mints nothing until others hold SKT.
+  early loss mints nothing until others hold SKT. Those first 100,000 SKT are the curve's early rate at work, not the
+  cap failing: they pay many times their cost if the game grows (8× in a year at $100k a day), while $100k lost early
+  gets back 0.09 in a year at $100k a day and 0.96 at $1M.
 - Decay and the curve together: at $1M a day near the price, players who lost in the first year hold 97% of all SKT
   (decayed) after two years, 84% after four and 47% after six: with S = $1M the curve falls faster than a 26-week
   half-life for the first years, and decay wins after.

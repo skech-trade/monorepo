@@ -137,7 +137,9 @@ function feesLine(terms: Hello["terms"] | undefined) {
   const { feeBps, profitFeeBps, holderFeeBps: h, holderProfitFeeBps: hp } = terms;
   if (h === undefined || hp === undefined) return `${pct(feeBps)} of what you put in and ${pct(profitFeeBps)} of the profit on every correct call are taken as fees, split between SKT holders and skech.`;
   const weeks = terms.sktHalfLifeSecs ? Math.round(terms.sktHalfLifeSecs / 604_800) : null;
-  const skt = ` Losing earns SKT. Holders also share what the pool keeps beyond its reserve.${weeks ? ` SKT halves every ${weeks} weeks: keep playing to keep your share.` : ""}`;
+  const s = terms.surplusHolderBps;
+  const surplus = s === undefined ? " Holders also share what the pool keeps beyond its reserve." : ` ${s / 100}% of the pool’s surplus above its reserve goes to SKT holders, ${100 - s / 100}% to skech.`;
+  const skt = ` Losing earns SKT.${surplus}${weeks ? ` SKT halves every ${weeks} weeks: keep playing to keep your share.` : ""}`;
   return `A fee of ${pct(feeBps)} of what you put in: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of the profit on every correct call: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.${skt}`;
 }
 
