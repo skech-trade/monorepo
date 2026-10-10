@@ -12,7 +12,7 @@ export function StorySection({
   titleId: string;
   title: string;
   lead: string;
-  scene: "steps" | "example" | "redraw";
+  scene: "steps" | "example";
   overview?: boolean;
 }) {
   return (

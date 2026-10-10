@@ -4,7 +4,6 @@ import { Faq } from "@/components/site/faq";
 import { SiteFooter } from "@/components/site/footer";
 import { Hero } from "@/components/site/hero";
 import { HowItWorks } from "@/components/site/how-it-works";
-import { Redraw } from "@/components/site/redraw";
 import { RevealBand } from "@/components/site/reveal-band";
 import { WorkedExample } from "@/components/site/worked-example";
 import { SiteNav } from "@/components/site/nav";
@@ -25,7 +24,6 @@ export default function HomePage() {
         <StoryStack>
           <HowItWorks />
           <WorkedExample />
-          <Redraw />
         </StoryStack>
         <RevealBand />
         <Features />
