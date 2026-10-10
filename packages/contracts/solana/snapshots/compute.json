@@ -1,9 +1,13 @@
 {
-  "place_1": 24018,
-  "place_16": 44129,
-  "place_32": 65415,
-  "place_8": 33410,
+  "place_1": 30319,
+  "place_16": 57219,
+  "place_32": 85685,
+  "place_8": 42882,
   "place_per_bump": 1500,
-  "post_and_settle_4_mixed": 77287,
-  "post_bar": 13351
+  "post_and_settle_4_mixed": 87434,
+  "post_bar": 15920,
+  "settle_base": 10067,
+  "settle_bet": 3489,
+  "settle_decided": 274,
+  "settle_section": 996
 }

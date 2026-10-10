@@ -350,6 +350,11 @@ impl Game {
     }
 
     pub fn post_and_settle(&mut self, second: i64, prev_close: u64, high: u64, low: u64, close: u64, bets: &[(Pubkey, Pubkey)]) -> Result<TransactionMetadata, FailedTransactionMetadata> {
+        let ix = self.post_and_settle_ix(second, prev_close, high, low, close, bets);
+        self.send(&[ix], &[])
+    }
+
+    pub fn post_and_settle_ix(&self, second: i64, prev_close: u64, high: u64, low: u64, close: u64, bets: &[(Pubkey, Pubkey)]) -> Instruction {
         let mut ix = self.ix(
             skech::accounts::PostBarAndSettle { oracle: self.relayer.pubkey(), game: game_pda(), market_account: market_pda(0), bars: bars_pda(0), pool: pool_pda(), rent_receiver: self.relayer.pubkey() },
             skech::instruction::PostBarAndSettle { market: 0, bar: skech::instructions::BarInput { second, prev_close, high, low, close } },
@@ -358,6 +363,6 @@ impl Game {
             ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(*bet, false));
             ix.accounts.push(anchor_lang::solana_program::instruction::AccountMeta::new(player_pda(wallet), false));
         }
-        self.send(&[ix], &[])
+        ix
     }
 }
