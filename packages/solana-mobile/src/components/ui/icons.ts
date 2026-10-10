@@ -3,6 +3,7 @@
   the bundle, every one evaluated at launch).
 */
 export { default as ActivityIcon } from "lucide-react-native/icons/activity";
+export { default as ArrowDownLeftIcon } from "lucide-react-native/icons/arrow-down-left";
 export { default as ArrowLeftIcon } from "lucide-react-native/icons/arrow-left";
 export { default as ArrowUpRightIcon } from "lucide-react-native/icons/arrow-up-right";
 export { default as CheckIcon } from "lucide-react-native/icons/check";
