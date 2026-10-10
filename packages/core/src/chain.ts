@@ -37,6 +37,15 @@ export const GRID = 50;
 export const LATE_MS = 200;
 export const E8 = 100_000_000n;
 export const E6 = 1_000_000n;
+/**
+ * The least one piece may stake, USDC e6: 10¢. Each piece is a Solana transaction the relayer pays for (about
+ * 7,100 lamports with its share of settling, under a tenth of a cent), and only the stake fee pays it back:
+ * at 1% of 10¢ it does, and ink drawn in crumbs costs whoever draws it more than it costs the game. The
+ * relayer's own figure (SOLANA_MIN_PIECE_STAKE) comes in its hello's terms; this is its default.
+ */
+export const MIN_PIECE_STAKE_E6 = 100_000n;
+/** The same, in dollars. */
+export const MIN_PIECE_STAKE = Number(MIN_PIECE_STAKE_E6) / 1e6;
 
 /* ------------------------------------------------------------------ */
 /* The ladder, in integers, as the chain computes it                   */
@@ -252,6 +261,27 @@ export function toSections(cells: Cell[], openAt: number, perDotE6: bigint, unit
 
 /** The stake a set of sections puts up, USDC e6. */
 export const stakeOf = (sections: Section[]) => sections.reduce((n, s) => n + s.stake, 0n);
+
+/**
+ * Where to cut ink held back from the chain so that no piece stakes under `least`, and the end of a line,
+ * however short, always has held ink to go with. `marks` are the line as it stood at earlier reads since the
+ * last piece went (`prev`, null before the first), oldest first; `areaOf` the dots a line covers on the
+ * opening a piece placed now gets (null: none). The cut is at the latest mark with at least `least` drawn
+ * after it, if the ink up to it stakes `least` too; -1 holds it all for now.
+ */
+export function cutAt<S>(prev: S | null, marks: readonly S[], now: S, areaOf: (s: S | null) => number, perDotE6: bigint, least: bigint): number {
+  const stake = (from: number, to: number) => (perDotE6 * BigInt(Math.floor(Math.max(0, to - from) * 1e9))) / 1_000_000_000n;
+  const end = areaOf(now);
+  for (let j = marks.length - 1; j >= 0; j--) {
+    const at = areaOf(marks[j]);
+    if (stake(at, end) < least) continue;
+    return stake(areaOf(prev), at) >= least ? j : -1;
+  }
+  return -1;
+}
+
+/** A stake in USDC e6 as the apps and the relayer say it: "$0.10". */
+export const usdE6 = (e6: bigint) => `$${(Number(e6) / 1e6).toFixed(2)}`;
 
 /* ------------------------------------------------------------------ */
 /* Strokes, as bytes                                                   */
