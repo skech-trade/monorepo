@@ -500,10 +500,12 @@ export function InkScreen() {
     game.current.viewport = size;
   }, []);
   const settledTotals = useRef({ committed: 0, returned: 0 });
-  const [totals, setTotals] = useState(() => liveInkTotals([]));
+  // Only what the "Earned" figure shows: what is staked moves with every piece placed, and the screen need not render for it.
+  const [totals, setTotals] = useState({ batch: false, returned: 0 });
   const updateTotals = useCallback(() => {
     const next = liveInkTotals(game.current.bets, settledTotals.current);
-    setTotals((previous) => (previous.committed === next.committed && previous.returned === next.returned && previous.settledCost === next.settledCost && previous.drawings === next.drawings ? previous : next));
+    const batch = next.drawings > 0 || next.committed > 0;
+    setTotals((previous) => (previous.batch === batch && previous.returned === next.returned ? previous : { batch, returned: next.returned }));
   }, []);
 
   useEffect(() => {
@@ -1267,7 +1269,7 @@ export function InkScreen() {
   const overNet = over ? cents(over.won - over.cost) : 0;
   const overWon = overNet > 0;
   const overBig = over ? overWon && (over.won >= over.cost * 3 || (over.best ?? 0) >= 10) : false;
-  const showingBatch = totals.drawings > 0 || totals.committed > 0;
+  const showingBatch = totals.batch;
   const displayedWon = forReal && !real ? 0 : showingBatch ? totals.returned : board.won;
   const pillTop = top + 116;
   /** On a paper run its clock takes the stroke pill's place, and what would be there sits under it. */
