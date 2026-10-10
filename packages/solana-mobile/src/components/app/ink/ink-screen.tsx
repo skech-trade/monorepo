@@ -3,9 +3,10 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "@/components/ui/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, stepFor } from "@skech/core/dots";
+import { canDraw, levelFor, PAPER_DIFFICULTY, paperResult } from "@skech/core/paper";
 import { areaCostOf, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
 import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
 import { encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor } from "@skech/core/chain";
@@ -15,10 +16,12 @@ import { useGate } from "@/components/app/gate";
 import { BitcoinMark, Button, Popover, raised, Sheet, Spinner, Switch, useColors } from "@/components/ui";
 import { hasAuth } from "@/lib/config";
 import { useEngine } from "@/lib/engine";
+import { track } from "@/lib/analytics";
 import { feel } from "@/lib/feel";
 import { FieldMaker } from "@/lib/field";
 import { library } from "@/lib/library";
 import { money, signed } from "@/lib/money";
+import { endPaperRun, paper, paperCredit, paperDebit, paperDrew, paperTick, pausePaperRun, resumePaperRun, startPaperRun, usePaper, usePaperPhase } from "@/lib/paper";
 import { cents, practice, record, setPractice, usePractice } from "@/lib/practice";
 import { type Incoming } from "@/lib/relayer";
 import { scoreboard, useScoreboard } from "@/lib/scoreboard";
@@ -166,6 +169,74 @@ function NavRow({ children, trailing, onPress, destructive }: { children: string
   );
 }
 
+/** The paper run's money, where the balance would be: "Paper money", never "Balance". */
+function PaperMoney({ gained }: { gained: boolean }) {
+  const run = usePaper();
+  if (!run) return null;
+  return (
+    <View className="flex-row items-center gap-[14px]">
+      <View accessibilityLabel={`Paper money ${money(run.balance)}, not real`} className="items-end">
+        <Text className="text-[12px] text-muted-foreground">Paper money</Text>
+        <Bump on={gained}>
+          <Text className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
+            {money(run.balance)}
+          </Text>
+        </Bump>
+        <Ledger />
+      </View>
+      <View className="items-end">
+        <Text className="text-[12px] text-muted-foreground">Earned</Text>
+        <Text className={cn("font-semibold text-[16px]", run.won > 0 ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
+          {run.won > 0 ? `+${money(run.won)}` : money(0)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/** The paper run's clock, at the stroke pill's place, always on screen while it runs, and urgent in its last seconds; the web's `PaperClock`. */
+function PaperClock({ top }: { top: number }) {
+  const run = usePaper();
+  if (!run || run.phase === "over") return null;
+  return (
+    <View className="absolute inset-x-0 z-20 items-center" pointerEvents="none" style={{ top }}>
+      <Arrive motion={MOTION.pillIn}>
+        <View className={cn("flex-row gap-1.5 rounded-full border-[0.5px] bg-raised px-4 py-2", run.urgent ? "border-destructive-foreground" : "border-border")} style={raised}>
+          <Text className={cn("min-w-[30px] font-semibold text-[13px]", run.urgent ? "text-destructive-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
+            {run.clock}
+          </Text>
+          <Text className={cn("text-[13px]", run.urgent ? "text-destructive-foreground" : "text-muted-foreground")}>· Practice · easier odds than real play</Text>
+        </View>
+      </Arrive>
+    </View>
+  );
+}
+
+/** The end of a paper run: what it came to, and the two ways on, on the way-in card (onboarding.tsx). */
+function PaperEnd({ onSignIn, onAgain }: { onSignIn: () => void; onAgain: () => void }) {
+  const run = usePaper();
+  const dark = useDark();
+  if (!run || run.phase !== "over") return null;
+  const { headline } = paperResult(run, money);
+  return (
+    <View accessibilityLabel="Your practice run" className="absolute inset-0 z-30 items-center justify-center px-4">
+      <BlurView intensity={60} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }} tint={dark ? "dark" : "light"} />
+      <Arrive motion={MOTION.cardIn} style={{ width: "100%", alignItems: "center" }}>
+        <View className="w-full max-w-[360px] rounded-[28px] bg-raised p-6" style={raised}>
+          <Text className="font-semibold text-[22px] text-foreground">{headline}</Text>
+          <Text className="mt-1.5 text-[15px] text-muted-foreground">Practice money on the live Bitcoin price, with easier odds than real play.</Text>
+          <Button className="mt-5" onPress={onSignIn}>
+            Sign in to play for real
+          </Button>
+          <Button className="mt-2" onPress={onAgain} variant="secondary">
+            Try again
+          </Button>
+        </View>
+      </Arrive>
+    </View>
+  );
+}
+
 export function InkScreen() {
   const feed = useEngine();
   const feedRef = useRef(feed);
@@ -210,7 +281,15 @@ export function InkScreen() {
   }, [returnedInk]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const dark = useDark();
-  const level = real && chain.hello?.difficulty !== null && chain.hello?.difficulty !== undefined ? chain.hello.difficulty : (state.houseDifficulty ?? DIFFICULTY);
+  /*
+    A paper run: "Try it free", signed out, on paper money held only in memory (lib/paper.ts). Its ink is priced,
+    judged and paid here, as practice is, and never goes near the relayer: it can only be drawn signed out, where
+    there is no session to send it with, and signing in throws it away.
+  */
+  const paperPhase = usePaperPhase();
+  const paperOn = paperPhase !== null && !real;
+  // On chain, the game's; on a paper run, its own easier one; else the house's or the game's own. Only paper goes under 50.
+  const { level, least } = levelFor({ paper: paperOn, chain: real ? (chain.hello?.difficulty ?? null) : null, house: state.houseDifficulty });
   const [live, setLive] = useState(0);
   const [result, setResult] = useState<{ key: string; won: number; cost: number; hits: number; points: number; voided: boolean; best?: number; streak?: number } | null>(null);
   useEffect(() => {
@@ -259,11 +338,11 @@ export function InkScreen() {
   useEffect(() => {
     const g = game.current;
     g.perDot = state.perDot;
-    setDifficulty(level);
-    if (g.field && g.field.rtp !== difficulty(level).rtp) g.field = null;
+    setDifficulty(level, least);
+    if (g.field && g.field.rtp !== difficulty(level, least).rtp) g.field = null;
     g.pen = state.brush;
     g.cell = INK_CELL;
-  }, [state.perDot, state.brush, state.taught, level]);
+  }, [state.perDot, state.brush, state.taught, level, least]);
 
   /*
     Every tenth of a second: whether the prices are fresh, and the map for a drawing placed now, made a slice a
@@ -286,7 +365,7 @@ export function InkScreen() {
         asked = "";
         return;
       }
-      if (Math.abs(fl.step - g.priceStep * g.cell) > 1e-9 || fl.rtp !== difficulty(level).rtp || fl.edgeCells !== INK_EDGE_CELLS) return;
+      if (Math.abs(fl.step - g.priceStep * g.cell) > 1e-9 || fl.rtp !== difficulty(level, least).rtp || fl.edgeCells !== INK_EDGE_CELLS) return;
       g.field = fl;
     });
     maker.current = m;
@@ -318,7 +397,7 @@ export function InkScreen() {
       if (key !== asked) {
         asked = key;
         pendingId = ++requestId.current;
-        m.ask({ id: pendingId, f, at, step: size, cell: g.cell, difficulty: level });
+        m.ask({ id: pendingId, f, at, step: size, cell: g.cell, difficulty: level, least });
       }
     };
     tick();
@@ -334,7 +413,7 @@ export function InkScreen() {
       m.stop();
       maker.current = null;
     };
-  }, [connected, lib, level]);
+  }, [connected, lib, level, least]);
 
   const lines = useRef(new Map<string, { at: number; open: number; won: number; cost: number; hits: number; points: number; best: number }>());
   const drawing = useRef(new Map<string, { prev: Stroke | null; area: number; charged: number; at: number; pieces: number }>());
@@ -352,8 +431,10 @@ export function InkScreen() {
     payouts.current.delete(line);
     if (paidOut) t.won = paidOut.credited;
     if (!t.points) return setResult({ key: line, won: 0, cost: 0, hits: 0, points: 0, voided: true });
-    record({ id: line, at: t.at, cost: cents(t.cost), won: cents(t.won), hits: t.hits, dots: t.points, best: t.best });
-    const streak = scoreboard().streak;
+    // Paper rounds stay out of the session's books: those are the player's own.
+    const onPaper = paper() !== null && !chainRef.current.real;
+    if (!onPaper) record({ id: line, at: t.at, cost: cents(t.cost), won: cents(t.won), hits: t.hits, dots: t.points, best: t.best });
+    const streak = onPaper ? 0 : scoreboard().streak;
     setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false, best: t.best, streak });
     const ratio = t.cost > 0 ? t.won / t.cost : 1;
     if (t.won > t.cost) feel(ratio >= 5 ? "great" : "win", { ratio });
@@ -436,6 +517,8 @@ export function InkScreen() {
     if (!latest || !lib) return;
     const nowMs = Date.now() + skew;
     let credit = 0;
+    /** What of `credit` hits paid, for a paper run's "Earned". */
+    let paidOut = 0;
     if (!restored.current && bars.length > 300) {
       restored.current = true;
       const firstBar = bars[0].t + 5000;
@@ -498,6 +581,7 @@ export function InkScreen() {
             const due = Math.max(0, Math.floor(acc.raw * 100 + 1e-8) / 100 - acc.credited);
             acc.credited = cents(acc.credited + due);
             credit += due;
+            paidOut += due;
             const paid = Math.floor((won(bet) - won(before)) * 100 + 1e-8) / 100;
             const best = Math.max(...hitNow.map((d) => d.multiple * (isArea(bet.model) ? d.area : 1)));
             const lo = Math.min(...hitNow.map((d) => d.lo));
@@ -545,15 +629,19 @@ export function InkScreen() {
       }
       g.bets[i] = bet;
     }
+    // Paper ink exists only while signed out with a run on (it is thrown away at sign-in), so its money goes back to the run.
+    const onPaper = paper() !== null && !chainRef.current.real;
     if (credit) {
       if (chainRef.current.real) chainRef.current.nudge(credit);
+      else if (onPaper) paperCredit(credit, paidOut);
       else setPractice((s) => ({ balance: cents(s.balance + credit) }));
     }
     if (credit > 0) {
       setGained(performance.now());
       addChange(cents(credit), "win");
     }
-    if ((changed || credit) && !chainRef.current.real) setPractice({ open: g.bets.filter((b) => !decided(b)) });
+    // Practice drawings are kept for the next launch; paper ones are not, and must never come back as practice.
+    if ((changed || credit) && !chainRef.current.real && !onPaper) setPractice({ open: g.bets.filter((b) => !decided(b)) });
     setLive(new Set(g.bets.filter((b) => !decided(b)).map((b) => b.group ?? b.id)).size);
     g.bets = g.bets.filter((b) => !decided(b) || b.cells.some((d) => d.t + 3000 > nowMs));
     updateTotals();
@@ -570,14 +658,20 @@ export function InkScreen() {
         drawing.current.delete(line);
         closeLine(line);
       };
+      const ch = chainRef.current;
+      // A paper run takes ink only while its clock runs: at zero the stroke ends where it is, and what is in play settles.
+      const onPaper = forReal && !ch.real && paper() !== null;
+      if (onPaper && !canDraw(paper(), performance.now())) {
+        finish();
+        return { stop: "Time\u2019s up" };
+      }
       const t0 = performance.now();
       if (!done && t0 - d.at < 150) return null;
       d.at = t0;
       const settings = g.drawing ?? { step: g.step, priceStep: g.priceStep, perDot: practice().perDot };
       const placedAt = Date.now() + g.skew;
       const snap: Stroke = { ...stroke, pts: stroke.pts.slice() };
-      const ch = chainRef.current;
-      if (forReal && !ch.real) return ch.player ? "Connecting…" : "Sign in to play";
+      if (forReal && !ch.real && !onPaper) return ch.player ? "Connecting…" : "Sign in to play";
       if (ch.real && !ch.sessionOk) return "Getting ready, one moment";
       const bet = placeInk(snap, d.prev, settings.perDot, settings.priceStep, placedAt + g.placeLead, `${line}:${d.pieces}`, line, INK_EDGE_CELLS);
       if (!bet) {
@@ -614,6 +708,11 @@ export function InkScreen() {
         ch.nudge(-charge);
         sendPiece(ch, signedPiece, strokeBytes, quote.signature, (why) => letGo(key, why));
       }
+      // Paper money runs out as real money does: the line ends where it can no longer be paid for.
+      if (onPaper && !paperDebit(charge)) {
+        finish();
+        return { stop: "Paper money used up" };
+      }
       bet.charged = charge;
       addChange(-charge, "stake");
       if (!drawing.current.has(line)) drawing.current.set(line, d);
@@ -621,12 +720,13 @@ export function InkScreen() {
       d.area = area;
       d.charged = cents(d.charged + charge);
       d.pieces++;
+      if (d.pieces === 1 && onPaper) paperDrew();
       if (!g.bets.some((b) => !decided(b))) settledTotals.current = { committed: 0, returned: 0 };
       tally(line, bet.placedAt).open++;
       g.bets.push(bet);
       updateTotals();
       // Once: each call writes the whole practice state to storage and re-renders everyone reading it.
-      if (ch.real) {
+      if (ch.real || onPaper) {
         if (!practice().taught) setPractice({ taught: true });
       }
       else setPractice((st) => ({ balance: cents(st.balance - charge), taught: true, open: g.bets.filter((b) => !decided(b)) }));
@@ -732,6 +832,52 @@ export function InkScreen() {
     };
   }, [real, chain.client, letGo, updateTotals]);
 
+  /*
+    The paper run's clock: moved on a few times a second, with whether any of its ink is still out, so at zero it
+    stops taking ink, waits for what is in play to settle, and shows the end card once it has. In the background the
+    clock stops where it is, and goes on from there when the app is back: thirty seconds on screen.
+  */
+  useEffect(() => {
+    if (!paperOn) return;
+    const tick = () => paperTick(game.current.bets.some((b) => !decided(b)) || drawing.current.size > 0);
+    const shown = (s: string) => (s === "active" ? resumePaperRun() : pausePaperRun());
+    shown(AppState.currentState);
+    tick();
+    const timer = setInterval(tick, 200);
+    const sub = AppState.addEventListener("change", shown);
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, [paperOn]);
+  useEffect(() => {
+    if (paperPhase !== "over") return;
+    const run = paper();
+    if (run) track("paper_ended", { pnl: paperResult(run, money).pnl, drawings: run.drawings, ended: "time" });
+  }, [paperPhase]);
+  /*
+    Signing in, during a run or after it, ends it: the paper ink still out is thrown away here, unpaid, so none of it
+    is ever judged or paid once the real balance has taken over. Signed out there is nothing else on the chart.
+  */
+  useEffect(() => {
+    const run = paper();
+    if (!me.signedIn || !run) return;
+    if (run.phase !== "over") track("paper_ended", { pnl: paperResult(run, money).pnl, drawings: run.drawings, ended: "signed_in" });
+    game.current.bets = [];
+    lines.current.clear();
+    drawing.current.clear();
+    payouts.current.clear();
+    settledTotals.current = { committed: 0, returned: 0 };
+    // What is in play is counted again on the next trade, from the chart now emptied.
+    updateTotals();
+    endPaperRun();
+  }, [me.signedIn, updateTotals]);
+  const startPaper = (again: boolean) => {
+    track(again ? "paper_again" : "paper_started");
+    setResult(null);
+    startPaperRun();
+  };
+
   const painted = useRef(0);
   const onPreview = useCallback((p: Preview | null) => {
     setPreview(p);
@@ -768,6 +914,8 @@ export function InkScreen() {
   const showingBatch = totals.drawings > 0 || totals.committed > 0;
   const displayedWon = forReal && !real ? 0 : showingBatch ? totals.returned : board.won;
   const pillTop = top + 116;
+  /** On a paper run its clock takes the stroke pill's place, and what would be there sits under it. */
+  const clockRoom = 46;
   // What skech keeps, as the relayer says it; nothing numeric until it has.
   const fees = chain.hello?.terms ?? null;
   // The balance, green and a little larger for a moment when money comes back, and what just moved it under it.
@@ -810,7 +958,9 @@ export function InkScreen() {
               {price ? <Price className={cn("font-bold text-foreground", width < 430 ? "text-[21px]" : "text-[24px]")} value={price} /> : <View className="my-[3px] h-6 w-32 rounded-md bg-muted" />}
             </View>
           </Pressable>
-          {forReal && (!me.ready || !me.signedIn || onboarding.step === "connecting") ? null : (
+          {paperOn && !me.signedIn ? (
+            <PaperMoney gained={gained > 0} />
+          ) : forReal && (!me.ready || !me.signedIn || onboarding.step === "connecting") ? null : (
             <View className="flex-row items-center gap-[14px]">
               {/* The one balance on screen. Playing for real it opens the wallet: deposit, withdraw. */}
               {real ? (
@@ -842,8 +992,9 @@ export function InkScreen() {
         </View>
       ) : null}
 
+      {paperOn ? <PaperClock top={top + 112} /> : null}
       {preview ? (
-        <View className="absolute inset-x-0 z-20 items-center" pointerEvents="none" style={{ top: top + 112 }}>
+        <View className="absolute inset-x-0 z-20 items-center" pointerEvents="none" style={{ top: top + 112 + (paperOn ? clockRoom : 0) }}>
           <Arrive motion={MOTION.pillIn}>
             <View className="flex-row gap-4 rounded-full border-[0.5px] border-border bg-raised px-4 py-2" style={raised}>
               {preview.inPlay.length ? (
@@ -861,6 +1012,12 @@ export function InkScreen() {
             </View>
           </Arrive>
         </View>
+      ) : paperOn ? (
+        !state.taught && fresh && paperPhase === "running" ? (
+          <Pill top={pillTop + clockRoom}>
+            <Text className="font-semibold text-[15px] text-foreground">Draw to the right of the line</Text>
+          </Pill>
+        ) : null
       ) : connecting ? null : onboarding.step ? (
         <Onboarding {...onboarding} top={pillTop} />
       ) : !state.taught && fresh ? (
@@ -905,14 +1062,27 @@ export function InkScreen() {
         </View>
       </Arrive>
 
-      {/* Signed out: the game plays on behind, blurred, and the only thing to do is sign in. A tap anywhere opens it. */}
-      {forReal && me.ready && !me.signedIn ? (
-        <Pressable className="absolute inset-0 z-30 items-center justify-center" onPress={() => gate.openSignIn("overlay")}>
+      {/* Signed out: the game plays on behind, blurred. Signing in is the way to play; a tap anywhere opens it. Or
+          thirty seconds on paper money first, to feel the game before signing in for it. */}
+      {forReal && me.ready && !me.signedIn && !paperOn ? (
+        <Pressable className="absolute inset-0 z-30 items-center justify-center gap-2" onPress={() => gate.openSignIn("overlay")}>
           <BlurView intensity={60} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }} tint={dark ? "dark" : "light"} />
           <Button className="px-6" onPress={() => gate.openSignIn("overlay")}>
             Sign in to play
           </Button>
+          <Button className="px-6" onPress={() => startPaper(false)} variant="secondary">
+            Try it free · 30 seconds
+          </Button>
         </Pressable>
+      ) : null}
+      {paperOn ? (
+        <PaperEnd
+          onAgain={() => startPaper(true)}
+          onSignIn={() => {
+            track("sign_in_opened", { from: "paper" });
+            gate.openSignIn("paper");
+          }}
+        />
       ) : null}
 
       <Popover anchor={{ top: top + 50, left: 16 }} onClose={() => setAssetOpen(false)} open={assetOpen} width={256}>
@@ -1006,7 +1176,7 @@ export function InkScreen() {
         ) : null}
       </Sheet>
 
-      <Sheet description={`Predict where Bitcoin goes next: draw it on the chart. ${forReal ? `Real USDC, on the live price, on ${chain.hello?.label ?? "Solana"}.` : "Practice money, on the live price."}`} onClose={() => setHelp(false)} open={help} title="How it works">
+      <Sheet description={`Predict where Bitcoin goes next: draw it on the chart. ${paperOn ? "Paper money, on the live price: thirty seconds of practice." : forReal ? `Real USDC, on the live price, on ${chain.hello?.label ?? "Solana"}.` : "Practice money, on the live price."}`} onClose={() => setHelp(false)} open={help} title="How it works">
         {[
           "Draw the path you think the price will take over the next seconds, ahead of the live price. One full dot at your selected pen size costs the amount under Per dot. A longer stroke costs more; retracing ink in the same drawing adds no cost. The total cost rounds up to the next cent, once per drawing.",
           "Every part of your ink is a call on where the price will be in that second. The map shows what each spot returns if the price crosses it then, 1× up to 128× what it cost. The multiple comes from the chance the price reaches that spot: near the price and soon is likely and returns little; far away returns a lot. A wider pen puts more ink, and more money, on the same spots; it never changes what a spot returns. Only solid blue ink is in play. A correct call pays out immediately.",
@@ -1020,7 +1190,9 @@ export function InkScreen() {
         ))}
         <Text className="text-[15px] text-muted-foreground leading-relaxed">
           {`Multiples are set from historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns ${Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for ${difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Calls are resolved using one-second price ranges. `}
-          {forReal
+          {paperOn
+            ? `This practice run plays easier odds than real play, and takes no fees: ink exactly on a rung returns ${money(difficulty(PAPER_DIFFICULTY, PAPER_DIFFICULTY).ladderBest)} per dollar here, ${money(difficulty(DIFFICULTY).ladderBest)} in real play. The multiples on the map are the ones it pays; real play\u2019s are lower. Its paper money is gone when it ends.`
+            : forReal
             ? `${fees ? `skech keeps ${fees.feeBps / 100}% of what you put in and ${fees.profitFeeBps / 100}% of the profit on every correct call.` : "skech keeps a share of what you put in and of the profit on every correct call."} Profits are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
             : "Your balance is practice money saved on this phone."}
         </Text>
