@@ -10,7 +10,7 @@ import { LogoLink } from "./logo";
 /**
  * The topbar, fixed at the top and see-through: the page shows under it,
  * blurred, so it floats over the illustrations instead of cutting them off.
- * The wordmark in the middle, and on the right a person (a founder, on
+ * The wordmark on the left, and on the right a person (a founder, on
  * Telegram) and the way in. On a desk, hovering the face opens a card
  * first; on a phone a tap goes straight to the chat. A hairline marks the bar's edge once the page is under it.
  */
@@ -29,14 +29,10 @@ export function SiteNav() {
         scrolled && "border-border/70 bg-background/70",
       )}
     >
-      <div className="container-x flex items-center gap-3 px-4 py-2.5 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:px-6 md:py-3.5 lg:px-8">
-        {/* Holds the left column, so the wordmark stays centred. */}
-        <span aria-hidden="true" className="max-sm:hidden" />
+      <div className="container-x flex items-center gap-3 px-4 py-2.5 sm:px-6 md:py-3.5 lg:px-8">
+        <LogoLink className="motion-safe:hover:animate-[logo-wiggle_420ms_ease-in-out_infinite]" />
 
-        {/* In the middle from a tablet up; on a phone first, where three across would crowd it. */}
-        <LogoLink className="order-first justify-self-center motion-safe:hover:animate-[logo-wiggle_420ms_ease-in-out_infinite] sm:order-none" />
-
-        <div className="flex items-center gap-3 justify-self-end max-sm:ml-auto">
+        <div className="ml-auto flex items-center gap-3">
           <div className="group relative">
             <a
               aria-label={`Talk to ${FOUNDER.name}, a founder, on Telegram`}
