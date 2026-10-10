@@ -136,6 +136,7 @@ struct State {
 #[serde(rename_all = "camelCase")]
 struct SktState {
     supply: String,
+    total_shares: String,
     acc: String,
     holder_funds: u64,
     gain: u64,
@@ -143,7 +144,7 @@ struct SktState {
 }
 #[derive(Deserialize)]
 struct HolderState {
-    skt: String,
+    shares: String,
     basis: u64,
     claimable: u64,
 }
@@ -196,7 +197,7 @@ fn run(c: &Case) {
     config.max_per_dot = 10_000_000;
     config.max_piece_stake = 1_000_000_000;
     // SKT's split first, so the case's fees (2%, which the default 3% split does not fit in) pass.
-    let split = c.skt.as_ref().map(|s| skech::state::RewardsConfig { holder_fee_bps: s.holder_fee_bps, holder_profit_fee_bps: s.holder_profit_fee_bps, mint_scale: s.mint_scale }).unwrap_or(skech::state::RewardsConfig { holder_fee_bps: 0, holder_profit_fee_bps: 0, ..skech::state::RewardsConfig::DEFAULT });
+    let split = c.skt.as_ref().map(|s| skech::state::RewardsConfig { holder_fee_bps: s.holder_fee_bps, holder_profit_fee_bps: s.holder_profit_fee_bps, mint_scale: s.mint_scale, ..skech::state::RewardsConfig::DEFAULT }).unwrap_or(skech::state::RewardsConfig { holder_fee_bps: 0, holder_profit_fee_bps: 0, ..skech::state::RewardsConfig::DEFAULT });
     let zero = skech::state::RewardsConfig { holder_fee_bps: 0, holder_profit_fee_bps: 0, ..split };
     g.send(&[g.set_rewards_config_ix(zero), g.set_config_ix(config), g.set_rewards_config_ix(split)], &[&admin]).expect("config");
     let market = g.ix(skech::accounts::SetMarket { admin: admin.pubkey(), game: game_pda(), market: market_pda(0) }, skech::instruction::SetMarket { active: true, difficulty: c.difficulty });
@@ -314,13 +315,16 @@ fn run(c: &Case) {
         assert_eq!(token_balance(&g.svm, &g.vault()), balances + pool.pool + pool.fees + rewards.holder_funds, "{at}: every USDC accounted for");
         if let Some(k) = &st.skt {
             assert_eq!(rewards.supply.to_string(), k.supply, "{at}: SKT supply");
+            assert_eq!(rewards.total_shares.to_string(), k.total_shares, "{at}: SKT shares");
             assert_eq!(rewards.acc.to_string(), k.acc, "{at}: the holders' accumulator");
             assert_eq!((rewards.holder_funds, rewards.gain), (k.holder_funds, k.gain), "{at}: holder funds, tracked gain");
             for (name, p) in &players {
                 let h = g.holder(&p.wallet.pubkey());
                 let e = &k.holders[name];
-                let pending = if rewards.acc > h.acc_at { (h.skt as u128 * (rewards.acc - h.acc_at) / skech::state::ACC_SCALE) as u64 } else { 0 };
-                assert_eq!((h.skt.to_string(), h.basis, h.unclaimed + pending), (e.skt.clone(), e.basis, e.claimable), "{at}: {name}'s SKT");
+                // What a claim would count now.
+                let mut counted = h.clone();
+                counted.settle_rewards(&rewards).unwrap();
+                assert_eq!((h.shares.to_string(), h.basis, counted.unclaimed), (e.shares.clone(), e.basis, e.claimable), "{at}: {name}'s SKT");
             }
         }
     }

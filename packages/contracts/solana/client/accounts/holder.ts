@@ -23,6 +23,8 @@ import {
   getStructEncoder,
   getU128Decoder,
   getU128Encoder,
+  getU32Decoder,
+  getU32Encoder,
   getU64Decoder,
   getU64Encoder,
   getU8Decoder,
@@ -52,30 +54,36 @@ export function getHolderDiscriminatorBytes(): ReadonlyUint8Array {
 export type Holder = {
   discriminator: ReadonlyUint8Array;
   player: Address;
-  /** SKT, millionths. */
-  skt: bigint;
-  /** `Rewards::acc` when what this balance had earned was last counted into `unclaimed`. */
+  /** Shares, in era `era`'s units. */
+  shares: bigint;
+  era: number;
+  /** `Rewards::acc` (of era `era`) when what these shares had earned was last counted into `unclaimed`. */
   accAt: bigint;
   /** USDC e6 earned and not yet claimed. */
   unclaimed: bigint;
   claimed: bigint;
   /** Every basis their SKT was minted on, USDC e6: the odds-weighted loss of each band of theirs that missed. */
   basis: bigint;
+  /** Every SKT minted to them, as each mint was worth when it was minted. */
+  minted: bigint;
   bump: number;
   reserved: ReadonlyUint8Array;
 };
 
 export type HolderArgs = {
   player: Address;
-  /** SKT, millionths. */
-  skt: number | bigint;
-  /** `Rewards::acc` when what this balance had earned was last counted into `unclaimed`. */
+  /** Shares, in era `era`'s units. */
+  shares: number | bigint;
+  era: number;
+  /** `Rewards::acc` (of era `era`) when what these shares had earned was last counted into `unclaimed`. */
   accAt: number | bigint;
   /** USDC e6 earned and not yet claimed. */
   unclaimed: number | bigint;
   claimed: number | bigint;
   /** Every basis their SKT was minted on, USDC e6: the odds-weighted loss of each band of theirs that missed. */
   basis: number | bigint;
+  /** Every SKT minted to them, as each mint was worth when it was minted. */
+  minted: number | bigint;
   bump: number;
   reserved: ReadonlyUint8Array;
 };
@@ -86,11 +94,13 @@ export function getHolderEncoder(): FixedSizeEncoder<HolderArgs> {
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
       ["player", getAddressEncoder()],
-      ["skt", getU64Encoder()],
+      ["shares", getU128Encoder()],
+      ["era", getU32Encoder()],
       ["accAt", getU128Encoder()],
       ["unclaimed", getU64Encoder()],
       ["claimed", getU64Encoder()],
       ["basis", getU64Encoder()],
+      ["minted", getU64Encoder()],
       ["bump", getU8Encoder()],
       ["reserved", fixEncoderSize(getBytesEncoder(), 32)],
     ]),
@@ -103,11 +113,13 @@ export function getHolderDecoder(): FixedSizeDecoder<Holder> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["player", getAddressDecoder()],
-    ["skt", getU64Decoder()],
+    ["shares", getU128Decoder()],
+    ["era", getU32Decoder()],
     ["accAt", getU128Decoder()],
     ["unclaimed", getU64Decoder()],
     ["claimed", getU64Decoder()],
     ["basis", getU64Decoder()],
+    ["minted", getU64Decoder()],
     ["bump", getU8Decoder()],
     ["reserved", fixDecoderSize(getBytesDecoder(), 32)],
   ]);
@@ -172,5 +184,5 @@ export async function fetchAllMaybeHolder(
 }
 
 export function getHolderSize(): number {
-  return 121;
+  return 141;
 }

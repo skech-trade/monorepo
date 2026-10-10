@@ -145,23 +145,34 @@ pub struct IouRateSet {
     pub rate: u64,
 }
 
-/// A settlement of `player`'s bet with bands that missed: their odds-weighted loss, `basis` (USDC e6), minted `skt`
-/// (SKT e6), at an average `rate` of SKT per dollar of basis (times 1e6).
+/// A settlement's misses minted `skt` (e6) to `player`, as `shares` at today's weight, on `basis` (USDC e6): `rate` SKT
+/// per dollar of basis, x1e6. `capped`: SKT the curve gave that the wallet's cap kept from minting.
 #[event]
 pub struct Minted {
     pub player: Pubkey,
     pub skt: u64,
+    pub shares: u128,
+    pub capped: u64,
     pub rate: u64,
     pub basis: u64,
 }
 
-/// The holders' share of a fee, `amount` USDC e6, shared among `supply` SKT: `acc` is what each SKT unit has earned
-/// since the start, times 1e18.
+/// The holders' share of a fee (or of the pool's surplus), `amount` USDC e6, shared among `total_shares`: `acc` is
+/// what each share has earned this era, `era`, times 1e24.
 #[event]
 pub struct HolderAccrued {
     pub amount: u64,
     pub acc: u128,
-    pub supply: u64,
+    pub total_shares: u128,
+    pub era: u32,
+}
+
+/// What the pool held over the reserve and what every live bet could pay, `amount` USDC e6, shared with holders;
+/// `kept` stays in the pool.
+#[event]
+pub struct SurplusShared {
+    pub amount: u64,
+    pub kept: u64,
 }
 
 /// `player` claimed `amount` USDC e6 of what their SKT earned, into their balance.

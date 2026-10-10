@@ -82,6 +82,7 @@ import {
   getSetSessionInstructionAsync,
   getSettleInstructionAsync,
   getSetTreasuryInstructionAsync,
+  getShareSurplusInstructionAsync,
   getSweepInstructionAsync,
   getWithdrawInstructionAsync,
   parseAcceptAdminInstruction,
@@ -108,6 +109,7 @@ import {
   parseSetSessionInstruction,
   parseSettleInstruction,
   parseSetTreasuryInstruction,
+  parseShareSurplusInstruction,
   parseSweepInstruction,
   parseWithdrawInstruction,
   type AcceptAdminAsyncInput,
@@ -142,6 +144,7 @@ import {
   type ParsedSetSessionInstruction,
   type ParsedSettleInstruction,
   type ParsedSetTreasuryInstruction,
+  type ParsedShareSurplusInstruction,
   type ParsedSweepInstruction,
   type ParsedWithdrawInstruction,
   type PlaceAsyncInput,
@@ -160,6 +163,7 @@ import {
   type SetSessionAsyncInput,
   type SettleAsyncInput,
   type SetTreasuryAsyncInput,
+  type ShareSurplusAsyncInput,
   type SweepAsyncInput,
   type WithdrawAsyncInput,
 } from "../instructions";
@@ -292,6 +296,7 @@ export enum SkechEvent {
   SessionRevoked,
   SessionSet,
   Settled,
+  SurplusShared,
   TreasurySet,
   Withdrawn,
 }
@@ -524,6 +529,17 @@ export function identifySkechEvent(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([62, 121, 185, 91, 27, 30, 76, 124]),
+      ),
+      0,
+    )
+  ) {
+    return SkechEvent.SurplusShared;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([69, 231, 163, 135, 254, 194, 109, 166]),
       ),
       0,
@@ -572,6 +588,7 @@ export enum SkechInstruction {
   SetSession,
   SetTreasury,
   Settle,
+  ShareSurplus,
   Sweep,
   Withdraw,
 }
@@ -848,6 +865,17 @@ export function identifySkechInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([177, 38, 112, 45, 149, 172, 224, 182]),
+      ),
+      0,
+    )
+  ) {
+    return SkechInstruction.ShareSurplus;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([40, 23, 234, 175, 14, 61, 154, 177]),
       ),
       0,
@@ -947,6 +975,9 @@ export type ParsedSkechInstruction<
   | ({
       instructionType: SkechInstruction.Settle;
     } & ParsedSettleInstruction<TProgram>)
+  | ({
+      instructionType: SkechInstruction.ShareSurplus;
+    } & ParsedShareSurplusInstruction<TProgram>)
   | ({
       instructionType: SkechInstruction.Sweep;
     } & ParsedSweepInstruction<TProgram>)
@@ -1127,6 +1158,13 @@ export function parseSkechInstruction<TProgram extends string>(
         ...parseSettleInstruction(instruction),
       };
     }
+    case SkechInstruction.ShareSurplus: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: SkechInstruction.ShareSurplus,
+        ...parseShareSurplusInstruction(instruction),
+      };
+    }
     case SkechInstruction.Sweep: {
       assertIsInstructionWithAccounts(instruction);
       return {
@@ -1262,6 +1300,10 @@ export type SkechPluginInstructions = {
   settle: (
     input: MakeOptional<SettleAsyncInput, "payer">,
   ) => ReturnType<typeof getSettleInstructionAsync> & SelfPlanAndSendFunctions;
+  shareSurplus: (
+    input: ShareSurplusAsyncInput,
+  ) => ReturnType<typeof getShareSurplusInstructionAsync> &
+    SelfPlanAndSendFunctions;
   sweep: (
     input: SweepAsyncInput,
   ) => ReturnType<typeof getSweepInstructionAsync> & SelfPlanAndSendFunctions;
@@ -1439,6 +1481,11 @@ export function skechProgram() {
                 ...input,
                 payer: input.payer ?? client.payer,
               }),
+            ),
+          shareSurplus: (input) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getShareSurplusInstructionAsync(input),
             ),
           sweep: (input) =>
             addSelfPlanAndSendFunctions(

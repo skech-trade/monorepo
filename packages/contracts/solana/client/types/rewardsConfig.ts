@@ -12,6 +12,8 @@ import {
   getStructEncoder,
   getU16Decoder,
   getU16Encoder,
+  getU32Decoder,
+  getU32Encoder,
   getU64Decoder,
   getU64Encoder,
   type FixedSizeCodec,
@@ -25,8 +27,19 @@ export type RewardsConfig = {
   holderFeeBps: number;
   /** Of every hit's profit, to SKT holders: part of `Config::profit_fee_bps`, never more. */
   holderProfitFeeBps: number;
-  /** `S` in the mint curve, USDC e6: at tracked gain G a dollar of basis mints 100 · (S / (S + G))² SKT. */
+  /**
+   * `S` in the mint curve, USDC e6: at tracked gain G a dollar of basis mints 100 · (S / (S + G))² SKT. Fixed once
+   * anything has minted.
+   */
   mintScale: bigint;
+  /** SKT's half-life, seconds: a balance halves every this long, so a player keeps their share only by playing on. */
+  halfLifeSecs: number;
+  /** No mint takes a wallet past this share of all shares, bps (10,000: no cap)… */
+  walletCapBps: number;
+  /** …or past that share of this much SKT (e6), whichever is more: so the first players mint while there is little. */
+  capFloor: bigint;
+  /** USDC e6 the pool keeps, over what every live bet could pay, before any of its surplus is shared with holders. */
+  surplusReserve: bigint;
 };
 
 export type RewardsConfigArgs = {
@@ -34,8 +47,19 @@ export type RewardsConfigArgs = {
   holderFeeBps: number;
   /** Of every hit's profit, to SKT holders: part of `Config::profit_fee_bps`, never more. */
   holderProfitFeeBps: number;
-  /** `S` in the mint curve, USDC e6: at tracked gain G a dollar of basis mints 100 · (S / (S + G))² SKT. */
+  /**
+   * `S` in the mint curve, USDC e6: at tracked gain G a dollar of basis mints 100 · (S / (S + G))² SKT. Fixed once
+   * anything has minted.
+   */
   mintScale: number | bigint;
+  /** SKT's half-life, seconds: a balance halves every this long, so a player keeps their share only by playing on. */
+  halfLifeSecs: number;
+  /** No mint takes a wallet past this share of all shares, bps (10,000: no cap)… */
+  walletCapBps: number;
+  /** …or past that share of this much SKT (e6), whichever is more: so the first players mint while there is little. */
+  capFloor: number | bigint;
+  /** USDC e6 the pool keeps, over what every live bet could pay, before any of its surplus is shared with holders. */
+  surplusReserve: number | bigint;
 };
 
 export function getRewardsConfigEncoder(): FixedSizeEncoder<RewardsConfigArgs> {
@@ -43,6 +67,10 @@ export function getRewardsConfigEncoder(): FixedSizeEncoder<RewardsConfigArgs> {
     ["holderFeeBps", getU16Encoder()],
     ["holderProfitFeeBps", getU16Encoder()],
     ["mintScale", getU64Encoder()],
+    ["halfLifeSecs", getU32Encoder()],
+    ["walletCapBps", getU16Encoder()],
+    ["capFloor", getU64Encoder()],
+    ["surplusReserve", getU64Encoder()],
   ]);
 }
 
@@ -51,6 +79,10 @@ export function getRewardsConfigDecoder(): FixedSizeDecoder<RewardsConfig> {
     ["holderFeeBps", getU16Decoder()],
     ["holderProfitFeeBps", getU16Decoder()],
     ["mintScale", getU64Decoder()],
+    ["halfLifeSecs", getU32Decoder()],
+    ["walletCapBps", getU16Decoder()],
+    ["capFloor", getU64Decoder()],
+    ["surplusReserve", getU64Decoder()],
   ]);
 }
 

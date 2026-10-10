@@ -10,6 +10,8 @@ mod game;
 #[cfg(test)]
 mod harness;
 #[cfg(test)]
+mod holders;
+#[cfg(test)]
 mod ladder;
 #[cfg(test)]
 mod limits;

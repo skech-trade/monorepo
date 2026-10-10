@@ -109,6 +109,8 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
     // Each kept band's chance, as quoted: kept after the bet, for SKT's basis when the band misses.
     let mut kept_chances: Vec<u32> = Vec::with_capacity(n);
     let mut kept: u64 = 0;
+    // The most the kept bands could pay, every one hitting: the pool keeps it until they are decided.
+    let mut could_pay: u64 = 0;
     for (s, &chance) in piece.sections.iter().zip(&quote.chances) {
         // A band beyond any price a u64 holds is not a band.
         let lo = (s.lo as u64).checked_mul(piece.unit).ok_or(SkechError::Sections)?;
@@ -126,6 +128,7 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
         sections.push(BetSection { second: s.second, lo, hi, stake, rung });
         kept_chances.push(chance);
         kept += stake;
+        could_pay = could_pay.saturating_add(ladder::gross(stake, rung));
     }
     drop(bars);
     require!(kept > 0, SkechError::NotOffered);
@@ -144,7 +147,9 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
     let pool = &mut ctx.accounts.pool;
     pool.pool = pool.pool.checked_add(kept - fee).ok_or(SkechError::Overflow)?;
     pool.fees = pool.fees.checked_add(fee - to_holders).ok_or(SkechError::Overflow)?;
-    ctx.accounts.rewards.share_stake_fee(pool, to_holders)?;
+    let rewards = &mut ctx.accounts.rewards;
+    rewards.share_stake_fee(pool, to_holders)?;
+    rewards.liability = rewards.liability.saturating_add(could_pay);
 
     let count = sections.len();
     let bet = Bet {

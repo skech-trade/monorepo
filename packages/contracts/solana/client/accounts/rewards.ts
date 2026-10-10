@@ -15,12 +15,18 @@ import {
   fetchEncodedAccounts,
   fixDecoderSize,
   fixEncoderSize,
+  getArrayDecoder,
+  getArrayEncoder,
   getBytesDecoder,
   getBytesEncoder,
+  getI64Decoder,
+  getI64Encoder,
   getStructDecoder,
   getStructEncoder,
   getU128Decoder,
   getU128Encoder,
+  getU32Decoder,
+  getU32Encoder,
   getU64Decoder,
   getU64Encoder,
   getU8Decoder,
@@ -56,9 +62,11 @@ export function getRewardsDiscriminatorBytes(): ReadonlyUint8Array {
 export type Rewards = {
   discriminator: ReadonlyUint8Array;
   config: RewardsConfig;
-  /** SKT outstanding, millionths. Only ever minted. */
+  /** SKT minted, ever, as each mint was worth when it was minted (millionths): the record, not what is held now. */
   supply: bigint;
-  /** USDC e6 each SKT unit has earned since the start, times `ACC_SCALE`. Never falls. */
+  /** Every holder's shares, in this era's units: each SKT minted at time t adds 2^((t − era start) / half-life). */
+  totalShares: bigint;
+  /** USDC e6 each share has earned this era, times `ACC_SCALE`. Back to 0 at each era's start. */
   acc: bigint;
   /** USDC e6 in the vault that is the holders': accrued and not yet claimed, the accumulator's rounding dust with it. */
   holderFunds: bigint;
@@ -70,6 +78,25 @@ export type Rewards = {
    * to the game in expectation. The mint curve reads it.
    */
   gain: bigint;
+  /** The era: shares and `acc` are in its units. */
+  era: number;
+  /** `acc` at the end of each of the last ERAS_KEPT eras, at era % ERAS_KEPT. */
+  eraEnds: Array<bigint>;
+  /** A share's weight at `anchor_time`, as its log2 times 2^32: under ERA_HALVINGS · 2^32 once caught up. */
+  anchorLog2: bigint;
+  anchorTime: bigint;
+  /**
+   * The most every live bet placed since SKT started could pay, gross, every band hitting: what the pool keeps,
+   * with the reserve, before any surplus is shared.
+   */
+  liability: bigint;
+  /** Pool surplus shared with holders, ever. */
+  sweptTotal: bigint;
+  /**
+   * When SKT started: no surplus is shared until every bet placed before then, whose liability is not counted, is
+   * decided or given back.
+   */
+  startedAt: bigint;
   bump: number;
   /** Room for what comes later, without a realloc. */
   reserved: ReadonlyUint8Array;
@@ -77,9 +104,11 @@ export type Rewards = {
 
 export type RewardsArgs = {
   config: RewardsConfigArgs;
-  /** SKT outstanding, millionths. Only ever minted. */
+  /** SKT minted, ever, as each mint was worth when it was minted (millionths): the record, not what is held now. */
   supply: number | bigint;
-  /** USDC e6 each SKT unit has earned since the start, times `ACC_SCALE`. Never falls. */
+  /** Every holder's shares, in this era's units: each SKT minted at time t adds 2^((t − era start) / half-life). */
+  totalShares: number | bigint;
+  /** USDC e6 each share has earned this era, times `ACC_SCALE`. Back to 0 at each era's start. */
   acc: number | bigint;
   /** USDC e6 in the vault that is the holders': accrued and not yet claimed, the accumulator's rounding dust with it. */
   holderFunds: number | bigint;
@@ -91,6 +120,25 @@ export type RewardsArgs = {
    * to the game in expectation. The mint curve reads it.
    */
   gain: number | bigint;
+  /** The era: shares and `acc` are in its units. */
+  era: number;
+  /** `acc` at the end of each of the last ERAS_KEPT eras, at era % ERAS_KEPT. */
+  eraEnds: Array<number | bigint>;
+  /** A share's weight at `anchor_time`, as its log2 times 2^32: under ERA_HALVINGS · 2^32 once caught up. */
+  anchorLog2: number | bigint;
+  anchorTime: number | bigint;
+  /**
+   * The most every live bet placed since SKT started could pay, gross, every band hitting: what the pool keeps,
+   * with the reserve, before any surplus is shared.
+   */
+  liability: number | bigint;
+  /** Pool surplus shared with holders, ever. */
+  sweptTotal: number | bigint;
+  /**
+   * When SKT started: no surplus is shared until every bet placed before then, whose liability is not counted, is
+   * decided or given back.
+   */
+  startedAt: number | bigint;
   bump: number;
   /** Room for what comes later, without a realloc. */
   reserved: ReadonlyUint8Array;
@@ -103,13 +151,21 @@ export function getRewardsEncoder(): FixedSizeEncoder<RewardsArgs> {
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
       ["config", getRewardsConfigEncoder()],
       ["supply", getU64Encoder()],
+      ["totalShares", getU128Encoder()],
       ["acc", getU128Encoder()],
       ["holderFunds", getU64Encoder()],
       ["accruedTotal", getU64Encoder()],
       ["claimedTotal", getU64Encoder()],
       ["gain", getU64Encoder()],
+      ["era", getU32Encoder()],
+      ["eraEnds", getArrayEncoder(getU128Encoder(), { size: 8 })],
+      ["anchorLog2", getU64Encoder()],
+      ["anchorTime", getI64Encoder()],
+      ["liability", getU64Encoder()],
+      ["sweptTotal", getU64Encoder()],
+      ["startedAt", getI64Encoder()],
       ["bump", getU8Encoder()],
-      ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
+      ["reserved", fixEncoderSize(getBytesEncoder(), 32)],
     ]),
     (value) => ({ ...value, discriminator: REWARDS_DISCRIMINATOR }),
   );
@@ -121,13 +177,21 @@ export function getRewardsDecoder(): FixedSizeDecoder<Rewards> {
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["config", getRewardsConfigDecoder()],
     ["supply", getU64Decoder()],
+    ["totalShares", getU128Decoder()],
     ["acc", getU128Decoder()],
     ["holderFunds", getU64Decoder()],
     ["accruedTotal", getU64Decoder()],
     ["claimedTotal", getU64Decoder()],
     ["gain", getU64Decoder()],
+    ["era", getU32Decoder()],
+    ["eraEnds", getArrayDecoder(getU128Decoder(), { size: 8 })],
+    ["anchorLog2", getU64Decoder()],
+    ["anchorTime", getI64Decoder()],
+    ["liability", getU64Decoder()],
+    ["sweptTotal", getU64Decoder()],
+    ["startedAt", getI64Decoder()],
     ["bump", getU8Decoder()],
-    ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
+    ["reserved", fixDecoderSize(getBytesDecoder(), 32)],
   ]);
 }
 
@@ -190,5 +254,5 @@ export async function fetchAllMaybeRewards(
 }
 
 export function getRewardsSize(): number {
-  return 141;
+  return 319;
 }

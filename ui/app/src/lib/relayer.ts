@@ -31,7 +31,7 @@ export type Hello = {
   lateMs: number;
   units: string[] | null;
   /** The game's terms, fees included, as the program has them. */
-  terms: { minPerDot: string; maxPerDot: string; maxPieceStake: string; minPieceStake?: string; maxPriceAgeMs: number; feeBps: number; profitFeeBps: number; holderFeeBps?: number; holderProfitFeeBps?: number } | null;
+  terms: { minPerDot: string; maxPerDot: string; maxPieceStake: string; minPieceStake?: string; maxPriceAgeMs: number; feeBps: number; profitFeeBps: number; holderFeeBps?: number; holderProfitFeeBps?: number; sktHalfLifeSecs?: number } | null;
   faucet: string | null;
   /** The relayer counts each player's transactions and answers `activity`. */
   activity?: boolean;

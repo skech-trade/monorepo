@@ -223,6 +223,9 @@ struct Outcome {
     stake_hit: u64,
     stake_back: u64,
     basis: u64,
+    /// What the decided bands could have paid, every one hitting: no longer kept for them (bets placed since SKT only,
+    /// whose liability was counted).
+    released: u64,
     closable: bool,
 }
 
@@ -243,7 +246,7 @@ fn decide(b: &Batch, bet_info: &AccountInfo) -> Result<Option<Outcome>> {
     require!(bet.market == b.market, SkechError::BadSettleAccounts);
     let live = bet.live_mask;
     let (mut hits, mut decided, mut expired) = (0u32, 0u32, 0u32);
-    let (mut gross_pay, mut stake_hit, mut stake_back, mut basis) = (0u64, 0u64, 0u64, 0u64);
+    let (mut gross_pay, mut stake_hit, mut stake_back, mut basis, mut released) = (0u64, 0u64, 0u64, 0u64, 0u64);
     for (i, s) in bet.sections.iter().enumerate() {
         let bit = 1u32 << i;
         if live & bit == 0 {
@@ -255,10 +258,16 @@ fn decide(b: &Batch, bet_info: &AccountInfo) -> Result<Option<Outcome>> {
                 decided |= bit;
                 expired |= bit;
                 stake_back += s.stake;
+                if chances.is_some() {
+                    released = released.saturating_add(ladder::gross(s.stake, s.rung));
+                }
             }
             continue;
         };
         decided |= bit;
+        if chances.is_some() {
+            released = released.saturating_add(ladder::gross(s.stake, s.rung));
+        }
         if ladder::crosses(bar.prev_close, bar.high, bar.low, s.lo, s.hi, bet.unit) {
             hits |= bit;
             stake_hit += s.stake;
@@ -274,13 +283,16 @@ fn decide(b: &Batch, bet_info: &AccountInfo) -> Result<Option<Outcome>> {
     if decided == 0 && !(live == 0 && closable) {
         return Ok(None);
     }
-    Ok(Some(Outcome { bet, hits, decided, expired, gross_pay, stake_hit, stake_back, basis, closable }))
+    Ok(Some(Outcome { bet, hits, decided, expired, gross_pay, stake_hit, stake_back, basis, released, closable }))
 }
 
 fn settle_one<'info>(b: &mut Batch<'_, 'info>, o: Outcome, bet_info: &AccountInfo<'info>, player_info: &AccountInfo<'info>, holder_info: &AccountInfo<'info>) -> Result<()> {
     let now = b.now;
     require!(bet_info.is_writable && player_info.is_writable && player_info.owner == b.program_id, SkechError::BadSettleAccounts);
-    let Outcome { mut bet, hits, decided, expired, gross_pay, stake_hit, stake_back, basis, closable } = o;
+    let Outcome { mut bet, hits, decided, expired, gross_pay, stake_hit, stake_back, basis, released, closable } = o;
+    if let Some(r) = b.rewards.as_mut() {
+        r.liability = r.liability.saturating_sub(released);
+    }
     let mut player = Player::try_deserialize(&mut &player_info.try_borrow_data()?[..])?;
     require_keys_eq!(player.authority, bet.player, SkechError::BadSettleAccounts);
     bet.live_mask &= !decided;
@@ -315,7 +327,7 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, o: Outcome, bet_info: &AccountInf
         player.try_serialize(&mut &mut player_info.try_borrow_mut_data()?[..])?;
         if let (true, Some(r)) = (basis > 0, b.rewards.as_mut()) {
             let mut holder = holder_of(b.program_id, holder_info, bet.player)?;
-            r.mint(&mut holder, basis)?;
+            r.mint(&mut holder, basis, now)?;
             holder.try_serialize(&mut &mut holder_info.try_borrow_mut_data()?[..])?;
         }
     }
@@ -345,8 +357,8 @@ fn open_holder<'info>(b: &Batch<'_, 'info>, player: Pubkey, info: &AccountInfo<'
     let (address, bump) = Pubkey::find_program_address(&[HOLDER_SEED, player.as_ref()], b.program_id);
     require!(address == info.key() && info.is_writable, SkechError::BadSettleAccounts);
     create_pda_at(b.payer, info, b.system_program, Holder::SPACE, b.program_id, &[HOLDER_SEED, player.as_ref(), &[bump]])?;
-    let acc = b.rewards.as_ref().map_or(0, |r| r.acc);
-    let holder = Holder { player, acc_at: acc, bump, ..Default::default() };
+    let (era, acc) = b.rewards.as_ref().map_or((0, 0), |r| (r.era, r.acc));
+    let holder = Holder { player, era, acc_at: acc, bump, ..Default::default() };
     holder.try_serialize(&mut &mut info.try_borrow_mut_data()?[..])
 }
 

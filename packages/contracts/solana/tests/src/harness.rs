@@ -175,6 +175,16 @@ impl Game {
         self.ix(skech::accounts::SetRewardsConfig { admin: self.admin.pubkey(), game: game_pda(), rewards: rewards_pda() }, skech::instruction::SetRewardsConfig { rewards_config: rewards })
     }
 
+    pub fn share_surplus_ix(&self) -> Instruction {
+        self.ix(skech::accounts::ShareSurplus { game: game_pda(), pool: pool_pda(), rewards: rewards_pda() }, skech::instruction::ShareSurplus {})
+    }
+
+    /// What `wallet`'s SKT is worth now: its shares over today's weight.
+    pub fn skt_now(&self, wallet: &Pubkey) -> u64 {
+        let h = self.holder(wallet);
+        self.rewards().balance_of(h.shares, h.era, self.now)
+    }
+
     pub fn claim_ix(&self, p: &Player) -> Instruction {
         let w = p.wallet.pubkey();
         self.ix(skech::accounts::Claim { authority: w, game: game_pda(), rewards: rewards_pda(), player: player_pda(&w), holder: holder_pda(&w) }, skech::instruction::Claim {})

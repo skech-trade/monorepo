@@ -30,5 +30,6 @@ export * from "./setRewardsConfig";
 export * from "./setSession";
 export * from "./settle";
 export * from "./setTreasury";
+export * from "./shareSurplus";
 export * from "./sweep";
 export * from "./withdraw";

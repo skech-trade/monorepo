@@ -128,4 +128,8 @@ pub mod skech {
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
         claim::claim(ctx)
     }
+    /// What the pool holds over its reserve and what live bets could pay, to SKT holders. Anyone may.
+    pub fn share_surplus(ctx: Context<ShareSurplus>) -> Result<()> {
+        surplus::share_surplus(ctx)
+    }
 }

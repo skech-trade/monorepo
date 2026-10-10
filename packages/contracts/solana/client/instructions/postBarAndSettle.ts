@@ -169,14 +169,11 @@ export type PostBarAndSettleAsyncInput<
   marketAccount: TAccountMarketAccount;
   bars: TAccountBars;
   pool?: TAccountPool;
-  /**
-   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
-   * one account with its owner and discriminator is the one.
-   */
+  /** SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`. */
   rewards: TAccountRewards;
   /** Gets back the rent of the bets closed here: only those it paid for are closed. */
   rentReceiver: TAccountRentReceiver;
-  /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs. The oracle, usually. */
+  /** Pays the rent of a player's `Holder` the first time a settlement mints SKT for them. The oracle, usually. */
   payer: TAccountPayer;
   systemProgram?: TAccountSystemProgram;
   market: PostBarAndSettleInstructionDataArgs["market"];
@@ -378,14 +375,11 @@ export type PostBarAndSettleInput<
   marketAccount: TAccountMarketAccount;
   bars: TAccountBars;
   pool: TAccountPool;
-  /**
-   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
-   * one account with its owner and discriminator is the one.
-   */
+  /** SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`. */
   rewards: TAccountRewards;
   /** Gets back the rent of the bets closed here: only those it paid for are closed. */
   rentReceiver: TAccountRentReceiver;
-  /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs. The oracle, usually. */
+  /** Pays the rent of a player's `Holder` the first time a settlement mints SKT for them. The oracle, usually. */
   payer: TAccountPayer;
   systemProgram?: TAccountSystemProgram;
   market: PostBarAndSettleInstructionDataArgs["market"];
@@ -571,14 +565,11 @@ export type ParsedPostBarAndSettleInstruction<
     marketAccount: TAccountMetas[2];
     bars: TAccountMetas[3];
     pool: TAccountMetas[4];
-    /**
-     * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
-     * one account with its owner and discriminator is the one.
-     */
+    /** SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`. */
     rewards: TAccountMetas[5];
     /** Gets back the rent of the bets closed here: only those it paid for are closed. */
     rentReceiver: TAccountMetas[6];
-    /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs. The oracle, usually. */
+    /** Pays the rent of a player's `Holder` the first time a settlement mints SKT for them. The oracle, usually. */
     payer: TAccountMetas[7];
     systemProgram: TAccountMetas[8];
   };

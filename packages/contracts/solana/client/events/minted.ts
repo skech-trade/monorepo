@@ -19,6 +19,8 @@ import {
   getHiddenPrefixEncoder,
   getStructDecoder,
   getStructEncoder,
+  getU128Decoder,
+  getU128Encoder,
   getU64Decoder,
   getU64Encoder,
   type Address,
@@ -41,6 +43,8 @@ export function getMintedEventDiscriminatorBytes(): ReadonlyUint8Array {
 export type MintedEvent = {
   player: Address;
   skt: bigint;
+  shares: bigint;
+  capped: bigint;
   rate: bigint;
   basis: bigint;
 };
@@ -48,6 +52,8 @@ export type MintedEvent = {
 export type MintedEventArgs = {
   player: Address;
   skt: number | bigint;
+  shares: number | bigint;
+  capped: number | bigint;
   rate: number | bigint;
   basis: number | bigint;
 };
@@ -58,6 +64,8 @@ export function getMintedEventEncoder(): FixedSizeEncoder<MintedEventArgs> {
     getStructEncoder([
       ["player", getAddressEncoder()],
       ["skt", getU64Encoder()],
+      ["shares", getU128Encoder()],
+      ["capped", getU64Encoder()],
       ["rate", getU64Encoder()],
       ["basis", getU64Encoder()],
     ]),
@@ -71,6 +79,8 @@ export function getMintedEventDecoder(): FixedSizeDecoder<MintedEvent> {
     getStructDecoder([
       ["player", getAddressDecoder()],
       ["skt", getU64Decoder()],
+      ["shares", getU128Decoder()],
+      ["capped", getU64Decoder()],
       ["rate", getU64Decoder()],
       ["basis", getU64Decoder()],
     ]),

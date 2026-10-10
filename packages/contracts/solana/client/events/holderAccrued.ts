@@ -19,6 +19,8 @@ import {
   getStructEncoder,
   getU128Decoder,
   getU128Encoder,
+  getU32Decoder,
+  getU32Encoder,
   getU64Decoder,
   getU64Encoder,
   type FixedSizeCodec,
@@ -39,13 +41,15 @@ export function getHolderAccruedEventDiscriminatorBytes(): ReadonlyUint8Array {
 export type HolderAccruedEvent = {
   amount: bigint;
   acc: bigint;
-  supply: bigint;
+  totalShares: bigint;
+  era: number;
 };
 
 export type HolderAccruedEventArgs = {
   amount: number | bigint;
   acc: number | bigint;
-  supply: number | bigint;
+  totalShares: number | bigint;
+  era: number;
 };
 
 /** Gets the encoder for {@link HolderAccruedEventArgs} event data. */
@@ -54,7 +58,8 @@ export function getHolderAccruedEventEncoder(): FixedSizeEncoder<HolderAccruedEv
     getStructEncoder([
       ["amount", getU64Encoder()],
       ["acc", getU128Encoder()],
-      ["supply", getU64Encoder()],
+      ["totalShares", getU128Encoder()],
+      ["era", getU32Encoder()],
     ]),
     [getConstantEncoder(HOLDER_ACCRUED_EVENT_DISCRIMINATOR)],
   );
@@ -66,7 +71,8 @@ export function getHolderAccruedEventDecoder(): FixedSizeDecoder<HolderAccruedEv
     getStructDecoder([
       ["amount", getU64Decoder()],
       ["acc", getU128Decoder()],
-      ["supply", getU64Decoder()],
+      ["totalShares", getU128Decoder()],
+      ["era", getU32Decoder()],
     ]),
     [getConstantDecoder(HOLDER_ACCRUED_EVENT_DISCRIMINATOR)],
   );

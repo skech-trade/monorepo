@@ -26,5 +26,6 @@ export * from "./rewardsConfigSet";
 export * from "./sessionRevoked";
 export * from "./sessionSet";
 export * from "./settled";
+export * from "./surplusShared";
 export * from "./treasurySet";
 export * from "./withdrawn";

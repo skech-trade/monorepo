@@ -28,6 +28,10 @@ pub fn check_config(c: &Config, r: &RewardsConfig) -> Result<()> {
     require!(c.max_price_age_ms > 0 && c.max_session_secs > 0, SkechError::BadConfig);
     require!(r.holder_fee_bps <= c.fee_bps && r.holder_profit_fee_bps <= c.profit_fee_bps, SkechError::BadConfig);
     require!(r.mint_scale > 0 && r.mint_scale <= MAX_MINT_SCALE, SkechError::BadConfig);
+    require!((MIN_HALF_LIFE_SECS..=MAX_HALF_LIFE_SECS).contains(&r.half_life_secs), SkechError::BadConfig);
+    require!((MIN_WALLET_CAP_BPS..=BPS as u16).contains(&r.wallet_cap_bps), SkechError::BadConfig);
+    // The pool always keeps at least what one piece could pay at these terms over what live bets could.
+    require!(r.surplus_reserve >= max_piece_payout(c), SkechError::BadConfig);
     Ok(())
 }
 
@@ -134,6 +138,10 @@ pub fn init_rewards(ctx: Context<InitRewards>, config: Config, rewards: RewardsC
     let r = &mut ctx.accounts.rewards;
     r.config = rewards;
     r.bump = ctx.bumps.rewards;
+    // The decay's clock and the surplus's start: from now.
+    let now = Clock::get()?.unix_timestamp;
+    r.anchor_time = now;
+    r.started_at = now;
     emit!(ConfigSet { config });
     emit!(RewardsConfigSet { config: rewards });
     Ok(())
@@ -155,9 +163,13 @@ pub struct SetRewardsConfig<'info> {
 /// curve's whole worth in all; a smaller one, a cliff). It may be set until then.
 pub fn set_rewards_config(ctx: Context<SetRewardsConfig>, rewards: RewardsConfig) -> Result<()> {
     check_config(&ctx.accounts.game.config, &rewards)?;
-    let r = &ctx.accounts.rewards;
+    let r = &mut ctx.accounts.rewards;
     require!(rewards.mint_scale == r.config.mint_scale || (r.gain == 0 && r.supply == 0), SkechError::MintScaleFixed);
-    ctx.accounts.rewards.config = rewards;
+    // A new half-life applies from now: every weight is kept where it is, and grows at the new pace after.
+    if rewards.half_life_secs != r.config.half_life_secs {
+        r.set_half_life(rewards.half_life_secs, Clock::get()?.unix_timestamp);
+    }
+    r.config = rewards;
     emit!(RewardsConfigSet { config: rewards });
     Ok(())
 }

@@ -206,7 +206,13 @@ const feesLine = (terms: Hello["terms"] | undefined) => {
   if (!terms) return "A share of every stake and of every win’s profit is taken as fees, split between SKT holders and skech.";
   const { feeBps, profitFeeBps, holderFeeBps: h, holderProfitFeeBps: hp } = terms;
   if (h === undefined || hp === undefined) return `${pct(feeBps)} of every stake and ${pct(profitFeeBps)} of every win’s profit are taken as fees, split between SKT holders and skech.`;
-  return `A fee of ${pct(feeBps)} of every stake: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of every win’s profit: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.`;
+  return `A fee of ${pct(feeBps)} of every stake: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of every win’s profit: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.${sktLine(terms)}`;
+};
+
+/** How SKT is earned and kept, in the game's own numbers. */
+const sktLine = (terms: NonNullable<Hello["terms"]>) => {
+  const weeks = terms.sktHalfLifeSecs ? Math.round(terms.sktHalfLifeSecs / 604_800) : null;
+  return ` Losing earns SKT. Holders also share what the pool keeps beyond its reserve.${weeks ? ` SKT halves every ${weeks} weeks: keep playing to keep your share.` : ""}`;
 };
 
 /** A price with its cents quieter than its dollars. */

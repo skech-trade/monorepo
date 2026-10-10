@@ -9,6 +9,7 @@ import { CLOSE_AFTER_MS } from "@skech/core/bars";
 import {
   decodePlayer,
   fetchBars,
+  fetchMaybeRewards,
   fetchPool,
   getCollectFeesInstruction,
   getExpireInstruction,
@@ -16,6 +17,7 @@ import {
   getRedeemHouseInstruction,
   getRedeemInstruction,
   getSettleInstruction,
+  getShareSurplusInstruction,
   getSkechErrorMessage,
   getSweepInstruction,
   holderAddress,
@@ -24,6 +26,7 @@ import {
   SKECH_ERROR__BAR_CONFLICT,
   SKECH_ERROR__BAR_DISCONTINUOUS,
   SKECH_ERROR__BAR_LATE,
+  surplusE6,
 } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
 import { report } from "../sentry";
@@ -78,7 +81,7 @@ export class SolanaSettler {
   private closing = new Map<Address, { player: Address; due: number; tries: number }>();
   /** The smallest part of an IOU the program pays out (the game's minRedeem, USDC e6); set from the chain. */
   minRedeem = 0n;
-  stats = { bars: 0, settled: 0, redeemed: 0n, swept: 0n, collected: 0n };
+  stats = { bars: 0, settled: 0, redeemed: 0n, swept: 0n, collected: 0n, surplus: 0n };
   /** How long after its opening second a piece may still be placed, from the game's config. */
   placeGraceMs = 3_000;
 
@@ -425,6 +428,17 @@ export class SolanaSettler {
         }
       }
       if (pool.houseShares > 0n && left > 0n) await this.chain.send("redeem house", [getRedeemHouseInstruction({ game: d.game, pool: d.pool })], 30_000);
+      // The pool's surplus over its reserve and what live bets could pay, to SKT holders: never while anything is owed
+      // (the program checks again), and only once it is worth a transaction.
+      const skt = await fetchMaybeRewards(rpc, this.chain.rewards).catch(() => null);
+      if (skt?.exists) {
+        const fresh = await fetchPool(rpc, d.pool);
+        const surplus = surplusE6(fresh.data, skt.data, BigInt(Math.floor(Date.now() / 1000)));
+        if (surplus >= this.cfg.surplusAboveE6) {
+          const s = await this.chain.send(`share ${surplus} surplus`, [getShareSurplusInstruction({ game: d.game, pool: d.pool, rewards: this.chain.rewards })], 30_000);
+          if (!s.err) this.stats.surplus += surplus;
+        }
+      }
       if (this.approved.size) {
         const wallets = [...this.approved];
         const atas = await Promise.all(wallets.map((w) => findAssociatedTokenPda({ mint: d.usdcMint, owner: w, tokenProgram: TOKEN_PROGRAM_ADDRESS }).then(([a]) => a)));

@@ -104,8 +104,9 @@ impl Table {
 
     /// What `wallet`'s SKT has earned and not been paid, as a claim would count it now.
     fn claimable(&self, wallet: &Pubkey) -> u64 {
-        let (h, acc) = (self.g.holder(wallet), self.g.rewards().acc);
-        h.unclaimed + if acc > h.acc_at { (h.skt as u128 * (acc - h.acc_at) / ACC_SCALE) as u64 } else { 0 }
+        let mut h = self.g.holder(wallet);
+        h.settle_rewards(&self.g.rewards()).unwrap();
+        h.unclaimed
     }
 
     fn set_rewards(&mut self, r: RewardsConfig) {
@@ -172,17 +173,18 @@ struct Fair {
     owed: Vec<u128>,
     shares: u64,
 }
+// Shares and the total, as the accumulator splits a share: by shares.
 
 impl Fair {
     fn around<T>(&mut self, t: &mut Table, f: impl FnOnce(&mut Table) -> T) -> T {
-        let skt: Vec<u64> = self.wallets.iter().map(|w| t.g.holder(w).skt).collect();
-        let (supply, before) = (t.g.rewards().supply, t.g.rewards().accrued_total);
+        let skt: Vec<u128> = self.wallets.iter().map(|w| t.g.holder(w).shares).collect();
+        let (supply, before) = (t.g.rewards().total_shares, t.g.rewards().accrued_total);
         let out = f(t);
         let share = (t.g.rewards().accrued_total - before) as u128;
         if share > 0 {
             self.shares += 1;
             for (i, s) in skt.iter().enumerate() {
-                self.owed[i] += share * *s as u128 * ACC_SCALE / supply as u128;
+                self.owed[i] += share * *s * ACC_SCALE / supply;
             }
         }
         out
@@ -230,7 +232,7 @@ fn holders_who_join_at_different_times_earn_their_part_of_every_share_and_no_mor
         assert!(claimed[i] > 0);
     }
     // The payer never lost, so never held any.
-    assert_eq!(t.g.holder(&key(&payer)).skt, 0);
+    assert_eq!(t.g.holder(&key(&payer)).minted, 0);
     let r = t.g.rewards();
     assert_eq!(r.claimed_total, claimed.iter().sum::<u64>());
     assert_eq!(r.holder_funds, r.accrued_total - r.claimed_total);
@@ -304,10 +306,10 @@ fn each_miss_mints_on_its_odds_weighted_loss_and_a_hit_on_nothing() {
     assert_eq!(minted[0].skt as u128, mint_amount(RewardsConfig::DEFAULT.mint_scale, 0, 1_500));
     assert_eq!((t.g.holder(&key(&a)).basis, t.g.rewards().gain), (1_500, 1_500));
     // A hit mints nothing, and takes nothing back.
-    let skt = t.g.holder(&key(&a)).skt;
+    let skt = t.g.holder(&key(&a)).minted;
     let m = t.play(&a, &[(AT, 100_000, HALF)], HIT_AT);
     assert!(events::<skech::events::Minted>(&m.logs).is_empty());
-    assert_eq!(t.g.holder(&key(&a)).skt, skt);
+    assert_eq!(t.g.holder(&key(&a)).minted, skt);
     // One piece, a band that hits and one that misses: the miss alone, 10¢ · (0.25 + 0.1 · 0.5 · 0.5) / 0.5, from where
     // the gain is.
     let m = t.play(&a, &[(AT, 100_000, HALF), (FAR, 100_000, HALF)], HIT_AT);
@@ -317,7 +319,7 @@ fn each_miss_mints_on_its_odds_weighted_loss_and_a_hit_on_nothing() {
     // Never more than 100 SKT a dollar of basis, and the basis never more than the stake that missed.
     let h = t.g.holder(&key(&a));
     assert_eq!(h.basis, 56_500);
-    assert!(h.skt as u128 <= 100 * h.basis as u128);
+    assert!(h.minted as u128 <= 100 * h.basis as u128);
 }
 
 #[test]
@@ -368,7 +370,7 @@ fn a_hit_owed_as_iou_mints_nothing_and_paying_it_off_changes_no_skt() {
     let s: Vec<skech::events::Settled> = events(&m.logs);
     assert!(s[0].owed > 0);
     assert!(events::<skech::events::Minted>(&m.logs).is_empty());
-    assert_eq!(t.g.holder(&key(&a)).skt, 0);
+    assert_eq!(t.g.holder(&key(&a)).minted, 0);
     // While it is owed, a miss of A's (cash staked from A's balance: nothing in skech stakes an IOU) mints on the curve,
     // from the tracked gain where it is: what is owed changes nothing about the mint.
     let from = t.g.rewards().gain;
@@ -385,7 +387,7 @@ fn a_hit_owed_as_iou_mints_nothing_and_paying_it_off_changes_no_skt() {
     t.g.send(&[t.redeem_ix(&key(&a), key(&a))], &[&w]).expect("redeemed");
     assert_eq!(t.g.player_state(&a).iou_shares, 0);
     let after = t.g.holder(&key(&a));
-    assert_eq!((after.skt, after.basis), (h.skt, h.basis));
+    assert_eq!((after.minted, after.basis), (h.minted, h.basis));
 }
 
 #[test]
@@ -403,7 +405,7 @@ fn a_bet_placed_before_skt_settles_and_mints_nothing() {
     let s: Vec<skech::events::Settled> = events(&m.logs);
     assert_eq!((s[0].miss_mask, s[0].closed), (1, true));
     assert!(events::<skech::events::Minted>(&m.logs).is_empty());
-    assert_eq!((t.g.holder(&key(&a)).skt, t.g.rewards().gain), (0, 0));
+    assert_eq!((t.g.holder(&key(&a)).minted, t.g.rewards().gain), (0, 0));
 }
 
 #[test]
@@ -426,7 +428,7 @@ fn stakes_given_back_mint_nothing() {
     let h = t.g.holder(&key(&a));
     // Only the 70,000 that missed counts, 0.55 of it at 50% and 1.5x; the 30,000 given back, nothing.
     assert_eq!(h.basis, 38_500);
-    assert_eq!(h.skt as u128, mint_amount(RewardsConfig::DEFAULT.mint_scale, 0, 38_500));
+    assert_eq!(h.minted as u128, mint_amount(RewardsConfig::DEFAULT.mint_scale, 0, 38_500));
     // A piece given back whole mints nothing.
     let b = t.g.player(10 * E6, 10 * E6);
     let open_at = t.open();
@@ -435,7 +437,7 @@ fn stakes_given_back_mint_nothing() {
     t.g.settle_on(true, &[(bet, key(&b))]).unwrap();
     assert_eq!(t.g.player_state(&b).balance, 10 * E6);
     let h = t.g.holder(&key(&b));
-    assert_eq!((h.skt, h.basis), (0, 0));
+    assert_eq!((h.minted, h.basis), (0, 0));
 }
 
 #[test]
@@ -459,7 +461,7 @@ fn only_settling_with_the_players_own_holder_goes_through() {
     assert_eq!(custom_error(&t.g.send(&[ix], &[])), Some(code(SkechError::BadSettleAccounts)));
     // With its own, fine.
     t.g.post_and_settle(open_at + 1000, MISS, MISS, MISS, MISS, &[(bet, key(&a))]).unwrap();
-    assert!(t.g.holder(&key(&a)).skt > 0);
+    assert!(t.g.holder(&key(&a)).minted > 0);
 }
 
 #[test]
@@ -559,8 +561,8 @@ fn strategy(seed: u64, n: usize, lo: u32, stake: u32, chance: u32) -> (u64, u64,
     // What it can expect to lose, the 10% profit fee a hit pays included.
     let (p, m) = (chance as f64 / 1e9, rung as f64 / 100.0);
     let expected = n as f64 * stake as f64 * ((1.0 - p * m) + 0.1 * p * (m - 1.0));
-    assert_eq!(t.g.rewards().supply - from_skt, h.skt);
-    (h.skt, h.basis, expected, rung)
+    assert_eq!(t.g.rewards().supply - from_skt, h.minted);
+    (h.minted, h.basis, expected, rung)
 }
 
 #[test]
@@ -698,13 +700,13 @@ fn random_game(seed: u64, steps: usize, long_shots: u64) -> (u64, u64) {
         let claimable: u64 = players.iter().map(|p| t.claimable(&key(p))).sum();
         assert!(r.claimed_total + claimable <= r.accrued_total, "{at}: claimed {} + claimable {claimable} over accrued {}", r.claimed_total, r.accrued_total);
         assert_eq!(r.holder_funds, r.accrued_total - r.claimed_total, "{at}: holder funds");
-        let supply: u64 = players.iter().map(|p| t.g.holder(&key(p)).skt).sum();
+        let supply: u64 = players.iter().map(|p| t.g.holder(&key(p)).minted).sum();
         assert_eq!(supply, r.supply, "{at}: the supply is every holder's SKT");
         let mut gain = 0u64;
         for (i, p) in players.iter().enumerate() {
             let h = t.g.holder(&key(p));
             assert_eq!(h.basis, books[i], "{at}: player {i}'s basis, as the test counts it");
-            assert!(h.skt as u128 <= 100 * h.basis as u128, "{at}: player {i} minted {} on a basis of {}", h.skt, h.basis);
+            assert!(h.minted as u128 <= 100 * h.basis as u128, "{at}: player {i} minted {} on a basis of {}", h.minted, h.basis);
             gain += h.basis;
         }
         assert_eq!(r.gain, gain, "{at}: the tracked gain is every basis minted on");

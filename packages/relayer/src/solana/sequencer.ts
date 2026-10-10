@@ -59,7 +59,7 @@ export class SolanaSequencer {
   difficulty = 40;
   /** min/max per dot and the most a piece may stake, and the fees, from the game's config; the holders' parts of the fees, from
    * SKT's; the least a piece stakes, the relayer's own. */
-  terms = { minPerDot: 10_000n, maxPerDot: 100_000_000n, maxPieceStake: 10_000_000_000n, minPieceStake: MIN_PIECE_STAKE_E6, maxPriceAgeMs: 15_000, feeBps: 400, profitFeeBps: 1000, holderFeeBps: 300, holderProfitFeeBps: 800 };
+  terms = { minPerDot: 10_000n, maxPerDot: 100_000_000n, maxPieceStake: 10_000_000_000n, minPieceStake: MIN_PIECE_STAKE_E6, maxPriceAgeMs: 15_000, feeBps: 400, profitFeeBps: 1000, holderFeeBps: 300, holderProfitFeeBps: 800, sktHalfLifeSecs: 26 * 7 * 86_400 };
   private buckets = new Map<number, Pending[]>();
   private seen = new Set<Address>();
   private players = new Map<Address, { at: number; balance: bigint; allowance: bigint; key: Uint8Array; validUntil: bigint }>();

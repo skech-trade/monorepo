@@ -4,7 +4,7 @@
  * generated client in `./client`.
  */
 import { type Address, address, getAddressEncoder, getProgramDerivedAddress, getU32Encoder, getU64Encoder, type Instruction, type ReadonlyUint8Array } from "@solana/kit";
-import { type Config, getPlaceInstructionDataEncoder, type Holder, type Rewards, type RewardsConfig, SKECH_PROGRAM_ADDRESS, type SectionArgArgs } from "./client";
+import { type Config, getPlaceInstructionDataEncoder, type Holder, type Pool, type Rewards, type RewardsConfig, SKECH_PROGRAM_ADDRESS, type SectionArgArgs } from "./client";
 
 export * from "./client";
 
@@ -120,17 +120,95 @@ export const DEFAULT_CONFIG: Config = {
 
 /* ---- SKT (state.rs, skt.rs) ---- */
 
-/** `RewardsConfig::DEFAULT`: 3 of the 4 stake points and 8 of the 10 profit points to SKT holders; the curve's scale $1,000,000. */
-export const DEFAULT_REWARDS_CONFIG: RewardsConfig = { holderFeeBps: 300, holderProfitFeeBps: 800, mintScale: 1_000_000_000_000n };
+/**
+ * `RewardsConfig::DEFAULT`: 3 of the 4 stake points and 8 of the 10 profit points to SKT holders; the curve's scale
+ * $1,000,000; a half-life of 26 weeks; no wallet past 10% of all SKT, or 100,000 SKT while there is under a million;
+ * $2,457,600 kept in the pool over what live bets could pay before any surplus is shared.
+ */
+export const DEFAULT_REWARDS_CONFIG: RewardsConfig = {
+  holderFeeBps: 300,
+  holderProfitFeeBps: 800,
+  mintScale: 1_000_000_000_000n,
+  halfLifeSecs: 26 * 7 * 86_400,
+  walletCapBps: 1_000,
+  capFloor: 1_000_000_000_000n,
+  surplusReserve: 2_457_600_000_000n,
+};
 /** SKT is counted in millionths, as USDC is. */
 export const SKT_DECIMALS = 6;
 /** The holders' accumulator's scale. */
-export const ACC_SCALE = 10n ** 18n;
+export const ACC_SCALE = 10n ** 24n;
+/** Half-lives in an era, and eras whose closing accumulator is kept (state.rs). */
+export const ERA_HALVINGS = 16n;
+export const ERAS_KEPT = 8n;
+const ERA_LOG2 = ERA_HALVINGS << 32n;
 
-/** What a holder's SKT has earned and not been claimed, USDC e6: exactly what `claim` would pay now. */
-export function claimableE6(holder: Pick<Holder, "skt" | "accAt" | "unclaimed">, rewards: Pick<Rewards, "acc">): bigint {
-  const fresh = rewards.acc > holder.accAt ? (holder.skt * (rewards.acc - holder.accAt)) / ACC_SCALE : 0n;
-  return holder.unclaimed + fresh;
+/** 2^(2^-i) for i = 1 to 32, times 2^62, rounded down: skt.rs `EXP2_TABLE`. */
+const EXP2_TABLE = [
+  6521908912666391106n, 5484249825272419511n, 5029079263719320435n, 4815862801830788490n, 4712668792719003883n, 4661903986662671289n, 4636727017470743990n, 4624189567668517720n,
+  4617933561212708776n, 4614808732577250068n, 4613247111281068008n, 4612466498810092974n, 4612076242109103707n, 4611881126141011236n, 4611783571252412753n, 4611734794581956353n,
+  4611710406440186475n, 4611698212417665819n, 4611692115418496524n, 4611689066921934630n, 4611687542674409371n, 4611686780550835663n, 4611686399489096040n, 4611686208958238036n,
+  4611686113692811986n, 4611686066060099699n, 4611686042243743740n, 4611686030335565806n, 4611686024381476851n, 4611686021404432376n, 4611686019915910140n, 4611686019171649022n,
+];
+/** `2^(l / 2^32)` times 2^32, rounded down, as skt.rs `exp2_q32` works it. */
+export function exp2Q32(l: bigint): bigint {
+  const whole = l >> 32n > 90n ? 90n : l >> 32n;
+  const frac = l & 0xffffffffn;
+  let x = 1n << 62n;
+  EXP2_TABLE.forEach((root, i) => {
+    if (frac & (1n << BigInt(31 - i))) x = (x * root) >> 62n;
+  });
+  return (x >> 30n) << whole;
+}
+const shr = (x: bigint, bits: bigint) => (bits >= 128n ? 0n : x >> bits);
+type Clock = Pick<Rewards, "anchorLog2" | "anchorTime" | "era" | "config">;
+/** A share's weight at `now` (unix seconds), as its log2 times 2^32: `Rewards::log2_weight`. */
+const log2Weight = (r: Clock, now: bigint) => r.anchorLog2 + ((now > r.anchorTime ? now - r.anchorTime : 0n) << 32n) / BigInt(Math.max(1, r.config.halfLifeSecs));
+
+/**
+ * What a holder's SKT is worth at `now` (unix seconds), e6: its shares over today's weight, eras and all, exactly as
+ * `Rewards::balance_of` works it. SKT decays: it halves every half-life.
+ */
+export function sktNowE6(holder: Pick<Holder, "shares" | "era">, rewards: Clock, now: bigint): bigint {
+  const l = log2Weight(rewards, now);
+  const eras = BigInt(Math.max(0, rewards.era - holder.era)) + l / ERA_LOG2;
+  return (shr(holder.shares, ERA_HALVINGS * eras) << 32n) / exp2Q32(l % ERA_LOG2);
+}
+
+/**
+ * What a holder's SKT has earned and not been claimed, USDC e6: exactly what `claim` would pay now (`Holder::
+ * settle_rewards`): this era's accumulator on its shares, and for a holder behind by eras, each kept era's on its shares
+ * as they stood then.
+ */
+export function claimableE6(holder: Pick<Holder, "shares" | "era" | "accAt" | "unclaimed">, rewards: Pick<Rewards, "acc" | "era" | "eraEnds">): bigint {
+  const endOf = (era: number) => (era < rewards.era && rewards.era - era <= Number(ERAS_KEPT) ? rewards.eraEnds[era % Number(ERAS_KEPT)] : null);
+  if (holder.era === rewards.era) return holder.unclaimed + (rewards.acc > holder.accAt ? (holder.shares * (rewards.acc - holder.accAt)) / ACC_SCALE : 0n);
+  let earned = 0n;
+  const last = endOf(holder.era);
+  if (last !== null && last > holder.accAt) earned += (holder.shares * (last - holder.accAt)) / ACC_SCALE;
+  for (let era = holder.era + 1; era < rewards.era; era++) {
+    const s = shr(holder.shares, ERA_HALVINGS * BigInt(era - holder.era));
+    if (s === 0n) break;
+    const end = endOf(era);
+    if (end !== null) earned += (s * end) / ACC_SCALE;
+  }
+  earned += (shr(holder.shares, ERA_HALVINGS * BigInt(rewards.era - holder.era)) * rewards.acc) / ACC_SCALE;
+  return holder.unclaimed + earned;
+}
+
+/** The most one piece can pay at `c`, gross: state.rs `max_piece_payout`. */
+export const maxPiecePayoutE6 = (c: Pick<Config, "maxPerDot" | "maxPieceStake">) => {
+  const bands = 32n * 256n * c.maxPerDot;
+  const stake = (c.maxPieceStake * 12_800n) / 100n;
+  return bands < stake ? bands : stake;
+};
+
+/** What `share_surplus` would share now, USDC e6 (surplus.rs `surplus`): 0 while anything is owed, too soon after SKT
+ * started, with no shares to share it among, or with the pool at or under its reserve and every live bet's most. */
+export function surplusE6(pool: Pick<Pool, "pool" | "iouShares" | "houseShares">, rewards: Pick<Rewards, "liability" | "config" | "startedAt" | "totalShares">, now: bigint): bigint {
+  if (pool.iouShares > 0n || pool.houseShares > 0n || now < rewards.startedAt + 240n || rewards.totalShares < 1_000_000n) return 0n;
+  const keep = rewards.liability + rewards.config.surplusReserve;
+  return pool.pool > keep ? pool.pool - keep : 0n;
 }
 
 /* ---- addresses ---- */

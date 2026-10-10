@@ -115,7 +115,8 @@ fn compute_units() {
             .iter()
             .map(|p| {
                 let d = drawing_at_bump(&p.wallet.pubkey(), drawing, |b| b == 255);
-                let piece = g.piece(p, d, 0, second, &[(1, 415_000, 5, 50_000)]);
+                // A miss: only a settlement that mints opens a holder.
+                let piece = g.piece(p, d, 0, second, &[(1, 300_000, 5, 50_000)]);
                 g.place(p, &piece, &g.quote(&piece, 500_000_000)).expect("placed");
                 (bet_pda(&p.wallet.pubkey(), d, 0).0, p.wallet.pubkey())
             })
@@ -295,8 +296,8 @@ fn account_sizes_are_what_is_on_chain() {
     let at = skech::state::Bet::LIVE_MASK_AT;
     assert_eq!((&bytes[at..at + 4], &bytes[at + 4..at + 8]), (&0xaabb_ccddu32.to_le_bytes()[..], &0x1122_3344u32.to_le_bytes()[..]));
     // And the new ones: a Holder's rent is the relayer's, once a player.
-    assert_eq!(skech::state::Holder::SPACE, 121);
-    assert_eq!(8 + <skech::state::Rewards as anchor_lang::Space>::INIT_SPACE, 141);
+    assert_eq!(skech::state::Holder::SPACE, 141);
+    assert_eq!(8 + <skech::state::Rewards as anchor_lang::Space>::INIT_SPACE, 319);
 }
 
 /// A piece's bytes and a domain, for `sdk.test.ts` to check the TypeScript encodes them the same.

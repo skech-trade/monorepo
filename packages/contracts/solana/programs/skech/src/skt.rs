@@ -1,13 +1,21 @@
 //! SKT: what losing earns back. Every band that misses mints SKT at its settlement, on its basis; SKT never moves and is
-//! always staked, and every SKT earns an equal part of the holders' share of the fees.
+//! always staked, decays with a half-life, and every SKT earns an equal part of the holders' share of the fees.
 //!
 //! - **The fees.** Of the stake fee, `holder_fee_bps` (3 of 4 points) is the holders'; of the profit fee,
 //!   `holder_profit_fee_bps` (8 of 10). The house keeps the rest and every rounding. While anything is owed as IOU
-//!   the holders' share goes to the pool, to pay it off; while no SKT exists, to the treasury. The mint is never
-//!   changed by what is owed.
-//! - **The accumulator.** Each share raises `acc` by `share · ACC_SCALE / supply`, rounded down. A holder's earnings
-//!   are `skt · (acc − acc_at) / ACC_SCALE`, rounded down, counted into `unclaimed` before their balance changes and
-//!   before a claim. So no holder is ever paid more than their part of what was accrued.
+//!   the holders' share goes to the pool, to pay it off; while (next to) no SKT exists, to the treasury. The mint is
+//!   never changed by what is owed. What the pool holds over the reserve and what live bets could pay is shared with
+//!   holders too (`share_surplus`), never while anything is owed.
+//! - **Decay, as shares.** A mint of `skt` at time t adds `skt · 2^(t/h)` shares (h the half-life), and a holder's SKT
+//!   at time t is `shares · 2^(−t/h)`. Every balance decays alike, so what decay changes is how a mint weighs against
+//!   older ones: the holders' share is split by shares, which is by decayed balance, and an early loss earns less and
+//!   less unless its player keeps playing. The weight is counted from the era's start, so it stays between 1 and 2^16;
+//!   at each era's end (ERA_HALVINGS half-lives) every share is divided by 2^16, the total at once and each holder's
+//!   when it is next touched, and the accumulator starts again, its last value kept for those still to catch up.
+//! - **The accumulator.** Each share raises `acc` by `share · ACC_SCALE / total_shares`, rounded down. A holder's earnings
+//!   are `shares · (acc − acc_at) / ACC_SCALE`, rounded down, counted into `unclaimed` before their shares change and
+//!   before a claim; the shares of a holder behind by eras are divided down era by era as the total was, rounded down.
+//!   So the holders' shares never add up to more than the total, and no holder is ever paid more than their part.
 //! - **The basis.** A band of stake `s`, chance `p` (the oracle's, as quoted) and rung `m` that misses counts
 //!   `s · [(1 − p·m) + f·p·(m − 1)] / (1 − p)`, with `f` the profit fee; a hit counts nothing. In expectation that is
 //!   `s · [(1 − p·m) + f·p·(m − 1)]`, the band's expected loss with the profit fee a hit pays, whatever `p`: a 1% long
@@ -15,9 +23,12 @@
 //!   taken from the stake a hit pays on, so it is in `s(1 − p·m)` already, and adding it would mint on ink that
 //!   loses nothing (the audit's farm table: it makes near-certain ink mint more than a dollar's basis per real dollar).
 //! - **The curve.** A dollar of basis mints `100 · (S / (S + G))²` SKT, where G is the tracked gain (every basis
-//!   minted on so far, `Rewards::gain`) and S is `mint_scale`. A settlement's basis B
-//!   mints the integral of that rate from G to G + B, `100 · S² · B / ((S + G)(S + G + B))`, and moves G on by B: one
-//!   basis of B and two of B/2 mint the same, to the unit.
+//!   minted on so far, `Rewards::gain`) and S is `mint_scale`. A settlement's basis B mints the integral of that rate
+//!   from G to G + B, `100 · S² · B / ((S + G)(S + G + B))`, and moves G on by B: one basis of B and two of B/2 mint the
+//!   same, to the unit.
+//! - **The cap.** No mint takes a wallet past `wallet_cap_bps` of all shares, or past that part of `cap_floor` SKT
+//!   while there is little, whichever is more; what would pass it is not minted (G still moves on). One check per
+//!   mint, and it only ever mints less. A player with many wallets is not stopped by it.
 
 use anchor_lang::prelude::*;
 
@@ -63,19 +74,22 @@ pub enum Route {
     Holders,
     /// To the pool: something is owed as IOU, and is paid first.
     Pool,
-    /// To the treasury: there is no SKT to share it.
+    /// To the treasury: there are (next to) no shares to share it.
     Treasury,
 }
 
 pub fn route(pool: &Pool, rewards: &Rewards) -> Route {
     if pool.iou_shares > 0 {
         Route::Pool
-    } else if rewards.supply == 0 {
+    } else if rewards.total_shares < MIN_TOTAL_SHARES {
         Route::Treasury
     } else {
         Route::Holders
     }
 }
+
+/// One era, as log2 of a weight, times 2^32.
+const ERA_LOG2: u128 = (ERA_HALVINGS as u128) << 32;
 
 impl Rewards {
     /// The holders' share of a stake's fee: money that is in nobody's balance or pool yet.
@@ -113,58 +127,148 @@ impl Rewards {
         Ok(())
     }
 
-    /// Share `amount` among every SKT there is. `acc` is rounded down: what the rounding leaves stays in
-    /// `holder_funds`, never anyone's.
-    fn accrue(&mut self, amount: u64) -> Result<()> {
-        debug_assert!(self.supply > 0);
-        // amount ≤ u64::MAX, so amount · 1e18 < 2^128; and every amount ever is ≤ u64::MAX in all, so acc never
-        // reaches 2^128 either.
-        self.acc = self.acc.checked_add(amount as u128 * ACC_SCALE / self.supply as u128).ok_or(SkechError::Overflow)?;
+    /// Share `amount` among every share there is. `acc` is rounded down: what the rounding leaves stays in
+    /// `holder_funds`, never anyone's. Only with at least MIN_TOTAL_SHARES shares (`route`).
+    pub fn accrue(&mut self, amount: u64) -> Result<()> {
+        require!(self.total_shares >= MIN_TOTAL_SHARES, SkechError::Overflow);
+        // amount · 1e24 < 2^144 would overflow: split it, amount · (SCALE / total) + amount · (SCALE % total) / total.
+        let t = self.total_shares;
+        let add = mul_div(amount as u128, ACC_SCALE, t).ok_or(SkechError::Overflow)?;
+        self.acc = self.acc.checked_add(add).ok_or(SkechError::Overflow)?;
         self.holder_funds = self.holder_funds.checked_add(amount).ok_or(SkechError::Overflow)?;
         self.accrued_total = self.accrued_total.checked_add(amount).ok_or(SkechError::Overflow)?;
-        emit!(HolderAccrued { amount, acc: self.acc, supply: self.supply });
+        emit!(HolderAccrued { amount, acc: self.acc, total_shares: t, era: self.era });
         Ok(())
     }
 
+    /// A share's weight now, as its log2 times 2^32, from the anchor on.
+    pub fn log2_weight(&self, now: i64) -> u128 {
+        let dt = (now - self.anchor_time).max(0) as u128;
+        self.anchor_log2 as u128 + (dt << 32) / self.config.half_life_secs.max(1) as u128
+    }
+
+    /// Move into the era `now` is in, if a share's weight has reached 2^ERA_HALVINGS: every share is divided by that
+    /// for each era passed (the total here, each holder's when next touched), the closing accumulator kept and a new
+    /// one started at 0, and the weight counted from the new era's start.
+    pub fn catch_up(&mut self, now: i64) {
+        let l = self.log2_weight(now);
+        if l < ERA_LOG2 {
+            return;
+        }
+        let k = l / ERA_LOG2;
+        let (old, new) = (self.era as u128, self.era as u128 + k);
+        // The eras skipped whole accrued nothing; the one closing ends at `acc`. Only the last ERAS_KEPT matter.
+        for e in new.saturating_sub(ERAS_KEPT as u128).max(old + 1)..new {
+            self.era_ends[(e % ERAS_KEPT as u128) as usize] = 0;
+        }
+        if k <= ERAS_KEPT as u128 {
+            self.era_ends[(old % ERAS_KEPT as u128) as usize] = self.acc;
+        }
+        self.era = new.min(u32::MAX as u128) as u32;
+        self.acc = 0;
+        self.total_shares = shr(self.total_shares, ERA_HALVINGS as u128 * k);
+        self.anchor_log2 = (l - k * ERA_LOG2) as u64;
+        self.anchor_time = now;
+    }
+
+    /// What `era`'s accumulator ended at, if it is one of the last ERAS_KEPT before this one.
+    fn end_of(&self, era: u32) -> Option<u128> {
+        (era < self.era && self.era - era <= ERAS_KEPT as u32).then(|| self.era_ends[era as usize % ERAS_KEPT])
+    }
+
+    /// A share's weight now, times 2^32: `2^(log2_weight / 2^32)`. Caught up first, it is under 2^(32 + ERA_HALVINGS).
+    pub fn weight_q32(&self, now: i64) -> u128 {
+        exp2_q32(self.log2_weight(now))
+    }
+
+    /// What `shares` of era `era` are worth in SKT (e6) at `now`: the shares over today's weight.
+    pub fn balance_of(&self, shares: u128, era: u32, now: i64) -> u64 {
+        let l = self.log2_weight(now);
+        let (k, rest) = (l / ERA_LOG2, l % ERA_LOG2);
+        let eras = (self.era.saturating_sub(era)) as u128 + k;
+        let s = shr(shares, ERA_HALVINGS as u128 * eras);
+        (s * (1u128 << 32) / exp2_q32(rest)).min(u64::MAX as u128) as u64
+    }
+
+    /// Change the half-life from now on: the weight is kept where it is now, and grows at the new pace after.
+    pub fn set_half_life(&mut self, half_life_secs: u32, now: i64) {
+        self.catch_up(now);
+        self.anchor_log2 = self.log2_weight(now) as u64;
+        self.anchor_time = now;
+        self.config.half_life_secs = half_life_secs;
+    }
+
     /// Mint `holder` SKT on a settlement's `basis`, USDC e6, from the tracked gain on, and move the tracked gain on by it:
-    /// the curve's exact integral, whatever is owed. What was minted, SKT e6.
-    pub fn mint(&mut self, holder: &mut Holder, basis: u64) -> Result<u64> {
+    /// the curve's exact integral, whatever is owed, as shares at today's weight, and no more than the wallet's cap.
+    /// What was minted, SKT e6.
+    pub fn mint(&mut self, holder: &mut Holder, basis: u64, now: i64) -> Result<u64> {
         if basis == 0 {
             return Ok(0);
         }
-        let skt = mint_amount(self.config.mint_scale, self.gain, basis);
-        let skt = skt.min((u64::MAX - self.supply) as u128) as u64;
+        self.catch_up(now);
+        let curve = mint_amount(self.config.mint_scale, self.gain, basis).min(u64::MAX as u128);
         self.gain = self.gain.saturating_add(basis);
-        // What the balance earned so far is counted before it changes.
-        holder.settle_rewards(self.acc)?;
-        holder.skt += skt;
+        // What the shares earned so far is counted, and they are brought into this era, before they change.
+        holder.settle_rewards(self)?;
+        let w = self.weight_q32(now);
+        let full = curve * w >> 32;
+        // The cap: h + x ≤ c · max(T + x, F), so x ≤ max(c·F − h, (c·T − h) / (1 − c)), in shares now.
+        let cap = self.config.wallet_cap_bps as u128;
+        let shares = if cap < BPS as u128 {
+            let (t, h, f) = (self.total_shares, holder.shares, (self.config.cap_floor as u128 * w) >> 32);
+            let under_floor = (cap * f / BPS as u128).saturating_sub(h);
+            let of_total = (cap * t).saturating_sub(BPS as u128 * h) / (BPS as u128 - cap);
+            full.min(under_floor.max(of_total))
+        } else {
+            full
+        };
+        let skt = if shares == full { curve } else { (shares << 32) / w };
+        let skt = skt.min((u64::MAX - self.supply) as u128) as u64;
+        holder.shares += shares;
         holder.basis = holder.basis.saturating_add(basis);
+        holder.minted = holder.minted.saturating_add(skt);
+        self.total_shares += shares;
         self.supply += skt;
-        if skt > 0 {
-            let rate = match skt.checked_mul(1_000_000) {
-                Some(x) => x / basis,
-                None => (skt as u128 * 1_000_000 / basis as u128) as u64,
-            };
-            emit!(Minted { player: holder.player, skt, rate, basis });
+        if curve > 0 {
+            let rate = (skt as u128 * 1_000_000 / basis as u128) as u64;
+            emit!(Minted { player: holder.player, skt, shares, capped: (curve as u64).saturating_sub(skt), rate, basis });
         }
         Ok(skt)
     }
 }
 
 impl Holder {
-    /// Count what this balance has earned since `acc_at` into `unclaimed`, rounded down.
-    pub fn settle_rewards(&mut self, acc: u128) -> Result<()> {
-        if acc > self.acc_at && self.skt > 0 {
-            let d = acc - self.acc_at;
-            let skt = self.skt as u128;
-            // skt · d / SCALE without the product overflowing: d = q · SCALE + r.
-            let earned = skt
-                .checked_mul(d / ACC_SCALE)
-                .and_then(|x| x.checked_add(skt * (d % ACC_SCALE) / ACC_SCALE))
-                .ok_or(SkechError::Overflow)?;
+    /// Count what these shares have earned since `acc_at` into `unclaimed`, rounded down, and bring them into the era
+    /// `r` is in: divided by 2^ERA_HALVINGS for each era passed, as the total was. An era's earnings that are no longer
+    /// kept (ERAS_KEPT back) are not counted: they stay in `holder_funds`.
+    pub fn settle_rewards(&mut self, r: &Rewards) -> Result<()> {
+        let mut earned: u128 = 0;
+        if self.era == r.era {
+            earned = mul_div(self.shares, r.acc.saturating_sub(self.acc_at), ACC_SCALE).ok_or(SkechError::Overflow)?;
+        } else if self.shares > 0 {
+            if let Some(end) = r.end_of(self.era) {
+                earned += mul_div(self.shares, end.saturating_sub(self.acc_at), ACC_SCALE).ok_or(SkechError::Overflow)?;
+            }
+            let mut era = self.era;
+            while era + 1 < r.era {
+                era += 1;
+                let s = shr(self.shares, ERA_HALVINGS as u128 * (era - self.era) as u128);
+                if s == 0 {
+                    break;
+                }
+                if let Some(end) = r.end_of(era) {
+                    earned += mul_div(s, end, ACC_SCALE).ok_or(SkechError::Overflow)?;
+                }
+            }
+            let s = shr(self.shares, ERA_HALVINGS as u128 * (r.era - self.era) as u128);
+            earned += mul_div(s, r.acc, ACC_SCALE).ok_or(SkechError::Overflow)?;
+            self.shares = s;
+        }
+        if earned > 0 {
             self.unclaimed = self.unclaimed.checked_add(u64::try_from(earned).map_err(|_| SkechError::Overflow)?).ok_or(SkechError::Overflow)?;
         }
-        self.acc_at = acc;
+        self.era = r.era;
+        self.acc_at = r.acc;
         Ok(())
     }
 }
@@ -191,6 +295,71 @@ pub fn rate_e6(scale: u64, g: u64) -> u128 {
         return 0;
     }
     SKT_PER_USDC * 1_000_000 * s / (s + g) * s / (s + g)
+}
+
+/// 2^(2^-i) for i = 1 to 32, times 2^62, rounded down (`conformance/reference.ts` has the same table).
+pub const EXP2_TABLE: [u64; 32] = [
+    6521908912666391106, 5484249825272419511, 5029079263719320435, 4815862801830788490, 4712668792719003883, 4661903986662671289, 4636727017470743990, 4624189567668517720,
+    4617933561212708776, 4614808732577250068, 4613247111281068008, 4612466498810092974, 4612076242109103707, 4611881126141011236, 4611783571252412753, 4611734794581956353,
+    4611710406440186475, 4611698212417665819, 4611692115418496524, 4611689066921934630, 4611687542674409371, 4611686780550835663, 4611686399489096040, 4611686208958238036,
+    4611686113692811986, 4611686066060099699, 4611686042243743740, 4611686030335565806, 4611686024381476851, 4611686021404432376, 4611686019915910140, 4611686019171649022,
+];
+
+/// `2^(l / 2^32)` times 2^32, rounded down: the fraction's bits multiply the table's roots of 2 together, in 62 bits.
+/// A whole part of 91 or more saturates (only a balance a century stale could ask, and it is shifted to 0 first).
+pub fn exp2_q32(l: u128) -> u128 {
+    let (whole, frac) = ((l >> 32).min(90) as u32, (l & 0xffff_ffff) as u32);
+    let mut x: u128 = 1 << 62;
+    for (i, root) in EXP2_TABLE.iter().enumerate() {
+        if frac & (1 << (31 - i)) != 0 {
+            x = x * *root as u128 >> 62;
+        }
+    }
+    (x >> 30) << whole
+}
+
+/// `x / 2^bits`, rounded down, 0 past 127 bits.
+pub fn shr(x: u128, bits: u128) -> u128 {
+    if bits >= 128 {
+        0
+    } else {
+        x >> bits
+    }
+}
+
+/// `a · b / d`, rounded down, through 256 bits: None if it does not fit a u128 (or d is 0).
+pub fn mul_div(a: u128, b: u128, d: u128) -> Option<u128> {
+    if d == 0 {
+        return None;
+    }
+    if let Some(p) = a.checked_mul(b) {
+        return Some(p / d);
+    }
+    let (hi, lo) = mul_wide(a, b);
+    if hi >= d {
+        return None;
+    }
+    // Long division of hi:lo by d, a bit at a time; the remainder stays under d, with a carry for its 129th bit.
+    let (mut rem, mut q) = (hi, 0u128);
+    for i in (0..128).rev() {
+        let carry = rem >> 127;
+        rem = (rem << 1) | ((lo >> i) & 1);
+        q <<= 1;
+        if carry == 1 || rem >= d {
+            rem = rem.wrapping_sub(d);
+            q |= 1;
+        }
+    }
+    Some(q)
+}
+
+/// The full 256-bit product, as (high, low) halves.
+fn mul_wide(a: u128, b: u128) -> (u128, u128) {
+    const M: u128 = u64::MAX as u128;
+    let (a1, a0, b1, b0) = (a >> 64, a & M, b >> 64, b & M);
+    let (p00, p01, p10, p11) = (a0 * b0, a0 * b1, a1 * b0, a1 * b1);
+    let mid = (p00 >> 64) + (p01 & M) + (p10 & M);
+    ((p11 + (p01 >> 64) + (p10 >> 64) + (mid >> 64)), (p00 & M) | (mid << 64))
 }
 
 #[cfg(test)]
@@ -378,8 +547,27 @@ mod tests {
         assert_eq!(((49u64 * 400).div_ceil(BPS), holder_part(49, 300, 400)), (2, 1));
     }
 
-    fn rewards(supply: u64) -> Rewards {
-        Rewards { config: RewardsConfig::DEFAULT, supply, acc: 0, holder_funds: 0, accrued_total: 0, claimed_total: 0, gain: 0, bump: 0, _reserved: [0; 64] }
+    /// A fresh `Rewards` at time 0, with `total_shares` already held by holders made by the caller.
+    fn rewards(total_shares: u128) -> Rewards {
+        Rewards {
+            config: RewardsConfig::DEFAULT,
+            supply: 0,
+            total_shares,
+            acc: 0,
+            holder_funds: 0,
+            accrued_total: 0,
+            claimed_total: 0,
+            gain: 0,
+            era: 0,
+            era_ends: [0; ERAS_KEPT],
+            anchor_log2: 0,
+            anchor_time: 0,
+            liability: 0,
+            swept_total: 0,
+            started_at: 0,
+            bump: 0,
+            _reserved: [0; 32],
+        }
     }
 
     #[test]
@@ -387,28 +575,210 @@ mod tests {
         let mut seed = 99u64;
         for _ in 0..200 {
             let n = 1 + (rng(&mut seed) % 6) as usize;
-            let mut holders: Vec<Holder> = (0..n).map(|_| Holder { skt: 1 + rng(&mut seed) % 1_000_000_000_000, ..Default::default() }).collect();
-            let mut r = rewards(holders.iter().map(|h| h.skt).sum());
+            let mut holders: Vec<Holder> = (0..n).map(|_| Holder { shares: 1_000_000 + (rng(&mut seed) % 1_000_000_000_000) as u128, ..Default::default() }).collect();
+            let mut r = rewards(holders.iter().map(|h| h.shares).sum());
+            let mut now = 0i64;
             for _ in 0..50 {
-                // A fee, or a holder's balance growing (counted first), at random.
-                if rng(&mut seed) % 3 == 0 {
-                    let i = (rng(&mut seed) % n as u64) as usize;
-                    holders[i].settle_rewards(r.acc).unwrap();
-                    let more = rng(&mut seed) % 1_000_000_000;
-                    holders[i].skt += more;
-                    r.supply += more;
-                } else {
-                    r.accrue(rng(&mut seed) % 10_000_000_000).unwrap();
+                // A fee, a holder minting (counted first), or time passing (eras with it), at random.
+                match rng(&mut seed) % 4 {
+                    0 => {
+                        let i = (rng(&mut seed) % n as u64) as usize;
+                        let basis = 1 + rng(&mut seed) % 10_000_000_000;
+                        r.mint(&mut holders[i], basis, now).unwrap();
+                    }
+                    1 => now += (rng(&mut seed) % (40 * r.config.half_life_secs as u64)) as i64,
+                    _ if r.total_shares >= MIN_TOTAL_SHARES => r.accrue(rng(&mut seed) % 10_000_000_000).unwrap(),
+                    _ => {}
                 }
             }
             let mut earned = 0u64;
+            let mut shares = 0u128;
             for h in &mut holders {
-                h.settle_rewards(r.acc).unwrap();
+                h.settle_rewards(&r).unwrap();
                 earned += h.unclaimed;
+                shares += h.shares;
             }
             assert!(earned <= r.accrued_total, "{earned} paid of {} accrued", r.accrued_total);
-            // And the dust left over is small: under a unit for each holder and each fee.
-            assert!(r.accrued_total - earned <= 50 * n as u64 + 50, "{} left unpaid", r.accrued_total - earned);
+            assert!(shares <= r.total_shares, "the holders' shares never add up to more than the total");
+        }
+    }
+
+    /// `2^x` in floating point, against the program's table.
+    #[test]
+    fn the_weight_is_two_to_the_log_to_within_a_part_in_a_billion() {
+        assert_eq!(exp2_q32(0), 1 << 32);
+        assert_eq!(exp2_q32(1 << 32), 2 << 32);
+        assert_eq!(exp2_q32(15 << 32), 1 << 47);
+        let mut seed = 3u64;
+        for _ in 0..100_000 {
+            let l = (rng(&mut seed) % (16u64 << 32)) as u128;
+            let got = exp2_q32(l) as f64;
+            let want = 2f64.powf(l as f64 / 4_294_967_296.0) * 4_294_967_296.0;
+            assert!(got <= want * (1.0 + 1e-12) && (want - got) / want < 1e-9, "2^{l}: {got} for {want}");
+        }
+        // Monotone, so a later mint never weighs less than an earlier one.
+        let mut last = 0;
+        for l in (0..(16u128 << 32)).step_by(9_999_991) {
+            let w = exp2_q32(l);
+            assert!(w >= last);
+            last = w;
+        }
+    }
+
+    #[test]
+    fn mul_div_is_exact_through_256_bits() {
+        assert_eq!(mul_div(u128::MAX, u128::MAX, u128::MAX), Some(u128::MAX));
+        assert_eq!(mul_div(u128::MAX, 2, 4), Some(u128::MAX / 2));
+        assert_eq!(mul_div(1 << 100, 1 << 100, 1 << 120), Some(1 << 80));
+        assert_eq!(mul_div(u128::MAX, u128::MAX, 1), None);
+        assert_eq!(mul_div(5, 7, 0), None);
+        let mut seed = 11u64;
+        for _ in 0..20_000 {
+            let a = ((rng(&mut seed) as u128) << 64 | rng(&mut seed) as u128) >> (rng(&mut seed) % 64);
+            let b = ((rng(&mut seed) as u128) << 64 | rng(&mut seed) as u128) >> (rng(&mut seed) % 64);
+            let d = (((rng(&mut seed) as u128) << 64 | rng(&mut seed) as u128) >> (rng(&mut seed) % 100)).max(1);
+            let (hi, lo) = mul_wide(a, b);
+            match mul_div(a, b, d) {
+                // q·d ≤ a·b < (q + 1)·d, in 256 bits.
+                Some(q) => {
+                    let (qh, ql) = mul_wide(q, d);
+                    assert!((qh, ql) <= (hi, lo));
+                    let (rh, rl) = (hi - qh - if ql > lo { 1 } else { 0 }, lo.wrapping_sub(ql));
+                    assert!(rh == 0 && rl < d, "{a} * {b} / {d}");
+                }
+                None => assert!(hi >= d),
+            }
+        }
+    }
+
+    const H: i64 = 26 * 7 * 86_400;
+
+    #[test]
+    fn a_balance_halves_every_half_life_and_a_later_mint_weighs_more() {
+        let mut r = rewards(0);
+        let (mut a, mut b) = (Holder::default(), Holder::default());
+        r.mint(&mut a, 1_000 * 1_000_000, 0).unwrap();
+        let skt = r.balance_of(a.shares, a.era, 0);
+        assert_eq!(skt as u128, mint_amount(r.config.mint_scale, 0, 1_000_000_000));
+        for k in 1..=40 {
+            let now = k * H;
+            let want = skt as f64 / 2f64.powi(k as i32);
+            let got = r.balance_of(a.shares, a.era, now) as f64;
+            assert!((got - want).abs() <= 1.0 + want * 1e-9, "after {k} half-lives: {got} for {want}");
+        }
+        // B loses the same a half-life on: it mints a little less SKT (the curve has moved), but its shares weigh about
+        // twice as much as A's for each SKT, so it is paid about twice as much per SKT minted.
+        r.mint(&mut b, 1_000 * 1_000_000, H).unwrap();
+        a.settle_rewards(&r).unwrap();
+        let (sa, sb) = (r.balance_of(a.shares, a.era, H) as f64, r.balance_of(b.shares, b.era, H) as f64);
+        assert!(sb / sa > 1.9 && sb / sa < 2.0, "{sa} {sb}");
+        r.accrue(1_000_000).unwrap();
+        a.settle_rewards(&r).unwrap();
+        b.settle_rewards(&r).unwrap();
+        // Split by shares, which is by balance now: B about two thirds.
+        let share_b = b.unclaimed as f64 / (a.unclaimed + b.unclaimed) as f64;
+        assert!((share_b - sb / (sa + sb)).abs() < 1e-3, "{share_b}");
+    }
+
+    /// Fifty years and more of decay, in one go and by the era: no overflow, every era's earnings paid where they are
+    /// kept, never more than was accrued, and the shares and their weights in range throughout.
+    #[test]
+    fn decades_of_decay_never_overflow_and_never_overpay() {
+        for (half_life, jump_years) in [(RewardsConfig::DEFAULT.half_life_secs, 60i64), (MIN_HALF_LIFE_SECS, 55), (MAX_HALF_LIFE_SECS, 200)] {
+            let year = 365 * 86_400i64;
+            let mut r = rewards(0);
+            r.config.half_life_secs = half_life;
+            r.config.mint_scale = MAX_MINT_SCALE;
+            r.config.wallet_cap_bps = 10_000;
+            let (mut whale, mut steady, mut late) = (Holder::default(), Holder::default(), Holder::default());
+            // The whale loses three times the scale at once at the start, at the largest scale: three quarters of the
+            // curve's whole worth, 75 billion SKT.
+            r.mint(&mut whale, 3 * MAX_MINT_SCALE, 0).unwrap();
+            assert!(r.total_shares < 1 << 74);
+            // A steady player loses a little every month for the whole time; fees accrue every month.
+            let mut now = 0;
+            while now < jump_years * year {
+                now += year / 12;
+                r.mint(&mut steady, 1_000_000_000, now).unwrap();
+                r.accrue(10_000_000_000).unwrap();
+                assert!(r.total_shares < 1 << 75 && r.anchor_log2 < (ERA_HALVINGS as u64) << 32);
+            }
+            // A late player, and the whale untouched the whole time, then everyone settles.
+            r.mint(&mut late, 1_000_000_000, now).unwrap();
+            r.accrue(10_000_000_000).unwrap();
+            // Every u64 of basis besides, at once: no overflow.
+            let mut probe = Holder::default();
+            r.mint(&mut probe, u64::MAX, now).unwrap();
+            assert!(r.total_shares < 1 << 75);
+            let mut paid = 0;
+            for h in [&mut whale, &mut steady, &mut late, &mut probe] {
+                h.settle_rewards(&r).unwrap();
+                paid += h.unclaimed;
+            }
+            assert!(paid <= r.accrued_total, "{paid} of {}", r.accrued_total);
+            // Within ERAS_KEPT eras of the whale's last touch (the default half-life's 60 years is 7.5 eras), all of it
+            // is paid but the rounding; past them (55 years of 4-week half-lives is 44 eras), the whale's first era's
+            // earnings stay in the holders' funds, never anyone else's.
+            let eras = jump_years * year / (ERA_HALVINGS as i64 * half_life as i64);
+            println!("half-life {half_life} s, {jump_years} years ({eras} eras): {paid} of {} paid", r.accrued_total);
+            if eras < ERAS_KEPT as i64 {
+                assert!(r.accrued_total - paid < r.accrued_total / 10_000 + 1_000, "{paid} of {}", r.accrued_total);
+            }
+            // After decades, the whale's early loss, three quarters of the curve, weighs less than a player's who kept
+            // playing a thousand dollars a month.
+            assert!(r.balance_of(whale.shares, whale.era, now) < r.balance_of(steady.shares, steady.era, now));
+            // And a jump of a century with nobody about: one catch-up, no overflow.
+            r.catch_up(now + 100 * year);
+            assert!(r.anchor_log2 < (ERA_HALVINGS as u64) << 32);
+            late.settle_rewards(&r).unwrap();
+        }
+    }
+
+    /// The cap: a mint never takes a wallet past 10% of all shares, or past 10% of the floor while there is little.
+    #[test]
+    fn no_mint_takes_a_wallet_past_its_cap() {
+        let mut r = rewards(0);
+        let mut whale = Holder::default();
+        // Alone at the start: up to 10% of the floor (100,000 SKT), however much it loses.
+        r.mint(&mut whale, 1_000_000 * 1_000_000, 0).unwrap();
+        let cap = r.config.cap_floor / 10;
+        assert!(r.balance_of(whale.shares, 0, 0) <= cap && r.balance_of(whale.shares, 0, 0) > cap - 10, "{}", r.balance_of(whale.shares, 0, 0));
+        // Others mint: the whale may grow to 10% of the total and no further.
+        let mut others: Vec<Holder> = (0..50).map(|_| Holder::default()).collect();
+        let mut seed = 21u64;
+        for i in 0..2_000 {
+            let now = i as i64 * 3_600;
+            let k = (rng(&mut seed) % 50) as usize;
+            r.mint(&mut others[k], 1 + rng(&mut seed) % 20_000_000_000, now).unwrap();
+            r.mint(&mut whale, 1 + rng(&mut seed) % 200_000_000_000, now).unwrap();
+            let floor = (r.config.cap_floor as u128 * r.weight_q32(now)) >> 32;
+            assert!(whale.shares * 10 <= r.total_shares.max(floor) + 10, "step {i}: {} of {}", whale.shares, r.total_shares);
+        }
+        assert!(whale.shares * 10 > r.total_shares * 9 / 10, "the whale reached its cap");
+        // With no cap, the same losses mint the curve.
+        let mut r = rewards(0);
+        r.config.wallet_cap_bps = 10_000;
+        let mut h = Holder::default();
+        assert_eq!(r.mint(&mut h, 1_000_000 * 1_000_000, 0).unwrap() as u128, mint_amount(r.config.mint_scale, 0, 1_000_000_000_000));
+    }
+
+    /// At the same moment, a basis minted in one settlement or in pieces makes the same shares, to a unit a piece.
+    #[test]
+    fn shares_are_the_same_in_one_go_or_in_pieces() {
+        let mut seed = 77u64;
+        for _ in 0..500 {
+            let now = (rng(&mut seed) % (40 * H as u64)) as i64;
+            let pieces = 1 + rng(&mut seed) % 10;
+            let bases: Vec<u64> = (0..pieces).map(|_| 1 + rng(&mut seed) % 50_000_000_000).collect();
+            let (mut one, mut split) = (rewards(0), rewards(0));
+            one.config.wallet_cap_bps = 10_000;
+            split.config.wallet_cap_bps = 10_000;
+            let (mut a, mut b) = (Holder::default(), Holder::default());
+            one.mint(&mut a, bases.iter().sum(), now).unwrap();
+            for &x in &bases {
+                split.mint(&mut b, x, now).unwrap();
+            }
+            assert!(b.shares <= a.shares + pieces as u128 && a.shares <= b.shares + (2 * pieces as u128) * (1 << 16), "{} {}", a.shares, b.shares);
         }
     }
 }

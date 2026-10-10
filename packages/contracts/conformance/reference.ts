@@ -21,7 +21,30 @@ const feeOf = (amount: bigint, bps: number) => (amount * BigInt(bps) + BPS - 1n)
 /* ---- SKT (Solana only): the holders' share of the fees, and what a new net loss mints (programs/skech/src/skt.rs) ---- */
 
 const SKT_PER_USDC = 100n;
-const ACC_SCALE = 10n ** 18n;
+const ACC_SCALE = 10n ** 24n;
+/** Fewer shares than this and the holders' share goes to the treasury. */
+const MIN_TOTAL_SHARES = 1_000_000n;
+/** SKT's half-life, the wallet cap and its floor: the program's defaults. */
+const HALF_LIFE = 26n * 7n * 86_400n;
+const WALLET_CAP_BPS = 1_000n;
+const CAP_FLOOR = 1_000_000_000_000n;
+/** 2^(2^-i) for i = 1 to 32, times 2^62, rounded down: skt.rs `EXP2_TABLE`. */
+const EXP2_TABLE = [
+  6521908912666391106n, 5484249825272419511n, 5029079263719320435n, 4815862801830788490n, 4712668792719003883n, 4661903986662671289n, 4636727017470743990n, 4624189567668517720n,
+  4617933561212708776n, 4614808732577250068n, 4613247111281068008n, 4612466498810092974n, 4612076242109103707n, 4611881126141011236n, 4611783571252412753n, 4611734794581956353n,
+  4611710406440186475n, 4611698212417665819n, 4611692115418496524n, 4611689066921934630n, 4611687542674409371n, 4611686780550835663n, 4611686399489096040n, 4611686208958238036n,
+  4611686113692811986n, 4611686066060099699n, 4611686042243743740n, 4611686030335565806n, 4611686024381476851n, 4611686021404432376n, 4611686019915910140n, 4611686019171649022n,
+];
+/** `2^(l / 2^32)` times 2^32, rounded down, as skt.rs `exp2_q32` works it. */
+export function exp2Q32(l: bigint): bigint {
+  const whole = l >> 32n;
+  const frac = l & 0xffffffffn;
+  let x = 1n << 62n;
+  EXP2_TABLE.forEach((root, i) => {
+    if (frac & (1n << BigInt(31 - i))) x = (x * root) >> 62n;
+  });
+  return (x >> 30n) << whole;
+}
 const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 /** The holders' part of a fee taken at `feeBps` on `amount`: their bps of it, rounded down. */
 export const holderPart = (amount: bigint, holderBps: number, feeBps: number) => (amount * BigInt(Math.min(holderBps, feeBps))) / BPS;
@@ -48,8 +71,8 @@ export function missBasis(stake: bigint, chanceE9: number, rungE2: number, profi
   return b < stake ? b : stake;
 }
 /** What each SKT holder has, in a case's state. */
-export type HolderState = { skt: string; basis: number; claimable: number };
-export type SktState = { supply: string; acc: string; holderFunds: number; gain: number; holders: Record<string, HolderState> };
+export type HolderState = { shares: string; basis: number; claimable: number };
+export type SktState = { supply: string; totalShares: string; acc: string; holderFunds: number; gain: number; holders: Record<string, HolderState> };
 
 export type Band = { second: number; lo: number; hi: number; stake: number; rung: number };
 export type PlaceOut = { ok: true; sections: Band[]; staked: number; fee: number; refunded: number } | { ok: false; refused: string };
@@ -83,26 +106,29 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
   // SKT, in a case that has it.
   const skt = c.skt;
   let supply = 0n;
+  let totalShares = 0n;
   let acc = 0n;
   let holderFunds = 0n;
   let gain = 0n;
-  const holders: Record<string, { skt: bigint; accAt: bigint; unclaimed: bigint; basis: bigint }> = {};
-  for (const p of players) holders[p] = { skt: 0n, accAt: 0n, unclaimed: 0n, basis: 0n };
-  const earned = (h: (typeof holders)[string]) => (acc > h.accAt && h.skt > 0n ? (h.skt * (acc - h.accAt)) / ACC_SCALE : 0n);
+  // Seconds since SKT started, as the Solana runner's clock moves: each bar is posted once its second is over.
+  let t = 0n;
+  const holders: Record<string, { shares: bigint; accAt: bigint; unclaimed: bigint; basis: bigint }> = {};
+  for (const p of players) holders[p] = { shares: 0n, accAt: 0n, unclaimed: 0n, basis: 0n };
+  const earned = (h: (typeof holders)[string]) => (acc > h.accAt && h.shares > 0n ? (h.shares * (acc - h.accAt)) / ACC_SCALE : 0n);
   const settleRewards = (h: (typeof holders)[string]) => {
     h.unclaimed += earned(h);
     h.accAt = acc;
   };
   const owing = () => Object.values(owed).some((x) => x > 0n) || houseOwed > 0n;
   const accrue = (amount: bigint) => {
-    acc += (amount * ACC_SCALE) / supply;
+    acc += (amount * ACC_SCALE) / totalShares;
     holderFunds += amount;
   };
   /** The holders' share of a stake's fee: to the pool while anything is owed, the treasury while there is no SKT. */
   const shareStakeFee = (amount: bigint) => {
     if (!amount) return;
     if (owing()) pool += amount;
-    else if (supply === 0n) fees += amount;
+    else if (totalShares < MIN_TOTAL_SHARES) fees += amount;
     else accrue(amount);
   };
   /** The holders' share of a profit's fee: out of what the pool has left, or left in it while anything is owed. */
@@ -110,18 +136,31 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
     const taken = amount < pool ? amount : pool;
     if (!taken || owing()) return;
     pool -= taken;
-    if (supply === 0n) fees += taken;
+    if (totalShares < MIN_TOTAL_SHARES) fees += taken;
     else accrue(taken);
   };
-  /** A settlement's basis mints, from the tracked gain on, whatever is owed, and moves the gain on. */
+  /**
+   * A settlement's basis mints, from the tracked gain on, whatever is owed, and moves the gain on: as shares at today's
+   * weight, 2^(t / half-life), and no more than the wallet's cap, 10% of all shares or of the floor, whichever is more.
+   */
   const mint = (who: string, basis: bigint) => {
     if (!basis) return;
     const h = holders[who];
-    const minted = mintAmount(BigInt(skt!.mintScale), gain, basis);
+    const curve = mintAmount(BigInt(skt!.mintScale), gain, basis);
     gain += basis;
     settleRewards(h);
-    h.skt += minted;
+    const w = exp2Q32((t << 32n) / HALF_LIFE);
+    const full = (curve * w) >> 32n;
+    const floor = (CAP_FLOOR * w) >> 32n;
+    const sat = (x: bigint) => (x > 0n ? x : 0n);
+    const underFloor = sat((WALLET_CAP_BPS * floor) / BPS - h.shares);
+    const ofTotal = sat(WALLET_CAP_BPS * totalShares - BPS * h.shares) / (BPS - WALLET_CAP_BPS);
+    const room = underFloor > ofTotal ? underFloor : ofTotal;
+    const shares = full < room ? full : room;
+    const minted = shares === full ? curve : (shares << 32n) / w;
+    h.shares += shares;
     h.basis += basis;
+    totalShares += shares;
     supply += minted;
   };
   const state = (): State => ({
@@ -135,10 +174,11 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
       ? {
           skt: {
             supply: String(supply),
+            totalShares: String(totalShares),
             acc: String(acc),
             holderFunds: Number(holderFunds),
             gain: Number(gain),
-            holders: Object.fromEntries(players.map((p) => [p, { skt: String(holders[p].skt), basis: Number(holders[p].basis), claimable: Number(holders[p].unclaimed + earned(holders[p])) }])),
+            holders: Object.fromEntries(players.map((p) => [p, { shares: String(holders[p].shares), basis: Number(holders[p].basis), claimable: Number(holders[p].unclaimed + earned(holders[p])) }])),
           },
         }
       : {}),
@@ -246,6 +286,8 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
       out.push({ place: { ok: true, sections: bands, staked: Number(kept), fee: Number(fee), refunded: total - Number(kept) }, state: state() });
     } else {
       const b = step.bar;
+      // The runner moves its clock on to post a bar once its second is over (less the grace): second − 1 from the start.
+      if (BigInt(b.second - 1) > t) t = BigInt(b.second - 1);
       posted.set(b.second, { prevClose: BigInt(b.prevClose), high: BigInt(b.high), low: BigInt(b.low), close: BigInt(b.close) });
       const settled: Settled[] = [];
       for (const id of b.settle) {

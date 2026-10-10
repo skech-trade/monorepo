@@ -141,13 +141,10 @@ export type SettleAsyncInput<
   game?: TAccountGame;
   bars: TAccountBars;
   pool?: TAccountPool;
-  /**
-   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
-   * one account with its owner and discriminator is the one.
-   */
+  /** SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`. */
   rewards: TAccountRewards;
   rentReceiver: TAccountRentReceiver;
-  /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
+  /** Pays the rent of a player's `Holder` the first time a settlement mints SKT for them: whoever settles. */
   payer: TAccountPayer;
   systemProgram?: TAccountSystemProgram;
   market: SettleInstructionDataArgs["market"];
@@ -315,13 +312,10 @@ export type SettleInput<
   game: TAccountGame;
   bars: TAccountBars;
   pool: TAccountPool;
-  /**
-   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
-   * one account with its owner and discriminator is the one.
-   */
+  /** SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`. */
   rewards: TAccountRewards;
   rentReceiver: TAccountRentReceiver;
-  /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
+  /** Pays the rent of a player's `Holder` the first time a settlement mints SKT for them: whoever settles. */
   payer: TAccountPayer;
   systemProgram?: TAccountSystemProgram;
   market: SettleInstructionDataArgs["market"];
@@ -476,13 +470,10 @@ export type ParsedSettleInstruction<
     game: TAccountMetas[0];
     bars: TAccountMetas[1];
     pool: TAccountMetas[2];
-    /**
-     * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
-     * one account with its owner and discriminator is the one.
-     */
+    /** SKT's `Rewards`, or, before `init_rewards` has made it, its empty address: see `load_rewards`. */
     rewards: TAccountMetas[3];
     rentReceiver: TAccountMetas[4];
-    /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
+    /** Pays the rent of a player's `Holder` the first time a settlement mints SKT for them: whoever settles. */
     payer: TAccountMetas[5];
     systemProgram: TAccountMetas[6];
   };

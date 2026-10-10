@@ -80,4 +80,6 @@ pub enum SkechError {
     NothingToClaim,
     #[msg("SKT's mint scale is fixed once anything has minted")]
     MintScaleFixed,
+    #[msg("No surplus to share: something is owed, the pool is under its reserve and what live bets could pay, there is no SKT, or SKT started too recently")]
+    NoSurplus,
 }

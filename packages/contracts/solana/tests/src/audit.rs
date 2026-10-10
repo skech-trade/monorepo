@@ -202,7 +202,7 @@ fn with_an_iou_outstanding_splitting_a_loss_mints_no_more() {
             t.g.settle_on(false, &[*b]).unwrap();
         }
         assert!(t.g.pool().iou_shares > 0);
-        t.g.holder(&key(&whale)).skt
+        t.g.holder(&key(&whale)).minted
     };
     let one = mint(1);
     for pieces in [2usize, 5, 10] {
@@ -243,14 +243,14 @@ fn a_holder_is_opened_only_for_a_player_whose_bet_mints() {
     // A loser: its miss mints, and its holder is opened then.
     let loser = t.g.player(10 * E6, 10 * E6);
     t.play(&loser, &[(FAR, 50_000, HALF)], HIT_AT);
-    assert!(t.g.holder(&key(&loser)).skt > 0);
+    assert!(t.g.holder(&key(&loser)).minted > 0);
     // In one settlement, a hit and a miss of different players: only the loser's holder opens.
     let (w2, l2) = (t.g.player(10 * E6, 10 * E6), t.g.player(10 * E6, 10 * E6));
     let open_at = t.open();
     let (bw, bl) = (t.place(&w2, open_at, &[(AT, 50_000, HALF)]), t.place(&l2, open_at, &[(FAR, 50_000, HALF)]));
     t.settle(open_at, HIT_AT, &[(bw, key(&w2)), (bl, key(&l2))]);
     assert!(t.g.svm.get_account(&holder_pda(&key(&w2))).map_or(true, |a| a.data.is_empty()));
-    assert!(t.g.holder(&key(&l2)).skt > 0);
+    assert!(t.g.holder(&key(&l2)).minted > 0);
 }
 
 /// Security L-2: until `init_rewards` ran after the upgrade, `expire` (and settle) could not run at all, so a live

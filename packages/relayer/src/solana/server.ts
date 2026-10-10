@@ -13,7 +13,7 @@
 import type { Server as BunServer, ServerWebSocket } from "bun";
 import { type Address, address, createNoopSigner, getBase16Decoder, type Instruction } from "@solana/kit";
 import { fetchMaybeToken, findAssociatedTokenPda, getApproveInstruction, getCreateAssociatedTokenIdempotentInstruction, TOKEN_PROGRAM_ADDRESS, type Token } from "@solana-program/token";
-import { claimableE6, getClaimInstruction, getDepositInstruction, getRevokeSessionInstruction, getSetSessionInstruction, getWithdrawInstruction, holderAddress, playerAddress } from "@skech/contracts/solana/sdk";
+import { claimableE6, sktNowE6, getClaimInstruction, getDepositInstruction, getRevokeSessionInstruction, getSetSessionInstruction, getWithdrawInstruction, holderAddress, playerAddress } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
 import type { SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
@@ -176,8 +176,8 @@ export class SolanaServer {
         session: p ? { key: p.session.key, validUntil: p.session.validUntil, allowance: p.session.allowance } : null,
         owed,
         wallet,
-        // Their SKT, e6, and the USDC it has earned that a claim would pay now.
-        skt: { balance: holder?.skt ?? 0n, claimable: holder && rewards ? claimableE6(holder, rewards) : 0n },
+        // Their SKT now, e6, decayed as it is (it halves every half-life), and the USDC it has earned that a claim would pay now.
+        skt: { balance: holder && rewards ? sktNowE6(holder, rewards, now) : 0n, claimable: holder && rewards ? claimableE6(holder, rewards) : 0n },
       };
       if (only) only.send(json(msg));
       else this.toPlayer(player, msg);

@@ -136,7 +136,9 @@ function feesLine(terms: Hello["terms"] | undefined) {
   if (!terms) return "A share of what you put in and of the profit on every correct call is taken as fees, split between SKT holders and skech.";
   const { feeBps, profitFeeBps, holderFeeBps: h, holderProfitFeeBps: hp } = terms;
   if (h === undefined || hp === undefined) return `${pct(feeBps)} of what you put in and ${pct(profitFeeBps)} of the profit on every correct call are taken as fees, split between SKT holders and skech.`;
-  return `A fee of ${pct(feeBps)} of what you put in: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of the profit on every correct call: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.`;
+  const weeks = terms.sktHalfLifeSecs ? Math.round(terms.sktHalfLifeSecs / 604_800) : null;
+  const skt = ` Losing earns SKT. Holders also share what the pool keeps beyond its reserve.${weeks ? ` SKT halves every ${weeks} weeks: keep playing to keep your share.` : ""}`;
+  return `A fee of ${pct(feeBps)} of what you put in: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of the profit on every correct call: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.${skt}`;
 }
 
 function pieceFor(ch: Chain, level: number, drawing: bigint, index: number, openAt: number, perDot: number, unit: number, quote: { price: string | number; time: string | number }, sections: ReturnType<typeof toSections>, stroke: Uint8Array) {

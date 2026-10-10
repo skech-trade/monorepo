@@ -31,7 +31,7 @@ pub struct Claim<'info> {
 pub fn claim(ctx: Context<Claim>) -> Result<()> {
     let rewards = &mut ctx.accounts.rewards;
     let holder = &mut ctx.accounts.holder;
-    holder.settle_rewards(rewards.acc)?;
+    holder.settle_rewards(rewards)?;
     let amount = holder.unclaimed;
     require!(amount > 0, SkechError::NothingToClaim);
     // Never more than is set aside: every holder's earnings are rounded down from it.

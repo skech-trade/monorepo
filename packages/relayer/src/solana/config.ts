@@ -115,6 +115,8 @@ export const scfg = {
    */
   sweepEveryMs: 300_000,
   collectAboveE6: 1_000_000n,
+  /** The pool's surplus is shared with SKT holders once it is at least this, USDC e6: $10, so a share is worth its fee. */
+  surplusAboveE6: BigInt(env("SOLANA_SURPLUS_ABOVE_E6") ?? 10_000_000),
   /** The least a deposit or withdrawal the relayer pays for may move, USDC e6 (a withdrawal of the whole balance always goes): the app's least deposit. */
   minMoveE6: 1_000_000n,
   /**
