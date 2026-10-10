@@ -11,14 +11,14 @@
  * bet open across the restart still settles, on Coinbase's own record of
  * those seconds. No bet is taken until a checked trade is in.
  */
-import { BarBook } from "@skech/core/bars";
+import { BarBook, mergeHistory } from "@skech/core/bars";
 import type { Address, Hex } from "viem";
 import { report } from "./sentry";
 
 export type PriceQuote = { price: number; priceE8: bigint; time: number; signature: Hex };
 type Message =
   | { type: "hello"; signer: Address; typedData: { domain: { chainId: number; verifyingContract: Address } } }
-  | { type: "history"; trades: [id: number, t: number, p: number, checked?: 0 | 1][] }
+  | { type: "history"; trades: [id: number, t: number, p: number, checked?: 0 | 1][]; quote?: { p: number; message: { price: string; time: number } | null; signature: Hex | null } }
   | { type: "price"; id: number; t: number; p: number; signed?: boolean; message: { price: string; time: number } | null; signature: Hex | null }
   | { type: "beat"; t: number };
 
@@ -37,6 +37,8 @@ export class Engine {
   private ws: WebSocket | null = null;
   private stopped = false;
   private backoff = 500;
+  private clock: ReturnType<typeof setInterval> | undefined;
+  private retry: ReturnType<typeof setTimeout> | undefined;
 
   /** `expected`: the engine's signing address, when it is known (RELAYER_ENGINE_SIGNER). An engine that signs as anyone else is not listened to. */
   constructor(
@@ -50,9 +52,11 @@ export class Engine {
   }
 
   start() {
+    if (this.clock) return;
+    this.stopped = false;
     this.connect();
-    setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN && Date.now() - this.heard > 5000) {
+    this.clock = setInterval(() => {
+      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) && Date.now() - this.heard > 5000) {
         this.log("engine: silent for 5 s, reconnecting");
         const dead = this.ws;
         this.ws = null;
@@ -68,6 +72,10 @@ export class Engine {
 
   stop() {
     this.stopped = true;
+    clearInterval(this.clock);
+    this.clock = undefined;
+    clearTimeout(this.retry);
+    this.connected = false;
     this.ws?.close();
   }
 
@@ -80,11 +88,13 @@ export class Engine {
     // for to the chain, and its bars settled on.
     let trusted = !this.expected;
     sock.onopen = () => {
+      if (this.stopped || this.ws !== sock) return;
       this.backoff = 500;
       this.connected = true;
       this.log(`engine: connected to ${this.url}`);
     };
     sock.onmessage = (e) => {
+      if (this.stopped || this.ws !== sock) return;
       this.heard = Date.now();
       let msg: Message;
       try {
@@ -106,25 +116,12 @@ export class Engine {
       } else if (!trusted) {
         return;
       } else if (msg.type === "history") {
-        // A history that reaches further back than our bars (the engine had not backfilled when we first
-        // connected) replaces them: bars cannot be folded in behind the first one.
-        const first = msg.trades[0]?.[1];
-        if (first !== undefined && (this.book.bars.length === 0 || first < this.book.bars[0].t - 60_000)) {
-          this.book = new BarBook(660, 4000);
-          this.lastId = 0;
-          this.checkedFrom = 0;
+        this.lastId = mergeHistory(this.book, msg.trades, this.lastId, (t, p, checked) => this.take(t, p, checked === 1), (t, p) => this.book.fold(t, p));
+        const q = msg.quote;
+        if (q?.message && q.signature && q.message.time >= (this.quote?.time ?? 0)) {
+          this.quote = { price: q.p, priceE8: BigInt(q.message.price), time: q.message.time, signature: q.signature };
         }
-        for (const [id, t, p, checked] of msg.trades) {
-          if (id <= this.lastId) continue;
-          this.lastId = id;
-          this.take(t, p, checked === 1);
-        }
-        if (this.book.bars.length < 320) {
-          this.log(`engine: history is ${this.book.bars.length} bars, not the five minutes pricing needs; asking again in 5 s`);
-          setTimeout(() => {
-            if (this.ws === sock && sock.readyState === WebSocket.OPEN) sock.close();
-          }, 5000);
-        } else this.log(`engine: ${this.book.bars.length} bars of history`);
+        this.log(`engine: ${this.book.bars.length} bars of history${this.book.bars.length <= 320 ? "; waiting for backfill" : ""}`);
       } else if (msg.type === "price") {
         if (msg.id <= this.lastId || !(msg.p > 0)) return;
         this.lastId = msg.id;
@@ -138,7 +135,7 @@ export class Engine {
     sock.onclose = () => {
       if (this.ws === sock) this.connected = false;
       if (this.stopped || this.ws !== sock) return;
-      setTimeout(() => this.connect(), this.backoff);
+      this.retry = setTimeout(() => this.connect(), this.backoff);
       this.backoff = Math.min(10_000, this.backoff * 2);
     };
     sock.onerror = () => sock.close();
@@ -147,14 +144,15 @@ export class Engine {
   /** A checked trade into the book; an unchecked one only while there has been no checked one yet. */
   private take(t: number, p: number, checked: boolean) {
     if (checked) {
-      if (this.checkedFrom === 0) this.checkedFrom = t;
-    } else if (this.checkedFrom !== 0) return;
+      if (this.checkedFrom === 0 || t < this.checkedFrom) this.checkedFrom = t;
+    } else if (this.checkedFrom !== 0 && t >= this.checkedFrom) return;
     this.book.fold(t, p);
   }
 
   /** Whether there are enough fresh bars to price on, the newest of them checked. */
   ready() {
     const last = this.book.last;
-    return this.connected && this.checkedFrom > 0 && !!last && this.book.bars.length > 320 && this.now() - (this.book.ticks.at(-1)?.t ?? 0) < 5000;
+    // A quiet market is live while heartbeats arrive. Submitted quotes retain their age checks.
+    return this.connected && Date.now() - this.heard < 5000 && this.checkedFrom > 0 && !!last && this.book.bars.length > 320 && this.now() - last.t < 5000;
   }
 }

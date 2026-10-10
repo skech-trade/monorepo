@@ -56,9 +56,19 @@ pub struct Trade {
 
 /// The last ten minutes of trades, oldest first, for a client that has just connected.
 #[derive(Clone, Default)]
-pub struct History(Arc<Mutex<VecDeque<Trade>>>);
+pub struct History(Arc<Mutex<VecDeque<Trade>>>, Arc<Mutex<Option<Value>>>);
 
 impl History {
+    /// Backfill can finish after live trades. Merge by id without replacing their attested prices.
+    fn merge(&self, trades: impl IntoIterator<Item = Trade>) {
+        let mut kept = self.0.lock().unwrap();
+        let mut all: Vec<_> = kept.iter().copied().chain(trades).collect();
+        all.sort_by_key(|x| x.id);
+        all.dedup_by_key(|x| x.id);
+        let cutoff = all.last().map_or(0, |x| x.t.saturating_sub(KEEP_MS));
+        *kept = all.into_iter().filter(|x| x.t >= cutoff).collect();
+    }
+
     fn newest(&self) -> u64 {
         self.0.lock().unwrap().back().map_or(0, |x| x.id)
     }
@@ -92,6 +102,12 @@ impl History {
             out.push_str(&format!("[{},{},{},{}]", x.id, x.t, x.p8 as f64 / 1e8, u8::from(x.checked)));
         }
         out.push_str("]}");
+        if let Some(quote) = self.1.lock().unwrap().as_ref() {
+            out.pop();
+            out.push_str(",\"quote\":");
+            out.push_str(&quote.to_string());
+            out.push('}');
+        }
         out.into()
     }
 }
@@ -124,12 +140,26 @@ pub async fn coinbase(feed: Feed, quoter: Arc<Quoter>, history: History, board: 
     let subscribe = json!({ "type": "subscribe", "product_ids": [MARKET], "channels": ["matches", "heartbeat"] });
     let mut retry = FIRST_RETRY;
     let mut tally = Tally::new();
+    let mut fill: Option<tokio::task::JoinHandle<()>> = None;
     loop {
-        // Fill what was missed, ten minutes on a cold start or the gap of a reconnect, before going live.
-        match backfill(&http, &history).await {
-            Ok(n) if n > 0 => eprintln!("coinbase: backfilled {n} trades"),
-            Ok(_) => {}
-            Err(e) => eprintln!("coinbase backfill: {e}"),
+        // Live prices must not wait for up to twelve REST pages. Send the completed history to
+        // clients already connected, too; otherwise they wait five minutes to accumulate bars.
+        if fill.as_ref().is_none_or(|task| task.is_finished()) {
+            fill = Some(tokio::spawn({
+                let http = http.clone();
+                let history = history.clone();
+                let feed = feed.clone();
+                async move {
+                    match backfill(&http, &history).await {
+                        Ok(n) if n > 0 => {
+                            eprintln!("coinbase: backfilled {n} trades");
+                            let _ = feed.send(history.frame());
+                        }
+                        Ok(_) => {}
+                        Err(e) => eprintln!("coinbase backfill: {e}"),
+                    }
+                }
+            }));
         }
         // The newest trade kept, so the one Coinbase replays on subscribe is not sent twice.
         let mut last_id = history.newest();
@@ -178,6 +208,9 @@ pub async fn coinbase(feed: Feed, quoter: Arc<Quoter>, history: History, board: 
                     "coinbase": coinbase, "attesters": attesters.into_iter().map(|(name, p)| (name.to_owned(), json!(p))).collect::<serde_json::Map<_, _>>(),
                     "message": message, "signature": signature,
                 });
+                // A new client can use the most recent signed quote immediately, even if
+                // Coinbase does not trade again for several seconds. Its original time is kept.
+                *history.1.lock().unwrap() = Some(update.clone());
                 let _ = feed.send(update.to_string().into());
                 Ok(())
             })
@@ -186,6 +219,7 @@ pub async fn coinbase(feed: Feed, quoter: Arc<Quoter>, history: History, board: 
         if let Err(e) = run.await {
             eprintln!("coinbase: {e}");
         }
+        // Reconnect the live feed immediately; any in-flight backfill continues independently.
         tokio::time::sleep(retry).await;
         retry = (retry * 2).min(LAST_RETRY);
     }
@@ -292,7 +326,7 @@ async fn backfill(http: &reqwest::Client, history: &History) -> Result<usize, St
     }
     got.reverse();
     let n = got.len();
-    history.extend(got);
+    history.merge(got);
     Ok(n)
 }
 
@@ -419,6 +453,19 @@ async fn read(ws: &mut Socket, silent: Duration, mut on_text: impl FnMut(&str) -
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn backfill_merges_behind_live_trades_without_replacing_attested_prices() {
+        let history = super::History::default();
+        history.extend([super::Trade { id: 3, t: 3000, p8: 33, checked: true }]);
+        history.merge([
+            super::Trade { id: 1, t: 1000, p8: 10, checked: false },
+            super::Trade { id: 2, t: 2000, p8: 20, checked: false },
+            super::Trade { id: 3, t: 3000, p8: 30, checked: false },
+        ]);
+        let kept = history.0.lock().unwrap();
+        assert_eq!(kept.iter().map(|x| x.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert_eq!(kept.back().unwrap().p8, 33);
+    }
     #[test]
     fn signs_only_trades_timed_near_this_clock() {
         let now = 1_790_629_278_967;
