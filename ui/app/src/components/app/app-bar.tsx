@@ -1,34 +1,30 @@
 "use client";
 
-import { ActivityIcon, ArrowUpRightIcon, LogOutIcon, SquarePlusIcon, TrophyIcon, UserIcon } from "lucide-react";
+import { TrophyIcon } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 import { playerName } from "@skech/core/social";
 import { Button } from "@/components/ui/button";
-import { Menu, MenuPopup, MenuSeparator, MenuItem, MenuTrigger } from "@/components/ui/menu";
 import { hasAuth, useAccount } from "./auth";
 import { useChain } from "./ink/chain-context";
 import { useGate } from "./ink/gate";
 import { openHomeScreen, useInstallable } from "./ink/home-screen";
 import { useCommunity } from "./ink/social-provider";
 import { TransactionsSheet } from "./ink/transactions-sheet";
-import { PRIVATE_TEXT } from "@/lib/analytics";
 import { shortAddress } from "@/lib/market";
-import { money } from "@/lib/money";
 import { useSocialPick } from "@/lib/social";
 import { usePaperPhase } from "@/lib/paper";
 import { cn } from "@/lib/utils";
-import { CopyAddress } from "./copy";
+import { AccountMenu } from "./account-menu";
 import { Wordmark } from "./logo";
-import { AccountAvatar } from "./player-avatar";
 import { ThemeToggle } from "./theme-toggle";
 
 /**
  * The bar over the game: the wordmark, light or dark, the page's own button
  * (Deposit), and the account. Signed out it is only light or dark: the way in
  * is the one "Sign in to play" in the middle of the game. Signed in, the
- * account is a small menu: who you are, withdrawing, their transactions, and
- * signing out.
+ * account is a small menu (account-menu.tsx): who you are, the money, the
+ * app's Settings and How it works, and signing out.
  *
  * Taller on a phone, where the things in it are thumb-sized: fifty-six
  * pixels is what a phone header is on both platforms.
@@ -82,53 +78,22 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
         ) : null}
         {hasAuth && !me.ready ? <span aria-hidden="true" className="size-11 shrink-0 animate-pulse rounded-full bg-secondary" /> : null}
         {hasAuth && me.signedIn ? (
-          <Menu>
-            <MenuTrigger render={<Button aria-label="Your account" className="size-11 rounded-full border-0 bg-secondary p-0 sm:size-11" size="icon" variant="outline" />}>
-              <AccountAvatar address={me.address} className="size-9" profile={profile} />
-            </MenuTrigger>
-            <MenuPopup align="end" className="w-[288px] p-1.5">
-              <div className="flex items-center gap-3 px-2.5 pt-2.5 pb-3">
-                <AccountAvatar address={me.address} className="size-11 shrink-0" profile={profile} />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <p className={cn("truncate font-semibold text-[15px] leading-tight", PRIVATE_TEXT)}>{name}</p>
-                  {me.address ? <CopyAddress address={me.address} className="self-start text-[13px] text-muted-foreground" /> : null}
-                </div>
-              </div>
-              <MenuSeparator className="mx-1" />
-              {community && me.address ? (
-                <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={() => community.open("profile", me.address ?? undefined)}>
-                  <UserIcon />
-                  Your profile
-                </MenuItem>
-              ) : null}
-              {/* Money out lives with the account: the balance it comes from, and the way to send it. */}
-              {chain.real ? (
-                <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" disabled={chain.balance <= 0} onClick={gate.openWithdraw}>
-                  <ArrowUpRightIcon />
-                  <span className="flex-1">Withdraw</span>
-                  <span className="figures text-muted-foreground">{money(chain.balance)}</span>
-                </MenuItem>
-              ) : null}
-              {/* How much of their play went on chain: the count, and the transactions to look up. Only where the
-                  relayer counts it: an empty sheet of dashes says nothing. */}
-              {counted ? (
-                <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={() => setTxsOpen(true)}>
-                  <ActivityIcon />
-                  Transactions
-                </MenuItem>
-              ) : null}
-              {installable ? (
-                <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={openHomeScreen}>
-                  <SquarePlusIcon />
-                  Add to Home Screen
-                </MenuItem>
-              ) : null}
-              <MenuItem className="min-h-11 gap-3 rounded-xl px-2.5 sm:min-h-10" onClick={() => me.signOut()} variant="destructive">
-                <LogOutIcon />
-                Sign out
-              </MenuItem>
-            </MenuPopup>
-          </Menu>
+          <AccountMenu
+            address={address}
+            balance={chain.real ? chain.balance : null}
+            counted={counted}
+            installable={installable !== null}
+            name={name}
+            onDeposit={() => (chain.player ? gate.openDeposit("account_menu") : undefined)}
+            onHelp={gate.openHelp}
+            onHomeScreen={openHomeScreen}
+            onProfile={community && address ? () => community.open("profile", address) : undefined}
+            onSettings={gate.openSettings}
+            onSignOut={() => me.signOut()}
+            onTransactions={() => setTxsOpen(true)}
+            onWithdraw={gate.openWithdraw}
+            profile={profile}
+          />
         ) : null}
         {hasAuth && me.signedIn && counted ? <TransactionsSheet onOpenChange={setTxsOpen} open={txsOpen} /> : null}
       </div>
