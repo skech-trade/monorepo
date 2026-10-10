@@ -84,6 +84,14 @@ pub fn with_momentum(lo: u64, hi: u64, price: u64, momentum_e6: i64) -> bool {
     (mid > price as u128 && momentum_e6 > 0) || (mid < price as u128 && momentum_e6 < 0)
 }
 
+/// Whether a band leaves the house its stake fee in expectation: its chance times its rung, what it returns per dollar
+/// before fees, at most 1 − the fee (`fee_bps`). Ink that returns more is not offered: certain ink at 1x, or ink exactly
+/// on a rung at a low difficulty (p·m = 1.2 − 0.4·d/100 there, 1.0 at d = 50, 0.96 at d = 60), would let a player put
+/// money through the pool at no risk while the stake fee's holder share is paid out of it.
+pub fn within_fee(chance_e9: u32, rung_e2: u16, fee_bps: u16) -> bool {
+    chance_e9 as u128 * rung_e2 as u128 * 10_000 <= (10_000 - fee_bps.min(10_000)) as u128 * 100 * CHANCE_ONE as u128
+}
+
 /// Whether a second's range reaches a band: from the second before's close to its high and low, one unit wider
 /// each way, inclusive, as the band was priced.
 pub fn crosses(prev_close: u64, high: u64, low: u64, lo: u64, hi: u64, unit: u64) -> bool {
@@ -126,5 +134,27 @@ mod tests {
         assert_eq!(rung_for(500_000_000, 51, false, 0), 150);
         assert_eq!(max_stake(100_000, 150), 17_066_666);
         assert_eq!(gross(50_000, 150), 75_000);
+    }
+
+    #[test]
+    fn a_band_is_offered_only_if_it_leaves_the_stake_fee() {
+        // At the 4% fee, p·m may be 0.96 and no more.
+        assert!(within_fee(10_000_000, 9600, 400));
+        assert!(!within_fee(10_000_001, 9600, 400));
+        assert!(within_fee(480_000_000, 200, 400) && !within_fee(480_000_001, 200, 400));
+        // Certain ink at 1x, and ink exactly on a rung at d = 50, are not.
+        assert!(!within_fee(CHANCE_ONE, 100, 400));
+        assert!(!within_fee(500_000_000, rung_for(500_000_000, 50, false, 0), 400));
+        // With no fee, the ladder's own bound: p·m ≤ 1.
+        assert!(within_fee(CHANCE_ONE, 100, 0) && !within_fee(CHANCE_ONE, 101, 0));
+        // At d = 60 and above, every rung the ladder gives leaves 4%, but ink over 96% likely, which pays at least 1x
+        // whatever its fair multiple; at 55, ink just under a rung does not.
+        for chance in (1..=1000u32).map(|k| k * 1_000_000) {
+            for d in 60..=100u8 {
+                let r = rung_for(chance, d, false, 0);
+                assert!(r == 0 || within_fee(chance, r, 400) == (chance <= 960_000_000), "d {d}, chance {chance}, rung {r}");
+            }
+        }
+        assert!(!within_fee(490_000_000, rung_for(490_000_000, 55, false, 0), 400));
     }
 }

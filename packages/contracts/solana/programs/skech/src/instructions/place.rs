@@ -90,7 +90,8 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
     require!(n > 0 && n <= MAX_SECTIONS && quote.chances.len() == n, SkechError::Sections);
     let mut total: u64 = 0;
     for s in &piece.sections {
-        require!(s.second >= 1 && s.second <= HORIZON && s.width > 0 && s.stake > 0, SkechError::Sections);
+        // A band no taller than the widest pen draws (MAX_SECTION_WIDTH): a pen-wide band is never all but certain.
+        require!(s.second >= 1 && s.second <= HORIZON && s.width > 0 && s.width <= MAX_SECTION_WIDTH && s.stake > 0, SkechError::Sections);
         total += s.stake as u64;
     }
     require!(total <= c.max_piece_stake, SkechError::Sections);
@@ -100,7 +101,9 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
     require!(session.valid_until > now_ms / 1000, SkechError::Session);
     verify_session_sig(&a.instructions, &session.key, piece.encoded_len())?;
 
-    // Each band: offered unless its second is already over on chain or its chance earns no rung.
+    // Each band: offered unless its second is already over on chain, its chance earns no rung, or it would return more
+    // than its stake less the fee (chance × rung over 1 − fee): the player risks nothing on such ink while the holders'
+    // share of its fee comes out of the pool.
     let bars = a.bars.load()?;
     let mut sections: Vec<BetSection> = Vec::with_capacity(n);
     // Each kept band's chance, as quoted: kept after the bet, for SKT's basis when the band misses.
@@ -115,7 +118,7 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
         }
         let with_it = ladder::with_momentum(lo, hi, quote.price, quote.momentum);
         let rung = ladder::rung_for(chance, piece.difficulty, with_it, quote.momentum);
-        if rung == 0 {
+        if rung == 0 || !ladder::within_fee(chance, rung, c.fee_bps) {
             continue;
         }
         // One section never pays past 256 dots: a big one stakes only what that pays for.

@@ -8,7 +8,7 @@ import { Latency, openingDelay } from "../latency";
 import { ed25519 } from "@noble/curves/ed25519";
 import { type Address, address, getAddressEncoder, getBase16Encoder } from "@solana/kit";
 import { features, NICE, stepFor } from "@skech/core/dots";
-import { BATCH_PIECE_STAKE_E6, CHANCE_ONE, MIN_PIECE_STAKE_E6, momentumE6, rungE2, maxStakeE6, toE8, unitFor, usdE6, withMomentum, type Section } from "@skech/core/chain";
+import { BATCH_PIECE_STAKE_E6, CHANCE_ONE, MAX_SECTION_WIDTH, MIN_PIECE_STAKE_E6, momentumE6, rungE2, maxStakeE6, toE8, unitFor, usdE6, withinFee, withMomentum, type Section } from "@skech/core/chain";
 import { betAddress, ed25519Instruction, getPlaceInstruction, getSkechErrorMessage, HORIZON, MAX_SECTIONS, pieceBytes, playerAddress, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
 import { remember, SmallPieces } from "../limits";
@@ -206,6 +206,8 @@ export class SolanaSequencer {
     for (const s of w.sections) {
       if (!s || typeof s !== "object") return "Bad section";
       if (!u(s.second, HORIZON) || s.second < 1 || !u(s.lo, 0xffffffff) || !u(s.width, 0xffff) || s.width < 1 || !u(s.stake, 0xffffffff) || s.stake < 1) return "Bad section";
+      // No taller than the widest pen draws, as the program has it: a band over the whole map is all but certain.
+      if (s.width > MAX_SECTION_WIDTH) return "Band too tall";
     }
     const strokeHash = bytesOf(w.strokeHash, 32);
     const sig = bytesOf(msg.sessionSig, 64);
@@ -335,7 +337,8 @@ export class SolanaSequencer {
       total += b.stake;
       if (this.settler.posted(Number(p.openAt) + b.second * 1000)) continue;
       const rung = rungE2(chances[i], p.difficulty, withMomentum(b.lo, b.hi, price, momentum), momentum);
-      if (!rung) continue;
+      // Nor ink that returns more than the stake fee leaves, chance x rung over 1 - fee: the program does not offer it.
+      if (!rung || !withinFee(chances[i], rung, this.terms.feeBps)) continue;
       const most = maxStakeE6(BigInt(p.perDot), rung);
       sections.push({ second: b.second, lo: b.lo, hi: b.hi, stake: b.stake < most ? b.stake : most, rung });
     }

@@ -8,7 +8,7 @@
  */
 
 import { encodePacked, keccak256, type Address, type Hex, type TypedDataDomain } from "viem";
-import { INK_CELL } from "./ink-area";
+import { INK_CELL, MAX_SECTION_WIDTH } from "./ink-area";
 import { difficulty as difficultyOf, MIN_DIFFICULTY } from "./dots";
 import type { Cell } from "./ink";
 
@@ -33,6 +33,8 @@ export const MAX_SECTIONS = 32;
  * so the step it is given is the market step over GRID * INK_CELL.
  */
 export const GRID = 50;
+/** How tall a band may be, in grid units (`ink-area.ts`). */
+export { MAX_SECTION_WIDTH };
 /** How late a piece may reach the engine after its opening second, ms; the chain's default too. */
 export const LATE_MS = 200;
 export const E8 = 100_000_000n;
@@ -81,6 +83,13 @@ export function rungE2(chanceE9: number, d: number, withIt: boolean, momentumE6:
   }
   return best;
 }
+
+/**
+ * Whether a band leaves the house its stake fee in expectation: chance × rung, what it returns per dollar before fees,
+ * at most 1 − the fee. The program does not offer one that returns more (certain ink at 1x, or ink exactly on a rung
+ * at a low difficulty), as `ladder::within_fee` does.
+ */
+export const withinFee = (chanceE9: number, rungE2: number, feeBps: number) => BigInt(chanceE9) * BigInt(rungE2) * 10_000n <= BigInt(10_000 - Math.min(10_000, feeBps)) * 100n * BigInt(CHANCE_ONE);
 
 /** The most a section paying `rungE2` may stake at `perDot` (USDC e6), so it never pays past MAX_DOTS dots. */
 export const maxStakeE6 = (perDotE6: bigint, rung: number) => (perDotE6 * BigInt(MAX_DOTS) * 100n) / BigInt(rung);

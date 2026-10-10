@@ -202,7 +202,7 @@ fn a_win_the_pool_cannot_pay_is_owed_and_paid_off_later() {
     let mut lose = lose;
     lose.per_dot = 1_000_000;
     lose.price_time = lose.open_at - 1_500;
-    let lq = skech::piece::QuoteArgs { received_at: lose.open_at - 300, ..g.quote(&lose, 900_000_000) };
+    let lq = skech::piece::QuoteArgs { received_at: lose.open_at - 300, ..g.quote(&lose, 850_000_000) };
     g.place(&loser, &lose, &lq).unwrap();
     g.set_time(S + 86_400);
     let redeem = g.ix(
@@ -474,7 +474,7 @@ fn owed_a_day(g: &mut Game) -> Player {
     let mut lose = g.piece(&loser, 7, 0, (S + 6) * 1000, &[(1, 420_000, 5, 20_000_000)]);
     lose.per_dot = 1_000_000;
     lose.price_time = lose.open_at - 1_500;
-    let lq = skech::piece::QuoteArgs { received_at: lose.open_at - 300, ..g.quote(&lose, 900_000_000) };
+    let lq = skech::piece::QuoteArgs { received_at: lose.open_at - 300, ..g.quote(&lose, 850_000_000) };
     g.place(&loser, &lose, &lq).unwrap();
     g.set_time(S + 86_400);
     winner

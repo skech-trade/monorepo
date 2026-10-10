@@ -17,6 +17,11 @@ pub const HOLDER_SEED: &[u8] = b"holder";
 pub const HORIZON: u8 = 30;
 /// Sections in one piece, at most: a piece with 32 fills a transaction (1232 bytes) with a lookup table.
 pub const MAX_SECTIONS: usize = 32;
+/// How tall a band may be, in grid units: the widest pen the apps offer, at the smallest chart they draw (a 120 px plot
+/// showing 6.75 market steps of 50 units each: 6750 / 120 = 56.25 units), with a little room over. A band past it is not
+/// ink a pen drew: one over the whole map at second 1 is all but certain, and churning certain ink would move the pool's
+/// money to SKT holders through the stake fee (`packages/core/src/chain.ts` `MAX_SECTION_WIDTH`, the same number).
+pub const MAX_SECTION_WIDTH: u16 = 64;
 /// Seconds of price the ring keeps: the horizon, the grace and plenty of room for a relayer that falls behind.
 pub const BAR_RING: usize = 240;
 /// How long after a second is over its bar may still be posted, seconds: inside the ring by the horizon and the most

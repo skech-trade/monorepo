@@ -106,6 +106,26 @@ export const CASES: Case[] = [
   },
   {
     ...std,
+    feeBps: 400,
+    name: "certain ink: Solana offers no band returning more than the stake fee leaves, nor one taller than the widest pen",
+    steps: [
+      // 65 units tall, over the widest pen (64): Solana refuses the piece.
+      { place: { id: "tall", sections: [{ second: 1, lo: AT - 40, width: 65, stake: 50_000, chance: 999_000_000 }] } },
+      // At d = 51 and 4%: all but certain ink at 1x is not offered, 48% at 2x (p·m 0.96) is, 48.1% at 2x (0.962) is not.
+      {
+        place: {
+          id: "p",
+          sections: [
+            { second: 1, lo: AT - 30, width: 64, stake: 50_000, chance: 999_900_000 },
+            { second: 2, lo: AT, width: 5, stake: 50_000, chance: 480_000_000 },
+            { second: 3, lo: AT, width: 5, stake: 50_000, chance: 481_000_000 },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    ...std,
     name: "near-certain ink pays its fair multiple, to the hundredth, never under 1x",
     players: { a: { deposit: 10_000_000, allowance: 5_000_000 }, b: { deposit: 30_000_000, allowance: 25_000_000 } },
     steps: [

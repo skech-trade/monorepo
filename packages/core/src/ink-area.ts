@@ -13,6 +13,13 @@ export const MIN_INK_MULTIPLE = 1.1;
 export const MAX_INK_MULTIPLE = 256;
 /** rounded-v3's ceiling, kept for drawings saved on those terms. */
 export const V3_MAX_MULTIPLE = 25;
+/**
+ * How tall a band may be, in grid units (cells of ink, each one unit tall): the widest pen (`PEN_CELLS.wide`, one
+ * screen step) at the smallest chart `drawingLayout` draws (120 px for 6.75 market steps of 50 units, so 6750 / 120 =
+ * 56.25 units), with a little room over. Taller ink is cut into bands this tall (`sectionsOf`); the relayer and the
+ * program refuse a taller band (`MAX_SECTION_WIDTH` in the program's state.rs).
+ */
+export const MAX_SECTION_WIDTH = 64;
 /** Two CSS pixels of paid price-edge tolerance for new drawings. */
 export const INK_EDGE_CELLS = 1;
 /** Seconds ahead of now the chart shows, on every screen. Ink can be bet up to
@@ -143,7 +150,10 @@ export function roundedCells(st: Stroke, openAt: number, step: number): Cell[] {
 }
 
 /** Group fine cells into rounded sections: each second's connected band,
- * split into adjacent sections of about two dots or less. */
+ * split into adjacent sections of about two dots or less, and none taller
+ * than MAX_SECTION_WIDTH cells (the widest pen; a steep stroke's sliver of a
+ * second can cover a tall band with almost no area, and the chain refuses one
+ * taller). */
 export function sectionsOf(cells: Cell[], step: number): Cell[] {
   const bands: Cell[][] = [];
   for (const cell of [...cells].sort((a, b) => a.t - b.t || a.lo - b.lo)) {
@@ -158,20 +168,22 @@ export function sectionsOf(cells: Cell[], step: number): Cell[] {
   const maxArea = Math.min(2, RULES.maxMultiple / RULES.minMultiple / 2);
   return bands.flatMap(rows => {
     const total = rows.reduce((n, c) => n + c.area, 0);
-    const count = Math.ceil(total / maxArea);
+    const count = Math.max(Math.ceil(total / maxArea), Math.ceil(rows.length / MAX_SECTION_WIDTH));
     let remaining = total;
     let target = total / count;
     const sections: Cell[] = [];
     let current: Cell | null = null;
+    let tall = 0;
     for (const row of rows) {
-      if (current && sections.length < count - 1 && current.area >= target * 0.75 && current.area + row.area > target) {
+      const byArea = sections.length < count - 1 && current !== null && current.area >= target * 0.75 && current.area + row.area > target;
+      if (current && (byArea || tall >= MAX_SECTION_WIDTH)) {
         sections.push(current);
         remaining -= current.area;
-        target = remaining / (count - sections.length);
+        target = remaining / Math.max(1, count - sections.length);
         current = null;
       }
-      if (!current) current = { ...row };
-      else { current.hi = row.hi; current.area += row.area; }
+      if (!current) { current = { ...row }; tall = 1; }
+      else { current.hi = row.hi; current.area += row.area; tall++; }
     }
     if (current) sections.push(current);
     return sections;
@@ -244,11 +256,14 @@ export function ladderSection(p: number, rtp: number, area: number): { area: num
   // Under the floor: the fair multiple to the hundredth, at least 1x.
   if (fair + 1e-9 < RULES.ladderFloor) {
     const multiple = Math.max(1, Math.floor(fair * 100 + 1e-9) / 100);
+    // Ink that would return more than the fee leaves (chance x multiple over 1 - fee, on chain) is not offered.
+    if (p * multiple > RULES.maxReturn + 1e-9) return null;
     return { area: Math.min(area, MAX_INK_MULTIPLE / multiple), multiple };
   }
   // The floor is the first rung: 1.1x, easing to 1x at the hardest setting.
   let multiple: number = RULES.ladderFloor;
   for (const rung of LADDER) if (rung <= fair + 1e-9 && rung > multiple) multiple = rung;
+  if (p * multiple > RULES.maxReturn + 1e-9) return null;
   // One section never pays past MAX_INK_MULTIPLE dots: a big one stakes only what that pays for.
   return { area: Math.min(area, MAX_INK_MULTIPLE / multiple), multiple };
 }

@@ -3,7 +3,7 @@
  * integers the app prices with): what each step of a case must do. `SkechGame.sol` and `programs/skech` are held
  * to what this says, number for number.
  */
-import { crosses, grossE6, maxStakeE6, MIN_DIFFICULTY, rungE2, withMomentum } from "@skech/core/chain";
+import { crosses, grossE6, MAX_SECTION_WIDTH, maxStakeE6, MIN_DIFFICULTY, rungE2, withinFee, withMomentum } from "@skech/core/chain";
 import type { Case, Step } from "./cases";
 
 export const HORIZON = 30;
@@ -55,7 +55,11 @@ export type StepOut = { place?: PlaceOut; settled?: Settled[]; difficulty?: { ok
 
 type Bet = { player: string; unit: number; sections: Band[]; chances: number[]; live: number; hit: number };
 
-export function run(c: Case): StepOut[] {
+/** Which chain's rules: Solana does not offer ink that returns more than the stake fee leaves (`withinFee`), nor a
+ * band taller than the widest pen (`MAX_SECTION_WIDTH`); the EVM game, retired, does. */
+export type Chain = "evm" | "solana";
+
+export function run(c: Case, chain: Chain = "evm"): StepOut[] {
   const players = Object.keys(c.players);
   const balance: Record<string, bigint> = {};
   const allowance: Record<string, bigint> = {};
@@ -197,7 +201,7 @@ export function run(c: Case): StepOut[] {
         continue;
       }
       const total = s.sections.reduce((n, x) => n + x.stake, 0);
-      if (!s.sections.length || s.sections.length > MAX_SECTIONS || s.sections.some((x) => x.second < 1 || x.second > HORIZON || x.width < 1 || x.stake < 1) || total > MAX_PIECE_STAKE) {
+      if (!s.sections.length || s.sections.length > MAX_SECTIONS || s.sections.some((x) => x.second < 1 || x.second > HORIZON || x.width < 1 || (chain === "solana" && x.width > MAX_SECTION_WIDTH) || x.stake < 1) || total > MAX_PIECE_STAKE) {
         out.push(refuse("Sections"));
         continue;
       }
@@ -209,7 +213,7 @@ export function run(c: Case): StepOut[] {
         const hi = (x.lo + x.width) * c.unit;
         if (posted.has(x.second)) continue;
         const rung = rungE2(x.chance, difficulty, withMomentum(BigInt(lo), BigInt(hi), BigInt(c.price), momentum), momentum);
-        if (!rung) continue;
+        if (!rung || (chain === "solana" && !withinFee(x.chance, rung, c.feeBps))) continue;
         const most = Number(maxStakeE6(BigInt(perDot), rung));
         bands.push({ second: x.second, lo, hi, stake: Math.min(x.stake, most), rung });
         chances.push(x.chance);

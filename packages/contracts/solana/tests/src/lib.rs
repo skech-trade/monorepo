@@ -2,6 +2,8 @@
 #[cfg(test)]
 mod attacks;
 #[cfg(test)]
+mod audit;
+#[cfg(test)]
 mod conformance;
 #[cfg(test)]
 mod game;

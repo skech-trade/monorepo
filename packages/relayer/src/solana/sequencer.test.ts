@@ -70,3 +70,29 @@ describe("the least a piece stakes", () => {
     expect(!any.ok && any.why).toBe("Waiting for live prices");
   });
 });
+
+describe("certain ink", () => {
+  test("a band taller than the widest pen is turned away as it arrives", async () => {
+    const s = sequencer();
+    const m = msg([50_000]);
+    m.piece.sections[0].width = 65;
+    const r = await s.accept(m);
+    expect(!r.ok && r.why).toBe("Band too tall");
+    m.piece.sections[0].width = 64;
+    m.piece.index = index++;
+    const ok = await s.accept(m);
+    expect(!ok.ok && ok.why).toBe("Waiting for live prices");
+  });
+
+  test("a band returning more than the stake fee leaves is not placed, as the program has it", () => {
+    const s = sequencer() as unknown as { settler: { posted: () => boolean }; predict: (p: unknown, bands: unknown[], chances: number[], price: bigint, momentum: number) => { sections: unknown[]; staked: bigint; refunded: bigint } };
+    (s as unknown as { settler: unknown }).settler = { posted: () => false };
+    const p = { openAt: 1_000n, difficulty: 50, perDot: 100_000 };
+    const band = (second: number) => ({ second, lo: 100n, hi: 200n, stake: 10_000n });
+    // At d = 50, 50% earns 2x: p·m = 1.0, over 0.96. At 40%, 2x too, p·m = 0.8: offered. Certain ink at 1x: not.
+    const r = s.predict(p, [band(1), band(2), band(3)], [500_000_000, 400_000_000, 1_000_000_000], 10_000n, 0);
+    expect(r.sections.length).toBe(1);
+    expect(r.staked).toBe(10_000n);
+    expect(r.refunded).toBe(20_000n);
+  });
+});

@@ -531,3 +531,47 @@ test("a band is never likelier than one nearer the price", async () => {
     for (let r = peak - 1; r >= 0; r--) expect(p[r]).toBeLessThanOrEqual(p[r + 1] + 1e-12);
   }
 });
+
+test("no band is taller than the widest pen at the smallest chart, which the chain caps", async () => {
+  const { MAX_SECTION_WIDTH, sectionsOf } = await import("./ink-area");
+  const { PEN_CELLS } = await import("./ink");
+  const { GRID, unitFor, withinFee } = await import("./chain");
+  // The widest pen is PEN_CELLS.wide screen steps; the smallest chart drawingLayout draws makes a screen step tallest.
+  const marketStep = 10;
+  const smallest = drawingLayout(390, 0, marketStep);
+  expect(smallest.bottom - smallest.top).toBe(120);
+  const widest = (PEN_CELLS.wide * smallest.step) / unitFor(marketStep);
+  expect(widest).toBeCloseTo(6750 / 120, 6);
+  expect(widest).toBeLessThan(MAX_SECTION_WIDTH);
+  expect(MAX_SECTION_WIDTH).toBeLessThan(1.5 * GRID);
+  // A sliver of a steep stroke: 300 rows of a second, almost no area. Cut into bands no taller than the cap, every row
+  // and every bit of area kept.
+  const step = 1 / INK_CELL;
+  const rows = Array.from({ length: 300 }, (_, r) => ({ t: 5000, lo: r, hi: r + 1, area: 1e-4 }));
+  const out = sectionsOf(rows, step);
+  for (const s of out) expect(Math.round(s.hi - s.lo)).toBeLessThanOrEqual(MAX_SECTION_WIDTH);
+  expect(out.reduce((n, s) => n + Math.round(s.hi - s.lo), 0)).toBe(300);
+  expect(out.reduce((n, s) => n + s.area, 0)).toBeCloseTo(0.03, 9);
+  expect(out.length).toBe(Math.ceil(300 / MAX_SECTION_WIDTH));
+  // Ordinary ink is cut by area as before.
+  const pen = Array.from({ length: 12 }, (_, r) => ({ t: 5000, lo: r, hi: r + 1, area: 0.3 }));
+  expect(sectionsOf(pen, step).length).toBe(2);
+  expect(withinFee(960_000_000, 100, 400)).toBe(true);
+  expect(withinFee(960_000_001, 100, 400)).toBe(false);
+});
+
+test("on chain, ink that returns more than the stake fee leaves is not offered", async () => {
+  const { ladderSection } = await import("./ink-area");
+  const { RULES, setMaxReturn, setDifficulty } = await import("./dots");
+  setDifficulty(55);
+  // At 55, ink exactly on 2x returns 0.98: offered in practice, not where the chain keeps 4%.
+  const p = RULES.ladderBest / 2;
+  expect(ladderSection(p, RULES.rtp, 1)?.multiple).toBe(2);
+  setMaxReturn(0.96);
+  expect(ladderSection(p, RULES.rtp, 1)).toBeNull();
+  // Near-certain ink under the floor: not offered either. A long shot just under its rung still is.
+  expect(ladderSection(0.97, RULES.rtp, 1)).toBeNull();
+  expect(ladderSection(0.005, RULES.rtp, 1)?.multiple).toBe(128);
+  setMaxReturn(1);
+  expect(ladderSection(0.97, RULES.rtp, 1)?.multiple).toBe(1.01);
+});

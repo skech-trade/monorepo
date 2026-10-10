@@ -2,7 +2,7 @@
 
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
+import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { areaCells, areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type Cell, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
@@ -529,10 +529,13 @@ export function InkScreen() {
     g.perDot = paperOn ? PAPER_PER_DOT : state.perDot;
     // How hard the game is: every drawing priced from now on, and the map, use it.
     setDifficulty(level, least);
+    // On chain, ink that would return more than the stake fee leaves is not offered: not on the map either.
+    const feeBps = real ? chain.hello?.terms?.feeBps : undefined;
+    setMaxReturn(feeBps === undefined ? 1 : 1 - feeBps / 10_000);
     if (g.field && g.field.rtp !== difficulty(level, least).rtp) g.field = null;
     g.pen = state.brush;
     g.cell = INK_CELL;
-  }, [state.perDot, state.brush, state.taught, level, least, paperOn]);
+  }, [state.perDot, state.brush, state.taught, level, least, paperOn, real, chain.hello?.terms?.feeBps]);
 
   /*
     Every quarter second: whether the page is dark, whether the prices are

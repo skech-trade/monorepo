@@ -1,0 +1,144 @@
+//! The SKT audits' proofs of concept, turned round: each test runs the attack and asserts it now fails.
+
+use anchor_lang::prelude::Pubkey;
+use anchor_lang::AnchorDeserialize;
+use anchor_lang::Discriminator;
+use base64::Engine;
+use solana_signer::Signer;
+
+use crate::harness::*;
+use skech::error::SkechError;
+use skech::piece::QuoteArgs;
+
+const PRICE: u64 = 83_000 * E8;
+const AT: u32 = 415_000;
+const FAR: u32 = AT + 5000;
+const HIT_AT: u64 = PRICE;
+const HALF: u32 = 500_000_000;
+
+fn events<E: AnchorDeserialize + Discriminator>(logs: &[String]) -> Vec<E> {
+    logs.iter()
+        .filter_map(|l| l.strip_prefix("Program data: "))
+        .filter_map(|d| base64::engine::general_purpose::STANDARD.decode(d).ok())
+        .filter(|b| b.starts_with(E::DISCRIMINATOR))
+        .map(|b| E::deserialize(&mut &b[8..]).unwrap())
+        .collect()
+}
+
+fn key(p: &Player) -> Pubkey {
+    p.wallet.pubkey()
+}
+
+/// A game, and the next drawing number: each `play` a piece of one-second bands, settled on a flat bar at `price`.
+struct T {
+    g: Game,
+    drawing: u64,
+}
+
+impl T {
+    fn new() -> T {
+        T { g: Game::new(), drawing: 0 }
+    }
+    fn open(&mut self) -> i64 {
+        let t = self.g.now + 10;
+        self.g.set_time(t);
+        (t + 1) * 1000
+    }
+    /// A piece of (lo, width, stake, chance) bands, all in second 1.
+    fn piece_at(&mut self, p: &Player, open_at: i64, bands: &[(u32, u16, u32, u32)]) -> (Pubkey, Result<litesvm::types::TransactionMetadata, litesvm::types::FailedTransactionMetadata>) {
+        self.drawing += 1;
+        let sections: Vec<(u8, u32, u16, u32)> = bands.iter().map(|&(lo, w, stake, _)| (1, lo, w, stake)).collect();
+        let piece = self.g.piece(p, self.drawing, 0, open_at, &sections);
+        let quote = QuoteArgs { price: PRICE, momentum: 0, received_at: open_at - 300, chances: bands.iter().map(|b| b.3).collect() };
+        let r = self.g.place(p, &piece, &quote);
+        (bet_pda(&key(p), self.drawing, 0).0, r)
+    }
+    fn place(&mut self, p: &Player, open_at: i64, bands: &[(u32, u32, u32)]) -> Pubkey {
+        let b: Vec<(u32, u16, u32, u32)> = bands.iter().map(|&(lo, stake, chance)| (lo, 5, stake, chance)).collect();
+        let (bet, r) = self.piece_at(p, open_at, &b);
+        r.unwrap_or_else(|f| panic!("place {:?} {:?}", f.err, f.meta.logs));
+        bet
+    }
+    fn settle(&mut self, open_at: i64, price: u64, bets: &[(Pubkey, Pubkey)]) -> litesvm::types::TransactionMetadata {
+        self.g.set_time(open_at / 1000 + 4);
+        self.g.post_and_settle(open_at + 1000, price, price, price, price, bets).unwrap_or_else(|f| panic!("settle {:?} {:?}", f.err, f.meta.logs))
+    }
+    fn play(&mut self, p: &Player, bands: &[(u32, u32, u32)], price: u64) -> litesvm::types::TransactionMetadata {
+        let open_at = self.open();
+        let bet = self.place(p, open_at, bands);
+        self.settle(open_at, price, &[(bet, key(p))])
+    }
+}
+
+/// Economic C1: certain ink (a band over the whole map, or many steps either side of the price, at second 1) was quoted
+/// at all but certain and paid 1x: the player risked nothing while the stake fee's holder share came out of the pool.
+/// Now a band taller than the widest pen is refused, and one returning more than the stake fee leaves is not offered.
+#[test]
+fn certain_ink_is_refused() {
+    let mut t = T::new();
+    let p = t.g.player(100 * E6, 100 * E6);
+    let pool = t.g.pool().pool;
+    // A band over the whole map: 2,000 units (40 market steps) tall. Refused, whatever its chance.
+    let open_at = t.open();
+    let (_, r) = t.piece_at(&p, open_at, &[(AT - 1000, 2000, 1_000_000, 999_999_000)]);
+    assert_eq!(custom_error(&r), Some(code(SkechError::Sections)), "a band over the whole map");
+    // One unit over the widest pen: refused. At it: placed, as a pen draws it.
+    let (_, r) = t.piece_at(&p, open_at, &[(AT - 32, skech::state::MAX_SECTION_WIDTH + 1, 1_000_000, 500_000_000)]);
+    assert_eq!(custom_error(&r), Some(code(SkechError::Sections)));
+    // ±8 market steps would be 800 units: the widest pen's band at the price, quoted all but certain, pays 1x and is not
+    // offered; nor ink 99% likely, nor anything with chance x rung over 0.96.
+    for chance in [999_900_000u32, 990_000_000, 961_000_000] {
+        let (_, r) = t.piece_at(&p, open_at, &[(AT - 32, skech::state::MAX_SECTION_WIDTH, 1_000_000, chance)]);
+        assert_eq!(custom_error(&r), Some(code(SkechError::NotOffered)), "chance {chance}");
+    }
+    // Nothing was taken from the player, nor put through the pool.
+    assert_eq!((t.g.player_state(&p).balance, t.g.pool().pool), (100 * E6, pool));
+    // In a piece with other ink, the certain band is dropped and its stake handed back; the rest goes in.
+    let (bet, r) = t.piece_at(&p, open_at, &[(AT - 32, 64, 1_000_000, 999_900_000), (AT, 5, 50_000, 480_000_000)]);
+    let r = r.expect("placed");
+    let placed: Vec<skech::events::Placed> = events(&r.logs);
+    assert_eq!((placed[0].staked, placed[0].refunded, placed[0].sections.len()), (50_000, 1_000_000, 1));
+    let b: skech::state::Bet = t.g.account(&bet).unwrap();
+    assert_eq!(b.sections[0].rung, 200, "48% at d = 51 earns 2x: p·m = 0.96, the most a band may");
+}
+
+/// SOUND (security audit), kept: claim with another player's holder is refused; a holder-shaped fake is impossible.
+#[test]
+fn claim_only_pays_the_signers_own_holder() {
+    let mut t = T::new();
+    let (a, b) = (t.g.player(10 * E6, 10 * E6), t.g.player(10 * E6, 10 * E6));
+    t.play(&b, &[(FAR, 1_000_000, HALF)], HIT_AT);
+    t.play(&a, &[(AT, 100_000, HALF)], HIT_AT);
+    let mut ix = t.g.claim_ix(&a);
+    ix.accounts[4].pubkey = holder_pda(&key(&b));
+    let w = a.wallet.insecure_clone();
+    assert!(t.g.send(&[ix], &[&w]).is_err());
+    let mut real = t.g.svm.get_account(&rewards_pda()).unwrap();
+    let fake = Pubkey::new_unique();
+    real.owner = anchor_lang::system_program::ID;
+    t.g.svm.set_account(fake, real).unwrap();
+    let mut ix = t.g.claim_ix(&b);
+    ix.accounts[2].pubkey = fake;
+    let w = b.wallet.insecure_clone();
+    assert!(t.g.send(&[ix], &[&w]).is_err());
+    let before = t.g.player_state(&b).balance;
+    t.g.send(&[t.g.claim_ix(&b)], &[&w]).unwrap();
+    assert!(t.g.player_state(&b).balance > before);
+}
+
+/// SOUND (security audit), kept: a mismatched triple never mints to another player's holder.
+#[test]
+fn a_mismatched_triple_never_mints_to_another_holder() {
+    let mut t = T::new();
+    let (a, b) = (t.g.player(10 * E6, 10 * E6), t.g.player(10 * E6, 10 * E6));
+    t.play(&b, &[(FAR, 1_000_000, HALF)], HIT_AT);
+    let hb = t.g.holder(&key(&b));
+    let open_at = t.open();
+    let bet = t.place(&a, open_at, &[(FAR, 1_000_000, HALF)]);
+    t.g.set_time(open_at / 1000 + 4);
+    let mut ix = t.g.post_and_settle_ix(open_at + 1000, HIT_AT, HIT_AT, HIT_AT, HIT_AT, &[(bet, key(&a))]);
+    let n = ix.accounts.len();
+    ix.accounts[n - 1].pubkey = holder_pda(&key(&b));
+    assert!(t.g.send(&[ix], &[]).is_err());
+    assert_eq!(t.g.holder(&key(&b)), hb);
+}

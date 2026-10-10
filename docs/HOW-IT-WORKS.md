@@ -78,6 +78,10 @@ part of it.
 
 - Two CSS pixels of tolerance are added above and below every section.
 - Its chance is priced with the same tolerance.
+- No section is taller than the widest pen draws: 64 grid units, the wide pen at the smallest chart (6750 / 120
+  = 56.25 units) with room over (`MAX_SECTION_WIDTH`). A steep stroke's sliver of a second can cover a tall band with
+  almost no area; it is cut into bands no taller than that. The relayer and the program refuse a taller one: a band
+  over the whole map at second 1 is all but certain.
 
 ## 5. The chance
 
@@ -423,6 +427,13 @@ stake comes back and its hits are taken back, and one quiet notice covers a burs
 card waits until every piece of it has been taken or refused.
 
 ### Fees and the pool, by the numbers
+
+On chain a band is offered only if it leaves the house its stake fee in expectation: chance × multiple, what it
+returns per dollar before fees, at most 1 − the fee, 0.96 at 4% (`within_fee` in `ladder.rs`, `withinFee` in
+`chain.ts`; the apps grey such ink out). Ink that returns more, certain ink at 1× or ink exactly on a rung at a low
+difficulty (chance × rung is 1.2 − 0.4 · d/100 there: 1.0 at 50, 0.98 at 55, 0.96 at 60), would let a player put
+money through the pool at no risk while the holders' share of its fee came out of the pool. At difficulty 55 that
+drops ink within 2% under a rung, and ink over 89% likely, which pays its fair multiple under the floor.
 
 A half-dot at 10¢ with a 50% chance at difficulty 40, with the 4% stake fee: fair 2.080×, rung 2×.
 Placed: 5¢ leaves the balance, 0.2¢ (4%) is fees (0.15¢ to SKT holders, 0.05¢ to the treasury), 4.8¢ joins

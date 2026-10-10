@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BURST, type Tier, winTier } from "@skech/core/cheer";
 import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, stepFor } from "@skech/core/dots";
+import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { areaCells, areaCostOf, type Cell, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
 import { confirmPiece, expireCells, holdIds, paidOnChain, pay, refusalLine, refusals, type Refusals, unpay } from "@skech/core/optimistic";
@@ -421,10 +421,13 @@ export function InkScreen() {
     // A paper run's price is its own, fixed for the run; the player's own pick waits for real play.
     g.perDot = paperOn ? PAPER_PER_DOT : state.perDot;
     setDifficulty(level, least);
+    // On chain, ink that would return more than the stake fee leaves is not offered: not on the map either.
+    const feeBps = real ? chain.hello?.terms?.feeBps : undefined;
+    setMaxReturn(feeBps === undefined ? 1 : 1 - feeBps / 10_000);
     if (g.field && g.field.rtp !== difficulty(level, least).rtp) g.field = null;
     g.pen = state.brush;
     g.cell = INK_CELL;
-  }, [state.perDot, state.brush, state.taught, level, least, paperOn]);
+  }, [state.perDot, state.brush, state.taught, level, least, paperOn, real, chain.hello?.terms?.feeBps]);
 
   /*
     Every tenth of a second: whether the prices are fresh, and the map for a drawing placed now, made a slice a

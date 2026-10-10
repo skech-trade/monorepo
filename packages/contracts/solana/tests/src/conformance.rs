@@ -30,6 +30,9 @@ struct Case {
     skt: Option<SktIn>,
     steps: Vec<Step>,
     expect: Vec<StepOut>,
+    /// What Solana does where it differs from the EVM game (it does not offer ink that returns more than the stake fee
+    /// leaves, nor a band taller than the widest pen): `expect` otherwise.
+    expect_solana: Option<Vec<StepOut>>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -204,7 +207,7 @@ fn run(c: &Case) {
     let open_at = (S + 1) * 1000;
     let mut bets: HashMap<String, (Pubkey, Pubkey)> = HashMap::new();
 
-    for (i, (step, want)) in c.steps.iter().zip(&c.expect).enumerate() {
+    for (i, (step, want)) in c.steps.iter().zip(c.expect_solana.as_ref().unwrap_or(&c.expect)).enumerate() {
         let at = format!("{} · step {}", c.name, i + 1);
         match step {
             Step::Claim { claim } => {
