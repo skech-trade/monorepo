@@ -48,11 +48,11 @@ pub mod skech {
         admin::set_config(ctx, config)
     }
     /// Start SKT (`Rewards`), setting the game's terms with it. Once only, by the admin.
-    pub fn init_rewards(ctx: Context<InitRewards>, config: Config, rewards: RewardsConfig) -> Result<()> {
-        admin::init_rewards(ctx, config, rewards)
+    pub fn init_rewards(ctx: Context<InitRewards>, config: Config, rewards_config: RewardsConfig) -> Result<()> {
+        admin::init_rewards(ctx, config, rewards_config)
     }
-    pub fn set_rewards_config(ctx: Context<SetRewardsConfig>, rewards: RewardsConfig) -> Result<()> {
-        admin::set_rewards_config(ctx, rewards)
+    pub fn set_rewards_config(ctx: Context<SetRewardsConfig>, rewards_config: RewardsConfig) -> Result<()> {
+        admin::set_rewards_config(ctx, rewards_config)
     }
     pub fn set_oracle(ctx: Context<Admin>, oracle: Pubkey) -> Result<()> {
         admin::set_oracle(ctx, oracle)

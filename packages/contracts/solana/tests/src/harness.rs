@@ -163,7 +163,7 @@ impl Game {
     pub fn init_rewards_ix(&self, config: Config, rewards: RewardsConfig) -> Instruction {
         self.ix(
             skech::accounts::InitRewards { admin: self.admin.pubkey(), game: game_pda(), rewards: rewards_pda(), system_program: system_program::ID },
-            skech::instruction::InitRewards { config, rewards },
+            skech::instruction::InitRewards { config, rewards_config: rewards },
         )
     }
 
@@ -172,7 +172,7 @@ impl Game {
     }
 
     pub fn set_rewards_config_ix(&self, rewards: RewardsConfig) -> Instruction {
-        self.ix(skech::accounts::SetRewardsConfig { admin: self.admin.pubkey(), game: game_pda(), rewards: rewards_pda() }, skech::instruction::SetRewardsConfig { rewards })
+        self.ix(skech::accounts::SetRewardsConfig { admin: self.admin.pubkey(), game: game_pda(), rewards: rewards_pda() }, skech::instruction::SetRewardsConfig { rewards_config: rewards })
     }
 
     pub fn claim_ix(&self, p: &Player) -> Instruction {
