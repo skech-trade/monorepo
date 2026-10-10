@@ -62,6 +62,7 @@ const server: Server = new Server({
     difficulty: sequencer.difficulty,
     connections: server.connections,
     pieces: sequencer.stats,
+    latency: sequencer.latency.snapshot(),
     settling: { ...settler.stats, seconds: settler.watchers() },
   }),
 });

@@ -8,6 +8,7 @@
  * is signed, and one transaction places them all. What the chain says back
  * goes to each player.
  */
+import { Latency, openingDelay } from "./latency";
 import { features, NICE, stepFor } from "@skech/core/dots";
 import { betIdOf, CHANCE_ONE, decodeStroke, HORIZON, MAX_SECTIONS, momentumE6, stakeOf, toE8, TYPES, unitFor, type Piece, type Section } from "@skech/core/chain";
 import { type Address, type Hex, hashStruct, keccak256, type TypedDataDomain } from "viem";
@@ -46,6 +47,7 @@ const isHex = (s: unknown, bytes?: number): s is Hex => typeof s === "string" &&
 const big = (s: unknown) => (typeof s === "string" && /^\d{1,20}$/.test(s) ? BigInt(s) : null);
 
 export class Sequencer {
+  readonly latency = new Latency();
   difficulty = 51;
   gameConfig: GameConfig | null = null;
   private buckets = new Map<bigint, Pending[]>();
@@ -101,6 +103,10 @@ export class Sequencer {
 
   /** Check a piece and queue it for its second. */
   async accept(msg: PieceMsg): Promise<{ ok: true; betId: Hex } | { ok: false; why: string; betId?: Hex }> {
+    return this.latency.measure("accept", () => this.acceptPiece(msg));
+  }
+
+  private async acceptPiece(msg: PieceMsg): Promise<{ ok: true; betId: Hex } | { ok: false; why: string; betId?: Hex }> {
     const now = Math.floor(this.engine.now());
     const parsed = this.parse(msg);
     if (typeof parsed === "string") {
@@ -158,7 +164,7 @@ export class Sequencer {
     let bucket = this.buckets.get(piece.openAt);
     if (!bucket) {
       this.buckets.set(piece.openAt, (bucket = []));
-      const delay = Math.max(0, openAt + this.cfg.openAfterMs - now);
+      const delay = openingDelay(openAt, this.cfg.openAfterMs, this.engine.now());
       this.timers.set(piece.openAt, setTimeout(() => void this.flush(piece.openAt), delay));
     }
     bucket.push(entry);
@@ -238,6 +244,7 @@ export class Sequencer {
 
   /** Price and place everything that opens on `openAt`. */
   private async flush(openAt: bigint) {
+    this.latency.record("openingLate", Math.max(0, this.engine.now() - Number(openAt) - this.cfg.openAfterMs));
     const bucket = this.buckets.get(openAt) ?? [];
     this.buckets.delete(openAt);
     this.timers.delete(openAt);
@@ -264,7 +271,7 @@ export class Sequencer {
     await Promise.all(
       [...byUnit].map(async ([unit, entries]) => {
         try {
-          const fl = await this.pricer.fieldFor(f, Number(openAt), Number(unit) / 1e8, this.difficulty);
+          const fl = await this.latency.measure("pricing", () => this.pricer.fieldFor(f, Number(openAt), Number(unit) / 1e8, this.difficulty));
           const chances = entries.flatMap((e) => this.pricer.chances(fl, e.piece.sections, Number(openAt)));
           if (chances.some((c) => c < 0 || c > CHANCE_ONE)) throw new Error("a chance out of range");
           const message = {
@@ -287,7 +294,7 @@ export class Sequencer {
             strokeBytes: entries.reduce((n, e) => n + (e.stroke.length - 2) / 2, 0),
             coldSlots: this.chain.ledger.coldSlots,
           };
-          const receipt = await this.chain.send("place", [placements, quote, sig], `place ${entries.length} at ${openAt}`, shape);
+          const receipt = await this.latency.measure("chain", () => this.chain.send("place", [placements, quote, sig], `place ${entries.length} at ${openAt}`, shape));
           this.stats.batches++;
           const answered = new Set<Hex>();
           for (const ev of this.chain.events(receipt)) {

@@ -183,7 +183,7 @@ export class SolanaChain {
         }
         return out;
       }
-      await Bun.sleep(300);
+      if (i < 4) await Bun.sleep(300);
     }
     return [];
   }
