@@ -16,6 +16,7 @@ import { PRIVATE_TEXT } from "@/lib/analytics";
 import { shortAddress } from "@/lib/market";
 import { money } from "@/lib/money";
 import { useSocialPick } from "@/lib/social";
+import { usePaperPhase } from "@/lib/paper";
 import { cn } from "@/lib/utils";
 import { CopyAddress } from "./copy";
 import { Wordmark } from "./logo";
@@ -31,6 +32,9 @@ import { ThemeToggle } from "./theme-toggle";
  *
  * Taller on a phone, where the things in it are thumb-sized: fifty-six
  * pixels is what a phone header is on both platforms.
+ *
+ * During a "Try it free" run the middle's "Sign in to play" is gone, so the
+ * way in moves here: Sign in, on the right.
  *
  * Under the game, a trophy opens the community (the leaderboard, the live
  * feed, profiles); on a phone it takes light or dark's place, which moves into
@@ -48,6 +52,7 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
   // On a phone's browser, not once installed: the way to the Home Screen steps, whether or not the bar is up.
   const installable = useInstallable();
   const [txsOpen, setTxsOpen] = useState(false);
+  const paper = usePaperPhase();
   // The transaction count, only from a relayer that keeps one.
   const counted = chain.real && chain.hello?.activity === true;
   // An email or a phone number names the account; without one it is simply the wallet, and the address says which.
@@ -70,6 +75,11 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
         ) : null}
         {showTheme ? <ThemeToggle className={cn("size-11 rounded-full border-0 bg-secondary sm:size-11 [&_svg]:size-5", community && "max-sm:hidden")} /> : null}
         {lead}
+        {hasAuth && me.ready && !me.signedIn && paper ? (
+          <Button className="h-11 rounded-full px-5 font-semibold sm:h-11" onClick={() => gate.openSignIn("paper_bar")}>
+            Sign in
+          </Button>
+        ) : null}
         {hasAuth && !me.ready ? <span aria-hidden="true" className="size-11 shrink-0 animate-pulse rounded-full bg-secondary" /> : null}
         {hasAuth && me.signedIn ? (
           <Menu>
