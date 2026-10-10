@@ -123,11 +123,11 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
   const capBps = BigInt(skt?.walletCapBps ?? 10_000);
   const capFloor = BigInt(skt?.capFloor ?? 0);
   const weight = () => exp2Q32((t << 32n) / HALF_LIFE);
-  /** The shares a part is counted against: all of them, or the floor's worth while there are fewer (with a cap). */
+  /** The shares a part is counted against: all of them, or the floor's (`capFloor` SKT as if minted at the start, held by
+   * nobody: era 0 here) while there are fewer, with a cap. */
   const counted = () => {
     if (capBps >= BPS) return totalShares;
-    const f = (capFloor * weight()) >> 32n;
-    return totalShares > f ? totalShares : f;
+    return totalShares > capFloor ? totalShares : capFloor;
   };
   /** Share `amount` over `counted()`: what is set aside is rounded up; what is not shared is returned. */
   const accrue = (amount: bigint) => {
@@ -166,7 +166,7 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
     const full = (curve * w) >> 32n;
     let shares = full;
     if (capBps < BPS) {
-      const floor = (capFloor * w) >> 32n;
+      const floor = capFloor;
       const sat = (x: bigint) => (x > 0n ? x : 0n);
       const underFloor = sat((capBps * floor) / BPS - h.shares);
       const ofTotal = sat(capBps * totalShares - BPS * h.shares) / (BPS - capBps);

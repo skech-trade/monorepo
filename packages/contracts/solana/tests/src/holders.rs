@@ -231,7 +231,7 @@ fn no_wallet_mints_past_its_cap() {
         t.play(&others[i % 3], FAR, 1_000_000, HALF);
         t.play(&whale, FAR, 5_000_000, HALF);
         let r = t.g.rewards();
-        let (h, total, floor) = (t.g.holder(&key(&whale)).shares, r.total_shares, (100 * E6 as u128 * r.weight_q32(t.g.now)) >> 32);
+        let (h, total, floor) = (t.g.holder(&key(&whale)).shares, r.total_shares, r.floor_shares());
         assert!(h * 10 <= total.max(floor) + 10, "{h} of {total}");
     }
 }

@@ -26,9 +26,12 @@
 //!   minted on so far, `Rewards::gain`) and S is `mint_scale`. A settlement's basis B mints the integral of that rate
 //!   from G to G + B, `100 · S² · B / ((S + G)(S + G + B))`, and moves G on by B: one basis of B and two of B/2 mint the
 //!   same, to the unit.
-//! - **The cap.** No mint takes a wallet past `wallet_cap_bps` of all shares, or past that part of `cap_floor` SKT
-//!   while there is little, whichever is more; what would pass it is not minted (G still moves on). One check per
-//!   mint, and it only ever mints less. A player with many wallets is not stopped by it.
+//! - **The cap.** No mint takes a wallet past `wallet_cap_bps` of all shares, or past that part of the floor while there
+//!   is little, whichever is more; what would pass it is not minted (G still moves on). The floor is `cap_floor` SKT as
+//!   if minted when SKT started and held by nobody: it decays as every SKT does, so it matters early and fades. Every
+//!   share is counted against the larger of all shares and the floor's, so no wallet is paid more than its cap's part of
+//!   anything shared; the floor's part goes to the treasury (or stays in the pool). One check per mint and per share,
+//!   and it only ever mints and pays less. A player with many wallets is not stopped by it.
 
 use anchor_lang::prelude::*;
 
@@ -134,15 +137,21 @@ impl Rewards {
         Ok(())
     }
 
-    /// The shares a part is counted against: all of them, or, while there are fewer, the cap's floor (`cap_floor` SKT at
-    /// today's weight). A wallet's mints never take it past `wallet_cap_bps` of the larger (`mint`), and every share is
-    /// shared over the larger, so no wallet is ever paid more than that part of anything shared: not of its own fees
-    /// recycled, nor of the pool's surplus. With no cap, all the shares.
-    pub fn counted_shares(&self, now: i64) -> u128 {
+    /// The floor's shares, in this era's units: `cap_floor` SKT as if minted when SKT started (weight 1, era 0) and held
+    /// by nobody, so it decays as every SKT does.
+    pub fn floor_shares(&self) -> u128 {
+        shr(self.config.cap_floor as u128, ERA_HALVINGS as u128 * self.era as u128)
+    }
+
+    /// The shares a part is counted against: all of them, or, while there are fewer, the floor's. A wallet's mints never
+    /// take it past `wallet_cap_bps` of the larger (`mint`), and every share is shared over the larger, so no wallet is
+    /// ever paid more than that part of anything shared: not of its own fees recycled, nor of the pool's surplus. With
+    /// no cap, all the shares.
+    pub fn counted_shares(&self) -> u128 {
         if self.config.wallet_cap_bps as u64 >= BPS {
             return self.total_shares;
         }
-        self.total_shares.max((self.config.cap_floor as u128).saturating_mul(self.weight_q32(now)) >> 32)
+        self.total_shares.max(self.floor_shares())
     }
 
     /// Share `amount` among every share there is, counted against `counted_shares`: what is not shared (the floor's
@@ -155,7 +164,7 @@ impl Rewards {
         if self.total_shares < MIN_TOTAL_SHARES {
             return Ok(amount);
         }
-        let (t, d) = (self.total_shares, self.counted_shares(now));
+        let (t, d) = (self.total_shares, self.counted_shares());
         // amount · 1e24 can pass 2^128: through 256 bits.
         let add = mul_div(amount as u128, ACC_SCALE, d).ok_or(SkechError::Overflow)?;
         // Every holder's part, rounded down and counted on the accumulator's running total, adds up to at most the sum
@@ -242,9 +251,9 @@ impl Rewards {
         // The cap: h + x ≤ c · max(T + x, F), so x ≤ max(c·F − h, (c·T − h) / (1 − c)), in shares now.
         let cap = self.config.wallet_cap_bps as u128;
         let shares = if cap < BPS as u128 {
-            let (t, h, f) = (self.total_shares, holder.shares, (self.config.cap_floor as u128 * w) >> 32);
-            // So the holder's shares stay within c of `counted_shares` from here on: the total only grows (or is divided
-            // with theirs at an era's end), and the floor's shares grow with the weight.
+            let (t, h, f) = (self.total_shares, holder.shares, self.floor_shares());
+            // So the holder's shares stay within c of `counted_shares` from here on: the total only grows, and at an era's
+            // end it, the floor and the holder's shares are all divided alike.
             let under_floor = (cap * f / BPS as u128).saturating_sub(h);
             let of_total = (cap * t).saturating_sub(BPS as u128 * h) / (BPS as u128 - cap);
             full.min(under_floor.max(of_total))
@@ -692,6 +701,7 @@ mod tests {
     #[test]
     fn a_balance_halves_every_half_life_and_a_later_mint_weighs_more() {
         let mut r = rewards(0);
+        r.config.wallet_cap_bps = 10_000;
         let (mut a, mut b) = (Holder::default(), Holder::default());
         r.mint(&mut a, 1_000 * 1_000_000, 0).unwrap();
         let skt = r.balance_of(a.shares, a.era, 0);
@@ -792,7 +802,7 @@ mod tests {
             let k = (rng(&mut seed) % 50) as usize;
             r.mint(&mut others[k], 1 + rng(&mut seed) % 20_000_000_000, now).unwrap();
             r.mint(&mut whale, 1 + rng(&mut seed) % 200_000_000_000, now).unwrap();
-            let floor = (r.config.cap_floor as u128 * r.weight_q32(now)) >> 32;
+            let floor = r.floor_shares();
             assert!(whale.shares * 10 <= r.total_shares.max(floor) + 10, "step {i}: {} of {}", whale.shares, r.total_shares);
             // So it is never paid more than a tenth of what is shared.
             whale.settle_rewards(&r).unwrap();
