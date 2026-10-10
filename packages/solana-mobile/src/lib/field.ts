@@ -10,13 +10,18 @@ import { INK_EDGE_CELLS } from "@skech/core/ink";
 
 const SLICE_MS = 5;
 /** How far ahead the phone's map reaches: the screen shows 15s, and a piece opens a second or two after it is drawn. */
-const PHONE_SECONDS = 20;
+export const PHONE_SECONDS = 20;
 /** A map that has taken this long gets longer slices: on a slow phone at a few milliseconds a frame it would never
  *  finish before the next second's map, and no tiles would ever show. */
 const BEHIND_MS = 600;
 const BEHIND_SLICE_MS = 12;
-/** Paths a slice starts with; tuned from how long the last slice took, so each takes about `SLICE_MS`. */
-let perSlice = 400;
+/**
+ * Paths a run starts with; tuned from how long the last run took, so each takes about half of `SLICE_MS`. It starts
+ * small and is capped, so the first run of a map, or one after the phone was busy, cannot overrun the frame's budget
+ * by much: the budget is only checked between runs.
+ */
+let perSlice = 32;
+const MAX_PER_RUN = 256;
 
 export type FieldAsk = { id: number; f: Features; at: number; step: number; cell: number; difficulty: number; least: number };
 
@@ -73,7 +78,7 @@ export class FieldMaker {
       const s = performance.now();
       finished = job.run(perSlice);
       const took = performance.now() - s;
-      if (took > 0) perSlice = Math.max(50, Math.min(4000, Math.round((perSlice * (SLICE_MS / 2)) / took)));
+      if (took > 0) perSlice = Math.max(1, Math.min(MAX_PER_RUN, Math.round((perSlice * (SLICE_MS / 2)) / took)));
     }
     if (finished) {
       this.job = null;

@@ -131,7 +131,7 @@ export function WithdrawSheet({ open, onOpenChange }: { open: boolean; onOpenCha
       return setError(plain(r.why));
     }
     setSent({ amount: value, to: dest.address, tx: r.tx });
-    feel("win", { ratio: 1 });
+    feel("win", { tier: 1 });
     if (!openRef.current) toastManager.add({ title: `${money(value)} is on its way`, description: `to ${shortAddress(dest.address)}`, type: "success" });
     setStep("done");
   };

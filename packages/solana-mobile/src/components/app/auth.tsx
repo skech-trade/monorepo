@@ -5,7 +5,7 @@ import { Buffer } from "buffer";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { hasAuth, PRIVY_APP_ID, PRIVY_CLIENT_ID } from "@/lib/config";
-import { readJson, storage, writeJson } from "@/lib/storage";
+import { clearWallet, persistWallet, restoreWallet, type SavedWallet as Saved } from "@/lib/wallet-storage";
 import { shortAddress } from "@/lib/market";
 
 /**
@@ -59,8 +59,6 @@ const transact: typeof Transact = (...args) => {
 };
 // www, not the bare domain: that redirects, and a wallet checks this site's .well-known/assetlinks.json for this app and its key.
 const IDENTITY = { name: "skech", uri: "https://www.skech.trade", icon: "icon.png" };
-const MWA_KEY = "skech:mwa";
-type Saved = { address: string; authToken: string; cluster: string };
 const b64ToBase58 = (b64: string) => getAddressDecoder().decode(Uint8Array.from(Buffer.from(b64, "base64")));
 /** The cluster the relayer is on, for the wallet to sign for: devnet unless the build says mainnet. */
 const CHAIN = process.env.EXPO_PUBLIC_SOLANA_CLUSTER === "mainnet-beta" ? "solana:mainnet" : "solana:devnet";
@@ -85,56 +83,95 @@ export const AccountContext = createContext<Account>({
   canConnectWallet: false,
 });
 
-/** The Mobile Wallet Adapter half: an address and an auth token, kept so the wallet does not ask again. */
+/**
+ * The Mobile Wallet Adapter half: an address and an auth token, kept in the secure store so the wallet does not ask
+ * again. `generation` counts connects and sign-outs: anything that was waiting on the wallet when one happened (a
+ * restore, a token rotation, a signature) finds it moved on and does not write the old account back.
+ */
 function useMobileWallet() {
-  const [saved, setSaved] = useState<Saved | null>(() => readJson<Saved>(MWA_KEY));
+  const [saved, setSaved] = useState<Saved | null>(null);
+  const [ready, setReady] = useState(false);
+  const generation = useRef(0);
+  useEffect(() => {
+    let live = true;
+    const revision = generation.current;
+    void restoreWallet(CHAIN)
+      .then(
+        (wallet) => {
+          if (live && generation.current === revision) setSaved(wallet);
+        },
+        (e) => console.warn("wallet: the saved wallet could not be read", e),
+      )
+      .finally(() => {
+        if (live) setReady(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
   const connect = useCallback(async (): Promise<string | null> => {
+    const revision = ++generation.current;
     try {
       const auth = await transact((wallet) => wallet.authorize({ identity: IDENTITY, chain: CHAIN }));
       const address = b64ToBase58(auth.accounts[0].address);
       const s = { address, authToken: auth.auth_token, cluster: CHAIN };
-      writeJson(MWA_KEY, s);
-      setSaved(s);
+      if (generation.current !== revision) return "Wallet connection changed. Try again.";
+      await persistWallet(s);
+      if (generation.current === revision) setSaved(s);
       return null;
     } catch (e) {
       return String((e as Error).message ?? e) || "The wallet said no";
     }
   }, []);
+  /** Reauthorized for the account that connected, or not at all: a wallet that hands back another account is refused. */
+  const authorized = useCallback(
+    async (wallet: Parameters<Parameters<typeof Transact>[0]>[0], s: Saved, revision: number) => {
+      const auth = await wallet.reauthorize({ auth_token: s.authToken, identity: IDENTITY }).catch(() => wallet.authorize({ identity: IDENTITY, chain: CHAIN }));
+      const account = auth.accounts.find((a) => b64ToBase58(a.address) === s.address);
+      if (generation.current !== revision || !account) throw new Error("The wallet account changed. Connect again.");
+      if (auth.auth_token !== s.authToken) {
+        const next = { ...s, authToken: auth.auth_token };
+        await persistWallet(next);
+        if (generation.current === revision) setSaved(next);
+      }
+      if (generation.current !== revision) throw new Error("Wallet disconnected");
+      return account;
+    },
+    [],
+  );
   const signAll = useCallback(
     async (base64s: string[]) => {
       if (!saved) throw new Error("No wallet connected");
+      const revision = generation.current;
       return transact(async (wallet) => {
-        const auth = await wallet.reauthorize({ auth_token: saved.authToken, identity: IDENTITY }).catch(() => wallet.authorize({ identity: IDENTITY, chain: CHAIN }));
-        if (auth.auth_token !== saved.authToken) {
-          const s = { ...saved, authToken: auth.auth_token };
-          writeJson(MWA_KEY, s);
-          setSaved(s);
-        }
+        await authorized(wallet, saved, revision);
         const { signed_payloads } = await wallet.signTransactions({ payloads: base64s });
         return signed_payloads;
       });
     },
-    [saved],
+    [saved, authorized],
   );
   const sign = useCallback(async (base64: string) => (await signAll([base64]))[0], [signAll]);
   /** The wallet signs words; it answers with them and its signature after, the last 64 bytes. */
   const signMessage = useCallback(
     async (message: string) => {
       if (!saved) throw new Error("No wallet connected");
+      const revision = generation.current;
       return transact(async (wallet) => {
-        const auth = await wallet.reauthorize({ auth_token: saved.authToken, identity: IDENTITY }).catch(() => wallet.authorize({ identity: IDENTITY, chain: CHAIN }));
-        const { signed_payloads } = await wallet.signMessages({ addresses: [auth.accounts[0].address], payloads: [Buffer.from(message, "utf8").toString("base64")] });
+        const account = await authorized(wallet, saved, revision);
+        const { signed_payloads } = await wallet.signMessages({ addresses: [account.address], payloads: [Buffer.from(message, "utf8").toString("base64")] });
         const signed = Buffer.from(signed_payloads[0], "base64");
         return signed.subarray(signed.length - 64).toString("base64");
       });
     },
-    [saved],
+    [saved, authorized],
   );
   const disconnect = useCallback(() => {
-    storage.delete(MWA_KEY);
+    generation.current++;
     setSaved(null);
+    clearWallet().catch((e) => console.warn("wallet: the saved wallet could not be deleted", e));
   }, []);
-  return { saved, connect, sign, signAll, signMessage, disconnect };
+  return useMemo(() => ({ saved, ready, connect, sign, signAll, signMessage, disconnect }), [saved, ready, connect, sign, signAll, signMessage, disconnect]);
 }
 
 /** A wrong or stale code, as Privy says it: whatever the words, the code is what to fix. */
@@ -154,7 +191,8 @@ function Publish({ children }: { children: ReactNode }) {
   const { sendCode: sendEmailCode, loginWithCode: loginWithEmail } = useLoginWithEmail();
   const { sendCode: sendSmsCode, loginWithCode: loginWithSms } = useLoginWithSMS();
   const [flow, setFlow] = useState<{ to: string; by: "email" | "sms" } | null>(null);
-  const ready = isReady || waited;
+  // The wallet on the phone is read from the secure store first, so a saved one is never shown signed out.
+  const ready = (isReady || waited) && mwa.ready;
   const wallet = solana.wallets?.[0] ?? null;
 
   // The wallet is made at sign-in; anyone who signed in without one (an older account, a failed try) gets one now,
@@ -167,8 +205,25 @@ function Publish({ children }: { children: ReactNode }) {
     create().catch((e) => console.warn("sign-in: no Solana wallet made", e));
   }, [user, wallet, flow, create]);
 
+  /*
+    Bumped on signing out and whenever the account changes: a signature asked for before is not handed back after,
+    so nothing the old account signed can be sent as the new one's (or as nobody's).
+  */
+  const epoch = useRef(0);
+  const who = user && wallet ? wallet.address : (mwa.saved?.address ?? null);
+  const lastWho = useRef(who);
+  if (lastWho.current !== who) {
+    lastWho.current = who;
+    epoch.current++;
+  }
+
   const account = useMemo<Account>(() => {
     const privy = Boolean(user && wallet);
+    const asked = epoch.current;
+    const still = <T,>(value: T) => {
+      if (epoch.current !== asked) throw new Error("The account changed while signing. Try again.");
+      return value;
+    };
     const linked = user?.linked_accounts ?? [];
     const email = linked.find((a) => a.type === "email")?.address ?? linked.find((a) => a.type === "google_oauth" || a.type === "apple_oauth")?.email ?? null;
     const phone = linked.find((a) => a.type === "phone")?.phoneNumber ?? null;
@@ -177,7 +232,7 @@ function Publish({ children }: { children: ReactNode }) {
     const sign = async (base64: string) => {
       const provider = await wallet!.getProvider();
       const { signedTransaction } = await provider.request({ method: "signTransaction", params: { transaction: toBytes(base64) } });
-      return Buffer.from(signedTransaction).toString("base64");
+      return still(Buffer.from(signedTransaction).toString("base64"));
     };
     return {
       ready,
@@ -187,6 +242,7 @@ function Publish({ children }: { children: ReactNode }) {
       handle: privy ? (email ?? phone ?? (address ? shortAddress(address) : null)) : address ? shortAddress(address) : null,
       email: privy ? email : null,
       signOut: () => {
+        epoch.current++;
         if (user) void logout();
         mwa.disconnect();
       },
@@ -203,7 +259,7 @@ function Publish({ children }: { children: ReactNode }) {
         const provider = await wallet!.getProvider();
         const { signature } = await provider.request({ method: "signMessage", params: { message: Buffer.from(message, "utf8").toString("base64") } });
         // Base64 as the service reads it, padding and all, whatever form it came in.
-        return Buffer.from(signature, "base64").toString("base64");
+        return still(Buffer.from(signature, "base64").toString("base64"));
       },
       sendCode: async (e) => {
         try {
@@ -252,7 +308,7 @@ function WalletOnly({ children }: { children: ReactNode }) {
   const mwa = useMobileWallet();
   const account = useMemo<Account>(
     () => ({
-      ready: true,
+      ready: mwa.ready,
       signedIn: Boolean(mwa.saved),
       kind: mwa.saved ? "wallet" : null,
       address: mwa.saved?.address ?? null,

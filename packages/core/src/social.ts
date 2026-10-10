@@ -103,12 +103,6 @@ export type StrokeBody = { betId: string; stroke: string };
 
 /** The Dylan avatars offered when choosing one: the address's own first, then `<address>:<n>` from `from`. */
 export const avatarChoices = (player: string, from: number, count = 8) => [player, ...Array.from({ length: count }, (_, i) => `${player}:${from + i}`)];
-/** The avatars' licence: said where they are chosen and in the app's about. */
-export const AVATAR_CREDIT = {
-  text: "Avatars: “Dylan” by Natalia Spivak, CC BY 4.0",
-  source: "https://www.figma.com/community/file/1356575240759683500",
-  licence: "https://creativecommons.org/licenses/by/4.0/",
-};
 
 /** USDC millionths as dollars, rounded to the cent, never through a float. */
 export function socialMoney(value: string, signed = false): string {

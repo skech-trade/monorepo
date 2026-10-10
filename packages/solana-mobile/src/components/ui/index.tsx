@@ -18,8 +18,8 @@ import { cn } from "@/lib/utils";
 export function useColors() {
   const dark = useDark();
   return dark
-    ? { fg: "#ffffff", bg: "#000000", muted: "#98989f", faint: "#636366", brand: "#6f92ff", success: "#30d158", raised: "#1c1c1e", border: "#38383a", secondary: "#1c1c1e" }
-    : { fg: "#000000", bg: "#ffffff", muted: "#6c6c70", faint: "#aeaeb2", brand: "#2e5bff", success: "#34c759", raised: "#ffffff", border: "#e5e5ea", secondary: "#f2f2f7" };
+    ? { fg: "#ffffff", bg: "#000000", muted: "#98989f", faint: "#636366", brand: "#6f92ff", success: "#30d158", raised: "#1c1c1e", border: "#38383a", secondary: "#1c1c1e", gold: "#ff9f0a" }
+    : { fg: "#000000", bg: "#ffffff", muted: "#6c6c70", faint: "#aeaeb2", brand: "#2e5bff", success: "#34c759", raised: "#ffffff", border: "#e5e5ea", secondary: "#f2f2f7", gold: "#ff9500" };
 }
 
 /** What floats over the chart: the web's `--raised-shadow`, as a native shadow. */

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { explorerTx } from "@/lib/chain";
-import { AVATAR_CREDIT, avatarChoices, dylanUri } from "@/lib/avatar";
+import { avatarChoices, dylanUri } from "@/lib/avatar";
 import { avatarFrom, cacheProfile, socialAction, socialMoney, socialRequest, useSocial } from "@/lib/social";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "../theme-toggle";
@@ -36,22 +36,6 @@ const windows: { value: SocialWindow; label: string }[] = [
   { value: "all", label: "All time" },
 ];
 const quietCard = "rounded-[18px] bg-muted";
-
-/** The avatars' licence, where they are chosen and shown. */
-export function AvatarCredit({ className }: { className?: string }) {
-  return (
-    <p className={cn("text-[11px] text-muted-foreground leading-snug", className)}>
-      Avatars:{" "}
-      <a className="underline underline-offset-2" href={AVATAR_CREDIT.source} rel="noopener noreferrer" target="_blank">
-        “Dylan”
-      </a>{" "}
-      by Natalia Spivak,{" "}
-      <a className="underline underline-offset-2" href={AVATAR_CREDIT.licence} rel="noopener noreferrer" target="_blank">
-        CC BY 4.0
-      </a>
-    </p>
-  );
-}
 
 /** Who is playing now: their faces in a row, each a way to their profile. */
 function PlayingNow({ onPlayer }: { onPlayer: (player: string) => void }) {
@@ -279,7 +263,6 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
               )}
             </>
           )}
-          <AvatarCredit className="mt-auto px-1 pt-2" />
         </SheetPanel>
       </SheetPopup>
     </Sheet>
@@ -548,7 +531,6 @@ function EditProfile({ profile, onCancel, onSaved }: { profile: PlayerProfile; o
           <ShuffleIcon />
           Shuffle
         </Button>
-        <AvatarCredit />
       </div>
       <label className="flex flex-col gap-2 text-[13px]">
         Username

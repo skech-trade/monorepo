@@ -25,14 +25,14 @@ import { Sheet, SheetDescription, SheetHeader, SheetPanel, SheetPopup, SheetTitl
 import { type Market, useEngine } from "@/lib/engine";
 import { cents, practice, record, setPractice, usePracticeOf } from "@/lib/practice";
 import { endPaperRun, paper, paperCredit, paperDebit, paperDrew, paperTick, pausePaperRun, resumePaperRun, startPaperRun, usePaper, usePaperPhase } from "@/lib/paper";
-import { feel, sound } from "@/lib/feel";
+import { celebrate, feel, sound } from "@/lib/feel";
+import { type Tier, winTier } from "@skech/core/cheer";
 import { money, signed } from "@/lib/money";
 import { scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { ScoreboardSheet } from "./scoreboard-sheet";
 import { addChange, Ledger } from "./ledger";
 import { WalletButton } from "./wallet-button";
 import { publishStroke } from "@/lib/social";
-import { AVATAR_CREDIT } from "@skech/core/social";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 import { firstAtOrAfter, fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
@@ -41,7 +41,7 @@ import { UpdateReady } from "./update-ready";
 import { TokenAvatar } from "@/components/app/token-avatar";
 import { DepositButton, InkControls } from "./ink-controls";
 import feedback from "./drawing-feedback.module.css";
-import { CrispNumber } from "./crisp-number";
+import { CrispNumber, RisingMoney } from "./crisp-number";
 import { introReady } from "./ink-intro";
 import { homeBarRoom, HomeScreenBar, HomeScreenSheet, useHomeScreen } from "./home-screen";
 import { forReal, Onboarding, useOnboarding } from "./onboarding";
@@ -201,7 +201,7 @@ function LivePrice({ feed }: { feed: Market }) {
 /** The practice balance, which moves with every piece of ink placed: read here, so only the figure renders again. */
 function PracticeBalance({ crisp = false }: { crisp?: boolean }) {
   const { balance } = usePracticeOf("balance");
-  return crisp ? <CrispNumber value={money(balance)} /> : <>{money(balance)}</>;
+  return crisp ? <RisingMoney format={money} value={balance} /> : <>{money(balance)}</>;
 }
 
 /*
@@ -215,7 +215,7 @@ function PaperMoney({ gained }: { gained: boolean }) {
     <div className={feedback.accounts}>
       <div aria-label={`Paper money ${money(run.balance)}, not real`} className={feedback.balance}>
         <span className={feedback.eyebrow}>Paper money</span>
-        <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}><CrispNumber value={money(run.balance)} /></span>
+        <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}><RisingMoney format={money} value={run.balance} /></span>
         <Ledger />
       </div>
       <div className={feedback.balance}>
@@ -440,6 +440,19 @@ export function InkScreen() {
   }, [gained]);
   /* Hits close together climb: each one within a few seconds of the last sounds a step higher. */
   const hitRun = useRef({ n: 0, at: 0 });
+  /*
+    A profitable round's celebration on the screen, besides its card: the balance lights up, and a strong one lights
+    the edges. `key` plays it again for the next. Profitable rounds in a row on paper, which keeps no books.
+  */
+  const [cheer, setCheer] = useState<{ key: string; tier: Tier } | null>(null);
+  useEffect(() => {
+    if (!cheer) return;
+    const t = setTimeout(() => setCheer(null), 2600);
+    return () => clearTimeout(t);
+  }, [cheer]);
+  const paperRun = useRef(0);
+  /** Where the price last met each line's ink, for its confetti. */
+  const lastHit = useRef(new Map<string, { t: number; price: number; at: number }>());
   /** Drawings whose first piece the chain has confirmed, so each is sealed once. */
   const sealed = useRef(new Set<string>());
   const game = useRef<Game>({ bars: [], ticks: [], skew: 0, field: null, placeLead: 0, step: 1, priceStep: 1, marketStep: 1, viewport: { width: 1280, height: 800 }, displayPrice: 0, perDot: state.perDot, pen: state.brush, cell: INK_CELL, bets: [], quote: null, fx: [], dark: false });
@@ -604,11 +617,19 @@ export function InkScreen() {
     }
     track("round_finished", { ...played, voided: false, cost: cents(t.cost), won: cents(t.won), net: cents(t.won - t.cost), hits: t.hits, dots: t.points, hit_share: Math.round((100 * t.hits) / t.points), best: t.best });
     if (!onPaper) record({ id: line, at: t.at, cost: cents(t.cost), won: cents(t.won), hits: t.hits, dots: t.points, best: t.best });
-    const streak = onPaper ? 0 : scoreboard().streak;
+    // Only a round that came out ahead is celebrated, by how much it made; a loss, or breaking even, passes in silence.
+    const tier = winTier(cents(t.won), cents(t.cost), t.best);
+    if (onPaper) paperRun.current = tier ? paperRun.current + 1 : 0;
+    const streak = onPaper ? paperRun.current : scoreboard().streak;
     setResult({ key: line, won: cents(t.won), cost: cents(t.cost), hits: t.hits, points: t.points, voided: false, best: t.best, streak });
-    // Only a round that came out ahead is heard and felt: a chord, fuller for a big one. A loss passes in silence.
-    if (t.won > t.cost) feel("win", { ratio: t.cost > 0 ? t.won / t.cost : 1 });
-    else if (!t.hits) hitRun.current.n = 0;
+    const hit = lastHit.current.get(line);
+    lastHit.current.delete(line);
+    if (tier) {
+      celebrate(tier, Math.max(1, streak));
+      setCheer({ key: line, tier });
+      // From where the price last met the ink, if that is still on the chart.
+      if (hit && performance.now() - hit.at < 20_000) game.current.fx.push({ kind: "burst", t: hit.t, price: hit.price, born: performance.now(), tier });
+    } else if (!t.hits) hitRun.current.n = 0;
   };
   /** A piece the chain refused, or never answered: its ink is let go and its stake is back. */
   const gate = useGate();
@@ -840,12 +861,24 @@ export function InkScreen() {
             // Every hit gets its own toast, sound and touch: each one is a win. Hits judged late, from bars of prices
             // restored after a reload, are paid but not celebrated: ten at once would be noise, not news.
             const fresh3 = nowMs - (bar.t + 1000) < 3000;
-            if (fresh3) g.fx.push({ kind: "hit", t: fresh2[0].t + 500, price: Math.min(hi, Math.max(lo, bar.c)), born: performance.now(), text: paid > 0 ? `+${money(paid)}` : undefined, line, big: best >= 10 });
+            // A hit is celebrated (heard, felt, a spray) only while its round is ahead: what it has paid so far is more
+            // than everything it has staked. A hit that still leaves the round behind is shown, quietly, and no more.
+            let stake = lines.current.get(line)?.cost ?? 0;
+            for (let j = 0; j < g.bets.length; j++) {
+              const b = j === i ? bet : g.bets[j];
+              if ((b.group ?? b.id) === line && !decided(g.bets[j])) stake += cost(b) - refund(b);
+            }
+            const ahead = acc.credited - stake > 0.005;
+            const where = { t: fresh2[0].t + 500, price: Math.min(hi, Math.max(lo, bar.c)) };
             if (fresh3) {
+              g.fx.push({ kind: "hit", ...where, born: performance.now(), text: paid > 0 ? `+${money(paid)}` : undefined, line, big: best >= 10, profit: ahead });
+              lastHit.current.set(line, { ...where, at: performance.now() });
+            }
+            if (fresh3 && ahead) {
               const run = hitRun.current;
               run.n = performance.now() - run.at < 6000 ? run.n + 1 : 0;
               run.at = performance.now();
-              feel(best >= 10 ? "big" : "hit", { multiple: best, streak: run.n });
+              feel(best >= 10 ? "big" : run.n >= 2 ? "run" : "hit", { multiple: best, streak: run.n });
             }
           }
           if (bet.status !== "live") break;
@@ -1149,18 +1182,24 @@ export function InkScreen() {
     };
   }, [real, chain.client, letGo, updateTotals]);
 
-  // For tuning in development: stage a finished round from the console, card, sound, touch and all.
+  // For tuning, in development or with ?house as the house's controls: stage a finished round from the console, card,
+  // sound, touch, confetti and all, from where the price is now. Nothing is paid.
   useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
+    if (!house) return;
     (window as unknown as { __round?: unknown }).__round = (won: number, cost = 1, best = 4, streak = 0) => {
-      setResult({ key: crypto.randomUUID(), won, cost, hits: won > 0 ? 1 : 0, points: 2, voided: false, best, streak });
-      if (won > cost) {
-        feel("win", { ratio: won / cost });
-        setGained(performance.now());
-        addChange(won, "win");
-      }
+      const key = crypto.randomUUID();
+      setResult({ key, won, cost, hits: won > 0 ? 1 : 0, points: 2, voided: false, best, streak });
+      const tier = winTier(won, cost, best);
+      if (!tier) return;
+      celebrate(tier, Math.max(1, streak));
+      setCheer({ key, tier });
+      setGained(performance.now());
+      addChange(cents(won - cost), "win");
+      const g = game.current;
+      const now = Date.now() + g.skew;
+      g.fx.push({ kind: "burst", t: now - 1000, price: g.displayPrice, born: performance.now(), tier });
     };
-  }, []);
+  }, [house]);
   // For tests in development: place a line from the console, as the pen does.
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") (window as unknown as { __place?: typeof onPlace }).__place = onPlace;
@@ -1322,13 +1361,15 @@ export function InkScreen() {
           {real ? (
             <WalletButton render={<button aria-label={`Balance ${money(chain.balance)}. Deposit or withdraw`} className={cn(feedback.balance, feedback.tappable)} type="button" />}>
               <span className={feedback.eyebrow}>Balance</span>
-              <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}><CrispNumber value={money(chain.balance)} /></span>
+              <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}><RisingMoney format={money} value={chain.balance} /></span>
+              {cheer ? <span aria-hidden="true" className={feedback.balanceGlow} key={cheer.key} /> : null}
               <Ledger />
             </WalletButton>
           ) : (
             <div className={feedback.balance} aria-label={forReal ? "Balance" : "Practice balance"}>
               <span className={feedback.eyebrow}>Balance</span>
-              <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}>{forReal ? <CrispNumber value={money(chain.balance)} /> : <PracticeBalance crisp />}</span>
+              <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}>{forReal ? <RisingMoney format={money} value={chain.balance} /> : <PracticeBalance crisp />}</span>
+              {cheer ? <span aria-hidden="true" className={feedback.balanceGlow} key={cheer.key} /> : null}
               <Ledger />
             </div>
           )}
@@ -1375,7 +1416,7 @@ export function InkScreen() {
           {/* The round just over: a win celebrated, a big one more so; a loss said once, quietly. */}
           {over && !previewing ? (
             <div className={cn(feedback.roundCard, overWon ? feedback.roundWin : feedback.roundLoss, overBig && feedback.roundBig)} key={over.key} role="status">
-              {overWon && (over.streak ?? 0) >= 2 ? <span className={feedback.streak}>{over.streak} wins in a row</span> : null}
+              {overWon && (over.streak ?? 0) >= 2 ? <span className={feedback.streak}>{over.streak} in a row</span> : null}
               <div>
                 <span className={feedback.roundLabel}>{overWon ? (overBig ? "Big win" : "You won") : "Round over"}</span>
                 <span className={cn(feedback.roundValue, overWon ? "text-success-foreground" : "text-muted-foreground")}>{signed(overNet)}</span>
@@ -1386,7 +1427,7 @@ export function InkScreen() {
               </div>
             </div>
           ) : null}
-          {over && overBig && !previewing ? <div aria-hidden="true" className={feedback.glow} key={`glow-${over.key}`} /> : null}
+          {over && overBig && !previewing ? <div aria-hidden="true" className={cn(feedback.glow, cheer?.tier === 4 && feedback.glowTop)} key={`glow-${over.key}`} /> : null}
       </div>
 
       {returnedInk && !previewing && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}
@@ -1457,9 +1498,6 @@ export function InkScreen() {
             <p>Placing a drawing takes its stake from your balance straight away; what just moved your balance shows under it. The number beside it is what you have won: this round&rsquo;s payouts while ink is in play, this session&rsquo;s otherwise. Tap it for the scoreboard. Hits pay the moment the price touches them; the rest settles when its second closes.</p>
             <p>Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches {RULES.horizon} seconds ahead.</p>
             <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for {difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {paperOn ? `This practice run plays the real game’s odds on paper money, with no fees and a cent a dot. Its paper money is gone when it ends.` : forReal ? `${feesLine(chain.hello?.terms)} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills. Your balance is USDC held by the game on Solana: deposits and withdrawals are transactions skech pays the network fee for, and each drawing is placed and settled on chain.` : "Your balance is practice money saved in this browser."}</p>
-            <p className="text-muted-foreground text-xs">
-              Avatars: <a className="underline underline-offset-2" href={AVATAR_CREDIT.source} rel="noopener noreferrer" target="_blank">“Dylan”</a> by Natalia Spivak, <a className="underline underline-offset-2" href={AVATAR_CREDIT.licence} rel="noopener noreferrer" target="_blank">CC BY 4.0</a>
-            </p>
             {house && !forReal ? (
               <div className="flex flex-col gap-3 rounded-[14px] bg-muted p-4">
                 <div className="flex items-baseline justify-between">

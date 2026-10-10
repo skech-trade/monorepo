@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { RELAYER_URL } from "./config";
 import { MIN_PIECE_STAKE_E6 } from "@skech/core/chain";
 
@@ -70,7 +70,10 @@ const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" 
 export class RelayerClient {
   private ws: WebSocket | null = null;
   private handlers = new Set<Handler>();
-  private stopped = false;
+  private stopped = true;
+  private retry: ReturnType<typeof setTimeout> | undefined;
+  private pending = new Set<() => void>();
+  private transacting = false;
   private backoff = 500;
   hello: Hello | null = null;
   connected = false;
@@ -79,13 +82,28 @@ export class RelayerClient {
   constructor(private readonly url = RELAYER_URL) {}
 
   start() {
+    if (!this.stopped) return;
     this.stopped = false;
     this.connect();
   }
 
   stop() {
     this.stopped = true;
-    this.ws?.close();
+    clearTimeout(this.retry);
+    this.retry = undefined;
+    const socket = this.ws;
+    this.ws = null;
+    this.connected = false;
+    this.hello = null;
+    for (const cancel of this.pending) cancel();
+    if (socket) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.close();
+    }
+    this.emit({ type: "error", why: "" });
   }
 
   on(h: Handler) {
@@ -102,17 +120,22 @@ export class RelayerClient {
   /** Send, and resolve with the first message `match` accepts, or null after `ms`. */
   request<T extends Incoming>(msg: unknown, match: (m: Incoming) => m is T, ms = 20_000): Promise<T | null> {
     return new Promise((resolve) => {
+      const finish = (result: T | null) => {
+        off();
+        clearTimeout(timer);
+        this.pending.delete(cancel);
+        resolve(result);
+      };
+      const cancel = () => finish(null);
       const off = this.on((m) => {
-        if (!match(m)) return;
-        off();
-        clearTimeout(timer);
-        resolve(m);
+        if (match(m)) finish(m);
       });
-      const timer = setTimeout(() => (off(), resolve(null)), ms);
-      if (!this.send(msg)) {
-        off();
-        clearTimeout(timer);
-        resolve(null);
+      const timer = setTimeout(cancel, ms);
+      this.pending.add(cancel);
+      try {
+        if (!this.send(msg)) cancel();
+      } catch {
+        cancel();
       }
     });
   }
@@ -128,33 +151,52 @@ export class RelayerClient {
   /**
    * Several, signed together and sent in order: a wallet on the phone opens once for all of them, not once each,
    * which otherwise reads as the wallet never handing back. Stops at the first that fails.
+   *
+   * One at a time, and for the player it began for: two at once could both answer to the same build, and a switch
+   * of account (or signing out) while the wallet is open must not send what the old one signed.
    */
   async transactAll(steps: { kind: Kind; params: Record<string, unknown> }[], signAll: (base64s: string[]) => Promise<string[]>): Promise<{ ok: true; tx: string } | { ok: false; why: string }> {
-    const built: BuiltMsg[] = [];
-    for (const { kind, params } of steps) {
-      const b = await this.request({ type: "build", kind, player: this.player, ...params }, (m): m is BuiltMsg => m.type === "built" && m.kind === kind, 15_000);
-      if (!b?.id || !b.tx) return fail(kind, "build", b?.why ?? "The relayer did not answer");
-      built.push(b);
-    }
-    let signed: string[];
+    const kinds = steps.map((x) => x.kind).join("+");
+    if (this.transacting) return fail(kinds, "build", "Another wallet transaction is in progress");
+    const player = this.player;
+    if (!player || !this.connected) return fail(kinds, "build", "Not connected");
+    this.transacting = true;
     try {
-      signed = await signAll(built.map((b) => b.tx!));
-    } catch (e) {
-      return fail(steps.map((x) => x.kind).join("+"), "sign", String((e as Error).message ?? e) || "Not signed");
+      const built: BuiltMsg[] = [];
+      for (const { kind, params } of steps) {
+        const b = await this.request({ type: "build", kind, ...params, player }, (m): m is BuiltMsg => m.type === "built" && m.kind === kind, 15_000);
+        if (!b?.id || !b.tx) return fail(kind, "build", b?.why ?? "The relayer did not answer");
+        built.push(b);
+      }
+      let signed: string[];
+      try {
+        signed = await signAll(built.map((b) => b.tx!));
+      } catch (e) {
+        return fail(kinds, "sign", String((e as Error).message ?? e) || "Not signed");
+      }
+      if (this.player !== player || !this.connected) return fail(kinds, "submit", "Wallet connection changed. Try again.");
+      let last = "";
+      for (const [i, b] of built.entries()) {
+        const done = await this.request({ type: "submit", id: b.id, tx: signed[i], ...(steps[i].params.approve ? { approve: true } : {}) }, (m): m is SubmittedMsg => m.type === "submitted" && m.id === b.id, 60_000);
+        if (!done) return fail(steps[i].kind, "submit", "No answer from the chain");
+        if (!done.ok || !done.tx) return fail(steps[i].kind, "submit", done.why ?? "Not sent");
+        last = done.tx;
+      }
+      return { ok: true, tx: last };
+    } finally {
+      this.transacting = false;
     }
-    let last = "";
-    for (const [i, b] of built.entries()) {
-      const done = await this.request({ type: "submit", id: b.id, tx: signed[i], ...(steps[i].params.approve ? { approve: true } : {}) }, (m): m is SubmittedMsg => m.type === "submitted" && m.id === b.id, 60_000);
-      if (!done) return fail(steps[i].kind, "submit", "No answer from the chain");
-      if (!done.ok || !done.tx) return fail(steps[i].kind, "submit", done.why ?? "Not sent");
-      last = done.tx;
-    }
-    return { ok: true, tx: last };
   }
 
   /** Follow one player's account and bets. */
   watch(player: string | null) {
+    const previous = this.player;
     this.player = player;
+    // Signed out: a fresh connection, so the relayer stops sending the last player's account here.
+    if (!player && previous && !this.stopped) {
+      this.stop();
+      this.start();
+    }
     if (player) this.send({ type: "watch", player });
   }
 
@@ -163,6 +205,7 @@ export class RelayerClient {
     const sock = new WebSocket(this.url);
     this.ws = sock;
     sock.onopen = () => {
+      if (this.stopped || this.ws !== sock) return;
       console.info(`[relayer] connected to ${this.url}`);
       this.backoff = 500;
       this.connected = true;
@@ -170,12 +213,14 @@ export class RelayerClient {
       this.emit({ type: "error", why: "" });
     };
     sock.onmessage = (e) => {
+      if (this.stopped || this.ws !== sock) return;
       let m: Incoming;
       try {
         m = JSON.parse(String(e.data));
       } catch {
         return;
       }
+      if (!m || typeof m !== "object") return;
       if (m.type === "hello") this.hello = m;
       trace(m);
       this.emit(m);
@@ -184,7 +229,11 @@ export class RelayerClient {
       if (!this.stopped) console.warn(`[relayer] connection closed (${e.code}${e.reason ? ` ${e.reason}` : ""}); trying again in ${this.backoff}ms`);
       if (this.ws === sock) this.connected = false;
       if (this.stopped || this.ws !== sock) return;
-      setTimeout(() => this.connect(), this.backoff);
+      for (const cancel of this.pending) cancel();
+      this.retry = setTimeout(() => {
+        this.retry = undefined;
+        this.connect();
+      }, this.backoff);
       this.backoff = Math.min(10_000, this.backoff * 2);
       this.emit({ type: "error", why: "" });
     };
@@ -202,20 +251,22 @@ export function useRelayer(player: string | null, enabled: boolean) {
   const [hello, setHello] = useState<Hello | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
   const [connected, setConnected] = useState(false);
-  const started = useRef(false);
   useEffect(() => {
-    if (!enabled) return;
-    if (!started.current) {
-      started.current = true;
-      client.start();
+    if (!enabled) {
+      setConnected(false);
+      return;
     }
     const off = client.on((m) => {
       setConnected(client.connected);
+      if (!client.connected) setHello(null);
+      if (!m || typeof m !== "object") return;
       if (m.type === "hello") setHello(m);
       else if (m.type === "account") setAccount(m);
     });
+    client.start();
     return () => {
       off();
+      client.stop();
     };
   }, [client, enabled]);
   useEffect(() => {
