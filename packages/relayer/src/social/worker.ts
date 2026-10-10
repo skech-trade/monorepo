@@ -434,7 +434,11 @@ function serve(port: number) {
     hostname: process.env.SOCIAL_HOST || "127.0.0.1",
     maxRequestBodySize: BODY_BYTES,
     async fetch(req, server: Server<Socket>) {
-      const origin = req.headers.get("origin");
+      const sent = req.headers.get("origin");
+      // React Native on Android names the socket's own server as its Origin. No page is served from this host, so
+      // that Origin is the app's, and counts as none.
+      const host = req.headers.get("host");
+      const origin = sent && host && (sent === `https://${host}` || sent === `http://${host}`) ? null : sent;
       // A page from anywhere else is refused outright. No Origin at all is a request no browser page made: it may
       // read, and may change something only with a wallet's signature, which every change needs.
       if (origin && !origins.has(origin)) return new Response("Origin not allowed", { status: 403 });

@@ -200,6 +200,8 @@ export function Stage({
     // Canvas cannot read CSS variables: resolve the app's face once. The phone's own first, as the page does.
     const geist = getComputedStyle(el).getPropertyValue("--font-geist").trim();
     const SANS = `-apple-system, BlinkMacSystemFont, "SF Pro Text", ${geist ? `${geist}, ` : ""}"Helvetica Neue", sans-serif`;
+    /** Other players' chips: a small face and a small, quiet figure. */
+    const CHIP_FONT = `500 10px ${SANS}`;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let pal: Palette | null = null;
     /* Read again whenever the page changes between light and dark. */
@@ -634,8 +636,8 @@ export function Stage({
     const bandCache = new WeakMap<Cell[], { pad: number; bands: Cell[] }>();
     /*
       Everyone else's ink, from the live feed (lib/social.ts). A drawing's pieces each carry the points from where
-      the last left off: joined into one line, made once per version of the drawing and kept. Drawn faint in its
-      player's colour, and stronger inside the bands it bought. Who is on which tile is counted twice a second, not
+      the last left off: joined into one line, made once per version of the drawing and kept. Drawn hollow and quiet,
+      so the player's own ink is what stands out. Who is on which tile is counted twice a second, not
       every frame. Their faces are drawn once each into a small canvas, and that is what each frame copies.
     */
     type Line = { t0: number; p0: number; rt: number; rp: number; path: Path2D };
@@ -876,45 +878,44 @@ export function Stage({
       // No pen and no drawing on the chart (a hit or a miss is always in one): no ink, and no layer to clear and lay over.
       const inked = !!pen || renderedGroups.length > 0 || people.length > 0 || pens.length > 0 || !!fading;
       if (inked) onLayer(inkLayer, inkCtx);
-      // Other players' ink, under the player's own: one line a drawing, faint, and stronger where it is in play.
-      const remote = (line: { t0: number; p0: number; rt: number; rp: number }, path: Path2D, style: string) => {
+      /*
+        Other players' ink, under the player's own, and quiet beside it: each line hollow, its pen's width traced by
+        a hairline either side in the muted text colour, nothing filled. The body is stroked, then its middle rubbed
+        out of the layer, which holds only other players' ink so far. Lines being drawn right now read a touch more.
+      */
+      const remote = (line: { t0: number; p0: number; rt: number; rp: number }, path: Path2D, style: string, edge: number) => {
+        const sx = line.rt * pxMs(), sy = (line.rp * pitchY) / g.step;
         c.save();
-        c.setTransform(dpr * line.rt * pxMs(), 0, 0, (dpr * -line.rp * pitchY) / g.step, dpr * x(line.t0), dpr * y(line.p0));
-        c.lineWidth = 2;
+        c.setTransform(dpr * sx, 0, 0, -dpr * sy, dpr * x(line.t0), dpr * y(line.p0));
         c.lineCap = "round";
         c.lineJoin = "round";
+        c.lineWidth = 2;
         c.strokeStyle = style;
+        c.stroke(path);
+        c.globalCompositeOperation = "destination-out";
+        // The hairline in pixels, whatever the line's own scale (another screen's may not be square on this one).
+        c.lineWidth = Math.max(0, 2 - (2 * edge) / Math.sqrt(sx * sy));
+        c.strokeStyle = "#000";
         c.stroke(path);
         c.restore();
       };
       const viewFrom = tAt(0), viewTo = tAt(w);
+      const quiet = dark ? 0.45 : 0.4, quietStyle = people.length ? rgba(pal.muted, quiet) : "";
       for (const drawing of people) {
         const age = Math.max(0, Date.now() - drawing.updatedAt);
         if (drawing.complete && age > 15_000) continue;
         const line = remoteLine(drawing);
         // Only what is on screen: a drawing wholly behind now, or beyond the view, is not drawn.
         if (!line || line.t0 > viewTo || drawing.pieces.every((q) => q.openAt + 30_000 < viewFrom)) continue;
-        const hue = hueOf(drawing.player), light = dark ? 70 : 42;
         const fade = drawing.complete ? Math.max(0, 1 - age / 15_000) : 1;
-        remote(line, line.path, `hsla(${hue}, 55%, ${light}%, ${0.16 * fade})`);
-        c.save();
-        c.beginPath();
-        for (const piece of drawing.pieces) {
-          const pad = Number(piece.unit) / 1e8;
-          for (const section of piece.sections) {
-            const from = x(piece.openAt + section.second * 1000), top = y(Number(section.hi) / 1e8 + pad);
-            c.rect(from, top, x(piece.openAt + (section.second + 1) * 1000) - from, y(Number(section.lo) / 1e8 - pad) - top);
-          }
-        }
-        c.clip();
-        remote(line, line.path, `hsla(${hue}, 55%, ${light}%, ${0.4 * fade})`);
-        c.restore();
+        remote(line, line.path, fade < 1 ? rgba(pal.muted, quiet * fade) : quietStyle, 1.25);
       }
-      // Lines being drawn right now, elsewhere: faint, catching up smoothly between their ten updates a second.
+      // Lines being drawn right now, elsewhere: the same, catching up smoothly between their ten updates a second.
+      const penStyle = pens.length ? rgba(pal.muted, dark ? 0.6 : 0.55) : "";
       for (const p of pens) {
         if (p.shown < p.pts.length) p.shown = Math.min(p.pts.length, p.shown + Math.max(1, Math.ceil((p.pts.length - p.shown) / 5)));
         if (!p.shown) continue;
-        remote(p, penLine(p), `hsla(${hueOf(p.player)}, 55%, ${dark ? 70 : 42}%, 0.32)`);
+        remote(p, penLine(p), penStyle, 1.5);
       }
       for (const group of renderedGroups) {
         if (group.id !== pen?.drawing) {
@@ -1169,6 +1170,86 @@ export function Stage({
       c.fillStyle = rgba(pal.muted);
       for (let s = 0; s <= VIEW_SECONDS; s += 5) c.fillText(s ? `${s}s` : "Now", nx + s * 1000 * pxMs(), axisY + 14);
 
+      /*
+        A face and a figure on each drawing being played: what it staked, then what it made. Small and quiet, and
+        under the ink, so the player's own is never covered. Canvas only, no React.
+      */
+      playerTargets = [];
+      const occupied: { x: number; y: number }[] = [];
+      const labelLimit = phone() ? 4 : w < 1024 ? 6 : 8;
+      for (const drawing of visibleSocialDrawings().slice(0, phone() ? 12 : w < 1024 ? 18 : 24)) {
+        if (occupied.length >= labelLimit) break;
+        const piece = drawing.pieces.find((pc) => pc.stroke?.pts.length);
+        if (!piece?.stroke) continue;
+        const age = Math.max(0, Date.now() - drawing.updatedAt);
+        if (drawing.complete && age > 15_000) continue;
+        const start = piece.stroke.pts[0];
+        const ax = x(piece.stroke.t0 + start.t), ay = y(piece.stroke.p0 + start.p) - 20;
+        if (ax < 20 || ax > w - 20 || ay < plotTop() + 20 || ay > plotBottom() - 16 || occupied.some((o) => Math.abs(o.x - ax) < 84 && Math.abs(o.y - ay) < 34)) continue;
+        occupied.push({ x: ax, y: ay });
+        c.save();
+        c.globalAlpha = (drawing.complete ? Math.max(0, 1 - age / 15_000) : 1) * 0.75;
+        c.beginPath();
+        c.arc(ax, ay, 9.5, 0, Math.PI * 2);
+        c.fillStyle = `hsl(${hueOf(drawing.player)}, 30%, ${dark ? 45 : 60}%)`;
+        c.fill();
+        // Their face (a Dylan avatar, or their picture): an image made once per face, kept.
+        const raster = face(faceOf(drawing.profile));
+        if (raster) {
+          c.save();
+          c.clip();
+          c.drawImage(raster, ax - 9.5, ay - 9.5, 19, 19);
+          c.restore();
+        }
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.font = CHIP_FONT;
+        c.strokeStyle = rgba(pal.bg);
+        c.lineWidth = 1.5;
+        c.stroke();
+        let figure = figures.get(drawing);
+        if (!figure) {
+          const text = drawing.complete ? socialMoney(drawing.pnl, true) : socialMoney(drawing.stake);
+          figures.set(drawing, (figure = { text, wide: c.measureText(text).width + 12 }));
+        }
+        const { text, wide } = figure;
+        const left = Math.min(w - wide - 8, ax + 13);
+        roundRect(c, left, ay - 9, wide, 18, 9);
+        c.fillStyle = rgba(pal.bg, 0.6);
+        c.fill();
+        c.fillStyle = drawing.complete && BigInt(drawing.pnl) > 0n ? rgba(pal.up, 0.85) : rgba(pal.muted);
+        c.textAlign = "left";
+        c.fillText(text, left + 6, ay + 0.5);
+        c.restore();
+        if (ax < waitX() - 18) playerTargets.push({ x: ax, y: ay, player: drawing.player });
+      }
+      // Whose pen that is, at its nib: their face, and that they are drawing.
+      for (const p of pens) {
+        if (!p.shown || p.ended) continue;
+        const nib = p.pts[p.shown - 1];
+        const ax = x(p.t0 + nib.t) + 16, ay = y(p.p0 + nib.p) - 16;
+        if (ax < 16 || ax > w - 16 || ay < plotTop() + 12 || ay > plotBottom() - 12) continue;
+        c.save();
+        c.globalAlpha = 0.75;
+        c.beginPath();
+        c.arc(ax, ay, 9, 0, Math.PI * 2);
+        c.fillStyle = `hsl(${hueOf(p.player)}, 30%, ${dark ? 45 : 60}%)`;
+        c.fill();
+        const raster = face(faceOf(p.profile ?? { player: p.player, avatar: false, avatarSeed: null }));
+        if (raster) {
+          c.save();
+          c.clip();
+          c.drawImage(raster, ax - 9, ay - 9, 18, 18);
+          c.restore();
+        }
+        c.font = CHIP_FONT;
+        c.textAlign = "left";
+        c.textBaseline = "middle";
+        c.fillStyle = rgba(pal.muted);
+        c.fillText("drawing…", ax + 13, ay + 0.5);
+        c.restore();
+      }
+
       // The ink over the chart.
       if (inked) {
         c.save();
@@ -1230,82 +1311,6 @@ export function Stage({
           }
         }
         c.globalAlpha = 1;
-        c.restore();
-      }
-      // A face and a figure on each drawing being played: what it staked, then what it made. Canvas only, no React.
-      playerTargets = [];
-      const occupied: { x: number; y: number }[] = [];
-      const labelLimit = phone() ? 4 : w < 1024 ? 6 : 8;
-      for (const drawing of visibleSocialDrawings().slice(0, phone() ? 12 : w < 1024 ? 18 : 24)) {
-        if (occupied.length >= labelLimit) break;
-        const piece = drawing.pieces.find((pc) => pc.stroke?.pts.length);
-        if (!piece?.stroke) continue;
-        const age = Math.max(0, Date.now() - drawing.updatedAt);
-        if (drawing.complete && age > 15_000) continue;
-        const start = piece.stroke.pts[0];
-        const ax = x(piece.stroke.t0 + start.t), ay = y(piece.stroke.p0 + start.p) - 24;
-        if (ax < 24 || ax > w - 24 || ay < plotTop() + 24 || ay > plotBottom() - 20 || occupied.some((o) => Math.abs(o.x - ax) < 100 && Math.abs(o.y - ay) < 42)) continue;
-        occupied.push({ x: ax, y: ay });
-        c.save();
-        c.globalAlpha = drawing.complete ? Math.max(0, 1 - age / 15_000) : 0.9;
-        c.beginPath();
-        c.arc(ax, ay, 14, 0, Math.PI * 2);
-        c.fillStyle = `hsl(${hueOf(drawing.player)}, 45%, ${dark ? 55 : 45}%)`;
-        c.fill();
-        // Their face (a Dylan avatar, or their picture): an image made once per face, kept.
-        const raster = face(faceOf(drawing.profile));
-        if (raster) {
-          c.save();
-          c.clip();
-          c.drawImage(raster, ax - 14, ay - 14, 28, 28);
-          c.restore();
-        }
-        c.textAlign = "center";
-        c.textBaseline = "middle";
-        c.font = `600 12px ${SANS}`;
-        c.strokeStyle = rgba(pal.bg);
-        c.lineWidth = 2;
-        c.stroke();
-        let figure = figures.get(drawing);
-        if (!figure) {
-          const text = drawing.complete ? socialMoney(drawing.pnl, true) : socialMoney(drawing.stake);
-          figures.set(drawing, (figure = { text, wide: c.measureText(text).width + 16 }));
-        }
-        const { text, wide } = figure;
-        const left = Math.min(w - wide - 8, ax + 19);
-        roundRect(c, left, ay - 12, wide, 24, 12);
-        c.fillStyle = rgba(pal.bg, 0.94);
-        c.fill();
-        c.fillStyle = drawing.complete && BigInt(drawing.pnl) > 0n ? rgba(pal.up) : rgba(pal.fg, 0.8);
-        c.textAlign = "left";
-        c.fillText(text, left + 8, ay + 0.5);
-        c.restore();
-        if (ax < waitX() - 18) playerTargets.push({ x: ax, y: ay, player: drawing.player });
-      }
-      // Whose pen that is, at its nib: their face, and that they are drawing.
-      for (const p of pens) {
-        if (!p.shown || p.ended) continue;
-        const nib = p.pts[p.shown - 1];
-        const ax = x(p.t0 + nib.t) + 18, ay = y(p.p0 + nib.p) - 18;
-        if (ax < 16 || ax > w - 16 || ay < plotTop() + 12 || ay > plotBottom() - 12) continue;
-        c.save();
-        c.globalAlpha = 0.85;
-        c.beginPath();
-        c.arc(ax, ay, 11, 0, Math.PI * 2);
-        c.fillStyle = `hsl(${hueOf(p.player)}, 45%, ${dark ? 55 : 45}%)`;
-        c.fill();
-        const raster = face(faceOf(p.profile ?? { player: p.player, avatar: false, avatarSeed: null }));
-        if (raster) {
-          c.save();
-          c.clip();
-          c.drawImage(raster, ax - 11, ay - 11, 22, 22);
-          c.restore();
-        }
-        c.font = `500 11px ${SANS}`;
-        c.textAlign = "left";
-        c.textBaseline = "middle";
-        c.fillStyle = rgba(pal.fg, 0.6);
-        c.fillText("drawing…", ax + 15, ay + 0.5);
         c.restore();
       }
       // The pen: a soft ring around the nib, and the nib.

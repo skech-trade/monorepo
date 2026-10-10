@@ -92,14 +92,14 @@ const color = (c: Rgb, a = 1) => {
   }
   return v;
 };
-/** A player's colour, as the web's `hsl(hue, 55%, light%)`: worked out once a player. */
+/** A player's colour, as the web's `hsl(hue, sat, light%)`: worked out once a player. */
 const hues = new Map<string, Rgb>();
-const hueRgb = (player: string, light: number): Rgb => {
-  const k = `${player}:${light}`;
+const hueRgb = (player: string, light: number, sat = 0.55): Rgb => {
+  const k = `${player}:${light}:${sat}`;
   let v = hues.get(k);
   if (!v) {
     if (hues.size > 1000) hues.clear();
-    const h = playerHue(player) / 360, s = 0.55, l = light / 100;
+    const h = playerHue(player) / 360, s = sat, l = light / 100;
     const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
     const ch = (t: number) => {
       t = (t + 1) % 1;
@@ -200,6 +200,18 @@ const layerPaint = (alpha = 1, blend?: BlendMode) => {
 };
 const eraser = (() => {
   const p = Skia.Paint();
+  p.setBlendMode(BlendMode.DstOut);
+  p.setColor(Skia.Color("black"));
+  return p;
+})();
+
+/** Rubs out the middle of other players' lines, so each is left hollow: only the ink layer's own pixels go. */
+const hollow = (() => {
+  const p = Skia.Paint();
+  p.setAntiAlias(true);
+  p.setStyle(PaintStyle.Stroke);
+  p.setStrokeCap(StrokeCap.Round);
+  p.setStrokeJoin(StrokeJoin.Round);
   p.setBlendMode(BlendMode.DstOut);
   p.setColor(Skia.Color("black"));
   return p;
@@ -677,45 +689,84 @@ export const Stage = memo(function Stage({
       const axisFont = font(400, 11);
       for (let s = 0; s <= VIEW_SECONDS; s += 5) text(c, s ? `${s}s` : "Now", nx + s * 1000 * pxMs(), axisY + 14, axisFont, color(pal.muted));
 
+      // Lines being drawn right now, elsewhere, catching up smoothly between their ten updates a second.
+      const pens = livePens();
+      for (const p of pens) if (p.shown < p.pts.length) p.shown = Math.min(p.pts.length, p.shown + Math.max(1, Math.ceil((p.pts.length - p.shown) / 5)));
+
+      // A face and a figure on each drawing being played, and on each pen drawing now: small and quiet, and under
+      // the ink, so the player's own is never covered. Images made once each.
+      {
+        const chip = (player: string, seed: string, ax: number, ay: number, r: number, label: string, alpha: number, good: boolean) => {
+          c.drawCircle(ax, ay, r, paintOf(color(hueRgb(player, pal.dark ? 45 : 60, 0.3), alpha)));
+          const image = faceImage(seed);
+          if (image) {
+            c.save();
+            c.clipRRect(rrect(ax - r, ay - r, r * 2, r * 2, r), ClipOp.Intersect, true);
+            c.drawImageRect(image, Skia.XYWHRect(0, 0, 64, 64), Skia.XYWHRect(ax - r, ay - r, r * 2, r * 2), paintOf(color(pal.fg, alpha)));
+            c.restore();
+          }
+          c.drawCircle(ax, ay, r, paintOf(color(pal.bg, alpha), 1.5));
+          const f = font(500, 10);
+          const wide = measure(f, label) + 12;
+          const left = Math.min(w - wide - 8, ax + r + 3.5);
+          c.drawRRect(rrect(left, ay - 9, wide, 18, 9), paintOf(color(pal.bg, 0.6 * alpha)));
+          text(c, label, left + 6, ay + 0.5, f, good ? color(pal.up, 0.85 * alpha) : color(pal.muted, alpha), "left");
+        };
+        const occupied: { x: number; y: number }[] = [];
+        const limit = phone() ? 4 : 6;
+        for (const drawing of visibleSocialDrawings().slice(0, phone() ? 12 : 18)) {
+          if (occupied.length >= limit) break;
+          const piece = drawing.pieces.find((q) => q.stroke?.pts.length);
+          if (!piece?.stroke) continue;
+          const age = Math.max(0, Date.now() - drawing.updatedAt);
+          if (drawing.complete && age > 15_000) continue;
+          const start = piece.stroke.pts[0];
+          const ax = x(piece.stroke.t0 + start.t), ay = y(piece.stroke.p0 + start.p) - 20;
+          if (ax < 20 || ax > w - 20 || ay < plotTop() + 20 || ay > plotBottom() - 16 || occupied.some((o) => Math.abs(o.x - ax) < 84 && Math.abs(o.y - ay) < 34)) continue;
+          occupied.push({ x: ax, y: ay });
+          let figure = figures.get(drawing);
+          if (!figure) figures.set(drawing, (figure = drawing.complete ? socialMoney(drawing.pnl, true) : socialMoney(drawing.stake)));
+          chip(drawing.player, avatarSeedOf(drawing.profile), ax, ay, 9.5, figure, (drawing.complete ? Math.max(0, 1 - age / 15_000) : 1) * 0.75, drawing.complete && BigInt(drawing.pnl) > 0n);
+        }
+        for (const p of pens) {
+          if (!p.shown || p.ended) continue;
+          const nib = p.pts[p.shown - 1];
+          const ax = x(p.t0 + nib.t) + 16, ay = y(p.p0 + nib.p) - 16;
+          if (ax < 16 || ax > w - 16 || ay < plotTop() + 12 || ay > plotBottom() - 12) continue;
+          chip(p.player, p.profile ? avatarSeedOf(p.profile) : p.player, ax, ay, 9, "drawing…", 0.75, false);
+        }
+      }
+
       /* The ink, on a layer of its own, so what the price has passed can be rubbed out of it without touching the chart. */
       c.saveLayer();
-      // Other players' ink, under the player's own: one line a drawing, faint, stronger where it is in play.
-      const remote = (l: { t0: number; p0: number; rt: number; rp: number }, path: SkPath, col: Float32Array) => {
+      /*
+        Other players' ink, under the player's own, and quiet beside it: each line hollow, its pen's width traced by a
+        hairline either side in the muted text colour, nothing filled. The body is stroked, then its middle rubbed out
+        of the layer, which holds only other players' ink so far. Lines being drawn right now read a touch more.
+      */
+      const remote = (l: { t0: number; p0: number; rt: number; rp: number }, path: SkPath, col: Float32Array, edge: number) => {
+        const sx = l.rt * pxMs(), sy = (l.rp * pitchY) / g.step;
         c.save();
         c.translate(x(l.t0), y(l.p0));
-        c.scale(l.rt * pxMs(), (-l.rp * pitchY) / g.step);
+        c.scale(sx, -sy);
         c.drawPath(path, paintOf(col, 2));
+        // The hairline in pixels, whatever the line's own scale (another screen's may not be square on this one).
+        hollow.setStrokeWidth(Math.max(0, 2 - (2 * edge) / Math.sqrt(sx * sy)));
+        c.drawPath(path, hollow);
         c.restore();
       };
       const people = remoteDrawings().slice(0, phone() ? 12 : 18);
       const viewFrom = tAt(0), viewTo = tAt(w);
+      const quiet = pal.dark ? 0.45 : 0.4;
       for (const drawing of people) {
         const age = Math.max(0, Date.now() - drawing.updatedAt);
         if (drawing.complete && age > 15_000) continue;
         const l = remoteLine(drawing);
         if (!l || l.t0 > viewTo || drawing.pieces.every((q) => q.openAt + 30_000 < viewFrom)) continue;
-        const rgb = hueRgb(drawing.player, pal.dark ? 70 : 42);
         const fade = drawing.complete ? Math.max(0, 1 - age / 15_000) : 1;
-        remote(l, l.path, color(rgb, 0.16 * fade));
-        const bands: { x: number; y: number; w: number; h: number }[] = [];
-        for (const piece of drawing.pieces) {
-          const pad = Number(piece.unit) / 1e8;
-          for (const section of piece.sections) {
-            const from = x(piece.openAt + section.second * 1000), top = y(Number(section.hi) / 1e8 + pad);
-            bands.push({ x: from, y: top, w: x(piece.openAt + (section.second + 1) * 1000) - from, h: y(Number(section.lo) / 1e8 - pad) - top });
-          }
-        }
-        c.save();
-        clipTo(c, bands);
-        remote(l, l.path, color(rgb, 0.4 * fade));
-        c.restore();
+        remote(l, l.path, color(pal.muted, quiet * fade), 1.25);
       }
-      // Lines being drawn right now, elsewhere: faint, catching up smoothly between their ten updates a second.
-      const pens = livePens();
-      for (const p of pens) {
-        if (p.shown < p.pts.length) p.shown = Math.min(p.pts.length, p.shown + Math.max(1, Math.ceil((p.pts.length - p.shown) / 5)));
-        if (p.shown) remote(p, penLine(p), color(hueRgb(p.player, pal.dark ? 70 : 42), 0.32));
-      }
+      for (const p of pens) if (p.shown) remote(p, penLine(p), color(pal.muted, pal.dark ? 0.6 : 0.55), 1.5);
       if (renderedBets !== g.bets) {
         renderedBets = g.bets;
         const groups = new Map<string, (typeof renderedGroups)[number]>();
@@ -828,47 +879,6 @@ export const Stage = memo(function Stage({
         c.restore();
       }
 
-      // A face and a figure on each drawing being played, and on each pen drawing now. Images made once each.
-      {
-        const chip = (player: string, seed: string, ax: number, ay: number, r: number, label: string, alpha: number, good: boolean) => {
-          c.drawCircle(ax, ay, r, paintOf(color(hueRgb(player, pal.dark ? 55 : 45), alpha)));
-          const image = faceImage(seed);
-          if (image) {
-            c.save();
-            c.clipRRect(rrect(ax - r, ay - r, r * 2, r * 2, r), ClipOp.Intersect, true);
-            c.drawImageRect(image, Skia.XYWHRect(0, 0, 64, 64), Skia.XYWHRect(ax - r, ay - r, r * 2, r * 2), paintOf(color(pal.fg, alpha)));
-            c.restore();
-          }
-          const f = font(600, 12);
-          const wide = measure(f, label) + 16;
-          const left = Math.min(w - wide - 8, ax + r + 5);
-          c.drawRRect(rrect(left, ay - 12, wide, 24, 12), paintOf(color(pal.bg, 0.94 * alpha)));
-          text(c, label, left + 8, ay + 0.5, f, good ? color(pal.up, alpha) : color(pal.fg, 0.8 * alpha), "left");
-        };
-        const occupied: { x: number; y: number }[] = [];
-        const limit = phone() ? 4 : 6;
-        for (const drawing of visibleSocialDrawings().slice(0, phone() ? 12 : 18)) {
-          if (occupied.length >= limit) break;
-          const piece = drawing.pieces.find((q) => q.stroke?.pts.length);
-          if (!piece?.stroke) continue;
-          const age = Math.max(0, Date.now() - drawing.updatedAt);
-          if (drawing.complete && age > 15_000) continue;
-          const start = piece.stroke.pts[0];
-          const ax = x(piece.stroke.t0 + start.t), ay = y(piece.stroke.p0 + start.p) - 24;
-          if (ax < 24 || ax > w - 24 || ay < plotTop() + 24 || ay > plotBottom() - 20 || occupied.some((o) => Math.abs(o.x - ax) < 100 && Math.abs(o.y - ay) < 42)) continue;
-          occupied.push({ x: ax, y: ay });
-          let figure = figures.get(drawing);
-          if (!figure) figures.set(drawing, (figure = drawing.complete ? socialMoney(drawing.pnl, true) : socialMoney(drawing.stake)));
-          chip(drawing.player, avatarSeedOf(drawing.profile), ax, ay, 14, figure, drawing.complete ? Math.max(0, 1 - age / 15_000) : 0.9, drawing.complete && BigInt(drawing.pnl) > 0n);
-        }
-        for (const p of pens) {
-          if (!p.shown || p.ended) continue;
-          const nib = p.pts[p.shown - 1];
-          const ax = x(p.t0 + nib.t) + 18, ay = y(p.p0 + nib.p) - 18;
-          if (ax < 16 || ax > w - 16 || ay < plotTop() + 12 || ay > plotBottom() - 12) continue;
-          chip(p.player, p.profile ? avatarSeedOf(p.profile) : p.player, ax, ay, 11, "drawing…", 0.85, false);
-        }
-      }
       // The pen: a soft ring around the nib, and the nib.
       if (tip) {
         c.drawCircle(tip.x, tip.y, Math.max(18, radius() + 8), paintOf(color(pal.ink, 0.16)));
