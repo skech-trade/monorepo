@@ -1,6 +1,7 @@
 "use client";
 
 import { climbRate, feltLevel, type Tier, type Voice, voiceFor, voiceJob } from "@skech/core/cheer";
+import { type Cue, type CueDetail, cueQueue, isHit, RANK } from "@skech/core/cue";
 import { practice } from "./practice";
 
 /*
@@ -13,8 +14,9 @@ import { practice } from "./practice";
   The rules the sounds follow:
   - A tap is heard the instant the finger lands, as a drop of ink.
   - Drawing sounds like a pen on paper: a soft scratch that follows the hand's speed and stops with it.
-  - Only profit is celebrated. A hit is heard only while its round is ahead: a bell, a step higher for each hit in a
-    row, a big one with notes over it. A hit in a round that is still behind is shown, not heard.
+  - Only profit is celebrated. Every hit pays more than its own ink cost, so every hit is heard the instant the price
+    touches the ink, in the same frame as its "+$x": a bell, a step higher for each hit in a row, a big one with notes
+    over it.
   - A round that came out ahead rings up its chord, fuller the more it made, a step up the scale for each profitable
     round in a row (back to the root after one that was not), and the till rings as the money lands in the balance.
   - A round that lost makes no sound and no touch.
@@ -138,11 +140,11 @@ const note = (step: number, base = 880) => base * 2 ** ((12 * Math.floor(step / 
 
 /*
   The celebrations, made once. Not at load: the first finished tap starts audio, and from then on they are made in
-  the page's idle time, a few milliseconds a slice, the commonest first, never while the pen is down. One asked for
+  the page's idle time, a few milliseconds a slice, the hit's bell first (it is what is heard soonest), never while the pen is down. One asked for
   before it is ready falls back to the oscillators below, so nothing is ever late waiting for it.
 */
 const VOICE_RATE = 32_000;
-const VOICE_ORDER: Voice[] = ["win1", "coins", "hit", "win2", "win3", "win4"];
+const VOICE_ORDER: Voice[] = ["hit", "win1", "coins", "win2", "win3", "win4"];
 const voices = new Map<Voice, AudioBuffer>();
 let making: { voice: Voice; run: (n: number) => boolean; result: () => Float32Array<ArrayBuffer> } | null = null;
 let preparing = false;
@@ -263,6 +265,9 @@ export const pen = {
   },
 };
 
+/** How the last hit was heard, for the timing log: the made bell, or the coins standing in for it. */
+let heard: "bell" | "coins" = "coins";
+
 export const sound = {
   /** Unlock audio from inside a completed gesture. The page does this by itself; see `unlock`. */
   wake: unlock,
@@ -282,17 +287,19 @@ export const sound = {
   },
 
   /**
-   * A hit while its round is ahead: a bell, a step up for every hit in a row; four times its stake or more rings a
+   * A hit: a bell, a step up for every hit in a row; four times its stake or more rings a
    * fifth over it, ten or more the octave too. Until the bell is made, coins.
    */
   hit: (multiple: number, streak = 0) => {
     if (!on()) return;
     const lift = 2 ** (Math.min(streak, 7) / 12);
     if (voice("hit", { rate: vary(lift, 6) })) {
+      heard = "bell";
       if (multiple >= 4) voice("hit", { at: 0.07, rate: lift * 2 ** (7 / 12), gain: 0.7 });
       if (multiple >= 10) voice("hit", { at: 0.14, rate: lift * 2, gain: 0.55 });
       return;
     }
+    heard = "coins";
     const coins = multiple >= 10 ? 4 : multiple >= 4 ? 3 : 2;
     for (let i = 0; i < coins; i++) {
       const t = i * 0.06;
@@ -350,10 +357,10 @@ export const sound = {
   on an iPhone any more; it still plays on older iOS, and on Android.
 */
 /**
- * What can be felt. `hit`, `run` and `big` are a hit while its round is ahead (one, one of a run, one at 10× or more);
- * `win`, `great` and `top` a round that came out ahead (cheer.ts's tiers 1-2, 3 and 4).
+ * What can be felt. `hit`, `run` and `big` are a hit (one, one of a run, one at 10× or more); `win`, `great` and
+ * `top` a round that came out ahead (cheer.ts's tiers 1-2, 3 and 4).
  */
-export type Feel = "tap" | "tick" | "hit" | "run" | "big" | "win" | "great" | "top" | "nope" | "cash";
+export type Feel = "tap" | "tick" | Exclude<Cue, "placed">;
 
 const VIBRATE: Record<Feel, number | number[]> = {
   tap: 10,
@@ -444,59 +451,68 @@ export function haptic(kind: Feel, level: Tier = 0) {
   }
 }
 
-function sounds(kind: Feel, detail?: Detail) {
-  if (kind === "hit" || kind === "run" || kind === "big") sound.hit(detail?.multiple ?? 2, detail?.streak ?? 0);
-  else if (kind === "win" || kind === "great" || kind === "top") sound.win(detail?.tier ?? 1, detail?.rounds ?? 1, detail?.till ?? false);
+function sounds(kind: Cue, detail?: CueDetail) {
+  if (isHit(kind)) sound.hit(detail?.multiple ?? 2, detail?.run ?? 0);
+  else if (kind === "win" || kind === "great" || kind === "top") sound.win((detail?.tier ?? 1) as Tier, detail?.rounds ?? 1, detail?.till ?? false);
   else if (kind === "nope") sound.nope();
   else if (kind === "cash") sound.cash();
 }
 
 /*
-  One thing at a time, as on the phone (packages/solana-mobile/src/lib/feel.ts). Hits come in bursts (the price runs
-  through a stroke and several land in the same second), and played together they smear into noise and a motor that
-  never stops. So every moment goes through one queue and plays after the last has had its say, the most important
-  first. A burst of one kind becomes one, the biggest of it. Whatever waited too long to still mean something is
-  dropped, and a round's result doesn't wait behind a hit. The finger is the exception: a tap is heard and felt the
-  instant it lands.
+  A new vibration replaces the one still running, whole. So a cue's touch cuts off a smaller (or same-sized) one at
+  once, a hit's most of all, but never a bigger one still rolling: another round's celebration is left to finish,
+  and the hit is heard over it.
 */
-/** `streak`: hits in a row before this one. `tier` and `rounds`: a profitable round's size, and how many in a row. */
-type Detail = { multiple?: number; streak?: number; tier?: Tier; rounds?: number; till?: boolean };
-const RANK: Record<Feel, number> = { tap: 0, tick: 0, nope: 3, hit: 4, run: 5, big: 6, cash: 7, win: 7, great: 8, top: 9 };
-// How long each has the stage before the next may play, ms: a round's chord and its till ring out in full.
-const HOLD: Record<Feel, number> = { tap: 0, tick: 0, nope: 220, hit: 240, run: 260, big: 420, cash: 600, win: 900, great: 1300, top: 1900 };
-// How long each may wait its turn and still mean something, ms.
-const FRESH: Record<Feel, number> = { tap: 0, tick: 0, nope: 400, hit: 700, run: 700, big: 1000, cash: 2000, win: 2000, great: 2500, top: 3000 };
-const family = (k: Feel) => (k === "hit" || k === "run" || k === "big" ? "hit" : k === "great" || k === "top" ? "win" : k);
-
-let queue: { kind: Feel; detail?: Detail; at: number }[] = [];
-let stageUntil = 0;
-let stageRank = -1;
-let pump: ReturnType<typeof setTimeout> | null = null;
-
-function next() {
-  if (pump) clearTimeout(pump);
-  pump = null;
-  const now = performance.now();
-  queue = queue.filter((q) => now - q.at <= FRESH[q.kind]);
-  if (!queue.length) return;
-  queue.sort((a, b) => RANK[b.kind] - RANK[a.kind] || a.at - b.at);
-  const top = queue[0];
-  // Still playing, and this isn't far bigger than what is: its turn comes when the stage is free.
-  if (now < stageUntil && RANK[top.kind] < stageRank + 3) {
-    pump = setTimeout(next, stageUntil - now);
-    return;
-  }
-  queue.shift();
-  stageUntil = now + HOLD[top.kind];
-  stageRank = RANK[top.kind];
-  const d = top.detail;
-  haptic(top.kind, d?.tier ? feltLevel(d.tier, d.rounds ?? 1) : 0);
-  sounds(top.kind, d);
-  if (queue.length) pump = setTimeout(next, HOLD[top.kind]);
+let buzzUntil = 0;
+let buzzRank = 0;
+const lasts = (p: number | number[]) => (typeof p === "number" ? p : p.reduce((a, b) => a + b, 0));
+function touch(kind: Feel, level: Tier, now: number) {
+  // Hits are one kind here: a new one replaces the last, whichever was bigger.
+  const rank = isHit(kind as Cue) ? RANK.big : RANK[kind as Cue];
+  if (now < buzzUntil && buzzRank > rank) return;
+  const round = level > 0 && (kind === "win" || kind === "great" || kind === "top") ? (level as 1 | 2 | 3 | 4) : 0;
+  buzzUntil = now + lasts(round ? WIN_VIBRATE[round] : VIBRATE[kind]);
+  buzzRank = rank;
+  haptic(kind, level);
 }
 
+/*
+  The timing log: from the judge finding a hit, to feel(), to the audio start call, one line a cue, in the console. On
+  in development; anywhere else only after localStorage.setItem("skech:debug:feel", "1") and a reload. Never on its
+  own in production.
+*/
+const tracing = (() => {
+  if (process.env.NODE_ENV !== "production") return true;
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem("skech:debug:feel") === "1";
+  } catch {
+    return false;
+  }
+})();
+const ms = (n: number) => `${n.toFixed(1)}ms`;
+function trace(kind: Cue, detail: CueDetail | undefined, asked: number, played: number, started: number, state: string) {
+  const what = isHit(kind) ? `${kind} ×${(detail?.multiple ?? 0).toFixed(1)} ${heard}` : kind;
+  const seen = detail?.seen;
+  const found = seen === undefined ? "" : `detect→feel ${ms(asked - seen)}, `;
+  console.info(`[skech:feel] ${what}: ${found}feel→play ${ms(played - asked)}, play→audio start ${ms(started - played)}, total ${ms(started - (seen ?? asked))}, audio ${state}`);
+}
+
+/*
+  One thing at a time, as on the phone (packages/solana-mobile/src/lib/feel.ts): what plays when is @skech/core/cue's
+  queue. A hit plays the instant it is found, over anything smaller; a burst of them is one; a round's result waits
+  for nothing but a hit still ringing. The finger is the exception to the queue: a tap is heard and felt the instant
+  it lands.
+*/
+const cues = cueQueue((kind, detail, asked) => {
+  const played = performance.now();
+  const state = audio?.state ?? "none";
+  touch(kind as Feel, detail?.tier ? feltLevel(detail.tier as Tier, detail.rounds ?? 1) : 0, played);
+  sounds(kind, detail);
+  if (tracing) trace(kind, detail, asked, played, performance.now(), state);
+});
+
 /** Sound and touch together, which is how nearly everything is felt, in turn. */
-export function feel(kind: Feel, detail?: Detail) {
+export function feel(kind: Feel, detail?: CueDetail) {
   if (kind === "tap") {
     haptic(kind);
     sound.drop();
@@ -505,22 +521,10 @@ export function feel(kind: Feel, detail?: Detail) {
   // The pen's tick: felt only when nothing else is, so drawing never drowns out a win. Touch only: the pen's own
   // sound comes from pen.move.
   if (kind === "tick") {
-    if (performance.now() >= stageUntil) haptic(kind);
+    if (!cues.busy()) haptic(kind);
     return;
   }
-  const same = queue.find((q) => family(q.kind) === family(kind));
-  if (same) {
-    if (RANK[kind] > RANK[same.kind]) same.kind = kind;
-    const d = same.detail ?? {};
-    same.detail = {
-      multiple: Math.max(d.multiple ?? 0, detail?.multiple ?? 0) || undefined,
-      streak: Math.max(d.streak ?? 0, detail?.streak ?? 0),
-      tier: Math.max(d.tier ?? 0, detail?.tier ?? 0) as Tier,
-      rounds: Math.max(d.rounds ?? 0, detail?.rounds ?? 0) || undefined,
-      till: d.till || detail?.till,
-    };
-  } else queue.push({ kind, detail, at: performance.now() });
-  next();
+  cues.push(kind, detail);
 }
 
 /** A round that came out ahead, felt and heard by its tier, and a step up for each profitable round in a row. */
