@@ -9,6 +9,7 @@ import { InkIntro } from "./ink-intro";
 import { InkScreen } from "./ink-screen";
 import { forReal } from "./onboarding";
 import { GateProvider, useGate } from "./gate";
+import { SocialProvider } from "./social-provider";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -16,12 +17,14 @@ import { Button } from "@/components/ui/button";
  * the trading screen sits in, held to the screen's height so a finger
  * drawing never drags the page instead. The bar holds the way to money:
  * Deposit once signed in, or practice money without a game. The balance
- * itself is on the game screen, once.
+ * itself is on the game screen, once. The community (social-provider.tsx)
+ * wraps it all: the bar opens it, and the chart draws everyone's ink.
  */
 export function FunShell() {
   return (
     <ChainProvider>
       <GateProvider>
+      <SocialProvider>
       <div className="fixed inset-0 flex h-dvh w-full flex-col overflow-hidden overscroll-none bg-background [-webkit-touch-callout:none]">
         <div className="absolute inset-x-0 top-0 z-30 [&>header]:border-0 [&>header]:bg-transparent [&>header]:px-4 sm:[&>header]:px-6">
           <AppBar lead={<Money />} />
@@ -31,6 +34,7 @@ export function FunShell() {
         </main>
         <InkIntro />
       </div>
+      </SocialProvider>
       </GateProvider>
     </ChainProvider>
   );

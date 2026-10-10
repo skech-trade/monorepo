@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { NETWORK } from "@/lib/chain";
-import { ENGINE_URL, RELAYER_URL } from "@/lib/endpoints";
+import { ENGINE_URL, RELAYER_URL, SOCIAL_URL } from "@/lib/endpoints";
 import { SENTRY_DSN } from "@/lib/sentry";
 import { THEME_BOOT } from "@/lib/theme-boot";
 
@@ -20,6 +20,9 @@ import { THEME_BOOT } from "@/lib/theme-boot";
   an outside wallet. Google and Apple sign-in are a redirect, which no directive here covers. For Solana it
   lists the clusters' public RPCs, which its SDK falls back to with none of ours configured: the one of the
   cluster the game is on. The app itself reads the chain only through the relayer.
+
+  The community service (SOCIAL_URL: api.skech.trade/social, or localhost:3105) is fetched, followed over a
+  WebSocket, and shows players' avatars, so it is in connect-src, both ways of reaching it, and in img-src.
 */ 
 
 const PRIVY_FRAMES = ["https://auth.privy.io", "https://verify.walletconnect.com", "https://verify.walletconnect.org"];
@@ -46,7 +49,9 @@ const REPORT_URI = (() => {
 
 function policy(nonce: string) {
   const dev = process.env.NODE_ENV === "development";
-  const connect = ["'self'", ...new Set([ENGINE_URL, RELAYER_URL, NETWORK.rpc].map(origin).filter(Boolean)), ...PRIVY_CONNECT];
+  const social = origin(SOCIAL_URL);
+  const socialWs = social?.replace(/^http/, "ws");
+  const connect = ["'self'", ...new Set([ENGINE_URL, RELAYER_URL, NETWORK.rpc, SOCIAL_URL].map(origin).filter(Boolean)), ...(socialWs ? [socialWs] : []), ...PRIVY_CONNECT];
   return [
     "default-src 'self'",
     // React rebuilds server error stacks with eval in development only.
@@ -54,7 +59,7 @@ function policy(nonce: string) {
     // Inline styles are React's style props and the sign-in panel's, which it injects as it renders.
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
-    "img-src 'self' data: blob:",
+    `img-src 'self' data: blob:${social ? ` ${social}` : ""}`,
     // /ingest (PostHog), /monitoring (Sentry) and /api are this origin.
     `connect-src ${connect.join(" ")}`,
     `child-src ${PRIVY_FRAMES.join(" ")}`,

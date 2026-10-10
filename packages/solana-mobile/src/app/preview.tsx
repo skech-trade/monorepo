@@ -28,6 +28,7 @@ export default function Preview() {
     signOut: () => undefined,
     signTransaction: async (t) => t,
     signTransactions: async (ts) => ts,
+    signMessage: async () => "",
     sendCode: async () => null,
     sendSms: async () => null,
     verify: async () => null,

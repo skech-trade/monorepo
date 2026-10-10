@@ -31,6 +31,8 @@ import { scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { ScoreboardSheet } from "./scoreboard-sheet";
 import { addChange, Ledger } from "./ledger";
 import { WalletButton } from "./wallet-button";
+import { publishStroke } from "@/lib/social";
+import { AVATAR_CREDIT } from "@skech/core/social";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 import { firstAtOrAfter, fmtMultiple, type Game, type Placed, type Preview, Stage } from "./stage";
@@ -143,6 +145,8 @@ function sendPiece(ch: Chain, { piece, wire }: ReturnType<typeof pieceFor>, stro
       const sig = await sessionKey!.sign(pieceBytes(piece));
       const ack = await client.request({ type: "piece", piece: wire, sessionSig: hexOf(sig), priceSig, stroke: hexOf(stroke) }, (m): m is Extract<Incoming, { type: "ack" }> => m.type === "ack" && m.drawing === wire.drawing && m.index === piece.index, 10_000);
       if (!ack || !ack.ok) fail(ack?.why ?? "No answer. Your money is back.");
+      // Taken: its stroke to the community, so other players see the line (the chain keeps only its hash).
+      else if (ack.betId) publishStroke(ack.betId, hexOf(stroke));
     } catch (e) {
       fail(String((e as Error).message ?? e));
     }
@@ -1405,6 +1409,9 @@ export function InkScreen() {
             <p>Placing a drawing takes its stake from your balance straight away; what just moved your balance shows under it. The number beside it is what you have won: this round&rsquo;s payouts while ink is in play, this session&rsquo;s otherwise. Tap it for the scoreboard. Hits pay the moment the price touches them; the rest settles when its second closes.</p>
             <p>Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches {RULES.horizon} seconds ahead.</p>
             <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for {difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {paperOn ? `This practice run plays easier odds than real play, and takes no fees: ink exactly on a rung returns ${money(difficulty(PAPER_DIFFICULTY, PAPER_DIFFICULTY).ladderBest)} per dollar here, ${money(difficulty(DIFFICULTY).ladderBest)} in real play. The multiples on the map are the ones it pays; real play's are lower. Its paper money is gone when it ends.` : forReal ? `${feesLine(chain.hello?.terms)} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills. Your balance is USDC held by the game on Solana: deposits and withdrawals are transactions skech pays the network fee for, and each drawing is placed and settled on chain.` : "Your balance is practice money saved in this browser."}</p>
+            <p className="text-muted-foreground text-xs">
+              Avatars: <a className="underline underline-offset-2" href={AVATAR_CREDIT.source} rel="noopener noreferrer" target="_blank">“Dylan”</a> by Natalia Spivak, <a className="underline underline-offset-2" href={AVATAR_CREDIT.licence} rel="noopener noreferrer" target="_blank">CC BY 4.0</a>
+            </p>
             {house && !forReal ? (
               <div className="flex flex-col gap-3 rounded-[14px] bg-muted p-4">
                 <div className="flex items-baseline justify-between">

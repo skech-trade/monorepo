@@ -36,6 +36,11 @@ export type Account = {
   signTransaction: (base64: string) => Promise<string>;
   /** Several at once, in order: a wallet on the phone signs them all in one visit rather than opening once each. */
   signTransactions: (base64s: string[]) => Promise<string[]>;
+  /**
+   * Sign words with the wallet's key, returning the Ed25519 signature (base64): the community's challenges (a
+   * profile, a follow). Privy signs without asking; a wallet on the phone asks.
+   */
+  signMessage: (message: string) => Promise<string>;
   /** Privy: send a one-time code to an email or a phone (E.164); then `verify` it. What went wrong, or null. */
   sendCode: (email: string) => Promise<string | null>;
   sendSms: (phone: string) => Promise<string | null>;
@@ -68,6 +73,9 @@ export const AccountContext = createContext<Account>({
     throw new Error("Not signed in");
   },
   signTransactions: async () => {
+    throw new Error("Not signed in");
+  },
+  signMessage: async () => {
     throw new Error("Not signed in");
   },
   sendCode: async () => "Sign-in is not set up in this build",
@@ -109,11 +117,24 @@ function useMobileWallet() {
     [saved],
   );
   const sign = useCallback(async (base64: string) => (await signAll([base64]))[0], [signAll]);
+  /** The wallet signs words; it answers with them and its signature after, the last 64 bytes. */
+  const signMessage = useCallback(
+    async (message: string) => {
+      if (!saved) throw new Error("No wallet connected");
+      return transact(async (wallet) => {
+        const auth = await wallet.reauthorize({ auth_token: saved.authToken, identity: IDENTITY }).catch(() => wallet.authorize({ identity: IDENTITY, chain: CHAIN }));
+        const { signed_payloads } = await wallet.signMessages({ addresses: [auth.accounts[0].address], payloads: [Buffer.from(message, "utf8").toString("base64")] });
+        const signed = Buffer.from(signed_payloads[0], "base64");
+        return signed.subarray(signed.length - 64).toString("base64");
+      });
+    },
+    [saved],
+  );
   const disconnect = useCallback(() => {
     storage.delete(MWA_KEY);
     setSaved(null);
   }, []);
-  return { saved, connect, sign, signAll, disconnect };
+  return { saved, connect, sign, signAll, signMessage, disconnect };
 }
 
 /** A wrong or stale code, as Privy says it: whatever the words, the code is what to fix. */
@@ -177,6 +198,13 @@ function Publish({ children }: { children: ReactNode }) {
         for (const t of base64s) out.push(await sign(t));
         return out;
       },
+      signMessage: async (message) => {
+        if (!privy) return mwa.signMessage(message);
+        const provider = await wallet!.getProvider();
+        const { signature } = await provider.request({ method: "signMessage", params: { message: Buffer.from(message, "utf8").toString("base64") } });
+        // Base64 as the service reads it, padding and all, whatever form it came in.
+        return Buffer.from(signature, "base64").toString("base64");
+      },
       sendCode: async (e) => {
         try {
           const to = e.trim();
@@ -233,6 +261,7 @@ function WalletOnly({ children }: { children: ReactNode }) {
       signOut: mwa.disconnect,
       signTransaction: mwa.sign,
       signTransactions: mwa.signAll,
+      signMessage: mwa.signMessage,
       sendCode: async () => "Email sign-in is not set up in this build",
       sendSms: async () => "Phone sign-in is not set up in this build",
       verify: async () => "Email sign-in is not set up in this build",

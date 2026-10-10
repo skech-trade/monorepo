@@ -50,6 +50,8 @@ export class Budget {
     private readonly now: () => number = Date.now,
     private readonly burst = Math.max(1, perSec),
     private readonly random: () => number = Math.random,
+    /** The setting that sets `perSec`, for the log. */
+    private readonly knob = "SOLANA_RPC_RPS",
   ) {
     this.tokens = this.burst;
     this.at = now();
@@ -116,7 +118,7 @@ export class Budget {
     const now = this.now();
     if (now - this.logged >= LOG_EVERY_MS) {
       this.log(
-        `rpc: ${redact(url)} turned away ${this.unlogged} request${this.unlogged === 1 ? "" : "s"}${this.logged ? ` in ${Math.round((now - this.logged) / 1000)} s` : ""} (429, last ${method}); waiting ${wait} ms. Asking ${this.perSec}/s (SOLANA_RPC_RPS)`,
+        `rpc: ${redact(url)} turned away ${this.unlogged} request${this.unlogged === 1 ? "" : "s"}${this.logged ? ` in ${Math.round((now - this.logged) / 1000)} s` : ""} (429, last ${method}); waiting ${wait} ms. Asking ${this.perSec}/s (${this.knob})`,
       );
       this.logged = now;
       this.unlogged = 0;

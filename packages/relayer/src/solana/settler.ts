@@ -30,7 +30,8 @@ import { customCode, type Sent, type SolanaChain } from "./chain";
 import type { SolanaConfig } from "./config";
 import type { Band } from "./sequencer";
 
-export type Settled = { betId: Address; player: Address; hitMask: number; missMask: number; paid: bigint; owed: bigint; closed: boolean; tx: string };
+/** `expiredMask`: bands given back, their second past posting; the refund is in `paid`. */
+export type Settled = { betId: Address; player: Address; hitMask: number; missMask: number; expiredMask: number; paid: bigint; owed: bigint; closed: boolean; tx: string };
 export type Notify = { settled: (s: Settled) => void; owed: (to: Address, value: bigint) => void; account: (player: Address) => void };
 
 type Live = { player: Address; unit: bigint; bands: Band[] };
@@ -282,13 +283,13 @@ export class SolanaSettler {
     const touched = new Set<Address>();
     for (const ev of await this.chain.events(signature)) {
       if (ev.name === "Settled") {
-        const a = ev.data as { bet: Address; player: Address; hitMask: number; missMask: number; paid: bigint; owed: bigint; closed: boolean };
+        const a = ev.data as { bet: Address; player: Address; hitMask: number; missMask: number; expiredMask?: number; paid: bigint; owed: bigint; closed: boolean };
         if (a.closed) this.closing.delete(a.bet);
         else if (!this.bets.has(a.bet)) this.closing.set(a.bet, { player: a.player, due: Date.now() + this.placeGraceMs + 1_000, tries: 0 });
         // A close with nothing left to decide still tells the app the bet is done.
         if (a.hitMask || a.missMask) this.stats.settled++;
         if (a.paid > 0n || a.owed > 0n || Date.now() - (this.told.get(a.player) ?? 0) > 5_000) touched.add(a.player);
-        this.notify.settled({ betId: a.bet, player: a.player, hitMask: a.hitMask, missMask: a.missMask, paid: a.paid, owed: a.owed, closed: a.closed, tx: signature });
+        this.notify.settled({ betId: a.bet, player: a.player, hitMask: a.hitMask, missMask: a.missMask, expiredMask: a.expiredMask ?? 0, paid: a.paid, owed: a.owed, closed: a.closed, tx: signature });
       } else if (ev.name === "Owed") {
         const a = ev.data as { to: Address; value: bigint };
         if (a.to !== "11111111111111111111111111111111") this.holders.add(a.to);

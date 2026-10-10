@@ -9,6 +9,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "@/components/app/auth";
 import { GateProvider } from "@/components/app/gate";
 import { ChainProvider } from "@/components/app/ink/chain-context";
+import { SocialProvider } from "@/components/app/social-provider";
 import { initTheme } from "@/lib/theme";
 
 initTheme();
@@ -24,8 +25,10 @@ export default function Layout() {
           <AuthProvider>
             <ChainProvider>
               <GateProvider>
-                <StatusBar style="auto" />
-                <Stack screenOptions={{ headerShown: false }} />
+                <SocialProvider>
+                  <StatusBar style="auto" />
+                  <Stack screenOptions={{ headerShown: false }} />
+                </SocialProvider>
               </GateProvider>
             </ChainProvider>
           </AuthProvider>

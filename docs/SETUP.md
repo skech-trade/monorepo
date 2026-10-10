@@ -117,6 +117,27 @@ it to a crawl (4% in 30 minutes). Upload straight to the validators instead, the
 `solana program deploy target/deploy/skech.so --program-id target/deploy/skech-keypair.json --url devnet` from
 `packages/contracts/solana`, then `bun run deploy:solana --skip-program`.
 
+### Social database
+
+Profiles, follows, the leaderboard and the live feed are kept in Postgres by the relayer's social service
+([`infra/README.md`](../infra/README.md#the-social-service-and-its-database)). Supabase, free plan or above:
+
+1. A project in a region near the box (Mumbai: `ap-south-1`). In it, **Connect → Session pooler** (port 5432:
+   the box has no IPv6, which the direct connection needs). Copy that URI, with the database password in it.
+2. In the env file `infra/deploy.sh` reads: `SOCIAL_DATABASE_URL=<that URI>?sslmode=require`, and
+   `SOCIAL_ALLOWED_ORIGINS=https://app.skech.trade` (and preview origins, comma-separated). It is a secret:
+   never a `NEXT_PUBLIC_` name, and only the relayer's env file on the box gets it.
+3. `infra/deploy.sh --env`. The service makes its schema, `skech_social`, on start, so the database role needs to
+   be able to create one (Supabase's `postgres` can). One database per deployment of the game: a second one
+   (mainnet) gets its own project.
+4. On Vercel: `NEXT_PUBLIC_SOCIAL_URL=https://api.skech.trade/social` (or leave it blank: that is what it is
+   derived as from the relayer's URL), then redeploy.
+5. **Check**: `curl https://api.skech.trade/social/health` answers `"db":true`; `counting` goes false once the
+   history is read (a transaction at a time, at `SOCIAL_RPC_RPS`).
+
+On a laptop, the service runs without a relayer, reading the game from the chain and placing nothing:
+`SOCIAL_DATABASE_URL=postgres://… bun run --filter @skech/relayer social`.
+
 ## 5. The phone app
 
 `packages/solana-mobile`, its own npm project (not in the bun workspace). It signs in by email, SMS or, on

@@ -35,6 +35,8 @@ import { Arrive, Bump, Glow, MOTION } from "./motion";
 import { Onboarding, Pill, useOnboarding } from "./onboarding";
 import { type Game, type Placed, type Preview, Stage } from "./stage";
 import { WalletButton } from "./wallet-button";
+import { publishStroke } from "@/lib/social";
+import { AvatarCredit } from "@/components/app/sheets/social-sheet";
 
 /** How old a map of multiples may be, in ms past its second, and still be shown. */
 const STALE_MAP_MS = 3500;
@@ -118,6 +120,8 @@ function sendPiece(ch: Chain, { piece, wire }: ReturnType<typeof pieceFor>, stro
       console.info(`[ink] sending piece ${wire.drawing}:${piece.index}: opens ${piece.openAt}, ${piece.sections.length} sections, ${piece.perDot} per dot`);
       const ack = await ch.client.request({ type: "piece", piece: wire, sessionSig: hexOf(sig), priceSig, stroke: hexOf(stroke) }, (m): m is Extract<Incoming, { type: "ack" }> => m.type === "ack" && m.drawing === wire.drawing && m.index === piece.index, 10_000);
       if (!ack || !ack.ok) fail(ack?.why ?? "No answer. Your money is back.");
+      // Taken: the same bytes the relayer got, to the community, so other players see the line (the chain keeps its hash).
+      else if (ack.betId) publishStroke(ack.betId, hexOf(stroke));
     } catch (e) {
       fail(String((e as Error).message ?? e));
     }
@@ -1197,6 +1201,7 @@ export function InkScreen() {
             ? `${fees ? `skech keeps ${fees.feeBps / 100}% of what you put in and ${fees.profitFeeBps / 100}% of the profit on every correct call.` : "skech keeps a share of what you put in and of the profit on every correct call."} Profits are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
             : "Your balance is practice money saved on this phone."}
         </Text>
+        <AvatarCredit />
       </Sheet>
     </View>
   );

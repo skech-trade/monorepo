@@ -36,11 +36,12 @@ export type SolanaPieceWire = {
 export type SolanaPieceMsg = { type: "piece"; piece: SolanaPieceWire; sessionSig: string; priceSig: `0x${string}`; stroke: string };
 
 export type Band = { second: number; lo: bigint; hi: bigint; stake: bigint; rung: number };
-export type Placed = { betId: Address; player: Address; drawing: string; index: number; openAt: bigint; staked: bigint; fee: bigint; refunded: bigint; sections: Band[]; tx: string };
+/** `unit` and `stroke` (hex) are what the chain does not keep: for the social feed's picture of the drawing. */
+export type Placed = { betId: Address; player: Address; drawing: string; index: number; openAt: bigint; staked: bigint; fee: bigint; refunded: bigint; sections: Band[]; unit: bigint; stroke: string; tx: string };
 export type Refused = { betId?: Address; player: Address; drawing: string; index: number; why: string; tx?: string };
 export type Notify = { placed: (p: Placed) => void; refused: (r: Refused) => void };
 
-type Pending = { piece: SolanaPiece; sig: Uint8Array; key: Uint8Array; receivedAt: number; bet: Address; bump: number; stake: bigint };
+type Pending = { piece: SolanaPiece; sig: Uint8Array; key: Uint8Array; receivedAt: number; bet: Address; bump: number; stake: bigint; stroke: Uint8Array };
 
 const hex = getBase16Encoder();
 const bytesOf = (s: unknown, n?: number): Uint8Array | null => {
@@ -170,7 +171,7 @@ export class SolanaSequencer {
       this.buckets.set(openAt, (bucket = []));
       setTimeout(() => void this.flush(openAt).catch((e) => this.log(`place at ${openAt}: ${String((e as Error).message ?? e).split("\n")[0]}`)), Math.max(0, openAt + this.cfg.openAfterMs - now));
     }
-    bucket.push({ piece, sig, key: acct.key, receivedAt, bet, bump, stake });
+    bucket.push({ piece, sig, key: acct.key, receivedAt, bet, bump, stake, stroke });
     this.stats.accepted++;
     return { ok: true, betId: bet };
   }
@@ -294,7 +295,7 @@ export class SolanaSequencer {
           }
           this.moved(p.player, -placed.staked, -placed.staked);
           for (const s of placed.sections) this.settler.watch(e.bet, p.player, p.unit, { second: openAt + s.second * 1000, lo: s.lo, hi: s.hi, stake: s.stake, rung: s.rung });
-          this.notify.placed({ betId: e.bet, player: p.player, drawing: String(p.drawing), index: p.index, openAt: BigInt(openAt), staked: placed.staked, fee: placed.fee, refunded: placed.refunded, sections: placed.sections, tx: sent.signature });
+          this.notify.placed({ betId: e.bet, player: p.player, drawing: String(p.drawing), index: p.index, openAt: BigInt(openAt), staked: placed.staked, fee: placed.fee, refunded: placed.refunded, sections: placed.sections, unit: p.unit, stroke: `0x${Buffer.from(e.stroke).toString("hex")}`, tx: sent.signature });
         } catch (err) {
           this.log(`place ${e.bet} at ${openAt}: ${String((err as Error).message ?? err).split("\n")[0]}`);
           report("place", err);
