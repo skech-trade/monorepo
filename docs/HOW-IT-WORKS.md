@@ -259,6 +259,34 @@ formula: ten $1 taps land between 50¢ and $1.25 only on the lowest rungs.
 Five fixed drawing styles are not a search for every exploit. The replay has no
 network latency. Model agreement does not guarantee future returns.
 
+### The paper run
+
+Signed out, "Try it free" plays thirty seconds on $10 of paper money (`paper.ts`):
+the live price, the real screen, nothing sent to the relayer, no fees, and a pill
+that says "Practice · easier odds than real play" the whole time. It plays at
+difficulty 0 (`PAPER_DIFFICULTY`, best ink $1.20 a dollar), below the 50 real play
+is held to; the same `ladderSection` prices the map and the payout, so what shows is
+what pays.
+
+`check-paper.ts` replays six strokes drawn near the price (a level line within a
+market step, with and against the move, along the price, from the price drifting
+off, a zigzag across it) on three screens and three pens at 10¢ a dot. Coinbase
+BTC-USD, October 7–9, 46,494 drawings per level:
+
+| Difficulty | Best ink | Touched | Came out ahead | Per $1 |
+| --- | --- | --- | --- | --- |
+| 55 (real) | 0.98 | 59.7% | 28.6% | 0.783 |
+| 50 | 1.00 | 59.7% | 29.1% | 0.799 |
+| 25 | 1.10 | 59.7% | 31.2% | 0.880 |
+| **0 (paper)** | **1.20** | **59.7%** | **33.0%** | **0.961** |
+| −50 | 1.40 | 59.7% | 36.0% | 1.122 |
+| −100 | 1.60 | 59.7% | 38.4% | 1.286 |
+
+Whether the price touches a stroke does not depend on the difficulty: 74–79% of
+strokes along, from or across the price are touched, 51% of level lines, 38–40% of
+diagonal ones. The difficulty only moves what a touch pays, so it cannot raise the
+hit rate, and even a giveaway does not make most rounds come out ahead.
+
 ## 10. Rebuilding
 
 ```bash
