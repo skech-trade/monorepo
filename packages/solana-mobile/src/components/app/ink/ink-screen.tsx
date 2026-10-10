@@ -26,7 +26,7 @@ import { library } from "@/lib/library";
 import { money, signed, skt as sktAmount } from "@/lib/money";
 import { endPaperRun, paper, paperCredit, paperDebit, paperDrew, paperTick, pausePaperRun, resumePaperRun, startPaperRun, usePaper, usePaperPhase } from "@/lib/paper";
 import { cents, practice, record, setPractice, usePractice } from "@/lib/practice";
-import { type Incoming, leastPiece } from "@/lib/relayer";
+import { type Hello, type Incoming, leastPiece } from "@/lib/relayer";
 import { scoreboard, useScoreboard } from "@/lib/scoreboard";
 import { setDark, useDark } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -130,6 +130,15 @@ const RESENDS = 2;
 const RESEND_BASE = 100_000;
 
 /** A piece as the session key signs it, and as it goes on the wire: bands in grid units, the chain's numbers as strings. */
+/** The fees and who they go to, in the game's own numbers as the relayer sends them; without them, no number that could be wrong. */
+function feesLine(terms: Hello["terms"] | undefined) {
+  const pct = (bps: number) => `${bps / 100}%`;
+  if (!terms) return "A share of what you put in and of the profit on every correct call is taken as fees, split between SKT holders and skech.";
+  const { feeBps, profitFeeBps, holderFeeBps: h, holderProfitFeeBps: hp } = terms;
+  if (h === undefined || hp === undefined) return `${pct(feeBps)} of what you put in and ${pct(profitFeeBps)} of the profit on every correct call are taken as fees, split between SKT holders and skech.`;
+  return `A fee of ${pct(feeBps)} of what you put in: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of the profit on every correct call: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.`;
+}
+
 function pieceFor(ch: Chain, level: number, drawing: bigint, index: number, openAt: number, perDot: number, unit: number, quote: { price: string | number; time: string | number }, sections: ReturnType<typeof toSections>, stroke: Uint8Array) {
   const unitE8 = toE8(unit);
   const piece: SolanaPiece = {
@@ -1484,7 +1493,7 @@ export function InkScreen() {
           {paperOn
             ? `This practice run plays the real game\u2019s odds on paper money, with no fees and a cent a dot. Its paper money is gone when it ends.`
             : forReal
-            ? `${fees ? `skech keeps ${fees.feeBps / 100}% of what you put in and ${fees.profitFeeBps / 100}% of the profit on every correct call.` : "skech keeps a share of what you put in and of the profit on every correct call."} Profits are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
+            ? `${feesLine(fees)} Profits are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
             : "Your balance is practice money saved on this phone."}
         </Text>
       </Sheet>

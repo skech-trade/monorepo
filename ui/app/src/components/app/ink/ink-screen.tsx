@@ -200,9 +200,14 @@ function lessProfitFee(bet: InkBet, before: InkBet, profitFeeBps: number): InkBe
   return touched ? { ...bet, cells } : bet;
 }
 
-/** What skech keeps, in the game's own numbers as the relayer sends them; without them, that it keeps some, and no number that could be wrong. */
-const feesLine = (terms: Hello["terms"] | undefined) =>
-  terms ? `skech keeps ${terms.feeBps / 100}% of every stake and ${terms.profitFeeBps / 100}% of every win.` : "skech keeps a share of every stake and of every win.";
+/** The fees and who they go to, in the game's own numbers as the relayer sends them; without them, no number that could be wrong. */
+const feesLine = (terms: Hello["terms"] | undefined) => {
+  const pct = (bps: number) => `${bps / 100}%`;
+  if (!terms) return "A share of every stake and of every win’s profit is taken as fees, split between SKT holders and skech.";
+  const { feeBps, profitFeeBps, holderFeeBps: h, holderProfitFeeBps: hp } = terms;
+  if (h === undefined || hp === undefined) return `${pct(feeBps)} of every stake and ${pct(profitFeeBps)} of every win’s profit are taken as fees, split between SKT holders and skech.`;
+  return `A fee of ${pct(feeBps)} of every stake: ${pct(h)} to SKT holders, ${pct(feeBps - h)} to skech. ${pct(profitFeeBps)} of every win’s profit: ${pct(hp)} to SKT holders, ${pct(profitFeeBps - hp)} to skech.`;
+};
 
 /** A price with its cents quieter than its dollars. */
 const Price = ({ value }: { value: number }) => {

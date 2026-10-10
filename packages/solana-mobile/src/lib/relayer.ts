@@ -27,7 +27,7 @@ export type Hello = {
   difficulty: number | null;
   lateMs: number;
   units: string[] | null;
-  terms: { minPerDot: string; maxPerDot: string; maxPieceStake: string; minPieceStake?: string; maxPriceAgeMs: number; feeBps: number; profitFeeBps: number } | null;
+  terms: { minPerDot: string; maxPerDot: string; maxPieceStake: string; minPieceStake?: string; maxPriceAgeMs: number; feeBps: number; profitFeeBps: number; holderFeeBps?: number; holderProfitFeeBps?: number } | null;
   faucet: string | null;
   activity: boolean;
 };
