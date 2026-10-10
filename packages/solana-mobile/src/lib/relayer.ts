@@ -69,6 +69,7 @@ export class RelayerClient {
   private handlers = new Set<Handler>();
   private stopped = true;
   private retry: ReturnType<typeof setTimeout> | undefined;
+  private opening: ReturnType<typeof setTimeout> | undefined;
   private pending = new Set<() => void>();
   private transacting = false;
   private backoff = 500;
@@ -76,7 +77,7 @@ export class RelayerClient {
   connected = false;
   player: string | null = null;
 
-  constructor(private readonly url = RELAYER_URL) {}
+  constructor(private readonly url = RELAYER_URL, private readonly helloTimeoutMs = 8000) {}
 
   start() {
     if (!this.stopped) return;
@@ -87,6 +88,7 @@ export class RelayerClient {
   stop() {
     this.stopped = true;
     clearTimeout(this.retry);
+    clearTimeout(this.opening);
     this.retry = undefined;
     const socket = this.ws;
     this.ws = null;
@@ -201,10 +203,13 @@ export class RelayerClient {
     if (this.stopped) return;
     const sock = new WebSocket(this.url);
     this.ws = sock;
+    // Retry if the upgrade or the server hello never arrives.
+    this.opening = setTimeout(() => {
+      if (!this.stopped && this.ws === sock) sock.close();
+    }, this.helloTimeoutMs);
     sock.onopen = () => {
       if (this.stopped || this.ws !== sock) return;
       console.info(`[relayer] connected to ${this.url}`);
-      this.backoff = 500;
       this.connected = true;
       if (this.player) this.send({ type: "watch", player: this.player });
       this.emit({ type: "error", why: "" });
@@ -218,11 +223,16 @@ export class RelayerClient {
         return;
       }
       if (!m || typeof m !== "object") return;
-      if (m.type === "hello") this.hello = m;
+      if (m.type === "hello") {
+        clearTimeout(this.opening);
+        this.backoff = 500;
+        this.hello = m;
+      }
       trace(m);
       this.emit(m);
     };
     sock.onclose = (e) => {
+      if (this.ws === sock) clearTimeout(this.opening);
       if (!this.stopped) console.warn(`[relayer] connection closed (${e.code}${e.reason ? ` ${e.reason}` : ""}); trying again in ${this.backoff}ms`);
       if (this.ws === sock) this.connected = false;
       if (this.stopped || this.ws !== sock) return;
@@ -270,6 +280,22 @@ export function useRelayer(player: string | null, enabled: boolean) {
     if (enabled) client.watch(player);
   }, [client, player, enabled]);
   const own = player && account && account.player === player ? account : null;
+  useEffect(() => {
+    if (!enabled || !connected || !player || own) return;
+    // The initial watch reads the account once. A transient RPC failure must not
+    // leave onboarding stuck forever; retry only while that first account is missing.
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout>;
+    const read = async () => {
+      const result = await client.request({ type: "account" }, (m): m is Extract<Incoming, { type: "account" }> => m.type === "account" && m.player === player, 8000);
+      if (!stopped && !result) retry = setTimeout(read, 2000);
+    };
+    retry = setTimeout(read, 8000);
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+    };
+  }, [client, enabled, connected, player, own]);
   return { client, hello, account: own, connected };
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Bar } from "@skech/core/dots";
+import { mergeHistory } from "@skech/core/bars";
 import { ENGINE_URL } from "./config";
 import { useAppActive } from "./lifecycle";
 import { carryBars, KEEP_BARS, validTrade } from "./market-buffer";
@@ -66,7 +67,7 @@ export type Market = {
 
 type Message =
   | { type: "hello"; signer: `0x${string}`; typedData: TypedData }
-  | { type: "history"; trades: [id: number, t: number, p: number][] }
+  | { type: "history"; trades: [id: number, t: number, p: number][]; quote?: Omit<Quote, "price"> & { p: number } }
   | ({ type: "price"; id: number; t: number; p: number } & Omit<Quote, "price">)
   | { type: "beat" };
 
@@ -163,15 +164,10 @@ export function useEngine(): Market {
           m.signer = msg.signer;
           m.typedData = msg.typedData;
         } else if (msg.type === "history") {
-          // Oldest first; on a reconnect, only what came after the last trade already folded.
           if (!Array.isArray(msg.trades)) return;
-          for (const trade of msg.trades) {
-            if (!Array.isArray(trade)) continue;
-            const [id, t, p] = trade;
-            if (id <= lastId || !validTrade(id, t, p)) continue;
-            newestId.current = lastId = id;
-            fold(t, p);
-          }
+          newestId.current = lastId = mergeHistory(m, msg.trades.filter(Array.isArray), lastId, fold);
+          const q = msg.quote;
+          if (q && (q.message?.time ?? 0) >= (m.quote?.message?.time ?? 0)) m.quote = { price: q.p, source: q.source, message: q.message, signature: q.signature };
           bump();
         } else if (msg.type === "price") {
           if (msg.id <= lastId || !validTrade(msg.id, msg.t, msg.p)) return;
@@ -204,7 +200,7 @@ export function useEngine(): Market {
     */
     const clock = setInterval(() => {
       // Silent without closing: reopen, rather than show a price that has stopped.
-      if (ws && ws.readyState === WebSocket.OPEN && Date.now() - heard > SILENT_MS) {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) && Date.now() - heard > SILENT_MS) {
         const dead = ws;
         ws = null;
         dead.onclose = null;

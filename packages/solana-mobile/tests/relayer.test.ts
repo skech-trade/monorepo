@@ -31,8 +31,8 @@ class Socket {
 const originalSocket = globalThis.WebSocket
 globalThis.WebSocket = Socket as unknown as typeof WebSocket
 const clients: RelayerClient[] = []
-const client = () => {
-  const c = new RelayerClient('wss://example.invalid')
+const client = (helloTimeoutMs = 8000) => {
+  const c = new RelayerClient('wss://example.invalid', helloTimeoutMs)
   clients.push(c)
   c.start()
   return c
@@ -46,6 +46,25 @@ process.on('exit', () => {
 })
 
 describe('relayer lifecycle', () => {
+  test('an open socket without a hello is closed for retry', async () => {
+    const c = client(20)
+    const socket = Socket.instances[0]
+    socket.open()
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(socket.readyState).toBe(3)
+    expect(c.connected).toBe(false)
+  })
+
+  test('a server hello cancels the connection deadline', async () => {
+    const c = client(20)
+    const socket = Socket.instances[0]
+    socket.open()
+    socket.message({ type: 'hello', cluster: 'devnet' })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(socket.readyState).toBe(Socket.OPEN)
+    expect(c.connected).toBe(true)
+  })
+
   test('start is idempotent and stop releases outstanding requests', async () => {
     const c = client()
     c.start()

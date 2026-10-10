@@ -402,8 +402,8 @@ export function InkScreen() {
       const g = game.current;
       const latest = g.bars.at(-1);
       const nowMs = Date.now() + g.skew;
-      const last = g.ticks.at(-1)?.t ?? latest?.t ?? 0;
-      const ok = connected && !!latest && nowMs - last < 5000 && g.bars.length > 60;
+      // Heartbeats keep quiet seconds live; quote age is checked separately when placing.
+      const ok = connected && !!latest && nowMs - latest.t < 5000 && g.bars.length > 60;
       setFresh(ok);
       if (!ok) {
         g.field = null;
@@ -488,6 +488,7 @@ export function InkScreen() {
       const quote = feedRef.current.quote;
       if (!sent || sent.tries >= RESENDS || !RESEND.test(why)) return false;
       if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key || !ch.sessionOk) return false;
+      if (Date.now() + g.skew - quote.message.time > (ch.hello.terms?.maxPriceAgeMs ?? 15_000) - 500) return false;
       const i = g.bets.findIndex((b) => b.id === sent.id);
       if (i < 0 || g.bets[i].status !== "opening") return false;
       const bet = g.bets[i];
@@ -740,7 +741,7 @@ export function InkScreen() {
           return { stop: ch.balance >= POINT_PRICES.values[0] ? "Balance used up here · lower the price per dot" : "Not enough USDC in the game" };
         }
         const quote = feedRef.current.quote;
-        if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key) {
+        if (!quote?.message || !quote.signature || !ch.hello || !ch.player || !ch.key || placedAt - quote.message.time > (ch.hello.terms?.maxPriceAgeMs ?? 15_000) - 500) {
           finish();
           return "Waiting for a signed price";
         }
@@ -1037,7 +1038,9 @@ export function InkScreen() {
         <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
           <View className="flex-row items-center gap-2">
             <Spinner />
-            <Text className="font-semibold text-[15px] text-muted-foreground">Connecting…</Text>
+            <Text className="font-semibold text-[15px] text-muted-foreground">
+              {!me.ready ? "Restoring your account…" : !feed.connected ? "Connecting to live prices…" : !fresh ? "Loading live prices…" : !chain.connected ? "Connecting to the game…" : !chain.hello ? "Loading game settings…" : "Loading your balance…"}
+            </Text>
           </View>
         </View>
       ) : null}
