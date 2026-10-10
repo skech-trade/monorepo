@@ -69,6 +69,14 @@ adb shell am force-stop com.solana.mwallet
 
 Open the mock wallet again so it can create and persist its seed, then try connecting from this app.
 
+## Tests
+
+`npm test` runs `bun test tests` (Bun is the repository's test runtime). The tests check that the odds map made a
+slice a frame is number for number the map made in one go, that the market buffer stays bounded through an outage,
+that the relayer socket is cleaned up and a wallet transaction cannot outlive a sign-out or account switch, and that
+the Mobile Wallet Adapter token moves from MMKV to the secure store and stays gone after signing out. Native storage
+and sockets are mocked; test real wallet flows on a phone before shipping.
+
 ## Learn more
 
 To learn more about developing your project with Expo, look at the following resources:
