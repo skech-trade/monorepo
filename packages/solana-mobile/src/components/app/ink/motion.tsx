@@ -85,46 +85,6 @@ export function Bump({ on, children }: { on: boolean; children: ReactNode }) {
   return <Animated.View style={[{ transformOrigin: "right center" }, style]}>{children}</Animated.View>;
 }
 
-/**
- * A strong round lights the edges of the screen, once: up to its brightest a quarter of the way through, then gone.
- * A top round's is deeper, longer, and comes twice.
- */
-export function Glow({ color, ms = 1300, top = false }: { color: string; ms?: number; top?: boolean }) {
-  const still = useReducedMotion();
-  const k = useSharedValue(0);
-  useEffect(() => {
-    if (still) return;
-    const easing = Easing.bezier(0, 0, 0.58, 1);
-    k.value = top
-      ? withSequence(withTiming(1, { duration: 400, easing }), withTiming(0.45, { duration: 500, easing }), withTiming(0.9, { duration: 450, easing }), withTiming(0, { duration: 1000, easing }))
-      : withSequence(withTiming(1, { duration: ms * 0.25, easing }), withTiming(0, { duration: ms * 0.75, easing }));
-  }, [still, k, ms, top]);
-  const style = useAnimatedStyle(() => ({ opacity: k.value }));
-  if (still) return null;
-  return <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { zIndex: 24, boxShadow: top ? `inset 0 0 150px 24px ${color}` : `inset 0 0 110px 14px ${color}` }, style]} />;
-}
-
-/**
- * A profit's light: a soft glow behind what it wraps (the round's figure, the balance) that swells twice and fades,
- * as the web's profit-glow does. Plays as it mounts; a new key plays it again. Not at all with Reduce Motion on.
- */
-export function ProfitGlow({ color, delay = 120, children }: { color: string; delay?: number; children: ReactNode }) {
-  const still = useReducedMotion();
-  const k = useSharedValue(0);
-  useEffect(() => {
-    if (still) return;
-    const easing = Easing.bezier(0, 0, 0.58, 1);
-    k.value = withDelay(delay, withSequence(withTiming(1, { duration: 370, easing }), withTiming(0.5, { duration: 390, easing }), withTiming(0.85, { duration: 340, easing }), withTiming(0, { duration: 600, easing })));
-  }, [still, k, delay]);
-  const style = useAnimatedStyle(() => ({ opacity: k.value, transform: [{ scale: interpolate(k.value, [0, 1], [0.7, 1.08]) }] }));
-  return (
-    <View>
-      {still ? null : <Animated.View pointerEvents="none" style={[{ position: "absolute", top: -4, bottom: -4, left: -14, right: -14, borderRadius: 999, backgroundColor: color, boxShadow: `0 0 22px 10px ${color}` }, style]} />}
-      {children}
-    </View>
-  );
-}
-
 /** $1,234.56, on the UI thread: the count-up's figure, a frame at a time, floored so it never passes where it is going. */
 function moneyText(n: number) {
   "worklet";

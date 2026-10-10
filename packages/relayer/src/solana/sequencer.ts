@@ -7,7 +7,7 @@
 import { ed25519 } from "@noble/curves/ed25519";
 import { type Address, address, getAddressEncoder, getBase16Encoder } from "@solana/kit";
 import { features, NICE, stepFor } from "@skech/core/dots";
-import { CHANCE_ONE, momentumE6, rungE2, maxStakeE6, toE8, unitFor, withMomentum, type Section } from "@skech/core/chain";
+import { CHANCE_ONE, MIN_PIECE_STAKE_E6, momentumE6, rungE2, maxStakeE6, toE8, unitFor, usdE6, withMomentum, type Section } from "@skech/core/chain";
 import { betAddress, ed25519Instruction, getPlaceInstruction, getSkechErrorMessage, HORIZON, MAX_SECTIONS, pieceBytes, playerAddress, type SolanaPiece } from "@skech/contracts/solana/sdk";
 import type { Engine } from "../engine";
 import { remember } from "../limits";
@@ -50,11 +50,16 @@ const bytesOf = (s: unknown, n?: number): Uint8Array | null => {
   return n === undefined || b.length === n ? b : null;
 };
 const u = (n: unknown, max: number) => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= max;
+/**
+ * Why a piece staking `stake` is turned away, or null. Each piece is a transaction the relayer pays for, and only
+ * its stake fee pays that back: under `least`, ink drawn in crumbs would cost the game more than whoever drew it.
+ */
+export const tooLittle = (stake: bigint, least: bigint) => (stake < least ? `A piece must be at least ${usdE6(least)}` : null);
 
 export class SolanaSequencer {
   difficulty = 40;
-  /** min/max per dot and the most a piece may stake, and the fee, from the game's config. */
-  terms = { minPerDot: 10_000n, maxPerDot: 100_000_000n, maxPieceStake: 10_000_000_000n, maxPriceAgeMs: 15_000, feeBps: 400, profitFeeBps: 1000 };
+  /** min/max per dot and the most a piece may stake, and the fee, from the game's config; the least a piece stakes, the relayer's own. */
+  terms = { minPerDot: 10_000n, maxPerDot: 100_000_000n, maxPieceStake: 10_000_000_000n, minPieceStake: MIN_PIECE_STAKE_E6, maxPriceAgeMs: 15_000, feeBps: 400, profitFeeBps: 1000 };
   private buckets = new Map<number, Pending[]>();
   private seen = new Set<Address>();
   private players = new Map<Address, { at: number; balance: bigint; allowance: bigint; key: Uint8Array; validUntil: bigint }>();
@@ -133,6 +138,9 @@ export class SolanaSequencer {
     if (this.seen.has(bet)) return bad("Already sent", bet);
     if (piece.market !== this.cfg.market) return bad("Unknown market", bet);
     if (piece.difficulty !== this.difficulty) return bad(`Difficulty is ${this.difficulty} now`, bet);
+    const stake = piece.sections.reduce((n, s) => n + BigInt(s.stake), 0n);
+    const short = tooLittle(stake, this.terms.minPieceStake);
+    if (short) return bad(short, bet);
     if (!this.engine.ready() || !this.engine.signer || !this.engine.domain) return bad("Waiting for live prices", bet);
     const openAt = Number(piece.openAt);
     if (openAt % 1000 !== 0) return bad("Bad opening second", bet);
@@ -143,7 +151,6 @@ export class SolanaSequencer {
     const units = this.units();
     if (!units) return bad("Waiting for live prices", bet);
     if (!units.includes(piece.unit)) return bad("Grid out of date", bet);
-    const stake = piece.sections.reduce((n, s) => n + BigInt(s.stake), 0n);
     if (stake > t.maxPieceStake) return bad("Too much on one piece", bet);
     const priceTime = Number(piece.priceTime);
     if (priceTime > now + 2000 || now - priceTime > t.maxPriceAgeMs) return bad("Price seen is stale", bet);
@@ -256,7 +263,11 @@ export class SolanaSequencer {
           const chances = this.pricer.chances(fl, bands, openAt);
           if (chances.some((c) => c < 0 || c > CHANCE_ONE)) throw new Error("a chance out of range");
           // Nothing the program would keep: it refuses the piece, and the fee would be paid for nothing.
-          if (!this.predict(p, bands, chances, price, momentum).sections.length) return this.refuse(e, "NotOffered");
+          const kept = this.predict(p, bands, chances, price, momentum);
+          if (!kept.sections.length) return this.refuse(e, "NotOffered");
+          // What the program would keep, after what it hands back: under the least, nothing is sent.
+          const short = tooLittle(kept.staked, this.terms.minPieceStake);
+          if (short) return this.refuse(e, short);
           const bytes = pieceBytes(p);
           const place = getPlaceInstruction({
             // The piece first: its `player` and `market` are the wallet and the market id, which the accounts below replace.

@@ -327,8 +327,8 @@ all addresses of the program:
 
 - **`Game`** holds the terms, the oracle and the USDC vault. The house never holds the players' money.
 - **`Pool`**: every stake goes into one pool, and every hit is paid from it. The house's take is counted
-  here too: 4% of every stake as it is placed, and 10% of the profit on every hit, both the admin's to
-  set (`set_config`). `collect_fees` moves it to the treasury. Nothing else.
+  here too: a share of every stake as it is placed, and of the profit on every hit, both the admin's to
+  set (`set_config`). A fresh game starts at 4% and 10%; devnet charges 1% and 5% since 10 October 2026. `collect_fees` moves it to the treasury. Nothing else.
 - **`Market`** and **`Bars`**: each market's difficulty, and a ring of its last 240 seconds of price. The
   ladder is computed in the program (`ladder.rs`, the same integers as `chain.ts`, checked row for row
   against `@skech/core`), so the oracle cannot pay a band more than its chance earns at the difficulty on
@@ -397,6 +397,14 @@ wallets that approved it, and collects the fees. Compute limits come from
 `packages/contracts/solana/snapshots/compute.json`, measured in LiteSVM; the priority fee follows what recent
 blocks paid to write the pool, capped; every request to the RPC waits on one budget, sends first. Its README
 has the rest.
+
+A piece must stake at least 10¢ (`MIN_PIECE_STAKE_E6`, `SOLANA_MIN_PIECE_STAKE`), as it arrives and after
+what the program would hand back. Each piece is a transaction the relayer pays for, about 7,100 lamports with
+its share of settling (under a tenth of a cent), and only the stake fee pays that back: at 1% of 10¢ it does,
+and ink drawn in crumbs (near-certain ink returns about 99¢) costs whoever draws it more than it costs the
+game. The apps hold ink back, drawn as it is, until a piece and the ink after it both reach the least, so the
+end of a line always goes with ink still held; a whole line under it is not sent ("Draw a little more"). Paper
+and practice runs send nothing and are not held.
 
 ### Fees and the pool, by the numbers
 

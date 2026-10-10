@@ -1,0 +1,71 @@
+import { describe, expect, test } from "bun:test";
+import { MIN_PIECE_STAKE_E6 } from "@skech/core/chain";
+import type { Engine } from "../engine";
+import type { Pricer } from "../pricer";
+import type { SolanaChain } from "./chain";
+import type { SolanaConfig } from "./config";
+import { type SolanaPieceMsg, SolanaSequencer, tooLittle } from "./sequencer";
+import type { SolanaSettler } from "./settler";
+
+const PLAYER = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM";
+const cfg = { deployment: { program: "11111111111111111111111111111111" }, market: 0, lateMs: 200, aheadMs: 1500 } as unknown as SolanaConfig;
+// No prices yet: a piece that gets past the least is turned away for that, next.
+const engine = { now: () => Date.now(), ready: () => false, book: { bars: [] } } as unknown as Engine;
+const sequencer = () =>
+  new SolanaSequencer(cfg, engine, {} as Pricer, {} as SolanaChain, {} as SolanaSettler, { placed: () => {}, refused: () => {} }, () => {}, new Uint8Array(32));
+
+let index = 0;
+const msg = (stakes: number[]): SolanaPieceMsg => ({
+  type: "piece",
+  piece: {
+    player: PLAYER,
+    drawing: "7",
+    index: index++,
+    market: 0,
+    difficulty: 40,
+    openAt: String(Math.ceil(Date.now() / 1000) * 1000),
+    perDot: 50_000,
+    unit: "100000000",
+    priceSeen: "6000000000000",
+    priceTime: String(Date.now()),
+    strokeHash: `0x${"00".repeat(32)}`,
+    sections: stakes.map((stake, i) => ({ second: i + 1, lo: 60_000, width: 2, stake })),
+  },
+  sessionSig: `0x${"00".repeat(64)}`,
+  priceSig: `0x${"00".repeat(65)}`,
+  stroke: "0x01",
+});
+
+describe("the least a piece stakes", () => {
+  test("says why, in dollars", () => {
+    expect(tooLittle(99_999n, 100_000n)).toBe("A piece must be at least $0.10");
+    expect(tooLittle(100_000n, 100_000n)).toBeNull();
+    expect(tooLittle(1n, 0n)).toBeNull();
+  });
+
+  test("is 10¢ unless set", () => {
+    expect(sequencer().terms.minPieceStake).toBe(MIN_PIECE_STAKE_E6);
+  });
+
+  test("turns a piece under it away as it arrives, its sections added up", async () => {
+    const s = sequencer();
+    const small = await s.accept(msg([40_000, 59_999]));
+    expect(small.ok).toBe(false);
+    expect(!small.ok && small.why).toBe("A piece must be at least $0.10");
+    expect(!small.ok && small.betId).toBeDefined();
+    expect(s.stats.turnedAway["A piece must be at least $N.N"]).toBe(1);
+    // At the least, the piece goes on to the next look.
+    const enough = await s.accept(msg([40_000, 60_000]));
+    expect(!enough.ok && enough.why).toBe("Waiting for live prices");
+  });
+
+  test("follows the relayer's figure", async () => {
+    const s = sequencer();
+    s.terms = { ...s.terms, minPieceStake: 250_000n };
+    const r = await s.accept(msg([200_000]));
+    expect(!r.ok && r.why).toBe("A piece must be at least $0.25");
+    s.terms = { ...s.terms, minPieceStake: 0n };
+    const any = await s.accept(msg([1]));
+    expect(!any.ok && any.why).toBe("Waiting for live prices");
+  });
+});
