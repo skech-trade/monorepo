@@ -196,7 +196,7 @@ pub fn rate_e6(scale: u64, g: u64) -> u128 {
 mod tests {
     use super::*;
 
-    const S: u64 = 100_000_000_000; // $100,000
+    const S: u64 = 10_000_000_000_000; // $10,000,000, the default
     const E6: u64 = 1_000_000;
 
     /// The integral in floating point.
@@ -214,7 +214,21 @@ mod tests {
 
     #[test]
     fn the_mint_matches_the_integral_in_floating_point() {
-        let cases: &[(u64, u64)] = &[(0, E6), (0, 1), (10_000 * E6, E6), (100_000 * E6, 100_000 * E6), (0, 1_000_000 * E6), (1_000_000 * E6, 1), (1_000_000_000 * E6, E6), (u64::MAX / 2, E6)];
+        let cases: &[(u64, u64)] = &[
+            (0, E6),
+            (0, 1),
+            (1_000_000 * E6, E6),
+            (10_000_000 * E6, 10_000_000 * E6),
+            (0, 100_000_000 * E6),
+            // Around $100M of tracked gain, where the default curve has all but run out.
+            (100_000_000 * E6, E6),
+            (100_000_000 * E6, 1_000_000 * E6),
+            (1_000_000_000 * E6, E6),
+            (u64::MAX / 2, E6),
+            // One enormous settlement: every u64 of basis at once.
+            (0, u64::MAX),
+            (u64::MAX / 2, u64::MAX / 2),
+        ];
         for &(from, basis) in cases {
             let got = mint_amount(S, from, basis) as f64;
             let want = reference(S, from, basis);
@@ -231,6 +245,10 @@ mod tests {
             assert!(got <= want * (1.0 + 1e-12) + 1e-6, "{from} + {basis} at {scale}: {got} over {want}");
             assert!(want - got < 2.0 + 1e-9 * want, "{from} + {basis} at {scale}: {got} short of {want}");
         }
+    }
+
+    fn skech_max() -> u64 {
+        MAX_MINT_SCALE
     }
 
     #[test]
@@ -253,17 +271,25 @@ mod tests {
 
     #[test]
     fn the_rate_is_the_table_in_the_docs() {
-        // At G = 0, $10k, $50k, $100k, $300k, $1M: 100, 82.6, 44.4, 25, 6.25, 0.83 SKT a dollar.
+        // At G = 0, $1M, $5M, $10M, $30M, $100M: 100, 82.6, 44.4, 25, 6.25, 0.83 SKT a dollar.
         let at = |usd: u64| rate_e6(S, usd * E6) as f64 / 1e6;
-        for (g, want) in [(0, 100.0), (10_000, 82.64), (50_000, 44.44), (100_000, 25.0), (300_000, 6.25), (1_000_000, 0.826)] {
+        for (g, want) in [(0, 100.0), (1_000_000, 82.64), (5_000_000, 44.44), (10_000_000, 25.0), (30_000_000, 6.25), (100_000_000, 0.826)] {
             assert!((at(g) - want).abs() < 0.01, "rate at ${g}: {} not {want}", at(g));
         }
-        // The first dollar mints 99.999 SKT: averaged across it, the rate is a hundred-thousandth under 100.
-        assert_eq!(mint_amount(S, 0, E6), 99_999_000);
-        let at_100k = mint_amount(S, 100_000 * E6, E6);
-        assert!((24_999_000..=25_000_000).contains(&at_100k), "{at_100k}");
-        // However much is lost, the whole curve is worth 100 · S, to everyone together.
+        // The first dollar mints all but a ten-millionth of 100 SKT.
+        assert_eq!(mint_amount(S, 0, E6), 99_999_990);
+        let at_10m = mint_amount(S, 10_000_000 * E6, E6);
+        assert!((24_999_990..=25_000_000).contains(&at_10m), "{at_10m}");
+        let at_100m = mint_amount(S, 100_000_000 * E6, E6);
+        assert!((826_440..=826_447).contains(&at_100m), "{at_100m}");
+        // However much is lost, even every u64 of it in one settlement, the whole curve is worth 100 · S, to everyone
+        // together: $1 billion of SKT at the default, and never an overflow.
         assert!(mint_amount(S, 0, 1_000_000_000 * E6) < 100 * S as u128);
+        let all = mint_amount(S, 0, u64::MAX);
+        assert!(all < 100 * S as u128 && all > 99 * S as u128, "{all}");
+        // At the largest scale the admin may set, too.
+        let big = skech_max();
+        assert!(mint_amount(big, 0, u64::MAX) <= 100 * big as u128 && mint_amount(big, u64::MAX, u64::MAX) > 0);
     }
 
     /// `stake · (1 − p·m) / (1 − p)` in floating point.

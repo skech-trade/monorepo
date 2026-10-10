@@ -120,8 +120,8 @@ export const DEFAULT_CONFIG: Config = {
 
 /* ---- SKT (state.rs, skt.rs) ---- */
 
-/** `RewardsConfig::DEFAULT`: 3 of the 4 stake points and 8 of the 10 profit points to SKT holders; the curve's scale $100,000. */
-export const DEFAULT_REWARDS_CONFIG: RewardsConfig = { holderFeeBps: 300, holderProfitFeeBps: 800, mintScale: 100_000_000_000n };
+/** `RewardsConfig::DEFAULT`: 3 of the 4 stake points and 8 of the 10 profit points to SKT holders; the curve's scale $10,000,000. */
+export const DEFAULT_REWARDS_CONFIG: RewardsConfig = { holderFeeBps: 300, holderProfitFeeBps: 800, mintScale: 10_000_000_000_000n };
 /** SKT is counted in millionths, as USDC is. */
 export const SKT_DECIMALS = 6;
 /** The holders' accumulator's scale. */

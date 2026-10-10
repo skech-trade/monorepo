@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { address } from "@solana/kit";
+import { address, getAddressEncoder, getProgramDerivedAddress } from "@solana/kit";
 import vectors from "./tests/vectors/piece.json";
-import { ACC_SCALE, claimableE6, DEFAULT_CONFIG, DEFAULT_REWARDS_CONFIG, domainFor, ed25519Instruction, findHolderPda, findRewardsPda, holderAddress, pieceBytes, rewardsAddress, SKECH_PROGRAM_ADDRESS } from "./sdk";
+import { ACC_SCALE, claimableE6, DEFAULT_CONFIG, DEFAULT_REWARDS_CONFIG, domainFor, ed25519Instruction, findRewardsPda, holderAddress, pieceBytes, rewardsAddress, SKECH_PROGRAM_ADDRESS } from "./sdk";
 
 test("the client is for the program the vectors come from", () => {
   expect(SKECH_PROGRAM_ADDRESS as string).toBe(address(vectors.program));
@@ -59,7 +59,9 @@ test("the default config is the EVM game's, as SkechGame.initialize writes it", 
 
 test("SKT's addresses are the program's", async () => {
   const wallet = address("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM");
-  expect(await holderAddress(wallet)).toBe((await findHolderPda({ authority: wallet }))[0]);
+  // The program opens a holder at ["holder", wallet] (settle.rs, open_holder).
+  const [holder] = await getProgramDerivedAddress({ programAddress: SKECH_PROGRAM_ADDRESS, seeds: [new TextEncoder().encode("holder"), getAddressEncoder().encode(wallet)] });
+  expect(await holderAddress(wallet)).toBe(holder);
   expect(await rewardsAddress()).toBe((await findRewardsPda())[0]);
 });
 

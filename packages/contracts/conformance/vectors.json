@@ -2408,7 +2408,7 @@
       "skt": {
         "holderFeeBps": 300,
         "holderProfitFeeBps": 800,
-        "mintScale": 100000000000
+        "mintScale": 10000000000000
       },
       "name": "SKT: a loss mints; then 3 of the 4 stake points and 8 of the 10 profit points accrue; a claim pays them, a second nothing",
       "steps": [
@@ -2556,7 +2556,7 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "49999750",
+              "supply": "49999997",
               "acc": "0",
               "holderFunds": 0,
               "gain": 500000,
@@ -2567,7 +2567,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "49999750",
+                  "skt": "49999997",
                   "basis": 500000,
                   "claimable": 0
                 }
@@ -2608,8 +2608,8 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "49999750",
-              "acc": "30000150000750",
+              "supply": "49999997",
+              "acc": "30000001800000",
               "holderFunds": 1500,
               "gain": 500000,
               "holders": {
@@ -2619,7 +2619,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "49999750",
+                  "skt": "49999997",
                   "basis": 500000,
                   "claimable": 1499
                 }
@@ -2654,8 +2654,8 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "49999750",
-              "acc": "70000350001750",
+              "supply": "49999997",
+              "acc": "70000004200000",
               "holderFunds": 3500,
               "gain": 500000,
               "holders": {
@@ -2665,7 +2665,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "49999750",
+                  "skt": "49999997",
                   "basis": 500000,
                   "claimable": 3499
                 }
@@ -2692,8 +2692,8 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "49999750",
-              "acc": "70000350001750",
+              "supply": "49999997",
+              "acc": "70000004200000",
               "holderFunds": 1,
               "gain": 500000,
               "holders": {
@@ -2703,7 +2703,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "49999750",
+                  "skt": "49999997",
                   "basis": 500000,
                   "claimable": 0
                 }
@@ -2730,8 +2730,8 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "49999750",
-              "acc": "70000350001750",
+              "supply": "49999997",
+              "acc": "70000004200000",
               "holderFunds": 1,
               "gain": 500000,
               "holders": {
@@ -2741,7 +2741,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "49999750",
+                  "skt": "49999997",
                   "basis": 500000,
                   "claimable": 0
                 }
@@ -2768,8 +2768,8 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "49999750",
-              "acc": "70000350001750",
+              "supply": "49999997",
+              "acc": "70000004200000",
               "holderFunds": 1,
               "gain": 500000,
               "holders": {
@@ -2779,7 +2779,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "49999750",
+                  "skt": "49999997",
                   "basis": 500000,
                   "claimable": 0
                 }
@@ -2808,7 +2808,7 @@
       "skt": {
         "holderFeeBps": 300,
         "holderProfitFeeBps": 800,
-        "mintScale": 100000000000
+        "mintScale": 10000000000000
       },
       "name": "SKT: while a win is owed, the holders' share goes to the pool, and a loss mints at the full rate",
       "steps": [
@@ -2978,7 +2978,7 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "4999997",
+              "supply": "4999999",
               "acc": "0",
               "holderFunds": 0,
               "gain": 50000,
@@ -2989,7 +2989,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "4999997",
+                  "skt": "4999999",
                   "basis": 50000,
                   "claimable": 0
                 }
@@ -3030,8 +3030,8 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "4999997",
-              "acc": "300000180000108",
+              "supply": "4999999",
+              "acc": "300000060000012",
               "holderFunds": 1500,
               "gain": 50000,
               "holders": {
@@ -3041,7 +3041,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "4999997",
+                  "skt": "4999999",
                   "basis": 50000,
                   "claimable": 1499
                 }
@@ -3076,8 +3076,8 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "4999997",
-              "acc": "300000180000108",
+              "supply": "4999999",
+              "acc": "300000060000012",
               "holderFunds": 1500,
               "gain": 50000,
               "holders": {
@@ -3087,7 +3087,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "4999997",
+                  "skt": "4999999",
                   "basis": 50000,
                   "claimable": 1499
                 }
@@ -3128,8 +3128,8 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "4999997",
-              "acc": "300000180000108",
+              "supply": "4999999",
+              "acc": "300000060000012",
               "holderFunds": 1500,
               "gain": 50000,
               "holders": {
@@ -3139,7 +3139,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "4999997",
+                  "skt": "4999999",
                   "basis": 50000,
                   "claimable": 1499
                 }
@@ -3174,8 +3174,8 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "54999747",
-              "acc": "300000180000108",
+              "supply": "54999996",
+              "acc": "300000060000012",
               "holderFunds": 1500,
               "gain": 550000,
               "holders": {
@@ -3185,7 +3185,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "54999747",
+                  "skt": "54999996",
                   "basis": 550000,
                   "claimable": 1499
                 }
@@ -3212,8 +3212,8 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "54999747",
-              "acc": "300000180000108",
+              "supply": "54999996",
+              "acc": "300000060000012",
               "holderFunds": 1,
               "gain": 550000,
               "holders": {
@@ -3223,7 +3223,7 @@
                   "claimable": 0
                 },
                 "b": {
-                  "skt": "54999747",
+                  "skt": "54999996",
                   "basis": 550000,
                   "claimable": 0
                 }
@@ -3252,7 +3252,7 @@
       "skt": {
         "holderFeeBps": 300,
         "holderProfitFeeBps": 800,
-        "mintScale": 100000000000
+        "mintScale": 10000000000000
       },
       "name": "SKT: each miss mints on its odds-weighted loss, a hit on nothing, at the curve's falling rate",
       "steps": [
@@ -3536,13 +3536,13 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "5044396",
+              "supply": "5044398",
               "acc": "225230297979684226",
               "holderFunds": 10000,
               "gain": 50444,
               "holders": {
                 "a": {
-                  "skt": "5044396",
+                  "skt": "5044398",
                   "basis": 50444,
                   "claimable": 9999
                 },
@@ -3595,13 +3595,13 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "5044396",
-              "acc": "243071879013369923",
+              "supply": "5044398",
+              "acc": "243071871939550200",
               "holderFunds": 100000,
               "gain": 50444,
               "holders": {
                 "a": {
-                  "skt": "5044396",
+                  "skt": "5044398",
                   "basis": 50444,
                   "claimable": 99998
                 },
@@ -3641,18 +3641,18 @@
             },
             "houseOwed": 0,
             "skt": {
-              "supply": "50044147",
-              "acc": "243071879013369923",
+              "supply": "50044395",
+              "acc": "243071871939550200",
               "holderFunds": 100000,
               "gain": 500444,
               "holders": {
                 "a": {
-                  "skt": "5044396",
+                  "skt": "5044398",
                   "basis": 50444,
                   "claimable": 99998
                 },
                 "b": {
-                  "skt": "44999751",
+                  "skt": "44999997",
                   "basis": 450000,
                   "claimable": 0
                 }
