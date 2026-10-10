@@ -7,8 +7,6 @@ import { SOCIAL_URL } from "./social";
  * Everyone's face: a "Dylan" avatar (DiceBear), seeded by the one they chose or by their address, as on the web
  * (ui/app/src/lib/avatar.ts): the same seed draws the same face on both. Made once per seed, as SVG text for
  * react-native-svg's SvgXml (and Skia's SVG on the chart), and kept.
- *
- * Avatars: "Dylan" by Natalia Spivak, CC BY 4.0 (AVATAR_CREDIT in @skech/core/social).
  */
 let style: Style<unknown> | null = null;
 const made = new Map<string, string>();

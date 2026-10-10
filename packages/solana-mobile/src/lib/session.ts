@@ -25,10 +25,25 @@ export type SessionKey = {
 };
 
 let cached: SessionKey | null = null;
+/** A key being read or made: two callers at startup share it, rather than each making (and saving) its own. */
+let loading: Promise<SessionKey> | null = null;
+/** A key being thrown away: asked for meanwhile, the answer is a fresh key, never the one going. */
+let deleting: Promise<void> | null = null;
 
 /** The phone's session key, made on first use. */
 export async function sessionKey(): Promise<SessionKey> {
+  if (deleting) await deleting;
   if (cached) return cached;
+  if (loading) return loading;
+  loading = loadKey();
+  try {
+    return await loading;
+  } finally {
+    loading = null;
+  }
+}
+
+async function loadKey(): Promise<SessionKey> {
   let secret = await SecureStore.getItemAsync(NAME);
   if (!secret) {
     secret = hex(ed25519.utils.randomSecretKey());
@@ -69,6 +84,15 @@ function nativeSigner(priv: Uint8Array): ((message: Uint8Array) => Uint8Array) |
 
 /** Throw the key away: the next session needs registering again. */
 export async function forgetSessionKey() {
-  cached = null;
-  await SecureStore.deleteItemAsync(NAME);
+  if (deleting) return deleting;
+  deleting = (async () => {
+    if (loading) await loading.catch(() => undefined);
+    cached = null;
+    await SecureStore.deleteItemAsync(NAME);
+  })();
+  try {
+    await deleting;
+  } finally {
+    deleting = null;
+  }
 }

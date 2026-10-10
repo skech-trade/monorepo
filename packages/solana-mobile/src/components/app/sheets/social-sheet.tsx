@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Linking, Pressable, Text, TextInput, View } from "react-native";
-import { AVATAR_CREDIT, avatarChoices, BIO_MAX, type LeaderboardRow, type PlayerProfile, playerName, type ProfileResponse, type SocialWindow, usernameProblem } from "@skech/core/social";
+import { Pressable, Text, TextInput, View } from "react-native";
+import { avatarChoices, BIO_MAX, type LeaderboardRow, type PlayerProfile, playerName, type ProfileResponse, type SocialWindow, usernameProblem } from "@skech/core/social";
 import { useAccount } from "@/components/app/auth";
 import { useGate } from "@/components/app/gate";
 import { Dylan, PlayerAvatar } from "@/components/app/player-avatar";
@@ -24,22 +24,6 @@ const windows: { value: SocialWindow; label: string }[] = [
 ];
 const figures = { fontVariant: ["tabular-nums" as const] };
 const positive = (v: string) => BigInt(v) > 0n;
-
-export function AvatarCredit() {
-  const open = (url: string) => void Linking.openURL(url).catch(() => undefined);
-  return (
-    <Text className="px-1 text-[11px] text-muted-foreground leading-[15px]">
-      Avatars:{" "}
-      <Text className="underline" onPress={() => open(AVATAR_CREDIT.source)}>
-        “Dylan”
-      </Text>{" "}
-      by Natalia Spivak,{" "}
-      <Text className="underline" onPress={() => open(AVATAR_CREDIT.licence)}>
-        CC BY 4.0
-      </Text>
-    </Text>
-  );
-}
 
 function Chips<T extends string>({ items, value, onChange }: { items: { value: T; label: string }[]; value: T; onChange: (v: T) => void }) {
   return (
@@ -89,7 +73,6 @@ export function SocialSheet({ initialTab, initialPlayer, onClose }: { initialTab
       </View>
       {tab !== "activity" ? <Chips items={windows} onChange={setWindow} value={window} /> : null}
       {tab === "leaderboard" ? <Board onPlayer={viewPlayer} viewer={viewer} window={window} /> : tab === "activity" ? <Live onPlayer={viewPlayer} /> : player ? <Profile key={`${player}:${window}`} player={player} window={window} /> : <SignInFirst />}
-      <AvatarCredit />
     </Sheet>
   );
 }
@@ -434,9 +417,6 @@ function EditProfile({ profile, onCancel, onSaved }: { profile: PlayerProfile; o
             <Text className="font-semibold text-[15px] text-foreground">Shuffle</Text>
           </View>
         </Button>
-        <View className="flex-1">
-          <AvatarCredit />
-        </View>
       </View>
       <View className="gap-2">
         <Text className="text-[13px] text-foreground">Username</Text>

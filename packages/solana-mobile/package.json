@@ -13,6 +13,7 @@
     "lint": "expo lint --fix",
     "lint:check": "expo lint",
     "start": "expo start",
+    "test": "bun test tests",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit"
   },

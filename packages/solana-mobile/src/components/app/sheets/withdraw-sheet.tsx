@@ -190,7 +190,7 @@ export function WithdrawSheet({ open, onClose }: { open: boolean; onClose: () =>
       return setError(plain(r.why));
     }
     setSent({ amount: usd, to: dest.address, tx: r.tx });
-    feel("win", { ratio: 1 });
+    feel("win", { tier: 1 });
     if (!openRef.current) Alert.alert(`${money(usd)} is on its way`, `to ${shortAddress(dest.address)}`);
     setStep("done");
   };

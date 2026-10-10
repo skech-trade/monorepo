@@ -10,7 +10,8 @@
     "./chain": "./src/chain.ts",
     "./bars": "./src/bars.ts",
     "./paper": "./src/paper.ts",
-    "./social": "./src/social.ts"
+    "./social": "./src/social.ts",
+    "./cheer": "./src/cheer.ts"
   },
   "scripts": {
     "test": "bun test"

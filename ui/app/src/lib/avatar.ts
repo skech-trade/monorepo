@@ -6,10 +6,8 @@ import { SOCIAL_URL } from "./endpoints";
 /**
  * Everyone's face: a "Dylan" avatar (DiceBear), seeded by the one they chose or by their address, or a picture
  * they uploaded. Made once per seed, as an SVG data URI (img-src data: in the page's policy), and kept.
- *
- * Avatars: "Dylan" by Natalia Spivak, CC BY 4.0 (AVATAR_CREDIT).
  */
-export { AVATAR_CREDIT, avatarChoices } from "@skech/core/social";
+export { avatarChoices } from "@skech/core/social";
 
 let style: Style<unknown> | null = null;
 const made = new Map<string, string>();
