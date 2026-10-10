@@ -38,6 +38,8 @@ export type BetCell = Cell & {
   paid?: number;
   /** For a hit: the prices that second traded across, so the picture shows where the price met the ink. */
   range?: [number, number];
+  /** On chain: its second's bar was never posted, so it was given its stake back. Out of play, never a miss. */
+  expired?: true;
 };
 
 /** Missing means the original per-row contract. ladder-v1 is what new drawings open on. */
