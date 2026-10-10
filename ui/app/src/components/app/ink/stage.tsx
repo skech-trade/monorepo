@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { type Bar, type Field, openFor } from "@skech/core/dots";
 import { drawingLayout, INK_CELL, VIEW_SECONDS, CHART_STEP_PX, PEN_CELLS, type Cell, type InkBet, type Pen, type Stroke } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
+import { BURST, type Tier } from "@skech/core/cheer";
 import type { Tick } from "@/lib/engine";
 import { tracePricePath } from "./price-path";
 import { feel, pen as penSound } from "@/lib/feel";
@@ -32,7 +33,12 @@ import { playerHue, type PublicDrawing } from "@skech/core/social";
  * owns the rules and the money; this owns the picture and the pen.
  */
 
-export type Fx = { kind: "hit" | "placed" | "drop"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean };
+/**
+ * Something that happened on the chart, drawn where it happened. `profit`: a hit in a round that is ahead, which
+ * sprays; a hit while the round is still behind only rings. `burst`: a round that came out ahead, its confetti thrown
+ * from where the price last met its ink, as much as its `tier` (cheer.ts) earns.
+ */
+export type Fx = { kind: "hit" | "placed" | "drop" | "burst"; t: number; price: number; born: number; text?: string; loss?: boolean; line?: string; big?: boolean; profit?: boolean; tier?: number; thrown?: boolean };
 /** What the stroke being drawn costs, the least and most a hit on it pays (in dollars), and which of its points are in play. */
 export type Preview = { multipleLow: number; multipleHigh: number; units: number; cost: number; low: number; high: number; inPlay: Cell[]; out: Cell[]; keyboard?: boolean };
 
@@ -93,7 +99,7 @@ function resolve(css: string, into: HTMLElement): Rgb {
   return [r, g, b];
 }
 /** The app's own shades, from its CSS: the text, the page, the quiet text, and the green it uses for a gain. */
-type Palette = { ink: Rgb; fg: Rgb; bg: Rgb; muted: Rgb; faint: Rgb; up: Rgb; upMark: Rgb; down: Rgb; downMark: Rgb; dark: boolean };
+type Palette = { ink: Rgb; fg: Rgb; bg: Rgb; muted: Rgb; faint: Rgb; up: Rgb; upMark: Rgb; down: Rgb; downMark: Rgb; gold: Rgb; dark: boolean };
 
 const rgba = (c: Rgb, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 const mix = (a: Rgb, b: Rgb, k: number): Rgb => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k].map(Math.round) as Rgb;
@@ -198,8 +204,81 @@ export function Stage({
       upMark: resolve("var(--up-mark)", el.parentElement ?? document.body),
       downMark: resolve("var(--down-mark)", el.parentElement ?? document.body),
       down: resolve("var(--destructive)", el.parentElement ?? document.body),
+      gold: resolve("var(--warning)", el.parentElement ?? document.body),
       dark,
     });
+    /*
+      Confetti, from a pool made once: a profit's burst takes pieces from it rather than making any, and a piece is
+      free again once it has fallen. Each is a small card turning as it falls, drawn with one transform and one fill.
+    */
+    const PIECES = 240;
+    const confetti = {
+      x: new Float32Array(PIECES),
+      y: new Float32Array(PIECES),
+      vx: new Float32Array(PIECES),
+      vy: new Float32Array(PIECES),
+      spin: new Float32Array(PIECES),
+      turn: new Float32Array(PIECES),
+      size: new Float32Array(PIECES),
+      life: new Float32Array(PIECES),
+      hue: new Uint8Array(PIECES),
+      live: 0,
+      next: 0,
+    };
+    /** Throw `n` pieces up and out from (x, y): a fountain, wider and higher the bigger the profit. */
+    const throwConfetti = (x0: number, y0: number, n: number, tier: number) => {
+      const reach = 0.75 + tier * 0.18;
+      for (let k = 0; k < n; k++) {
+        const i = confetti.next;
+        confetti.next = (i + 1) % PIECES;
+        if (confetti.life[i] <= 0) confetti.live++;
+        const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.95;
+        const v = (0.32 + Math.random() * 0.38) * reach;
+        confetti.x[i] = x0 + (Math.random() - 0.5) * 8;
+        confetti.y[i] = y0 + (Math.random() - 0.5) * 8;
+        confetti.vx[i] = Math.cos(a) * v;
+        confetti.vy[i] = Math.sin(a) * v - 0.12 * reach;
+        confetti.spin[i] = Math.random() * Math.PI * 2;
+        confetti.turn[i] = (Math.random() - 0.5) * 0.024;
+        confetti.size[i] = 4 + Math.random() * 4;
+        confetti.life[i] = 1300 + Math.random() * 700 + tier * 150;
+        confetti.hue[i] = k % 3;
+      }
+    };
+    /** Moves and draws the pieces in the air: gravity, a little air, and a turn that shows each face in its time. */
+    const drawConfetti = (dt: number) => {
+      if (!confetti.live || !pal) return;
+      const fills = [rgba(pal.up), rgba(pal.ink), rgba(pal.gold)];
+      const drag = Math.exp(-dt / 900);
+      for (let i = 0; i < PIECES; i++) {
+        if (confetti.life[i] <= 0) continue;
+        confetti.life[i] -= dt;
+        if (confetti.life[i] <= 0) {
+          confetti.live--;
+          continue;
+        }
+        confetti.vx[i] *= drag;
+        confetti.vy[i] = confetti.vy[i] * drag + 0.0011 * dt;
+        confetti.x[i] += confetti.vx[i] * dt;
+        confetti.y[i] += confetti.vy[i] * dt;
+        confetti.spin[i] += confetti.turn[i] * dt;
+        if (confetti.y[i] > h + 20) {
+          confetti.life[i] = 0;
+          confetti.live--;
+          continue;
+        }
+        const cos = Math.cos(confetti.spin[i]),
+          sin = Math.sin(confetti.spin[i]);
+        const sz = confetti.size[i];
+        c.globalAlpha = Math.min(1, confetti.life[i] / 400);
+        c.fillStyle = fills[confetti.hue[i]];
+        c.setTransform(dpr * cos, dpr * sin, -dpr * sin, dpr * cos, dpr * confetti.x[i], dpr * confetti.y[i]);
+        // A card seen turning: its width follows the turn, so it flickers as real confetti does.
+        c.fillRect((-sz / 2) * Math.abs(Math.cos(confetti.spin[i] * 1.7)), -sz * 0.32, sz * Math.abs(Math.cos(confetti.spin[i] * 1.7)) + 0.6, sz * 0.64);
+      }
+      c.globalAlpha = 1;
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
     let w = 0;
     let h = 0;
     let dpr = 1;
@@ -1231,8 +1310,8 @@ export function Stage({
 
       }
 
-      // Hits burst and float what they paid; a drawing pops once when it goes in.
-      g.fx = g.fx.filter((e) => ms - e.born < 1500);
+      // Hits burst and float what they paid; a drawing pops once when it goes in; a profitable round throws confetti.
+      g.fx = g.fx.filter((e) => ms - e.born < (e.kind === "burst" ? 2600 : 1500));
       c.textAlign = "center";
       for (const e of g.fx) {
         const age = (ms - e.born) / 1500;
@@ -1247,7 +1326,8 @@ export function Stage({
           c.lineWidth = 1.2;
           c.strokeStyle = rgba(pal.up, 0.25 * (1 - age));
           c.beginPath(); c.arc(ex, ey, (e.big ? 52 : 40) * grow, 0, Math.PI * 2); c.stroke();
-          const n = reducedMotion.matches ? 0 : e.big ? 22 : 14;
+          // The spray is a celebration, so only a hit in a round that is ahead has one.
+          const n = reducedMotion.matches || e.profit === false ? 0 : e.big ? 22 : 14;
           c.fillStyle = green;
           for (let i = 0; i < n; i++) {
             const a = (i / n) * Math.PI * 2 + e.born;
@@ -1272,6 +1352,22 @@ export function Stage({
             c.fillText(e.text, cx, cy + 0.5);
           }
           c.globalAlpha = 1;
+        } else if (e.kind === "burst") {
+          // Thrown once, the first frame it is seen; a flash of light where it came from, then the pieces fly on their own.
+          if (!reducedMotion.matches && !e.thrown) {
+            e.thrown = true;
+            throwConfetti(ex, ey, BURST[(e.tier ?? 1) as Tier], e.tier ?? 1);
+          }
+          const life = (ms - e.born) / 700;
+          if (life < 1) {
+            const out = reducedMotion.matches ? 1 : 1 - (1 - life) ** 3;
+            const glowR = (28 + 18 * (e.tier ?? 1)) * (0.4 + 0.6 * out);
+            const glow = c.createRadialGradient(ex, ey, 0, ex, ey, glowR);
+            glow.addColorStop(0, rgba(pal.up, 0.38 * (1 - life)));
+            glow.addColorStop(1, rgba(pal.up, 0));
+            c.fillStyle = glow;
+            c.beginPath(); c.arc(ex, ey, glowR, 0, Math.PI * 2); c.fill();
+          }
         } else if (e.kind === "drop") {
           // The drop: a blot that swells under the finger, and a ring running out from it, both in the ink's colour.
           const life = Math.min(1, (ms - e.born) / 520);
@@ -1290,6 +1386,8 @@ export function Stage({
           c.stroke();
         }
       }
+
+      drawConfetti(dt);
 
       // Why a drawing did not go in, where the pen was.
       if (flash) {

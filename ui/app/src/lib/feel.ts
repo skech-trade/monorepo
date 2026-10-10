@@ -1,5 +1,6 @@
 "use client";
 
+import { climbRate, feltLevel, type Tier, type Voice, voiceFor, voiceJob } from "@skech/core/cheer";
 import { practice } from "./practice";
 
 /*
@@ -12,10 +13,16 @@ import { practice } from "./practice";
   The rules the sounds follow:
   - A tap is heard the instant the finger lands, as a drop of ink.
   - Drawing sounds like a pen on paper: a soft scratch that follows the hand's speed and stops with it.
-  - A hit is coins, pitched up by the streak: the third hit in a row sounds higher than the first.
-  - A big hit adds a sparkle; a big round adds a fanfare.
-  - A round that lost makes no sound and no touch: only winning is heard.
+  - Only profit is celebrated. A hit is heard only while its round is ahead: a bell, a step higher for each hit in a
+    row, a big one with notes over it. A hit in a round that is still behind is shown, not heard.
+  - A round that came out ahead rings up its chord, fuller the more it made, a step up the scale for each profitable
+    round in a row (back to the root after one that was not), and the till rings as the money lands in the balance.
+  - A round that lost makes no sound and no touch.
+  - One at a time: see feel(), at the bottom.
   - Anything refused is a short low double note, never a buzzer.
+
+  The celebrations (packages/core/src/cheer.ts) are made once, a slice at a time while the page is idle, and kept:
+  each then plays as one buffer, never a dozen oscillators wired up in the middle of a frame.
 */
 
 let audio: AudioContext | null = null;
@@ -37,6 +44,7 @@ function ctx(): AudioContext | null {
     bus = audio.createGain();
     bus.gain.value = 0.9;
     bus.connect(squash).connect(audio.destination);
+    prepareVoices();
   }
   if (audio.state === "suspended") void audio.resume();
   return audio;
@@ -128,6 +136,70 @@ function hiss(at: number, dur: number, gain: number, freq: number, q = 1.2) {
 const PENTA = [0, 2, 4, 7, 9];
 const note = (step: number, base = 880) => base * 2 ** ((12 * Math.floor(step / 5) + PENTA[((step % 5) + 5) % 5]) / 12);
 
+/*
+  The celebrations, made once. Not at load: the first finished tap starts audio, and from then on they are made in
+  the page's idle time, a few milliseconds a slice, the commonest first, never while the pen is down. One asked for
+  before it is ready falls back to the oscillators below, so nothing is ever late waiting for it.
+*/
+const VOICE_RATE = 32_000;
+const VOICE_ORDER: Voice[] = ["win1", "coins", "hit", "win2", "win3", "win4"];
+const voices = new Map<Voice, AudioBuffer>();
+let making: { voice: Voice; run: (n: number) => boolean; result: () => Float32Array<ArrayBuffer> } | null = null;
+let preparing = false;
+
+function prepareVoices() {
+  if (preparing) return;
+  preparing = true;
+  later();
+}
+function later() {
+  if (typeof requestIdleCallback === "function") requestIdleCallback(makeSome, { timeout: 1500 });
+  else setTimeout(() => makeSome(), 60);
+}
+function makeSome(idle?: IdleDeadline) {
+  const a = audio;
+  if (!a) return;
+  // The pen gets the frame to itself: try again once it is up.
+  if (penVoice) return void setTimeout(later, 250);
+  const until = performance.now() + Math.min(6, idle ? idle.timeRemaining() : 4);
+  while (performance.now() < until) {
+    if (!making) {
+      const next = VOICE_ORDER.find((v) => !voices.has(v));
+      if (!next) return;
+      making = { voice: next, ...voiceJob(next, VOICE_RATE) };
+    }
+    if (making.run(1024)) {
+      const data = making.result();
+      const buffer = a.createBuffer(1, data.length, VOICE_RATE);
+      buffer.copyToChannel(data, 0);
+      voices.set(making.voice, buffer);
+      making = null;
+    }
+  }
+  later();
+}
+
+/** Plays a made celebration, `at` seconds from now, `rate` times as fast (and so as high). False if not made yet. */
+function voice(v: Voice, { at = 0, rate = 1, gain = 1 }: { at?: number; rate?: number; gain?: number } = {}): boolean {
+  const a = ctx();
+  const buffer = voices.get(v);
+  if (!a || !bus || !buffer) return false;
+  const src = a.createBufferSource();
+  src.buffer = buffer;
+  src.playbackRate.value = rate;
+  const g = a.createGain();
+  g.gain.value = gain;
+  src.connect(g).connect(bus);
+  src.start(a.currentTime + at);
+  src.onended = () => {
+    src.disconnect();
+    g.disconnect();
+  };
+  return true;
+}
+/** When the till rings after a round's chord, by tier: as the balance's count-up lands, later for the longer chords. */
+const TILL_AT: Record<Tier, number> = { 0: 0, 1: 0.26, 2: 0.32, 3: 0.42, 4: 0.62 };
+
 
 /*
   The pen: looped noise shaped into the scratch of a nib on paper. A bandpass high in the treble is the nib,
@@ -209,10 +281,18 @@ export const sound = {
     tone({ freq: 330, to: 262, dur: 0.09, gain: 0.03, type: "triangle" });
   },
 
-  /** Coins, as many as the hit deserves, pitched up a step for every hit in a row. */
+  /**
+   * A hit while its round is ahead: a bell, a step up for every hit in a row; four times its stake or more rings a
+   * fifth over it, ten or more the octave too. Until the bell is made, coins.
+   */
   hit: (multiple: number, streak = 0) => {
     if (!on()) return;
     const lift = 2 ** (Math.min(streak, 7) / 12);
+    if (voice("hit", { rate: vary(lift, 6) })) {
+      if (multiple >= 4) voice("hit", { at: 0.07, rate: lift * 2 ** (7 / 12), gain: 0.7 });
+      if (multiple >= 10) voice("hit", { at: 0.14, rate: lift * 2, gain: 0.55 });
+      return;
+    }
     const coins = multiple >= 10 ? 4 : multiple >= 4 ? 3 : 2;
     for (let i = 0; i < coins; i++) {
       const t = i * 0.06;
@@ -226,12 +306,19 @@ export const sound = {
     if (multiple >= 10) for (let i = 0; i < 5; i++) tone({ freq: note(10 + i, 880) * lift, at: 0.22 + i * 0.045, dur: 0.16, gain: 0.03, type: "triangle" });
   },
 
-  /** A round that came out ahead: a rising chord, fuller the more it made. */
-  win: (ratio: number) => {
-    if (!on()) return;
-    const steps = ratio >= 3 ? [0, 2, 4, 5, 7] : [0, 2, 4];
-    steps.forEach((s, i) => tone({ freq: note(5 + s, 440), at: 0.05 + i * 0.075, dur: 0.35, gain: 0.045, type: "triangle" }));
-    if (ratio >= 3) steps.forEach((s, i) => tone({ freq: note(10 + s, 440), at: 0.4 + i * 0.05, dur: 0.25, gain: 0.02 }));
+  /**
+   * A round that came out ahead: its tier's chord (cheer.ts), a step up the scale for each profitable round in a
+   * row, and the till as the money lands. Until the chord is made, a rising triangle chord.
+   */
+  win: (tier: Tier, rounds = 1, till = true) => {
+    if (!on() || tier === 0) return;
+    const lift = climbRate(rounds);
+    if (!voice(voiceFor(tier), { rate: lift })) {
+      const steps = tier >= 3 ? [0, 2, 4, 5, 7] : [0, 2, 4];
+      steps.forEach((s, i) => tone({ freq: note(5 + s, 440) * lift, at: 0.05 + i * 0.075, dur: 0.35, gain: 0.045, type: "triangle" }));
+      if (tier >= 3) steps.forEach((s, i) => tone({ freq: note(10 + s, 440) * lift, at: 0.4 + i * 0.05, dur: 0.25, gain: 0.02 }));
+    }
+    if (till) voice("coins", { at: TILL_AT[tier], gain: 0.75 + tier * 0.08 });
   },
 
   /** Refused: ink that could not go in, not enough money. Short, low, twice. */
@@ -241,9 +328,10 @@ export const sound = {
     tone({ freq: 196, at: 0.09, dur: 0.09, gain: 0.05, type: "triangle" });
   },
 
-  /** Money arrived: a till, then a bright chord. */
+  /** Money arrived: the till, then a bright chord. */
   cash: () => {
     if (!on()) return;
+    if (voice("coins") && voice("win2", { at: 0.18, gain: 0.85 })) return;
     sound.hit(4);
     [0, 2, 4, 7].forEach((s, i) => tone({ freq: note(5 + s, 440), at: 0.2 + i * 0.07, dur: 0.4, gain: 0.04, type: "triangle" }));
   },
@@ -261,19 +349,39 @@ export const sound = {
   switch. A haptic with no finger behind it (a hit, seconds on) cannot be felt
   on an iPhone any more; it still plays on older iOS, and on Android.
 */
-export type Feel = "tap" | "tick" | "hit" | "big" | "win" | "nope" | "cash";
+/**
+ * What can be felt. `hit`, `run` and `big` are a hit while its round is ahead (one, one of a run, one at 10× or more);
+ * `win`, `great` and `top` a round that came out ahead (cheer.ts's tiers 1-2, 3 and 4).
+ */
+export type Feel = "tap" | "tick" | "hit" | "run" | "big" | "win" | "great" | "top" | "nope" | "cash";
 
 const VIBRATE: Record<Feel, number | number[]> = {
   tap: 10,
   tick: 4,
   hit: 18,
+  run: [16, 45, 12],
   big: [24, 40, 24, 40, 60],
-  win: [14, 50, 28],
+  win: [18, 70, 26],
+  great: [18, 45, 24, 45, 40],
+  top: [26, 40, 22, 40, 30, 40, 40, 110, 80],
   nope: [18, 60, 18],
   cash: [12, 40, 12, 40, 40],
 };
+/**
+ * A profitable round, by how strongly it is felt (cheer.ts's `feltLevel`: its tier, more for a run of them): a quick
+ * double tap, a firmer one, a rolling triple, and a longer roll with a last beat for a top round.
+ */
+const WIN_VIBRATE: Record<1 | 2 | 3 | 4, number[]> = {
+  1: [18, 70, 26],
+  2: [22, 55, 36],
+  3: [18, 45, 24, 45, 40],
+  4: [26, 40, 22, 40, 30, 40, 40, 110, 80],
+};
 /** How many switch flips each is on an iPhone: it has one strength, so a pattern is a count. */
-const FLIPS: Record<Feel, number> = { tap: 1, tick: 0, hit: 1, big: 3, win: 2, nope: 2, cash: 3 };
+const FLIPS: Record<Feel, number> = { tap: 1, tick: 0, hit: 1, run: 2, big: 3, win: 2, great: 3, top: 5, nope: 2, cash: 3 };
+const WIN_FLIPS: Record<1 | 2 | 3 | 4, number> = { 1: 2, 2: 2, 3: 3, 4: 5 };
+/** A pattern's later flips, so the next pattern cancels them instead of buzzing over them. */
+let flips: ReturnType<typeof setTimeout>[] = [];
 
 let flipper: HTMLLabelElement | null = null;
 const ios = () =>
@@ -308,35 +416,115 @@ export function settleHaptic(e: { preventDefault(): void }) {
   else e.preventDefault();
 }
 
-export function haptic(kind: Feel) {
+/** Touch: `level` is how strongly a profitable round is felt (1-4); a new pattern replaces whatever was still playing. */
+export function haptic(kind: Feel, level: Tier = 0) {
   if (typeof window === "undefined" || !practice().haptics) return;
+  const round = level > 0 && (kind === "win" || kind === "great" || kind === "top") ? (level as 1 | 2 | 3 | 4) : 0;
   try {
     if (typeof navigator.vibrate === "function") {
-      navigator.vibrate(VIBRATE[kind]);
+      navigator.vibrate(round ? WIN_VIBRATE[round] : VIBRATE[kind]);
       return;
     }
-    if (!ios() || !FLIPS[kind]) return;
+    const count = round ? WIN_FLIPS[round] : FLIPS[kind];
+    if (!ios() || !count) return;
     // A finger is on the host: its own click plays it, on every iOS from 17.4 on. One buzz: a tap has one click.
     if (performance.now() - armedAt < 1000) {
       owed = true;
       return;
     }
-    for (let i = 0; i < FLIPS[kind]; i++) {
+    for (const f of flips) clearTimeout(f);
+    flips = [];
+    for (let i = 0; i < count; i++) {
       if (i === 0) flip();
-      else setTimeout(flip, i * 90);
+      // A roll speeds up a little towards its end, as a top round's does.
+      else flips.push(setTimeout(flip, i * (round === 4 ? 80 : 90)));
     }
   } catch {
     /* not on this device */
   }
 }
 
-/** Sound and touch together, which is how nearly everything is felt. */
-export function feel(kind: Feel, detail?: { multiple?: number; streak?: number; ratio?: number }) {
-  haptic(kind);
-  if (kind === "tap") sound.drop();
-  // "tick" is touch only: the pen's own sound comes from pen.move.
-  else if (kind === "hit" || kind === "big") sound.hit(detail?.multiple ?? 2, detail?.streak ?? 0);
-  else if (kind === "win") sound.win(detail?.ratio ?? 1);
+function sounds(kind: Feel, detail?: Detail) {
+  if (kind === "hit" || kind === "run" || kind === "big") sound.hit(detail?.multiple ?? 2, detail?.streak ?? 0);
+  else if (kind === "win" || kind === "great" || kind === "top") sound.win(detail?.tier ?? 1, detail?.rounds ?? 1, detail?.till ?? false);
   else if (kind === "nope") sound.nope();
   else if (kind === "cash") sound.cash();
+}
+
+/*
+  One thing at a time, as on the phone (packages/solana-mobile/src/lib/feel.ts). Hits come in bursts (the price runs
+  through a stroke and several land in the same second), and played together they smear into noise and a motor that
+  never stops. So every moment goes through one queue and plays after the last has had its say, the most important
+  first. A burst of one kind becomes one, the biggest of it. Whatever waited too long to still mean something is
+  dropped, and a round's result doesn't wait behind a hit. The finger is the exception: a tap is heard and felt the
+  instant it lands.
+*/
+/** `streak`: hits in a row before this one. `tier` and `rounds`: a profitable round's size, and how many in a row. */
+type Detail = { multiple?: number; streak?: number; tier?: Tier; rounds?: number; till?: boolean };
+const RANK: Record<Feel, number> = { tap: 0, tick: 0, nope: 3, hit: 4, run: 5, big: 6, cash: 7, win: 7, great: 8, top: 9 };
+// How long each has the stage before the next may play, ms: a round's chord and its till ring out in full.
+const HOLD: Record<Feel, number> = { tap: 0, tick: 0, nope: 220, hit: 240, run: 260, big: 420, cash: 600, win: 900, great: 1300, top: 1900 };
+// How long each may wait its turn and still mean something, ms.
+const FRESH: Record<Feel, number> = { tap: 0, tick: 0, nope: 400, hit: 700, run: 700, big: 1000, cash: 2000, win: 2000, great: 2500, top: 3000 };
+const family = (k: Feel) => (k === "hit" || k === "run" || k === "big" ? "hit" : k === "great" || k === "top" ? "win" : k);
+
+let queue: { kind: Feel; detail?: Detail; at: number }[] = [];
+let stageUntil = 0;
+let stageRank = -1;
+let pump: ReturnType<typeof setTimeout> | null = null;
+
+function next() {
+  if (pump) clearTimeout(pump);
+  pump = null;
+  const now = performance.now();
+  queue = queue.filter((q) => now - q.at <= FRESH[q.kind]);
+  if (!queue.length) return;
+  queue.sort((a, b) => RANK[b.kind] - RANK[a.kind] || a.at - b.at);
+  const top = queue[0];
+  // Still playing, and this isn't far bigger than what is: its turn comes when the stage is free.
+  if (now < stageUntil && RANK[top.kind] < stageRank + 3) {
+    pump = setTimeout(next, stageUntil - now);
+    return;
+  }
+  queue.shift();
+  stageUntil = now + HOLD[top.kind];
+  stageRank = RANK[top.kind];
+  const d = top.detail;
+  haptic(top.kind, d?.tier ? feltLevel(d.tier, d.rounds ?? 1) : 0);
+  sounds(top.kind, d);
+  if (queue.length) pump = setTimeout(next, HOLD[top.kind]);
+}
+
+/** Sound and touch together, which is how nearly everything is felt, in turn. */
+export function feel(kind: Feel, detail?: Detail) {
+  if (kind === "tap") {
+    haptic(kind);
+    sound.drop();
+    return;
+  }
+  // The pen's tick: felt only when nothing else is, so drawing never drowns out a win. Touch only: the pen's own
+  // sound comes from pen.move.
+  if (kind === "tick") {
+    if (performance.now() >= stageUntil) haptic(kind);
+    return;
+  }
+  const same = queue.find((q) => family(q.kind) === family(kind));
+  if (same) {
+    if (RANK[kind] > RANK[same.kind]) same.kind = kind;
+    const d = same.detail ?? {};
+    same.detail = {
+      multiple: Math.max(d.multiple ?? 0, detail?.multiple ?? 0) || undefined,
+      streak: Math.max(d.streak ?? 0, detail?.streak ?? 0),
+      tier: Math.max(d.tier ?? 0, detail?.tier ?? 0) as Tier,
+      rounds: Math.max(d.rounds ?? 0, detail?.rounds ?? 0) || undefined,
+      till: d.till || detail?.till,
+    };
+  } else queue.push({ kind, detail, at: performance.now() });
+  next();
+}
+
+/** A round that came out ahead, felt and heard by its tier, and a step up for each profitable round in a row. */
+export function celebrate(tier: Tier, rounds: number) {
+  if (tier === 0) return;
+  feel(tier >= 4 ? "top" : tier === 3 ? "great" : "win", { tier, rounds, till: true });
 }
