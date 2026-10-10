@@ -33,7 +33,7 @@ import { type Chain, useChain } from "./chain-context";
 import { DepositButton, InkControls } from "./ink-controls";
 import { introReady } from "./ink-intro";
 import { addChange, Ledger } from "./ledger";
-import { Arrive, Bump, Confetti, type ConfettiHandle, Glow, MOTION, ProfitGlow, RisingMoney } from "./motion";
+import { Arrive, Bump, Confetti, type ConfettiHandle, MOTION, RisingMoney } from "./motion";
 import { Onboarding, Pill, useOnboarding } from "./onboarding";
 import { type Game, type Placed, type Preview, Stage } from "./stage";
 import { WalletButton } from "./wallet-button";
@@ -1018,9 +1018,7 @@ export function InkScreen() {
       <Text className="text-[12px] text-muted-foreground">Balance</Text>
       <Bump on={gained > 0}>
         {cheer ? (
-          <ProfitGlow color={dark ? "rgba(48,209,88,0.22)" : "rgba(52,199,89,0.2)"} delay={200} key={cheer.key}>
-            <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
-          </ProfitGlow>
+          <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} key={cheer.key} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
         ) : (
           <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
         )}
@@ -1131,7 +1129,7 @@ export function InkScreen() {
       {over && !preview ? (
         <View className={cn("absolute z-20", overWon ? "inset-x-0 items-center" : "right-4")} key={over.key} pointerEvents="none" style={{ bottom: bottom + 78 }}>
           <Arrive motion={overBig ? MOTION.cardBig : overWon ? MOTION.cardIn : MOTION.cardSoft}>
-            <View className={cn("border-[0.5px] bg-raised", overWon ? "items-center rounded-[20px] px-[22px] py-2.5" : "items-end rounded-2xl px-[18px] py-[9px]", overBig ? "border-success-foreground" : "border-border")} style={raised}>
+            <View className={cn("border-[0.5px] bg-raised", overWon ? "items-center rounded-[20px] px-[22px] py-2.5" : "items-end rounded-2xl px-[18px] py-[9px]", "border-border")} style={raised}>
               {/* Just the round's result: a profit shows everything that came back, a loss what it lost. */}
               {overWon && (over.streak ?? 0) >= 2 ? (
                 <Arrive motion={MOTION.badgePop}>
@@ -1142,11 +1140,9 @@ export function InkScreen() {
               ) : null}
               <Text className={cn("text-muted-foreground", overWon ? "text-[13px]" : "text-[12px]")}>{overWon ? "Profit" : overNet < 0 ? "Loss" : "Even"}</Text>
               {overWon ? (
-                <ProfitGlow color={dark ? "rgba(48,209,88,0.24)" : "rgba(52,199,89,0.22)"}>
-                  <Text className={cn("font-bold text-success-foreground", overBig ? "text-[32px]" : "text-[26px]")} style={{ fontVariant: ["tabular-nums"] }}>
-                    +{money(over.won)}
-                  </Text>
-                </ProfitGlow>
+                <Text className={cn("font-bold text-success-foreground", overBig ? "text-[32px]" : "text-[26px]")} style={{ fontVariant: ["tabular-nums"] }}>
+                  +{money(over.won)}
+                </Text>
               ) : (
                 <Text className={cn("font-semibold text-[18px]", overNet < 0 ? "text-destructive-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
                   {signed(overNet)}
@@ -1156,7 +1152,6 @@ export function InkScreen() {
           </Arrive>
         </View>
       ) : null}
-      {over && overBig && !preview ? <Glow color={dark ? "rgba(48,209,88,0.42)" : "rgba(36,138,61,0.42)"} key={`glow-${over.key}`} top={cheer?.tier === 4} /> : null}
 
       {returnedInk && !preview && !over ? (
         <Arrive key={returnedInk.id} motion={MOTION.pillUp} pointerEvents="none" style={{ position: "absolute", right: 16, bottom: bottom + 78, zIndex: 20 }}>

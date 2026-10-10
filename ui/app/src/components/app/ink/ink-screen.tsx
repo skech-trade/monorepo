@@ -1362,14 +1362,12 @@ export function InkScreen() {
             <WalletButton render={<button aria-label={`Balance ${money(chain.balance)}. Deposit or withdraw`} className={cn(feedback.balance, feedback.tappable)} type="button" />}>
               <span className={feedback.eyebrow}>Balance</span>
               <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}><RisingMoney format={money} value={chain.balance} /></span>
-              {cheer ? <span aria-hidden="true" className={feedback.balanceGlow} key={cheer.key} /> : null}
               <Ledger />
             </WalletButton>
           ) : (
             <div className={feedback.balance} aria-label={forReal ? "Balance" : "Practice balance"}>
               <span className={feedback.eyebrow}>Balance</span>
               <span className={cn(feedback.balanceValue, "figures", gained ? "text-success-foreground" : "text-foreground")}>{forReal ? <RisingMoney format={money} value={chain.balance} /> : <PracticeBalance crisp />}</span>
-              {cheer ? <span aria-hidden="true" className={feedback.balanceGlow} key={cheer.key} /> : null}
               <Ledger />
             </div>
           )}
@@ -1427,7 +1425,6 @@ export function InkScreen() {
               </div>
             </div>
           ) : null}
-          {over && overBig && !previewing ? <div aria-hidden="true" className={cn(feedback.glow, cheer?.tier === 4 && feedback.glowTop)} key={`glow-${over.key}`} /> : null}
       </div>
 
       {returnedInk && !previewing && !over ? <div key={returnedInk.id} role="status" className={feedback.bottomPill}>Unpriced ink · <span className="figures font-semibold text-foreground">{money(returnedInk.amount)} refunded</span></div> : null}

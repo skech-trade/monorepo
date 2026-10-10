@@ -118,7 +118,7 @@
 
 /* The round card: a win springs in, a big win harder; a loss slides in quietly, smaller. */
 .roundWin { animation: card-in 420ms cubic-bezier(.2,1.5,.4,1) both; }
-.roundBig { animation: card-big 620ms cubic-bezier(.2,1.6,.35,1) both; padding: 14px 28px; box-shadow: var(--raised-shadow), 0 0 0 2px color-mix(in oklab, var(--success-foreground) 40%, transparent), 0 12px 40px -8px color-mix(in oklab, var(--success-foreground) 45%, transparent); }
+.roundBig { animation: card-big 620ms cubic-bezier(.2,1.6,.35,1) both; padding: 14px 28px; }
 .roundBig .roundValue { font-size: 34px; }
 @keyframes card-in { from { opacity: 0; transform: translateY(14px) scale(.9); } to { opacity: 1; transform: none; } }
 @keyframes card-big { 0% { opacity: 0; transform: translateY(24px) scale(.7); } 60% { opacity: 1; transform: translateY(-4px) scale(1.06); } 100% { transform: none; } }
@@ -132,35 +132,12 @@
 .streak { margin-bottom: 4px; padding: 2px 10px; border-radius: 999px; background: color-mix(in oklab, var(--brand) 14%, transparent); color: var(--brand); font-size: 12px; font-weight: 700; letter-spacing: .01em; animation: streak-pop 560ms cubic-bezier(.2,1.8,.4,1) 180ms both; }
 @keyframes streak-pop { from { opacity: 0; transform: scale(.3) translateY(6px); } 60% { opacity: 1; } to { opacity: 1; transform: none; } }
 
-/* A profit's figure glows as it lands: a soft light behind it that swells twice and fades. Only opacity and transform
-   move, so it costs the page nothing to draw. */
-.roundWin .roundValue { position: relative; isolation: isolate; }
-.roundWin .roundValue::before { content: ""; position: absolute; z-index: -1; inset: -8px -18px; border-radius: 999px; background: radial-gradient(closest-side, color-mix(in oklab, var(--success) 42%, transparent), transparent); opacity: 0; animation: profit-glow 1700ms ease-out 120ms both; }
-@keyframes profit-glow { 0% { opacity: 0; transform: scale(.6); } 22% { opacity: 1; transform: scale(1.06); } 45% { opacity: .5; transform: scale(.96); } 65% { opacity: .85; transform: scale(1.1); } 100% { opacity: 0; transform: scale(1.25); } }
 
-/* The balance, as a profit lands in it: the same light, once. */
-.balanceGlow { position: absolute; z-index: -1; right: -14px; bottom: -6px; width: calc(100% + 28px); height: 34px; border-radius: 999px; background: radial-gradient(closest-side, color-mix(in oklab, var(--success) 38%, transparent), transparent); pointer-events: none; opacity: 0; animation: profit-glow 1400ms ease-out 200ms both; }
 
-/* A big win lights the edges of the screen, once; a top one brighter, deeper, and twice. */
-.glow { position: fixed; inset: 0; z-index: 24; pointer-events: none; border-radius: inherit; animation: glow 1500ms ease-out both; }
-@keyframes glow {
-  0% { box-shadow: inset 0 0 0 0 transparent; }
-  25% { box-shadow: inset 0 0 110px 14px color-mix(in oklab, var(--success-foreground) 42%, transparent); }
-  100% { box-shadow: inset 0 0 0 0 transparent; }
-}
-.glowTop { animation: glow-top 2400ms ease-out both; }
-@keyframes glow-top {
-  0% { box-shadow: inset 0 0 0 0 transparent; }
-  18% { box-shadow: inset 0 0 160px 26px color-mix(in oklab, var(--success-foreground) 55%, transparent); }
-  40% { box-shadow: inset 0 0 90px 10px color-mix(in oklab, var(--success-foreground) 28%, transparent); }
-  58% { box-shadow: inset 0 0 150px 22px color-mix(in oklab, var(--success-foreground) 48%, transparent); }
-  100% { box-shadow: inset 0 0 0 0 transparent; }
-}
 
 @media (prefers-reduced-motion: reduce) {
-  .ledgerLife, .roundWin, .roundBig, .roundLoss, .glow, .glowTop, .streak { animation-duration: 1ms; }
-  .roundWin .roundValue::before, .balanceGlow { display: none; }
-  .ledgerRow { transition: none; }
+  .ledgerLife, .roundWin, .roundBig, .roundLoss, .streak { animation-duration: 1ms; }
+  .roundWin .roundValue::before,   .ledgerRow { transition: none; }
 }
 
 /* On a phone a win takes the middle, above the pen controls, where the thumb just was. */
@@ -169,7 +146,6 @@
   .roundWin > div, .roundBig > div { align-items: center; }
   .roundWin .roundValue { font-size: 26px; }
   .roundBig .roundValue { font-size: 32px; }
-  .glow { animation-duration: 1300ms; }
 }
 
 /* ---- Motion everywhere else --------------------------------------------------- */
@@ -203,8 +179,6 @@
   border: .5px solid color-mix(in oklab, var(--foreground) 12%, transparent);
   box-shadow: 0 1px 2px rgb(0 0 0 / 8%), 0 4px 12px rgb(0 0 0 / 8%), var(--raised-shadow);
 }
-/* A big win keeps its green halo over the plain lift. */
-.roundCard.roundBig { border-color: color-mix(in oklab, var(--success-foreground) 45%, transparent); box-shadow: var(--raised-shadow), 0 0 0 2px color-mix(in oklab, var(--success-foreground) 40%, transparent), 0 12px 40px -8px color-mix(in oklab, var(--success-foreground) 45%, transparent); }
 
 /* ---- Phones: room for the header, and pills clear of the balance's changes ------------------------------ */
 @media (max-width: 429px) {
