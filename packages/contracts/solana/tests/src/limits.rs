@@ -59,6 +59,7 @@ fn compute_units() {
     let mut out = serde_json::Map::new();
     let mut g = Game::new();
     let mut players = vec![];
+    let mut bets = vec![];
     for n in [1usize, 8, 16, 32] {
         let p = g.player(100 * E6, 50 * E6);
         // Measured at bump 255, where the search ends at once.
@@ -68,7 +69,8 @@ fn compute_units() {
         let r = g.place(&p, &piece, &quote).expect("placed");
         println!("place, {n} bands: {} CU", r.compute_units_consumed);
         out.insert(format!("place_{n}"), r.compute_units_consumed.into());
-        players.push((bet_pda(&p.wallet.pubkey(), drawing, 0).0, p.wallet.pubkey()));
+        bets.push((bet_pda(&p.wallet.pubkey(), drawing, 0).0, p.wallet.pubkey()));
+        players.push((p, n));
     }
     // What each bump below 255 adds: the relayer knows a bet's bump, and budgets for it.
     let p = g.player(100 * E6, 50 * E6);
@@ -79,20 +81,101 @@ fn compute_units() {
     let per_bump = (r.compute_units_consumed - out["place_1"].as_u64().unwrap()).div_ceil(255 - bump as u64);
     println!("place, each bump below 255: {per_bump} CU");
     out.insert("place_per_bump".into(), per_bump.into());
-    // Every bet has a band in second 1: settle all four on it.
+    // Every bet has a band in second 1: settle all four on it. Each player's first settlement opens their holder.
     g.set_time(S + 3);
-    let r = g.post_and_settle((S + 2) * 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &players).expect("settled");
-    println!("post a bar and settle 4 bets (1, 8, 16, 32 bands): {} CU", r.compute_units_consumed);
+    let r = g.post_and_settle((S + 2) * 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &bets).expect("settled");
+    println!("post a bar and settle 4 bets (1, 8, 16, 32 bands), opening their holders: {} CU", r.compute_units_consumed);
     out.insert("post_and_settle_4_mixed".into(), r.compute_units_consumed.into());
-    let r = g.post_and_settle((S + 2) * 1000 + 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &[]).expect("posted");
+    // The same four pieces again, a minute on, their holders open: what a settlement costs from then on.
+    let at = S + 60;
+    g.set_time(at);
+    let again: Vec<(Pubkey, Pubkey)> = players
+        .iter()
+        .map(|(p, n)| {
+            let drawing = drawing_at_bump(&p.wallet.pubkey(), 100 + *n as u64, |b| b == 255);
+            let piece = g.piece(p, drawing, 0, (at + 1) * 1000, &widest(*n));
+            g.place(p, &piece, &g.quote(&piece, 500_000_000)).expect("placed");
+            (bet_pda(&p.wallet.pubkey(), drawing, 0).0, p.wallet.pubkey())
+        })
+        .collect();
+    g.set_time(at + 3);
+    let r = g.post_and_settle((at + 2) * 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &again).expect("settled");
+    println!("post a bar and settle the same 4, their holders open: {} CU", r.compute_units_consumed);
+    out.insert("post_and_settle_4_mixed_open".into(), r.compute_units_consumed.into());
+    let r = g.post_and_settle((at + 2) * 1000 + 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &[]).expect("posted");
     println!("post a bar alone: {} CU", r.compute_units_consumed);
     out.insert("post_bar".into(), r.compute_units_consumed.into());
+
+    // A player's Holder is opened by their first settlement: what that adds, from four one-band bets settled with
+    // their holders to open, and four more once they are.
+    let fresh: Vec<Player> = (0..4).map(|_| g.player(100 * E6, 50 * E6)).collect();
+    let one_band = |g: &mut Game, second: i64, drawing: u64| -> (u64, Vec<(Pubkey, Pubkey)>) {
+        g.set_time(second / 1000 - 1);
+        let bets: Vec<(Pubkey, Pubkey)> = fresh
+            .iter()
+            .map(|p| {
+                let d = drawing_at_bump(&p.wallet.pubkey(), drawing, |b| b == 255);
+                let piece = g.piece(p, d, 0, second, &[(1, 415_000, 5, 50_000)]);
+                g.place(p, &piece, &g.quote(&piece, 500_000_000)).expect("placed");
+                (bet_pda(&p.wallet.pubkey(), d, 0).0, p.wallet.pubkey())
+            })
+            .collect();
+        g.set_time(second / 1000 + 4);
+        let r = g.post_and_settle(second + 1000, 83_000 * E8, 83_000 * E8, 83_000 * E8, 83_000 * E8, &bets).expect("settled");
+        (r.compute_units_consumed, bets)
+    };
+    let (opening, _) = one_band(&mut g, (S + 20) * 1000, 10_000);
+    let (open, _) = one_band(&mut g, (S + 40) * 1000, 20_000);
+    let per_holder = (opening - open).div_ceil(4);
+    println!("post a bar and settle 4 one-band bets: {open} CU, {opening} CU opening their holders ({per_holder} each)");
+    out.insert("post_and_settle_4_one_band".into(), open.into());
+    out.insert("holder_open".into(), per_holder.into());
+    let p = &fresh[0];
+    let r = g.send(&[g.claim_ix(p)], &[&p.wallet]).expect("claimed");
+    println!("claim: {} CU", r.compute_units_consumed);
+    out.insert("claim".into(), r.compute_units_consumed.into());
     let _ = AccountMeta::new(Pubkey::default(), false);
     if std::env::var("SNAPSHOT").is_ok() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../snapshots/compute.json");
         std::fs::create_dir_all(std::path::Path::new(path).parent().unwrap()).unwrap();
         std::fs::write(path, serde_json::to_string_pretty(&out).unwrap() + "\n").unwrap();
     }
+}
+
+/// The most bets one settlement holds, each a different player's (bet, player, holder): the relayer's `betsPerSettle`.
+/// And what that many cost, every holder opened in it.
+#[test]
+fn the_most_bets_a_settlement_holds() {
+    let mut g = Game::new();
+    let table = AddressLookupTableAccount {
+        key: Pubkey::new_unique(),
+        addresses: vec![game_pda(), market_pda(0), bars_pda(0), pool_pda(), rewards_pda(), anchor_lang::solana_program::sysvar::instructions::ID, anchor_lang::system_program::ID],
+    };
+    let players: Vec<Player> = (0..12).map(|_| g.player(100 * E6, 50 * E6)).collect();
+    let bets: Vec<(Pubkey, Pubkey)> = players
+        .iter()
+        .map(|p| {
+            let piece = g.piece(p, 1, 0, (S + 1) * 1000, &widest(32));
+            g.place(p, &piece, &g.quote(&piece, 500_000_000)).expect("placed");
+            (bet_pda(&p.wallet.pubkey(), 1, 0).0, p.wallet.pubkey())
+        })
+        .collect();
+    let size = |g: &Game, n: usize| {
+        let [limit, price] = budget(1_400_000, 50_000);
+        let ix = g.post_and_settle_ix((S + 2) * 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &bets[..n]);
+        let msg = v0::Message::try_compile(&g.relayer.pubkey(), &[limit, price, ix], &[table.clone()], g.svm.latest_blockhash()).unwrap();
+        bincode::serialize(&VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&g.relayer]).unwrap()).unwrap().len()
+    };
+    let most = (1..=bets.len()).take_while(|&n| size(&g, n) <= 1232).last().unwrap();
+    println!("a settlement holds {most} bets of different players: {} bytes", size(&g, most));
+    assert_eq!(most, 9, "the relayer's betsPerSettle");
+    g.set_time(S + 3);
+    let [limit, _] = budget(1_400_000, 0);
+    let ix = g.post_and_settle_ix((S + 2) * 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &bets[..most]);
+    let r = g.send(&[limit, ix], &[]).expect("settled");
+    println!("post a bar and settle {most} bets of 32 bands, opening every holder: {} CU", r.compute_units_consumed);
+    // Well inside the 1.4M a transaction may ask for.
+    assert!(r.compute_units_consumed < 700_000);
 }
 
 /// The accounts' sizes, now worked out rather than written out: the same bytes as the accounts already on chain.
@@ -102,6 +185,9 @@ fn account_sizes_are_what_is_on_chain() {
     // A bet's fixed part, and each section.
     assert_eq!(skech::state::Bet::FIXED, 130);
     assert_eq!(skech::state::Bet::space(32), 130 + 32 * 27);
+    // And the new ones: a Holder's rent is the relayer's, once a player.
+    assert_eq!(skech::state::Holder::SPACE, 129);
+    assert_eq!(8 + <skech::state::Rewards as anchor_lang::Space>::INIT_SPACE, 141);
 }
 
 /// A piece's bytes and a domain, for `sdk.test.ts` to check the TypeScript encodes them the same.

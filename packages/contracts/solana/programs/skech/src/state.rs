@@ -332,7 +332,7 @@ pub struct Rewards {
 /// A player's SKT: their balance (always staked), what it has earned, and the low-water mark of their net result
 /// that decides what they mint. Keyed by their wallet; created at the first settlement that decides a band of theirs.
 #[account]
-#[derive(InitSpace, Default)]
+#[derive(InitSpace, Default, PartialEq, Eq, Debug)]
 pub struct Holder {
     pub player: Pubkey,
     /// SKT, millionths.
