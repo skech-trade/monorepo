@@ -36,12 +36,16 @@ export function mintAmount(scale: bigint, from: bigint, basis: bigint): bigint {
   return d > 0n ? d : 0n;
 }
 const CHANCE_ONE = 1_000_000_000n;
-/** What a band that missed counts toward SKT: `stake · (1 − p·m) / (1 − p)`, rounded down. */
-export function missBasis(stake: bigint, chanceE9: number, rungE2: number): bigint {
+/** What a band that missed counts toward SKT: `stake · [(1 − p·m) + f·p·(m − 1)] / (1 − p)`, rounded down, at least 0
+ * and at most the stake, with `f` the profit fee: in units of 1e-15, as the program works it. */
+export function missBasis(stake: bigint, chanceE9: number, rungE2: number, profitFeeBps: number): bigint {
   const p = BigInt(chanceE9);
   if (p >= CHANCE_ONE) return 0n;
-  const edge = 100n * CHANCE_ONE - p * BigInt(rungE2);
-  return edge > 0n ? (stake * edge) / (100n * (CHANCE_ONE - p)) : 0n;
+  const r = BigInt(rungE2);
+  const edge = BPS * 100n * CHANCE_ONE + BigInt(profitFeeBps) * p * (r > 100n ? r - 100n : 0n) - BPS * p * r;
+  if (edge <= 0n) return 0n;
+  const b = (stake * edge) / (BPS * 100n * (CHANCE_ONE - p));
+  return b < stake ? b : stake;
 }
 /** What each SKT holder has, in a case's state. */
 export type HolderState = { skt: string; basis: number; claimable: number };
@@ -109,11 +113,11 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
     if (supply === 0n) fees += taken;
     else accrue(taken);
   };
-  /** A settlement's basis mints, from the tracked gain on (from 0 while anything was owed), and moves the gain on. */
-  const mint = (who: string, basis: bigint, ious: boolean) => {
+  /** A settlement's basis mints, from the tracked gain on, whatever is owed, and moves the gain on. */
+  const mint = (who: string, basis: bigint) => {
     if (!basis) return;
     const h = holders[who];
-    const minted = mintAmount(BigInt(skt!.mintScale), ious ? 0n : gain, basis);
+    const minted = mintAmount(BigInt(skt!.mintScale), gain, basis);
     gain += basis;
     settleRewards(h);
     h.skt += minted;
@@ -262,12 +266,11 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
             hits |= bit;
             stakeHit += BigInt(x.stake);
             gross += grossE6(BigInt(x.stake), x.rung);
-          } else basis += missBasis(BigInt(x.stake), bet.chances[i], x.rung);
+          } else basis += missBasis(BigInt(x.stake), bet.chances[i], x.rung, c.profitFeeBps);
         });
         if (!decided) continue;
         bet.live &= ~decided;
         bet.hit |= hits;
-        const ious = owing();
         let paid = 0n;
         let left = 0n;
         if (gross > 0n) {
@@ -277,7 +280,7 @@ export function run(c: Case, chain: Chain = "evm"): StepOut[] {
           cut(profitFee - toHolders);
           shareProfitFee(toHolders);
         }
-        if (skt) mint(bet.player, basis, ious);
+        if (skt) mint(bet.player, basis);
         settled.push({ id, hitMask: hits, missMask: decided & ~hits, paid: Number(paid), owed: Number(left) });
       }
       out.push({ settled, state: state() });

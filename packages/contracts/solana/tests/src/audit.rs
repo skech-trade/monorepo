@@ -142,3 +142,71 @@ fn a_mismatched_triple_never_mints_to_another_holder() {
     assert!(t.g.send(&[ix], &[]).is_err());
     assert_eq!(t.g.holder(&key(&b)), hb);
 }
+
+const LONG: u32 = 10_000_000;
+
+/// A game at S = $1 where the funder's loss has moved the tracked gain to 3S, then a long shot the pool pays all but a
+/// fraction of a cent of: a dust IOU outstanding.
+fn with_a_dust_iou() -> T {
+    let mut t = T::new();
+    let admin = t.g.admin.insecure_clone();
+    let ix = t.g.set_rewards_config_ix(skech::state::RewardsConfig { mint_scale: E6, ..skech::state::RewardsConfig::DEFAULT });
+    t.g.send(&[ix], &[&admin]).unwrap();
+    let funder = t.g.player(100 * E6, 100 * E6);
+    // $6 at 50%/1.5x with the 10% profit fee: a basis of $3.30, so G = 3.3S.
+    t.play(&funder, &[(FAR, 6_000_000, HALF)], HIT_AT);
+    assert_eq!(t.g.rewards().gain, 3_300_000);
+    let small = t.g.player(10 * E6, 10 * E6);
+    let m = t.play(&small, &[(AT, 67_400, LONG)], HIT_AT);
+    let s: Vec<skech::events::Settled> = events(&m.logs);
+    assert!(s[0].owed > 0 && s[0].owed < 10_000, "a dust IOU: {}", s[0].owed);
+    assert!(t.g.pool().iou_shares > 0);
+    t
+}
+
+/// Economic C2 / security M-1: while any IOU was outstanding, every loss minted from a tracked gain of 0, on its whole
+/// basis: a dust IOU let a whale mint its loss at the top rate, many times the curve. Now the mint is the curve's
+/// exact integral from where the gain is, whatever is owed.
+#[test]
+fn a_dust_iou_changes_nothing_about_what_a_whale_mints() {
+    let mut t = with_a_dust_iou();
+    let whale = t.g.player(100 * E6, 100 * E6);
+    let open_at = t.open();
+    let bet = t.place(&whale, open_at, &[(FAR, 10_000_000, HALF)]);
+    assert!(t.g.pool().iou_shares > 0, "still outstanding at settlement");
+    let from = t.g.rewards().gain;
+    let m = t.settle(open_at, HIT_AT, &[(bet, key(&whale))]);
+    let minted: Vec<skech::events::Minted> = events(&m.logs);
+    assert_eq!(minted[0].basis, 5_500_000);
+    assert_eq!(minted[0].skt as u128, skech::skt::mint_amount(E6, from, 5_500_000), "exactly the curve");
+    assert!((minted[0].skt as u128) < skech::skt::mint_amount(E6, 0, 5_500_000) / 5, "nowhere near the top rate");
+}
+
+/// With an IOU outstanding, a basis minted in one settlement or in several mints the same, to a unit a piece: no
+/// splitting advantage inside the old window.
+#[test]
+fn with_an_iou_outstanding_splitting_a_loss_mints_no_more() {
+    let mint = |pieces: usize| -> u64 {
+        let mut t = with_a_dust_iou();
+        let whale = t.g.player(100 * E6, 100 * E6);
+        let open_at = t.open();
+        let mut bets = vec![];
+        let each = 10_000_000 / pieces as u32;
+        for _ in 0..pieces {
+            bets.push((t.place(&whale, open_at, &[(FAR, each, HALF)]), key(&whale)));
+        }
+        // Each bet its own settlement.
+        t.g.set_time(open_at / 1000 + 4);
+        t.g.post_and_settle(open_at + 1000, HIT_AT, HIT_AT, HIT_AT, HIT_AT, &bets[..1]).unwrap();
+        for b in &bets[1..] {
+            t.g.settle_on(false, &[*b]).unwrap();
+        }
+        assert!(t.g.pool().iou_shares > 0);
+        t.g.holder(&key(&whale)).skt
+    };
+    let one = mint(1);
+    for pieces in [2usize, 5, 10] {
+        let split = mint(pieces);
+        assert!(split <= one && one - split <= pieces as u64, "{pieces} pieces: {split} against {one} in one");
+    }
+}

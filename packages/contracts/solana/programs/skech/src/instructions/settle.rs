@@ -217,7 +217,7 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
             gross_pay += ladder::gross(s.stake, s.rung);
         } else if let Some(c) = &chances {
             // A miss counts its odds-weighted loss toward SKT; a hit, or a band given back, nothing.
-            basis += skt::miss_basis(s.stake, c[i], s.rung);
+            basis += skt::miss_basis(s.stake, c[i], s.rung, b.game.config.profit_fee_bps);
         }
     }
     // A bet is not closed while its piece could still be placed: that would let the same piece go in again. Nor
@@ -228,8 +228,6 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
     }
     bet.live_mask = live & !decided;
     bet.hit_mask |= hits;
-    // Whether anything was owed before this bet was settled: if so, a loss here mints as if the tracked gain were 0.
-    let ious = b.pool.iou_shares > 0;
     let (mut paid, mut owed) = (0, 0);
     if gross_pay > 0 {
         let c = &b.game.config;
@@ -257,7 +255,7 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
         player.try_serialize(&mut &mut player_info.try_borrow_mut_data()?[..])?;
         if basis > 0 {
             let mut holder = holder_of(b, holder_info, bet.player)?;
-            b.rewards.mint(&mut holder, basis, ious)?;
+            b.rewards.mint(&mut holder, basis)?;
             holder.try_serialize(&mut &mut holder_info.try_borrow_mut_data()?[..])?;
         }
     }

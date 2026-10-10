@@ -3,17 +3,19 @@
 //!
 //! - **The fees.** Of the stake fee, `holder_fee_bps` (3 of 4 points) is the holders'; of the profit fee,
 //!   `holder_profit_fee_bps` (8 of 10). The house keeps the rest and every rounding. While anything is owed as IOU
-//!   the holders' share goes to the pool, to pay it off; while no SKT exists, to the treasury.
+//!   the holders' share goes to the pool, to pay it off; while no SKT exists, to the treasury. The mint is never
+//!   changed by what is owed.
 //! - **The accumulator.** Each share raises `acc` by `share · ACC_SCALE / supply`, rounded down. A holder's earnings
 //!   are `skt · (acc − acc_at) / ACC_SCALE`, rounded down, counted into `unclaimed` before their balance changes and
 //!   before a claim. So no holder is ever paid more than their part of what was accrued.
 //! - **The basis.** A band of stake `s`, chance `p` (the oracle's, as quoted) and rung `m` that misses counts
-//!   `s · (1 − p·m) / (1 − p)`; a hit counts nothing. In expectation that is `(1 − p) · s(1 − p·m)/(1 − p) = s(1 − p·m)`,
-//!   the band's expected loss, whatever `p`: a 1% long shot and ink at the price earn the same SKT per dollar they
-//!   can expect to lose. The stake fee is not added: it is taken from the stake a hit pays on, so it is in `s(1 − p·m)`
-//!   already (certain ink, `p = 1` at 1x, loses nothing and counts nothing, though the house takes its 4%).
+//!   `s · [(1 − p·m) + f·p·(m − 1)] / (1 − p)`, with `f` the profit fee; a hit counts nothing. In expectation that is
+//!   `s · [(1 − p·m) + f·p·(m − 1)]`, the band's expected loss with the profit fee a hit pays, whatever `p`: a 1% long
+//!   shot and ink at the price earn the same SKT per dollar they can expect to lose. The stake fee is not added: it is
+//!   taken from the stake a hit pays on, so it is in `s(1 − p·m)` already, and adding it would mint on ink that
+//!   loses nothing (the audit's farm table: it makes near-certain ink mint more than a dollar's basis per real dollar).
 //! - **The curve.** A dollar of basis mints `100 · (S / (S + G))²` SKT, where G is the tracked gain (every basis
-//!   minted on so far, `Rewards::gain`; 0 while anything is owed as IOU) and S is `mint_scale`. A settlement's basis B
+//!   minted on so far, `Rewards::gain`) and S is `mint_scale`. A settlement's basis B
 //!   mints the integral of that rate from G to G + B, `100 · S² · B / ((S + G)(S + G + B))`, and moves G on by B: one
 //!   basis of B and two of B/2 mint the same, to the unit.
 
@@ -37,21 +39,21 @@ pub fn holder_part(amount: u64, holder_bps: u16, fee_bps: u16) -> u64 {
     }
 }
 
-/// What a band that missed counts toward SKT, USDC e6: `stake · (1 − p·m) / (1 − p)`, rounded down, with `p` the chance
-/// in billionths and `m` the rung, x100. Never more than the stake, as a rung is never under 1x.
-pub fn miss_basis(stake: u64, chance_e9: u32, rung_e2: u16) -> u64 {
-    let (p, one) = (chance_e9 as u128, CHANCE_ONE as u128);
+/// What a band that missed counts toward SKT, USDC e6: `stake · [(1 − p·m) + f·p·(m − 1)] / (1 − p)`, rounded down, with
+/// `p` the chance in billionths, `m` the rung (x100) and `f` the profit fee (`profit_fee_bps`): the band's expected loss
+/// with the profit fee a hit pays, over its chance of missing. Never less than 0 (a band returning more than its stake,
+/// which the program no longer offers) nor more than the stake.
+pub fn miss_basis(stake: u64, chance_e9: u32, rung_e2: u16, profit_fee_bps: u16) -> u64 {
+    let (p, one, r) = (chance_e9 as u128, CHANCE_ONE as u128, rung_e2 as u128);
     if p >= one {
         return 0;
     }
-    // 1 − p·m = (1e11 − P·R) / 1e11 and 1 − p = 100 (1e9 − P) / 1e11: both under 2^37.
-    let edge = (100 * one).saturating_sub(p * rung_e2 as u128) as u64;
-    let under = (100 * (one - p)) as u64;
-    // In u64 when it fits (stakes to $184 at any odds), else u128: the same number either way.
-    match stake.checked_mul(edge) {
-        Some(x) => x / under,
-        None => (stake as u128 * edge as u128 / under as u128) as u64,
-    }
+    // In units of 1e-15: 1 = 1e4 · 100 · 1e9; p·m = 1e4 · P · R; f·p·(m − 1) = F · P · (R − 100); 1 − p = 1e6 (1e9 − P).
+    // Each under 2^58, and the stake under 2^64: the product fits a u128.
+    let bps = BPS as u128;
+    let edge = (bps * 100 * one + profit_fee_bps as u128 * p * r.saturating_sub(100)).saturating_sub(bps * p * r);
+    let under = bps * 100 * (one - p);
+    (stake as u128 * edge / under).min(stake as u128) as u64
 }
 
 /// Where the holders' share of a fee goes now.
@@ -124,14 +126,13 @@ impl Rewards {
         Ok(())
     }
 
-    /// Mint `holder` SKT on a settlement's `basis`, USDC e6, from the tracked gain on (from 0 if anything was owed as IOU
-    /// before the settlement, `ious`), and move the tracked gain on by it. What was minted, SKT e6.
-    pub fn mint(&mut self, holder: &mut Holder, basis: u64, ious: bool) -> Result<u64> {
+    /// Mint `holder` SKT on a settlement's `basis`, USDC e6, from the tracked gain on, and move the tracked gain on by it:
+    /// the curve's exact integral, whatever is owed. What was minted, SKT e6.
+    pub fn mint(&mut self, holder: &mut Holder, basis: u64) -> Result<u64> {
         if basis == 0 {
             return Ok(0);
         }
-        let from = if ious { 0 } else { self.gain };
-        let skt = mint_amount(self.config.mint_scale, from, basis);
+        let skt = mint_amount(self.config.mint_scale, self.gain, basis);
         let skt = skt.min((u64::MAX - self.supply) as u128) as u64;
         self.gain = self.gain.saturating_add(basis);
         // What the balance earned so far is counted before it changes.
@@ -295,53 +296,68 @@ mod tests {
         assert!(mint_amount(big, 0, u64::MAX) <= 100 * big as u128 && mint_amount(big, u64::MAX, u64::MAX) > 0);
     }
 
-    /// `stake · (1 − p·m) / (1 − p)` in floating point.
-    fn basis_reference(stake: u64, chance: u32, rung: u16) -> f64 {
-        let (p, m) = (chance as f64 / 1e9, rung as f64 / 100.0);
+    /// `stake · [(1 − p·m) + f·p·(m − 1)] / (1 − p)` in floating point, at least 0 and at most the stake.
+    fn basis_reference(stake: u64, chance: u32, rung: u16, fee_bps: u16) -> f64 {
+        let (p, m, f) = (chance as f64 / 1e9, rung as f64 / 100.0, fee_bps as f64 / 1e4);
         if p >= 1.0 {
             return 0.0;
         }
-        stake as f64 * (1.0 - p * m).max(0.0) / (1.0 - p)
+        (stake as f64 * ((1.0 - p * m) + f * p * (m - 1.0)).max(0.0) / (1.0 - p)).min(stake as f64)
     }
 
     #[test]
-    fn a_miss_counts_its_odds_weighted_loss() {
-        // A 1% long shot at 96x: 1 − 0.96 = 4¢ a dollar expected; it misses 99 times in 100, each counting 4/0.99.
-        assert_eq!(miss_basis(1_000_000, 10_000_000, 9600), 40_404);
-        // Ink at 50% paying 1.5x: 25¢ a dollar expected, counted twice over on the half that misses.
-        assert_eq!(miss_basis(1_000_000, 500_000_000, 150), 500_000);
-        // 90% at 1.1x: 1¢ a dollar expected, ten times over on the tenth that misses.
-        assert_eq!(miss_basis(1_000_000, 900_000_000, 110), 100_000);
-        // Certain, or paying its fair multiple or more: nothing.
-        assert_eq!(miss_basis(1_000_000, 1_000_000_000, 100), 0);
-        assert_eq!(miss_basis(1_000_000, 500_000_000, 200), 0);
-        assert_eq!(miss_basis(1_000_000, 0, 9600), 1_000_000);
+    fn a_miss_counts_its_odds_weighted_loss_with_the_profit_fee() {
+        // A 1% long shot at 96x, 10% profit fee: 1 − 0.96 + 0.1 · 0.01 · 95 = 13.5¢ a dollar expected; it misses 99
+        // times in 100, each counting 13.5/0.99.
+        assert_eq!(miss_basis(1_000_000, 10_000_000, 9600, 1000), 136_363);
+        // With no profit fee, as before: 4¢, counted 4/0.99.
+        assert_eq!(miss_basis(1_000_000, 10_000_000, 9600, 0), 40_404);
+        // Ink at 50% paying 1.5x: 25¢ + 0.1 · 0.5 · 0.5 = 27.5¢ a dollar expected, counted twice over on the half that misses.
+        assert_eq!(miss_basis(1_000_000, 500_000_000, 150, 1000), 550_000);
+        // 90% at 1.1x: 1¢ + 0.1 · 0.9 · 0.1 = 1.9¢ a dollar expected, ten times over on the tenth that misses.
+        assert_eq!(miss_basis(1_000_000, 900_000_000, 110, 1000), 190_000);
+        // Certain: nothing. Paying its fair multiple: only the profit fee it would pay, 0.1 · 0.5 · 1 / 0.5.
+        assert_eq!(miss_basis(1_000_000, 1_000_000_000, 100, 1000), 0);
+        assert_eq!(miss_basis(1_000_000, 500_000_000, 200, 1000), 100_000);
+        assert_eq!(miss_basis(1_000_000, 500_000_000, 200, 0), 0);
+        // Returning more than its stake (no longer offered): nothing. No chance at all: the stake.
+        assert_eq!(miss_basis(1_000_000, 600_000_000, 200, 0), 0);
+        assert_eq!(miss_basis(1_000_000, 0, 9600, 1000), 1_000_000);
+        // The most a section stakes (u32::MAX) at the most a fee may be (50%): no overflow, never over the stake.
+        assert!(miss_basis(u32::MAX as u64, 1, 12800, 5000) <= u32::MAX as u64);
+        assert!(miss_basis(u64::MAX, 999_999_999, 12800, 5000) <= u64::MAX);
         let mut seed = 5u64;
         for _ in 0..100_000 {
             let stake = rng(&mut seed) % 10_000_000_000;
             let chance = (rng(&mut seed) % 1_000_000_001) as u32;
             let rung = 100 + (rng(&mut seed) % 12_701) as u16;
-            let got = miss_basis(stake, chance, rung);
-            let want = basis_reference(stake, chance, rung);
-            assert!(got as f64 <= want * (1.0 + 1e-12) + 1e-6 && want - (got as f64) < 1.0 + 1e-9 * want, "{stake} at {chance}, {rung}: {got}, {want}");
+            let fee = (rng(&mut seed) % 5001) as u16;
+            let got = miss_basis(stake, chance, rung, fee);
+            let want = basis_reference(stake, chance, rung, fee);
+            assert!(got as f64 <= want * (1.0 + 1e-12) + 1e-6 && want - (got as f64) < 1.0 + 1e-9 * want, "{stake} at {chance}, {rung}, fee {fee}: {got}, {want}");
             assert!(got <= stake, "never more than the stake");
         }
     }
 
     #[test]
     fn in_expectation_a_miss_counts_the_bands_expected_loss_whatever_its_odds() {
-        // (1 − p) · basis = s · (1 − p·m), to within the rounding of one basis, for every chance and rung the ladder
-        // can give.
+        // (1 − p) · basis = s · [(1 − p·m) + f·p·(m − 1)], what the band loses on average with the profit fee a hit
+        // pays, to within the rounding of one basis, for every chance and rung the ladder offers at 4%.
         let stake = 1_000_000_000u64;
-        for d in [50u8, 51, 55, 70, 85, 100] {
-            for chance in (1..=1000u32).map(|k| k * 1_000_000).chain([1, 999, 7_812_500, 999_999_999]) {
-                let rung = crate::ladder::rung_for(chance, d, false, 0);
-                if rung == 0 {
-                    continue;
+        for fee in [0u16, 1000, 2500] {
+            for d in [50u8, 51, 55, 70, 85, 100] {
+                for chance in (1..=1000u32).map(|k| k * 1_000_000).chain([1, 999, 7_812_500, 999_999_999]) {
+                    let rung = crate::ladder::rung_for(chance, d, false, 0);
+                    if rung == 0 || !crate::ladder::within_fee(chance, rung, 400) {
+                        continue;
+                    }
+                    let expected_basis = (CHANCE_ONE - chance) as u128 * miss_basis(stake, chance, rung, fee) as u128;
+                    // In 1e-15 of a stake: 1e15 − 1e4·P·R + F·P·(R − 100).
+                    let (p, r) = (chance as u128, rung as u128);
+                    let edge = 1_000_000_000_000_000u128 + fee as u128 * p * (r - 100) - 10_000 * p * r;
+                    let expected_loss = stake as u128 * edge / 1_000_000;
+                    assert!(expected_basis <= expected_loss && expected_loss - expected_basis < CHANCE_ONE as u128, "fee {fee}, d {d}, chance {chance}, rung {rung}: {expected_basis} for {expected_loss}");
                 }
-                let expected_basis = (CHANCE_ONE - chance) as u128 * miss_basis(stake, chance, rung) as u128;
-                let expected_loss = stake as u128 * (100 * CHANCE_ONE as u128).saturating_sub(chance as u128 * rung as u128) / 100;
-                assert!(expected_basis <= expected_loss && expected_loss - expected_basis < CHANCE_ONE as u128, "d {d}, chance {chance}, rung {rung}: {expected_basis} for {expected_loss}");
             }
         }
     }

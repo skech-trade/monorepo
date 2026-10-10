@@ -324,7 +324,7 @@ export const CASES: Case[] = [
   },
   {
     ...skt,
-    name: "SKT: while a win is owed, the holders' share goes to the pool, and a loss mints at the full rate",
+    name: "SKT: while a win is owed, the holders' share goes to the pool, and a loss mints on the curve all the same",
     steps: [
       { place: { id: "first", player: "b", perDot: 1_000_000, sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 100_000, chance: 500_000_000 }] } },
       { bar: { ...flat(1, PRICE), settle: ["first"] } },
@@ -341,7 +341,7 @@ export const CASES: Case[] = [
     ...skt,
     name: "SKT: each miss mints on its odds-weighted loss, a hit on nothing, at the curve's falling rate",
     steps: [
-      // A 1% long shot at 96x misses: 1.1¢ · (1 − 0.96) / 0.99.
+      // A 1% long shot at 96x misses: 1.1¢ · (1 − 0.96 + 0.1 · 0.01 · 95) / 0.99, the profit fee a hit pays counted.
       { place: { id: "long", sections: [{ second: 1, lo: AT, width: 5, stake: 11_000, chance: 10_000_000 }] } },
       { bar: { ...flat(1, PRICE - e8(5)), settle: ["long"] } },
       // Ink at 50% paying 1.5x misses: 10¢ · 0.25 / 0.5. And a hit beside it, in the same piece: nothing for it.

@@ -452,21 +452,24 @@ came out behind.
 
 **What mints.** Every band that misses mints at its settlement, on its *basis*:
 
-    basis = stake · max(0, 1 − p·m) / (1 − p)
+    basis = stake · [(1 − p·m) + f·p·(m − 1)] / (1 − p),  at least 0 and at most the stake
 
-where `p` is the chance the oracle quoted for the band (kept on the bet) and `m` the multiple it was placed at.
-A hit mints nothing; a band given back by `expire` mints nothing; a bet placed before SKT mints nothing. In
-expectation a band's basis is `(1 − p) · stake · (1 − p·m) / (1 − p) = stake · (1 − p·m)`, exactly what it can
-expect to lose, whatever its odds. So no way of drawing mints more SKT per dollar it can expect to lose:
+where `p` is the chance the oracle quoted for the band (kept on the bet), `m` the multiple it was placed at and `f`
+the profit fee (10%). A hit mints nothing; a band given back by `expire` mints nothing; a bet placed before SKT mints
+nothing. In expectation a band's basis is `stake · [(1 − p·m) + f·p·(m − 1)]`, exactly what it can expect to lose,
+the profit fee a hit pays included, whatever its odds. So no way of drawing mints more SKT per dollar it can expect
+to lose:
 
 | | stake | expected loss | a miss counts | how often | expected basis |
 | --- | --- | --- | --- | --- | --- |
-| a 1% long shot at 96× | $1 | 1 − 0.01 · 96 = 4¢ | 4¢ / 0.99 = 4.04¢ | 99 in 100 | 4¢ |
-| ink at 90% paying 1.1× | $1 | 1 − 0.9 · 1.1 = 1¢ | 1¢ / 0.1 = 10¢ | 1 in 10 | 1¢ |
+| a 1% long shot at 96× | $1 | 1 − 0.96 + 0.1 · 0.01 · 95 = 13.5¢ | 13.5¢ / 0.99 = 13.6¢ | 99 in 100 | 13.5¢ |
+| ink at 48% paying 2× | $1 | 1 − 0.96 + 0.1 · 0.48 · 1 = 8.8¢ | 8.8¢ / 0.52 = 16.9¢ | 52 in 100 | 8.8¢ |
 
 A long shot's misses are many and small; near-certain ink's are rare and large; per expected dollar lost they
 come out the same. In the program's tests, 1,500 long shots and 6,000 pieces of ink at 50%, each strategy
-expecting to lose $15, minted within 0.5% of each other (`a_long_shot_mints_no_more_skt…`).
+expecting to lose $15, minted within a few percent of each other (`a_long_shot_mints_no_more_skt…`). Before the
+profit fee was counted, a long shot's basis was 0.79 of what it really lost and near-certain ink's 1.01 (the audit's
+farm table, on 15 days of real bands); counting it brings every strategy to its real loss.
 
 The stake fee is not added to the basis. A hit pays its multiple on the whole stake, fee included, so the fee is
 taken from the pool's side and is already inside `stake · (1 − p·m)`: ink that is certain to hit at 1× loses
@@ -479,8 +482,9 @@ from an IOU.
     rate(G) = 100 · (S / (S + G))²  SKT per $1 of basis
     minted  = ∫ from G to G + B of rate = 100 · S² · B / ((S + G)(S + G + B))
 
-`G` is every basis minted on so far (`Rewards::gain`): what players have lost to the game, in expectation. It
-counts as 0 while anything is owed as IOU, so losses that pay off a shortfall mint at the full rate. `S` is the
+`G` is every basis minted on so far (`Rewards::gain`): what players have lost to the game, in expectation. What is
+owed as IOU changes nothing about the mint: an earlier version minted from 0 while anything was owed, which let a
+dust IOU reset the curve for a whale's whole loss. `S` is the
 admin's (`mint_scale`, default $1,000,000), so the rate falls across a gain of $0 to $10M:
 
 | tracked gain G | $0 | $100k | $500k | $1M | $3M | $10M |
