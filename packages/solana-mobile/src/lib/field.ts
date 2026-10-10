@@ -60,6 +60,43 @@ export class FieldMaker {
     return this.job !== null;
   }
 
+  /** The last map finished, and what it was asked as. */
+  private made: { ask: FieldAsk; field: Field } | null = null;
+
+  /**
+   * The map asked as `match` says, now: the one finished last, or the one being made (or waiting to be), finished
+   * at once on this thread. Null when none was asked for. For a drawing that must open and whose second's map has
+   * not come in time: what is left of that map costs far less than a whole map of the paths made for it alone,
+   * which is what opening it the long way does, once per piece.
+   */
+  finishNow(match: (ask: FieldAsk) => boolean): Field | null {
+    if (this.made && match(this.made.ask)) return this.made.field;
+    if (!this.job && this.next && match(this.next)) {
+      const next = this.next;
+      this.next = null;
+      this.start(next);
+    }
+    const job = this.job;
+    if (!job || !match(job.ask)) return null;
+    job.run(Infinity);
+    this.finish(job);
+    return this.made?.ask === job.ask ? this.made.field : null;
+  }
+
+  private finish(job: NonNullable<FieldMaker["job"]>) {
+    this.job = null;
+    cancelAnimationFrame(this.frame);
+    this.frame = 0;
+    // The difficulty the paths were laid for, as the web's worker keeps its own.
+    setDifficulty(job.ask.difficulty, job.ask.least);
+    const field = job.result();
+    this.made = { ask: job.ask, field };
+    this.done(job.ask.id, field);
+    const next = this.next;
+    this.next = null;
+    if (next) this.start(next);
+  }
+
   stop() {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
@@ -80,14 +117,7 @@ export class FieldMaker {
       const took = performance.now() - s;
       if (took > 0) perSlice = Math.max(1, Math.min(MAX_PER_RUN, Math.round((perSlice * (SLICE_MS / 2)) / took)));
     }
-    if (finished) {
-      this.job = null;
-      // The difficulty the paths were laid for, as the web's worker keeps its own.
-      setDifficulty(job.ask.difficulty, job.ask.least);
-      this.done(job.ask.id, job.result());
-      const next = this.next;
-      this.next = null;
-      if (next) this.start(next);
-    } else this.frame = requestAnimationFrame(this.slice);
+    if (finished) this.finish(job);
+    else this.frame = requestAnimationFrame(this.slice);
   };
 }

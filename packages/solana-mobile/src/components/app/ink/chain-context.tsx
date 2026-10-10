@@ -108,7 +108,13 @@ export function ChainProvider({ children }: { children: ReactNode }) {
   // Held for one player: someone else signing in starts from nothing.
   const owner = useRef<string | null>(null);
   const holds = useMemo<HoldsApi>(() => {
-    const after = <T,>(r: T) => (setHeld({ player: owner.current, usd: book.total() }), r);
+    // The same total for the same player is no change: the provider, and every screen reading it, need not render.
+    const after = <T,>(r: T) => {
+      const player = owner.current,
+        usd = book.total();
+      setHeld((h) => (h.player === player && h.usd === usd ? h : { player, usd }));
+      return r;
+    };
     const own = () => {
       if (owner.current === playerRef.current) return;
       owner.current = playerRef.current;

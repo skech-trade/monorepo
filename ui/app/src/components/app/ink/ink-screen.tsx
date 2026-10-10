@@ -2,10 +2,10 @@
 
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
+import { type Bar, DIFFICULTY, difficulty, features, type Field, field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { howItWorks, howItWorksSummary } from "@skech/core/explain";
-import { areaCells, areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type Cell, type InkBet, type Stroke, won } from "@skech/core/ink";
+import { areaCells, areaCostOf, CELL, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type Cell, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
 import { BATCH_PIECE_STAKE_E6, cutAt, encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor, usdE6 } from "@skech/core/chain";
 import { pieceBytes, type SolanaPiece } from "@skech/contracts/solana/sdk";
@@ -74,6 +74,20 @@ const slow = (what: string, since: number, detail: string) => {
 const OPEN_AFTER_MS = 350;
 /** By then a drawing whose second has no map yet (the pen changed, or the worker is slow) is priced on the paths, here. */
 const OPEN_BY_MS = 900;
+/** A full map of the paths, made for a drawing whose second's map had not come from the worker in time: kept for the next. */
+let lateField: { key: string; field: Field } | null = null;
+/**
+ * A drawing opened past its deadline without its second's map: priced exactly as `open` prices it, but the map of the
+ * paths it makes is made once for the second, not once for every piece (each a long task on a slow phone's browser).
+ */
+function openLate(bet: InkBet, lib: Library, bars: Bar[]): InkBet {
+  const f = features(bars, bet.openAt);
+  if (!f || bet.model !== "ladder-v1") return open(bet, lib, bars);
+  const cell = bet.cell ?? CELL, size = bet.step * cell, edge = bet.edgeCells ?? 0;
+  const key = JSON.stringify([bet.openAt, size, cell, edge, f, RULES]);
+  if (lateField?.key !== key) lateField = { key, field: field(lib, f, bet.openAt, size, cell, edge) };
+  return openOn(bet, lateField.field) ?? open(bet, lib, bars);
+}
 /** A second's dots are missed only this long after it ends, for the same reason. */
 const CLOSE_AFTER_MS = 600;
 /** A piece sent to the chain and not placed by then is let go. */
@@ -912,7 +926,7 @@ export function InkScreen() {
           continue;
         }
         const drawn = bet.drawn.length;
-        bet = quick ?? open(bet, lib, bars);
+        bet = quick ?? openLate(bet, lib, bars);
         // Why part of a stroke is faint rather than solid, when it happens: for finding out, in development only.
         if (process.env.NODE_ENV !== "production" && (bet.status === "void" || bet.cells.length < drawn))
           console.warn(`[ink] piece ${bet.id} opened ${bet.status}: ${bet.status === "void" ? bet.why : `${drawn - bet.cells.length} of ${drawn} sections refused`}`);

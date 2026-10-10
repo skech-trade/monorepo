@@ -25,6 +25,8 @@ import { carryBars, KEEP_BARS, validTrade } from "./market-buffer";
 
 const STREAM = ENGINE_URL;
 const KEEP_TICKS = 4000;
+/** Trades are trimmed a chunk at a time: one off the front per trade moved all four thousand along, every trade. */
+const TRIM_TICKS = 500;
 /** No message at all for this long (heartbeats included) and the socket is reopened. */
 const SILENT_MS = 5000;
 
@@ -59,6 +61,11 @@ export type Market = {
   connected: boolean;
   /** Bumped on every trade batch, so a page can react without copying arrays. */
   version: number;
+  /**
+   * Hear every trade batch, after it is folded in: for what must follow each trade (the price shown, the judging)
+   * without re-rendering the screen around it, as the web's feed does. Returns the way to stop.
+   */
+  subscribe: (fn: () => void) => () => void;
   /** The engine's wallet and the domain it signs under, once connected. */
   signer: `0x${string}` | null;
   typedData: TypedData | null;
@@ -74,10 +81,32 @@ type Message =
 export function useEngine(): Market {
   const active = useAppActive();
   const newestId = useRef(0);
-  const [version, setVersion] = useState(0);
-  const [connected, setConnected] = useState(false);
-  // One mutable store for the life of the page: trades arrive faster than React should re-render, and arrays this long are not copied per trade.
-  const [m] = useState<Market>(() => ({ bars: [], ticks: [], skew: 0, connected: false, version: 0, signer: null, typedData: null, quote: null }));
+  // Only for re-rendering when the connection comes or goes: the value itself is `m.connected`.
+  const [, setConnected] = useState(false);
+  /*
+    One mutable store for the life of the page: trades arrive faster than React should re-render, and arrays this
+    long are not copied per trade. The screen gets the store itself, so what it reads is always the latest, and a
+    trade batch re-renders only what subscribes to it. (Each batch used to re-render the whole game screen, up to
+    twenty times a second, on the JS thread the pen and the chart share.)
+  */
+  const [{ m, listeners }] = useState(() => {
+    const listeners = new Set<() => void>();
+    const m: Market = {
+      bars: [],
+      ticks: [],
+      skew: 0,
+      connected: false,
+      version: 0,
+      signer: null,
+      typedData: null,
+      quote: null,
+      subscribe: (fn) => {
+        listeners.add(fn);
+        return () => void listeners.delete(fn);
+      },
+    };
+    return { m, listeners };
+  });
 
   useEffect(() => {
     if (!active) {
@@ -111,7 +140,7 @@ export function useEngine(): Market {
         late = undefined;
         told = performance.now();
         m.version++;
-        setVersion(m.version);
+        for (const fn of listeners) fn();
       };
       const wait = Math.max(0, 50 - (performance.now() - told));
       if (wait > 0) late = setTimeout(tell, wait);
@@ -136,7 +165,7 @@ export function useEngine(): Market {
         if (m.bars.length > KEEP_BARS) m.bars.splice(0, m.bars.length - KEEP_BARS);
       }
       m.ticks.push({ t, p });
-      if (m.ticks.length > KEEP_TICKS) m.ticks.splice(0, m.ticks.length - KEEP_TICKS);
+      if (m.ticks.length > KEEP_TICKS + TRIM_TICKS) m.ticks.splice(0, m.ticks.length - KEEP_TICKS);
     };
 
     const connect = () => {
@@ -229,7 +258,7 @@ export function useEngine(): Market {
         opening.onclose = null;
       } else ws?.close();
     };
-  }, [m, active]);
+  }, [m, listeners, active]);
 
-  return { bars: m.bars, ticks: m.ticks, skew: m.skew, connected, version, signer: m.signer, typedData: m.typedData, quote: m.quote };
+  return m;
 }

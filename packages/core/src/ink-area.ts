@@ -51,8 +51,26 @@ const SAMPLES = 24;
 export const areaCostOf = (perDot: number, units: number) => Math.ceil(perDot * units * 100 - 1e-9) / 100;
 
 /** Exact vertical cross-section of the union of round, elliptical capsules.
- * Work in nib radii so this remains independent of zoom and pointer speed. */
-function section(st: Stroke, time: number): [number, number][] {
+ * Work in nib radii so this remains independent of zoom and pointer speed.
+ * `xs` and `ys` are the points in nib radii (`t / rt`, `p / rp`), worked out
+ * once per stroke; `near` the indices of the points, and the segments from
+ * them to the next, that can reach `time` at all, in order. Every other point
+ * and segment would add nothing here: leaving them out changes no span. */
+let lo = Infinity, hi = -Infinity, crossed = false;
+/** Where the edge from (cx, cy) to (dx, dy) crosses x, if it does, taken into `lo` and `hi`. */
+function edge(x: number, cx: number, cy: number, dx: number, dy: number) {
+  if (x < Math.min(cx, dx) || x > Math.max(cx, dx)) return;
+  crossed = true;
+  if (Math.abs(cx - dx) < 1e-12) {
+    lo = Math.min(lo, cy, dy);
+    hi = Math.max(hi, cy, dy);
+  } else {
+    const y = cy + ((x - cx) / (dx - cx)) * (dy - cy);
+    lo = Math.min(lo, y);
+    hi = Math.max(hi, y);
+  }
+}
+function section(st: Stroke, xs: Float64Array, ys: Float64Array, near: Int32Array, count: number, time: number): [number, number][] {
   const x = (time - st.t0) / st.rt;
   const spans: [number, number][] = [];
   const circle = (px: number, py: number) => {
@@ -61,26 +79,28 @@ function section(st: Stroke, time: number): [number, number][] {
     const r = Math.sqrt(1 - dx * dx);
     spans.push([py - r, py + r]);
   };
-  for (let i = 0; i < st.pts.length; i++) {
-    const a = st.pts[i];
-    const ax = a.t / st.rt, ay = a.p / st.rp;
+  const n = xs.length;
+  for (let j = 0; j < count; j++) {
+    const i = near[j];
+    const ax = xs[i], ay = ys[i];
     circle(ax, ay);
-    const b = st.pts[i + 1];
-    if (!b) continue;
-    const bx = b.t / st.rt, by = b.p / st.rp;
+    if (i + 1 >= n) continue;
+    const bx = xs[i + 1], by = ys[i + 1];
     if (x < Math.min(ax, bx) - 1 || x > Math.max(ax, bx) + 1) continue;
     const length = Math.hypot(bx - ax, by - ay);
     if (length < 1e-12) continue;
     const nx = -(by - ay) / length, ny = (bx - ax) / length;
-    const corners = [[ax + nx, ay + ny], [bx + nx, by + ny], [bx - nx, by - ny], [ax - nx, ay - ny]];
-    const ys: number[] = [];
-    for (let k = 0; k < 4; k++) {
-      const c = corners[k], d = corners[(k + 1) % 4];
-      if (x < Math.min(c[0], d[0]) || x > Math.max(c[0], d[0])) continue;
-      if (Math.abs(c[0] - d[0]) < 1e-12) ys.push(c[1], d[1]);
-      else ys.push(c[1] + ((x - c[0]) / (d[0] - c[0])) * (d[1] - c[1]));
-    }
-    if (ys.length) spans.push([Math.min(...ys), Math.max(...ys)]);
+    // The capsule's body, a rectangle: where its four edges cross x, the lowest and highest. Kept as numbers, not
+    // made into arrays per segment per sample: the same arithmetic, in the same order, without the garbage.
+    const c0x = ax + nx, c0y = ay + ny, c1x = bx + nx, c1y = by + ny, c2x = bx - nx, c2y = by - ny, c3x = ax - nx, c3y = ay - ny;
+    lo = Infinity;
+    hi = -Infinity;
+    crossed = false;
+    edge(x, c0x, c0y, c1x, c1y);
+    edge(x, c1x, c1y, c2x, c2y);
+    edge(x, c2x, c2y, c3x, c3y);
+    edge(x, c3x, c3y, c0x, c0y);
+    if (crossed) spans.push([lo, hi]);
   }
   spans.sort((a, b) => a[0] - b[0]);
   const merged: [number, number][] = [];
@@ -104,13 +124,35 @@ export function areaCells(st: Stroke, openAt: number, step: number): Cell[] {
   const last = Math.min(Math.floor(end / 1000) * 1000, openAt + RULES.horizon * 1000);
   const unit = Math.PI * st.rt * st.rp;
   const cells: Cell[] = [];
+  /*
+    Each second is measured only on the points near it. A cross-section used to look at every point of the stroke,
+    24 times a second of it, so a long stroke cost the square of its length: 60 ms to price a 300-point scribble on
+    a phone's engine, twenty times a second while it was drawn. The points, in nib radii, are worked out once; for
+    each second, the ones a pen's radius (and a margin) from its samples are found once, in order, and only they are
+    looked at. What a sample measures is exactly what it measured before: the others never reached it.
+  */
+  const n = st.pts.length;
+  const xs = new Float64Array(n), ys = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    xs[i] = st.pts[i].t / st.rt;
+    ys[i] = st.pts[i].p / st.rp;
+  }
+  const near = new Int32Array(n);
   for (let t = first; t <= last; t += 1000) {
     const a = Math.max(t, start), b = Math.min(t + 1000, end);
     if (b <= a) continue;
     const dt = (b - a) / SAMPLES;
+    // The first and last samples' places, in nib radii: every sample of the second is between them.
+    const xFrom = (a + 0.5 * dt - st.t0) / st.rt - 1.5, xTo = (a + (SAMPLES - 0.5) * dt - st.t0) / st.rt + 1.5;
+    let count = 0;
+    for (let i = 0; i < n; i++) {
+      const ax = xs[i];
+      const bx = i + 1 < n ? xs[i + 1] : ax;
+      if (Math.max(ax, bx) >= xFrom && Math.min(ax, bx) <= xTo) near[count++] = i;
+    }
     const rows = new Map<number, number>();
     for (let k = 0; k < SAMPLES; k++) {
-      for (const [lo, hi] of section(st, a + (k + 0.5) * dt)) {
+      for (const [lo, hi] of section(st, xs, ys, near, count, a + (k + 0.5) * dt)) {
         const r0 = Math.floor(lo / size), r1 = Math.ceil(hi / size) - 1;
         // Bound malformed/extreme inputs, without silently charging truncated ink.
         if (r1 - r0 > 2048) return [];
