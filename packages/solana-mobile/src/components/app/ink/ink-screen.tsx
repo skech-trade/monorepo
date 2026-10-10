@@ -15,6 +15,7 @@ import { useAccount } from "@/components/app/auth";
 import { useGate } from "@/components/app/gate";
 import { BitcoinMark, Button, Popover, raised, Sheet, Spinner, Switch, useColors } from "@/components/ui";
 import { hasAuth } from "@/lib/config";
+import { useAppActive } from "@/lib/lifecycle";
 import { useEngine } from "@/lib/engine";
 import { track } from "@/lib/analytics";
 import { feel } from "@/lib/feel";
@@ -243,6 +244,7 @@ function PaperEnd({ onSignIn, onAgain }: { onSignIn: () => void; onAgain: () => 
 
 export function InkScreen() {
   const feed = useEngine();
+  const active = useAppActive();
   const feedRef = useRef(feed);
   useEffect(() => {
     feedRef.current = feed;
@@ -355,7 +357,14 @@ export function InkScreen() {
   */
   const connected = feed.connected && lib !== null;
   useEffect(() => {
-    if (!lib) return;
+    // In the background no map is made: the phone would spend its battery on odds nobody sees. Back, it starts afresh.
+    if (!lib || !active) {
+      if (!active) {
+        game.current.field = null;
+        setFresh(false);
+      }
+      return;
+    }
     let asked = "";
     let pendingId = 0;
     let lastFeatures: { key: string; f: ReturnType<typeof features> } = { key: "", f: null as unknown as ReturnType<typeof features> };
@@ -418,7 +427,7 @@ export function InkScreen() {
       m.stop();
       maker.current = null;
     };
-  }, [connected, lib, level, least]);
+  }, [connected, lib, level, least, active]);
 
   const lines = useRef(new Map<string, { at: number; open: number; won: number; cost: number; hits: number; points: number; best: number }>());
   const drawing = useRef(new Map<string, { prev: Stroke | null; area: number; charged: number; at: number; pieces: number }>());

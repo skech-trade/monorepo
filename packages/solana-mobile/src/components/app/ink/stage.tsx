@@ -1,7 +1,7 @@
 import { BlendMode, Canvas, ClipOp, matchFont, PaintStyle, Picture, Skia, StrokeCap, StrokeJoin, TileMode, type SkCanvas, type SkFont, type SkPaint, type SkPath, type SkPicture } from "@shopify/react-native-skia";
 import { grouped } from "@/lib/money";
 import { memo, type RefObject, useEffect, useMemo, useRef } from "react";
-import { type LayoutChangeEvent, Platform, View } from "react-native";
+import { AppState, type LayoutChangeEvent, Platform, View } from "react-native";
 import { Gesture, GestureDetector, State } from "react-native-gesture-handler";
 import { useReducedMotion, useSharedValue } from "react-native-reanimated";
 import { type Bar, type Field, openFor } from "@skech/core/dots";
@@ -506,7 +506,24 @@ export const Stage = memo(function Stage({
     */
     let cost = 0;
     let drawnAt = 0;
+    /* Nothing is drawn in the background: the loop stops, and a stroke the app was sent away in the middle of is let go. */
+    let active = AppState.currentState === "active" || AppState.currentState === null;
+    const appState = AppState.addEventListener("change", (state) => {
+      active = state === "active";
+      if (!active) {
+        if (pen) cancel();
+        cancelAnimationFrame(raf);
+        raf = 0;
+      } else if (!raf) {
+        previousFrame = performance.now();
+        raf = requestAnimationFrame(frame);
+      }
+    });
     const frame = () => {
+      if (!active) {
+        raf = 0;
+        return;
+      }
       raf = requestAnimationFrame(frame);
       const w = W(),
         h = H();
@@ -893,8 +910,9 @@ export const Stage = memo(function Stage({
         }
       }
     };
-    raf = requestAnimationFrame(frame);
+    if (active) raf = requestAnimationFrame(frame);
     return () => {
+      appState.remove();
       cancel();
       clearInterval(stream);
       if (streaming) penLift(streaming);

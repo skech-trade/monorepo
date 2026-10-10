@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Bar } from "@skech/core/dots";
 import { ENGINE_URL } from "./config";
+import { useAppActive } from "./lifecycle";
+import { carryBars, KEEP_BARS, validTrade } from "./market-buffer";
 
 /**
  * Bitcoin as the game is priced and judged on: Coinbase BTC-USD, trade by
@@ -21,7 +23,6 @@ import { ENGINE_URL } from "./config";
  */
 
 const STREAM = ENGINE_URL;
-const KEEP_BARS = 660;
 const KEEP_TICKS = 4000;
 /** No message at all for this long (heartbeats included) and the socket is reopened. */
 const SILENT_MS = 5000;
@@ -70,12 +71,19 @@ type Message =
   | { type: "beat" };
 
 export function useEngine(): Market {
+  const active = useAppActive();
+  const newestId = useRef(0);
   const [version, setVersion] = useState(0);
   const [connected, setConnected] = useState(false);
   // One mutable store for the life of the page: trades arrive faster than React should re-render, and arrays this long are not copied per trade.
   const [m] = useState<Market>(() => ({ bars: [], ticks: [], skew: 0, connected: false, version: 0, signer: null, typedData: null, quote: null }));
 
   useEffect(() => {
+    if (!active) {
+      m.connected = false;
+      setConnected(false);
+      return;
+    }
     let stopped = false;
     let ws: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
@@ -84,7 +92,7 @@ export function useEngine(): Market {
     let backoff = 500;
     let heard = 0;
     /** The newest trade folded in, so the history a reconnect is sent is not counted twice. */
-    let lastId = 0;
+    let lastId = newestId.current;
     /*
       Tell the page on the next frame, at most twenty times a second (every
       50 ms), so the price shown moves with each trade as it lands. A browser
@@ -122,7 +130,7 @@ export function useEngine(): Market {
         if (own === last) own.c = p;
       } else if (!last || sec > last.t) {
         // Seconds with no trade still pass: carry the price through them, so a gap is flat rather than missing.
-        if (last) for (let s = last.t + 1000; s < sec; s += 1000) m.bars.push({ t: s, h: last.c, l: last.c, c: last.c });
+        if (last) carryBars(m.bars, sec - 1000);
         m.bars.push({ t: sec, h: p, l: p, c: p });
         if (m.bars.length > KEEP_BARS) m.bars.splice(0, m.bars.length - KEEP_BARS);
       }
@@ -136,11 +144,13 @@ export function useEngine(): Market {
       ws = sock;
       heard = Date.now();
       sock.onopen = () => {
+        if (stopped || ws !== sock) return;
         backoff = 500;
         m.connected = true;
         setConnected(true);
       };
       sock.onmessage = (e) => {
+        if (stopped || ws !== sock) return;
         heard = Date.now();
         let msg: Message;
         try {
@@ -148,20 +158,24 @@ export function useEngine(): Market {
         } catch {
           return;
         }
+        if (!msg || typeof msg !== "object") return;
         if (msg.type === "hello") {
           m.signer = msg.signer;
           m.typedData = msg.typedData;
         } else if (msg.type === "history") {
           // Oldest first; on a reconnect, only what came after the last trade already folded.
-          for (const [id, t, p] of msg.trades) {
-            if (id <= lastId || !(p > 0)) continue;
-            lastId = id;
+          if (!Array.isArray(msg.trades)) return;
+          for (const trade of msg.trades) {
+            if (!Array.isArray(trade)) continue;
+            const [id, t, p] = trade;
+            if (id <= lastId || !validTrade(id, t, p)) continue;
+            newestId.current = lastId = id;
             fold(t, p);
           }
           bump();
         } else if (msg.type === "price") {
-          if (msg.id <= lastId || !(msg.p > 0)) return;
-          lastId = msg.id;
+          if (msg.id <= lastId || !validTrade(msg.id, msg.t, msg.p)) return;
+          newestId.current = lastId = msg.id;
           // A trade has just happened: Coinbase's clock is its time, give or take the trip here.
           const sample = msg.t + 40 - Date.now();
           m.skew = m.skew === 0 ? sample : m.skew * 0.98 + sample * 0.02;
@@ -171,7 +185,7 @@ export function useEngine(): Market {
         }
       };
       sock.onclose = () => {
-        if (ws === sock) {
+        if (!stopped && ws === sock) {
           m.connected = false;
           setConnected(false);
         }
@@ -202,15 +216,8 @@ export function useEngine(): Market {
       const last = m.bars[m.bars.length - 1];
       if (!last || !m.connected) return;
       const now = Date.now() + m.skew;
-      let added = false;
-      for (let s = last.t + 1000; s + 600 <= now; s += 1000) {
-        m.bars.push({ t: s, h: last.c, l: last.c, c: last.c });
-        added = true;
-      }
-      if (added) {
-        if (m.bars.length > KEEP_BARS) m.bars.splice(0, m.bars.length - KEEP_BARS);
-        bump();
-      }
+      const until = Math.floor((now - 600) / 1000) * 1000;
+      if (carryBars(m.bars, until)) bump();
     }, 200);
     return () => {
       clearInterval(clock);
@@ -226,7 +233,7 @@ export function useEngine(): Market {
         opening.onclose = null;
       } else ws?.close();
     };
-  }, [m]);
+  }, [m, active]);
 
   return { bars: m.bars, ticks: m.ticks, skew: m.skew, connected, version, signer: m.signer, typedData: m.typedData, quote: m.quote };
 }

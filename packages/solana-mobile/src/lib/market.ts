@@ -1,5 +1,7 @@
 /** Formatting prices, money and addresses, as on the web (ui/app/src/lib/market.ts). */
 
+import { grouped } from "./money";
+
 // --- formatting ------------------------------------------------------------
 
 /** One rounding rule everywhere: two places over a dollar, more as the price gets small. */
@@ -14,10 +16,7 @@ export function priceDp(price: number): number {
 }
 
 export function usd(n: number, dp = 2): string {
-  return n.toLocaleString("en-US", {
-    minimumFractionDigits: dp,
-    maximumFractionDigits: dp,
-  });
+  return grouped(n, dp);
 }
 
 /** A price, formatted at its own precision. */
