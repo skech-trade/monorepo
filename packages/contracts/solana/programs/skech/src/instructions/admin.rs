@@ -102,8 +102,8 @@ pub struct SetConfig<'info> {
     pub admin: Signer<'info>,
     #[account(mut, seeds = [GAME_SEED], bump = game.bump, has_one = admin @ SkechError::NotAdmin)]
     pub game: Account<'info, Game>,
-    /// Read for SKT's split of the fees, which the new terms must leave room for.
-    #[account(seeds = [REWARDS_SEED], bump = rewards.bump)]
+    /// Read for SKT's split of the fees, which the new terms must leave room for. Its owner and discriminator make
+    /// it the one `Rewards` (see `Place`).
     pub rewards: Account<'info, Rewards>,
 }
 
@@ -143,7 +143,8 @@ pub struct SetRewardsConfig<'info> {
     pub admin: Signer<'info>,
     #[account(seeds = [GAME_SEED], bump = game.bump, has_one = admin @ SkechError::NotAdmin)]
     pub game: Account<'info, Game>,
-    #[account(mut, seeds = [REWARDS_SEED], bump = rewards.bump)]
+    /// The one `Rewards`, by its owner and discriminator (see `Place`).
+    #[account(mut)]
     pub rewards: Account<'info, Rewards>,
 }
 

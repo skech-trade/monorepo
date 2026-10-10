@@ -40,7 +40,9 @@ pub struct Place<'info> {
     #[account(mut, seeds = [POOL_SEED], bump = pool.bump)]
     pub pool: Box<Account<'info, Pool>>,
     /// For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention.
-    #[account(mut, seeds = [REWARDS_SEED], bump = rewards.bump)]
+    /// Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+    /// one account with its owner and discriminator is the one.
+    #[account(mut)]
     pub rewards: Box<Account<'info, Rewards>>,
     #[account(mut, seeds = [PLAYER_SEED, piece.player.as_ref()], bump = player.bump)]
     pub player: Box<Account<'info, Player>>,

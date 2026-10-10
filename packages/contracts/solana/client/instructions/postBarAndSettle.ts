@@ -42,7 +42,7 @@ import {
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
-import { findGamePda, findPoolPda, findRewardsPda } from "../pdas";
+import { findGamePda, findPoolPda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
 import {
   getBarInputDecoder,
@@ -169,7 +169,11 @@ export type PostBarAndSettleAsyncInput<
   marketAccount: TAccountMarketAccount;
   bars: TAccountBars;
   pool?: TAccountPool;
-  rewards?: TAccountRewards;
+  /**
+   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+   * one account with its owner and discriminator is the one.
+   */
+  rewards: TAccountRewards;
   /** Gets back the rent of the bets closed here: only those it paid for are closed. */
   rentReceiver: TAccountRentReceiver;
   /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs. The oracle, usually. */
@@ -293,9 +297,6 @@ export async function getPostBarAndSettleInstructionAsync<
   if (!accounts.pool.value) {
     accounts.pool.value = await findPoolPda({ programAddress });
   }
-  if (!accounts.rewards.value) {
-    accounts.rewards.value = await findRewardsPda({ programAddress });
-  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
@@ -377,6 +378,10 @@ export type PostBarAndSettleInput<
   marketAccount: TAccountMarketAccount;
   bars: TAccountBars;
   pool: TAccountPool;
+  /**
+   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+   * one account with its owner and discriminator is the one.
+   */
   rewards: TAccountRewards;
   /** Gets back the rent of the bets closed here: only those it paid for are closed. */
   rentReceiver: TAccountRentReceiver;
@@ -566,6 +571,10 @@ export type ParsedPostBarAndSettleInstruction<
     marketAccount: TAccountMetas[2];
     bars: TAccountMetas[3];
     pool: TAccountMetas[4];
+    /**
+     * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+     * one account with its owner and discriminator is the one.
+     */
     rewards: TAccountMetas[5];
     /** Gets back the rent of the bets closed here: only those it paid for are closed. */
     rentReceiver: TAccountMetas[6];

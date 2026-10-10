@@ -39,7 +39,7 @@ import {
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
-import { findGamePda, findRewardsPda } from "../pdas";
+import { findGamePda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
 import {
   getConfigDecoder,
@@ -121,8 +121,11 @@ export type SetConfigAsyncInput<
 > = {
   admin: TAccountAdmin;
   game?: TAccountGame;
-  /** Read for SKT's split of the fees, which the new terms must leave room for. */
-  rewards?: TAccountRewards;
+  /**
+   * Read for SKT's split of the fees, which the new terms must leave room for. Its owner and discriminator make
+   * it the one `Rewards` (see `Place`).
+   */
+  rewards: TAccountRewards;
   config: SetConfigInstructionDataArgs["config"];
 };
 
@@ -179,9 +182,6 @@ export async function getSetConfigInstructionAsync<
   if (!accounts.game.value) {
     accounts.game.value = await findGamePda({ programAddress });
   }
-  if (!accounts.rewards.value) {
-    accounts.rewards.value = await findRewardsPda({ programAddress });
-  }
 
   return Object.freeze({
     accounts: [
@@ -217,7 +217,10 @@ export type SetConfigInput<
 > = {
   admin: TAccountAdmin;
   game: TAccountGame;
-  /** Read for SKT's split of the fees, which the new terms must leave room for. */
+  /**
+   * Read for SKT's split of the fees, which the new terms must leave room for. Its owner and discriminator make
+   * it the one `Rewards` (see `Place`).
+   */
   rewards: TAccountRewards;
   config: SetConfigInstructionDataArgs["config"];
 };
@@ -304,7 +307,10 @@ export type ParsedSetConfigInstruction<
   accounts: {
     admin: TAccountMetas[0];
     game: TAccountMetas[1];
-    /** Read for SKT's split of the fees, which the new terms must leave room for. */
+    /**
+     * Read for SKT's split of the fees, which the new terms must leave room for. Its owner and discriminator make
+     * it the one `Rewards` (see `Place`).
+     */
     rewards: TAccountMetas[2];
   };
   data: SetConfigInstructionData;

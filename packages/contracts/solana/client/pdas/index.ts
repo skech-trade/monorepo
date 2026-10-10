@@ -8,7 +8,6 @@
 
 export * from "./callerPlayer";
 export * from "./game";
-export * from "./holder";
 export * from "./player";
 export * from "./pool";
 export * from "./rewards";

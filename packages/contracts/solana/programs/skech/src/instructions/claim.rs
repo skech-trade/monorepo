@@ -14,11 +14,15 @@ pub struct Claim<'info> {
     pub authority: Signer<'info>,
     #[account(seeds = [GAME_SEED], bump = game.bump)]
     pub game: Box<Account<'info, Game>>,
-    #[account(mut, seeds = [REWARDS_SEED], bump = rewards.bump)]
+    /// Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+    /// one account with its owner and discriminator is the one.
+    #[account(mut)]
     pub rewards: Box<Account<'info, Rewards>>,
     #[account(mut, seeds = [PLAYER_SEED, authority.key().as_ref()], bump = player.bump, has_one = authority)]
     pub player: Box<Account<'info, Player>>,
-    #[account(mut, seeds = [HOLDER_SEED, authority.key().as_ref()], bump = holder.bump, constraint = holder.player == authority.key() @ SkechError::BadSettleAccounts)]
+    /// Not re-derived from its seeds either: a `Holder` is only ever made at its player's own address, so the one
+    /// that names this wallet is theirs.
+    #[account(mut, constraint = holder.player == authority.key() @ SkechError::BadSettleAccounts)]
     pub holder: Box<Account<'info, Holder>>,
 }
 

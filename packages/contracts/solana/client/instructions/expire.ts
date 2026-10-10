@@ -41,7 +41,7 @@ import {
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
-import { findGamePda, findPoolPda, findRewardsPda } from "../pdas";
+import { findGamePda, findPoolPda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
 
 export const EXPIRE_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
@@ -141,7 +141,11 @@ export type ExpireAsyncInput<
   game?: TAccountGame;
   bars: TAccountBars;
   pool?: TAccountPool;
-  rewards?: TAccountRewards;
+  /**
+   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+   * one account with its owner and discriminator is the one.
+   */
+  rewards: TAccountRewards;
   rentReceiver: TAccountRentReceiver;
   /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
   payer: TAccountPayer;
@@ -245,9 +249,6 @@ export async function getExpireInstructionAsync<
   if (!accounts.pool.value) {
     accounts.pool.value = await findPoolPda({ programAddress });
   }
-  if (!accounts.rewards.value) {
-    accounts.rewards.value = await findRewardsPda({ programAddress });
-  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
@@ -314,6 +315,10 @@ export type ExpireInput<
   game: TAccountGame;
   bars: TAccountBars;
   pool: TAccountPool;
+  /**
+   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+   * one account with its owner and discriminator is the one.
+   */
   rewards: TAccountRewards;
   rentReceiver: TAccountRentReceiver;
   /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */
@@ -471,6 +476,10 @@ export type ParsedExpireInstruction<
     game: TAccountMetas[0];
     bars: TAccountMetas[1];
     pool: TAccountMetas[2];
+    /**
+     * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+     * one account with its owner and discriminator is the one.
+     */
     rewards: TAccountMetas[3];
     rentReceiver: TAccountMetas[4];
     /** Pays the rent of a player's `Holder` the first time a settlement decides a band of theirs: whoever settles. */

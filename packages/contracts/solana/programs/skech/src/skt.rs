@@ -29,7 +29,12 @@ use crate::state::Rewards;
 /// The holders' part of a fee taken at `fee_bps` on `amount`: `holder_bps` of it, rounded down, never more than the
 /// fee (which is rounded up): the house keeps the rounding.
 pub fn holder_part(amount: u64, holder_bps: u16, fee_bps: u16) -> u64 {
-    (amount as u128 * holder_bps.min(fee_bps) as u128 / BPS as u128) as u64
+    let bps = holder_bps.min(fee_bps) as u64;
+    // In u64 when it fits, which is always but for stakes past $1.8 trillion: u128 division costs compute.
+    match amount.checked_mul(bps) {
+        Some(x) => x / BPS,
+        None => (amount as u128 * bps as u128 / BPS as u128) as u64,
+    }
 }
 
 /// What a band that missed counts toward SKT, USDC e6: `stake · (1 − p·m) / (1 − p)`, rounded down, with `p` the chance
@@ -39,9 +44,14 @@ pub fn miss_basis(stake: u64, chance_e9: u32, rung_e2: u16) -> u64 {
     if p >= one {
         return 0;
     }
-    // 1 − p·m = (1e11 − P·R) / 1e11 and 1 − p = 100 (1e9 − P) / 1e11.
-    let edge = (100 * one).saturating_sub(p * rung_e2 as u128);
-    (stake as u128 * edge / (100 * (one - p))) as u64
+    // 1 − p·m = (1e11 − P·R) / 1e11 and 1 − p = 100 (1e9 − P) / 1e11: both under 2^37.
+    let edge = (100 * one).saturating_sub(p * rung_e2 as u128) as u64;
+    let under = (100 * (one - p)) as u64;
+    // In u64 when it fits (stakes to $184 at any odds), else u128: the same number either way.
+    match stake.checked_mul(edge) {
+        Some(x) => x / under,
+        None => (stake as u128 * edge as u128 / under as u128) as u64,
+    }
 }
 
 /// Where the holders' share of a fee goes now.
@@ -130,7 +140,11 @@ impl Rewards {
         holder.basis = holder.basis.saturating_add(basis);
         self.supply += skt;
         if skt > 0 {
-            emit!(Minted { player: holder.player, skt, rate: (skt as u128 * 1_000_000 / basis as u128) as u64, basis });
+            let rate = match skt.checked_mul(1_000_000) {
+                Some(x) => x / basis,
+                None => (skt as u128 * 1_000_000 / basis as u128) as u64,
+            };
+            emit!(Minted { player: holder.player, skt, rate, basis });
         }
         Ok(skt)
     }

@@ -47,7 +47,9 @@ pub struct PostBarAndSettle<'info> {
     pub bars: AccountLoader<'info, Bars>,
     #[account(mut, seeds = [POOL_SEED], bump = pool.bump)]
     pub pool: Box<Account<'info, Pool>>,
-    #[account(mut, seeds = [REWARDS_SEED], bump = rewards.bump)]
+    /// Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+    /// one account with its owner and discriminator is the one.
+    #[account(mut)]
     pub rewards: Box<Account<'info, Rewards>>,
     /// Gets back the rent of the bets closed here: only those it paid for are closed.
     /// CHECK: compared with each bet's `rent_payer`.
@@ -68,7 +70,9 @@ pub struct Settle<'info> {
     pub bars: AccountLoader<'info, Bars>,
     #[account(mut, seeds = [POOL_SEED], bump = pool.bump)]
     pub pool: Box<Account<'info, Pool>>,
-    #[account(mut, seeds = [REWARDS_SEED], bump = rewards.bump)]
+    /// Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+    /// one account with its owner and discriminator is the one.
+    #[account(mut)]
     pub rewards: Box<Account<'info, Rewards>>,
     /// CHECK: compared with each bet's `rent_payer`.
     #[account(mut)]
@@ -266,7 +270,10 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
         bet_info.assign(&anchor_lang::system_program::ID);
         bet_info.resize(0)?;
     } else {
-        bet.try_serialize(&mut &mut bet_info.try_borrow_mut_data()?[..])?;
+        // Only the masks changed: written in place, not the whole bet and its sections again.
+        let mut data = bet_info.try_borrow_mut_data()?;
+        data[Bet::LIVE_MASK_AT..Bet::LIVE_MASK_AT + 4].copy_from_slice(&bet.live_mask.to_le_bytes());
+        data[Bet::LIVE_MASK_AT + 4..Bet::LIVE_MASK_AT + 8].copy_from_slice(&bet.hit_mask.to_le_bytes());
     }
     emit!(Settled { bet: bet_info.key(), player: bet.player, hit_mask: hits, miss_mask: decided & !hits & !expired, paid, owed, closed, expired_mask: expired, refunded });
     Ok(())

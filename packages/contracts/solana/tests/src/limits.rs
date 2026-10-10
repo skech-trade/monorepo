@@ -211,6 +211,12 @@ fn account_sizes_are_what_is_on_chain() {
     // A bet's fixed part, and each section.
     assert_eq!(skech::state::Bet::FIXED, 130);
     assert_eq!(skech::state::Bet::space(32), 130 + 32 * 27);
+    // Settling writes a bet's masks in place, at these offsets.
+    let bet = skech::state::Bet { player: Pubkey::new_unique(), drawing: 7, index: 9, market: 1, difficulty: 55, live_mask: 0xaabb_ccdd, hit_mask: 0x1122_3344, open_at: 5, per_dot: 1, unit: 2, stake: 3, rent_payer: Pubkey::new_unique(), sections: vec![] };
+    let mut bytes = vec![];
+    anchor_lang::AccountSerialize::try_serialize(&bet, &mut bytes).unwrap();
+    let at = skech::state::Bet::LIVE_MASK_AT;
+    assert_eq!((&bytes[at..at + 4], &bytes[at + 4..at + 8]), (&0xaabb_ccddu32.to_le_bytes()[..], &0x1122_3344u32.to_le_bytes()[..]));
     // And the new ones: a Holder's rent is the relayer's, once a player.
     assert_eq!(skech::state::Holder::SPACE, 121);
     assert_eq!(8 + <skech::state::Rewards as anchor_lang::Space>::INIT_SPACE, 141);

@@ -40,12 +40,7 @@ import {
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
-import {
-  findGamePda,
-  findHolderPda,
-  findPlayerPda,
-  findRewardsPda,
-} from "../pdas";
+import { findGamePda, findPlayerPda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
 
 export const CLAIM_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
@@ -124,9 +119,17 @@ export type ClaimAsyncInput<
 > = {
   authority: TAccountAuthority;
   game?: TAccountGame;
-  rewards?: TAccountRewards;
+  /**
+   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+   * one account with its owner and discriminator is the one.
+   */
+  rewards: TAccountRewards;
   player?: TAccountPlayer;
-  holder?: TAccountHolder;
+  /**
+   * Not re-derived from its seeds either: a `Holder` is only ever made at its player's own address, so the one
+   * that names this wallet is theirs.
+   */
+  holder: TAccountHolder;
 };
 
 export async function getClaimInstructionAsync<
@@ -201,22 +204,8 @@ export async function getClaimInstructionAsync<
   if (!accounts.game.value) {
     accounts.game.value = await findGamePda({ programAddress });
   }
-  if (!accounts.rewards.value) {
-    accounts.rewards.value = await findRewardsPda({ programAddress });
-  }
   if (!accounts.player.value) {
     accounts.player.value = await findPlayerPda(
-      {
-        authority: getAddressFromResolvedInstructionAccount(
-          "authority",
-          accounts.authority.value,
-        ),
-      },
-      { programAddress },
-    );
-  }
-  if (!accounts.holder.value) {
-    accounts.holder.value = await findHolderPda(
       {
         authority: getAddressFromResolvedInstructionAccount(
           "authority",
@@ -271,8 +260,16 @@ export type ClaimInput<
 > = {
   authority: TAccountAuthority;
   game: TAccountGame;
+  /**
+   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+   * one account with its owner and discriminator is the one.
+   */
   rewards: TAccountRewards;
   player: TAccountPlayer;
+  /**
+   * Not re-derived from its seeds either: a `Holder` is only ever made at its player's own address, so the one
+   * that names this wallet is theirs.
+   */
   holder: TAccountHolder;
 };
 
@@ -385,8 +382,16 @@ export type ParsedClaimInstruction<
   accounts: {
     authority: TAccountMetas[0];
     game: TAccountMetas[1];
+    /**
+     * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+     * one account with its owner and discriminator is the one.
+     */
     rewards: TAccountMetas[2];
     player: TAccountMetas[3];
+    /**
+     * Not re-derived from its seeds either: a `Holder` is only ever made at its player's own address, so the one
+     * that names this wallet is theirs.
+     */
     holder: TAccountMetas[4];
   };
   data: ClaimInstructionData;

@@ -52,7 +52,7 @@ import {
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
-import { findGamePda, findPoolPda, findRewardsPda } from "../pdas";
+import { findGamePda, findPoolPda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
 import {
   getSectionArgDecoder,
@@ -275,8 +275,12 @@ export type PlaceAsyncInput<
   market: TAccountMarket;
   bars: TAccountBars;
   pool?: TAccountPool;
-  /** For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention. */
-  rewards?: TAccountRewards;
+  /**
+   * For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention.
+   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+   * one account with its owner and discriminator is the one.
+   */
+  rewards: TAccountRewards;
   player: TAccountPlayer;
   /** The new bet, at seeds [BET_SEED, player, drawing, index]: created here only if the piece goes in. */
   bet: TAccountBet;
@@ -425,9 +429,6 @@ export async function getPlaceInstructionAsync<
   if (!accounts.pool.value) {
     accounts.pool.value = await findPoolPda({ programAddress });
   }
-  if (!accounts.rewards.value) {
-    accounts.rewards.value = await findRewardsPda({ programAddress });
-  }
   if (!accounts.instructions.value) {
     accounts.instructions.value =
       "Sysvar1nstructions1111111111111111111111111" as Address<"Sysvar1nstructions1111111111111111111111111">;
@@ -527,7 +528,11 @@ export type PlaceInput<
   market: TAccountMarket;
   bars: TAccountBars;
   pool: TAccountPool;
-  /** For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention. */
+  /**
+   * For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention.
+   * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+   * one account with its owner and discriminator is the one.
+   */
   rewards: TAccountRewards;
   player: TAccountPlayer;
   /** The new bet, at seeds [BET_SEED, player, drawing, index]: created here only if the piece goes in. */
@@ -759,7 +764,11 @@ export type ParsedPlaceInstruction<
     market: TAccountMetas[3];
     bars: TAccountMetas[4];
     pool: TAccountMetas[5];
-    /** For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention. */
+    /**
+     * For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention.
+     * Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the
+     * one account with its owner and discriminator is the one.
+     */
     rewards: TAccountMetas[6];
     player: TAccountMetas[7];
     /** The new bet, at seeds [BET_SEED, player, drawing, index]: created here only if the piece goes in. */

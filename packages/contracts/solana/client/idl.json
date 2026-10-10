@@ -85,23 +85,11 @@
         },
         {
           "name": "rewards",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  119,
-                  97,
-                  114,
-                  100,
-                  115
-                ]
-              }
-            ]
-          }
+          "docs": [
+            "Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the",
+            "one account with its owner and discriminator is the one."
+          ],
+          "writable": true
         },
         {
           "name": "player",
@@ -128,26 +116,11 @@
         },
         {
           "name": "holder",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  104,
-                  111,
-                  108,
-                  100,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "authority"
-              }
-            ]
-          }
+          "docs": [
+            "Not re-derived from its seeds either: a `Holder` is only ever made at its player's own address, so the one",
+            "that names this wallet is theirs."
+          ],
+          "writable": true
         }
       ],
       "args": []
@@ -374,23 +347,11 @@
         },
         {
           "name": "rewards",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  119,
-                  97,
-                  114,
-                  100,
-                  115
-                ]
-              }
-            ]
-          }
+          "docs": [
+            "Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the",
+            "one account with its owner and discriminator is the one."
+          ],
+          "writable": true
         },
         {
           "name": "rent_receiver",
@@ -803,25 +764,11 @@
         {
           "name": "rewards",
           "docs": [
-            "For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention."
+            "For the holders' share of the stake fee. Written by every placement, as the pool is: no new contention.",
+            "Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the",
+            "one account with its owner and discriminator is the one."
           ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  119,
-                  97,
-                  114,
-                  100,
-                  115
-                ]
-              }
-            ]
-          }
+          "writable": true
         },
         {
           "name": "player",
@@ -1002,23 +949,11 @@
         },
         {
           "name": "rewards",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  119,
-                  97,
-                  114,
-                  100,
-                  115
-                ]
-              }
-            ]
-          }
+          "docs": [
+            "Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the",
+            "one account with its owner and discriminator is the one."
+          ],
+          "writable": true
         },
         {
           "name": "rent_receiver",
@@ -1353,24 +1288,9 @@
         {
           "name": "rewards",
           "docs": [
-            "Read for SKT's split of the fees, which the new terms must leave room for."
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  119,
-                  97,
-                  114,
-                  100,
-                  115
-                ]
-              }
-            ]
-          }
+            "Read for SKT's split of the fees, which the new terms must leave room for. Its owner and discriminator make",
+            "it the one `Rewards` (see `Place`)."
+          ]
         }
       ],
       "args": [
@@ -1625,23 +1545,10 @@
         },
         {
           "name": "rewards",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  119,
-                  97,
-                  114,
-                  100,
-                  115
-                ]
-              }
-            ]
-          }
+          "docs": [
+            "The one `Rewards`, by its owner and discriminator (see `Place`)."
+          ],
+          "writable": true
         }
       ],
       "args": [
@@ -1830,23 +1737,11 @@
         },
         {
           "name": "rewards",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  119,
-                  97,
-                  114,
-                  100,
-                  115
-                ]
-              }
-            ]
-          }
+          "docs": [
+            "Not re-derived from its seeds (1,500 CU): only `init_rewards` makes a `Rewards`, once, at its seeds, so the",
+            "one account with its owner and discriminator is the one."
+          ],
+          "writable": true
         },
         {
           "name": "rent_receiver",

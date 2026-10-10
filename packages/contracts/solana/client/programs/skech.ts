@@ -166,7 +166,6 @@ import {
 import {
   findCallerPlayerPda,
   findGamePda,
-  findHolderPda,
   findPlayerPda,
   findPoolPda,
   findRewardsPda,
@@ -1274,10 +1273,9 @@ export type SkechPluginInstructions = {
 
 export type SkechPluginPdas = {
   game: typeof findGamePda;
-  rewards: typeof findRewardsPda;
   player: typeof findPlayerPda;
-  holder: typeof findHolderPda;
   pool: typeof findPoolPda;
+  rewards: typeof findRewardsPda;
   callerPlayer: typeof findCallerPlayerPda;
 };
 
@@ -1455,10 +1453,9 @@ export function skechProgram() {
         },
         pdas: {
           game: findGamePda,
-          rewards: findRewardsPda,
           player: findPlayerPda,
-          holder: findHolderPda,
           pool: findPoolPda,
+          rewards: findRewardsPda,
           callerPlayer: findCallerPlayerPda,
         },
         identifyAccount: identifySkechAccount,

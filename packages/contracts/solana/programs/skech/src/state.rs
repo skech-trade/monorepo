@@ -276,6 +276,9 @@ pub struct Bet {
 impl Bet {
     /// Everything but the sections.
     pub const FIXED: usize = 8 + Bet::INIT_SPACE;
+    /// Where `live_mask` is in a bet's bytes, `hit_mask` right after it: the discriminator, the player (32), the
+    /// drawing (8), the index (4), the market and the difficulty (1 each).
+    pub const LIVE_MASK_AT: usize = 8 + 32 + 8 + 4 + 1 + 1;
     /// The bet as it is serialized: what a bet placed before SKT is, all of it.
     pub fn space(sections: usize) -> usize {
         Self::FIXED + sections * BetSection::INIT_SPACE

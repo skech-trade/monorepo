@@ -39,7 +39,7 @@ import {
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/kit/program-client-core";
-import { findGamePda, findRewardsPda } from "../pdas";
+import { findGamePda } from "../pdas";
 import { SKECH_PROGRAM_ADDRESS } from "../programs";
 import {
   getRewardsConfigDecoder,
@@ -124,7 +124,8 @@ export type SetRewardsConfigAsyncInput<
 > = {
   admin: TAccountAdmin;
   game?: TAccountGame;
-  rewards?: TAccountRewards;
+  /** The one `Rewards`, by its owner and discriminator (see `Place`). */
+  rewards: TAccountRewards;
   rewardsConfig: SetRewardsConfigInstructionDataArgs["rewardsConfig"];
 };
 
@@ -185,9 +186,6 @@ export async function getSetRewardsConfigInstructionAsync<
   if (!accounts.game.value) {
     accounts.game.value = await findGamePda({ programAddress });
   }
-  if (!accounts.rewards.value) {
-    accounts.rewards.value = await findRewardsPda({ programAddress });
-  }
 
   return Object.freeze({
     accounts: [
@@ -223,6 +221,7 @@ export type SetRewardsConfigInput<
 > = {
   admin: TAccountAdmin;
   game: TAccountGame;
+  /** The one `Rewards`, by its owner and discriminator (see `Place`). */
   rewards: TAccountRewards;
   rewardsConfig: SetRewardsConfigInstructionDataArgs["rewardsConfig"];
 };
@@ -309,6 +308,7 @@ export type ParsedSetRewardsConfigInstruction<
   accounts: {
     admin: TAccountMetas[0];
     game: TAccountMetas[1];
+    /** The one `Rewards`, by its owner and discriminator (see `Place`). */
     rewards: TAccountMetas[2];
   };
   data: SetRewardsConfigInstructionData;
