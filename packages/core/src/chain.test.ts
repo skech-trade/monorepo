@@ -23,6 +23,7 @@ import {
   MIN_DIFFICULTY,
   MIN_PIECE_STAKE,
   MIN_PIECE_STAKE_E6,
+  BATCH_PIECE_STAKE_E6,
   onGrid,
   usdE6,
   rungE2,
@@ -248,33 +249,43 @@ describe("judging, as the chain judges", () => {
 });
 
 describe("the least a piece stakes", () => {
-  // A line as the dots it covers at each read: the area is the mark itself.
+  // A line as the dots it covers at each read: the area is the mark itself. Pieces of 10¢, as the apps gather them.
+  const BATCH = BATCH_PIECE_STAKE_E6;
   const areaOf = (s: number | null) => s ?? 0;
   const at = (perDot: number) => BigInt(Math.round(perDot * 1e6));
 
-  test("is 10¢, and says so", () => {
-    expect(MIN_PIECE_STAKE_E6).toBe(100_000n);
-    expect(MIN_PIECE_STAKE).toBe(0.1);
-    expect(usdE6(MIN_PIECE_STAKE_E6)).toBe("$0.10");
+  test("is 1¢, gathered into 10¢ while drawing, and says so", () => {
+    expect(MIN_PIECE_STAKE_E6).toBe(10_000n);
+    expect(MIN_PIECE_STAKE).toBe(0.01);
+    expect(usdE6(MIN_PIECE_STAKE_E6)).toBe("$0.01");
+    expect(BATCH_PIECE_STAKE_E6).toBe(100_000n);
+    expect(usdE6(BATCH_PIECE_STAKE_E6)).toBe("$0.10");
   });
 
   test("holds ink until a piece and what follows it both reach it", () => {
     // 5¢ a dot: 10¢ is two dots. Three dots drawn, nothing marked yet: nothing to cut at.
-    expect(cutAt(null, [], 3, areaOf, at(0.05), MIN_PIECE_STAKE_E6)).toBe(-1);
+    expect(cutAt(null, [], 3, areaOf, at(0.05), BATCH)).toBe(-1);
     // Marked at 1 and 2.5: 2.5 has only half a dot after it, 1 has two but only one before it.
-    expect(cutAt(null, [1, 2.5], 3, areaOf, at(0.05), MIN_PIECE_STAKE_E6)).toBe(-1);
+    expect(cutAt(null, [1, 2.5], 3, areaOf, at(0.05), BATCH)).toBe(-1);
     // At 4.5 the mark at 2.5 has two dots each side: the piece goes up to it.
-    expect(cutAt(null, [1, 2.5], 4.5, areaOf, at(0.05), MIN_PIECE_STAKE_E6)).toBe(1);
+    expect(cutAt(null, [1, 2.5], 4.5, areaOf, at(0.05), BATCH)).toBe(1);
     // After a piece at 2.5, the next is held the same way.
-    expect(cutAt(2.5, [3, 4.5], 5, areaOf, at(0.05), MIN_PIECE_STAKE_E6)).toBe(-1);
-    expect(cutAt(2.5, [3, 4.5], 6.6, areaOf, at(0.05), MIN_PIECE_STAKE_E6)).toBe(1);
+    expect(cutAt(2.5, [3, 4.5], 5, areaOf, at(0.05), BATCH)).toBe(-1);
+    expect(cutAt(2.5, [3, 4.5], 6.6, areaOf, at(0.05), BATCH)).toBe(1);
   });
 
   test("at a dollar a dot, every read but the last goes", () => {
-    expect(cutAt(null, [0.2], 0.4, areaOf, at(1), MIN_PIECE_STAKE_E6)).toBe(0);
-    expect(cutAt(0.2, [0.4, 0.6], 0.8, areaOf, at(1), MIN_PIECE_STAKE_E6)).toBe(1);
+    expect(cutAt(null, [0.2], 0.4, areaOf, at(1), BATCH)).toBe(0);
+    expect(cutAt(0.2, [0.4, 0.6], 0.8, areaOf, at(1), BATCH)).toBe(1);
     // Under a tenth of a dot since the last mark: the one before it is the cut.
-    expect(cutAt(0.2, [0.4, 0.75], 0.8, areaOf, at(1), MIN_PIECE_STAKE_E6)).toBe(0);
+    expect(cutAt(0.2, [0.4, 0.75], 0.8, areaOf, at(1), BATCH)).toBe(0);
+  });
+
+  test("cut at 10¢, with only 1¢ kept back for the end of the line", () => {
+    // 5¢ a dot: the piece needs two dots before the cut, the end a fifth of one after it.
+    expect(cutAt(null, [1, 2.5], 2.6, areaOf, at(0.05), BATCH, MIN_PIECE_STAKE_E6)).toBe(-1);
+    expect(cutAt(null, [1, 2.5], 2.7, areaOf, at(0.05), BATCH, MIN_PIECE_STAKE_E6)).toBe(1);
+    expect(cutAt(null, [1, 1.5], 1.9, areaOf, at(0.05), BATCH, MIN_PIECE_STAKE_E6)).toBe(-1);
   });
 
   test("with no least, the latest mark", () => {
