@@ -1,13 +1,13 @@
 {
-  "claim": 14363,
-  "holder_open": 8887,
-  "place_1": 33926,
-  "place_16": 60826,
-  "place_32": 89292,
-  "place_8": 46489,
+  "claim": 14285,
+  "holder_open": 8476,
+  "place_1": 34215,
+  "place_16": 62945,
+  "place_32": 93363,
+  "place_8": 47632,
   "place_per_bump": 1500,
-  "post_and_settle_4_mixed": 134813,
-  "post_and_settle_4_mixed_open": 108561,
-  "post_and_settle_4_one_band": 48342,
-  "post_bar": 19788
+  "post_and_settle_4_mixed": 143622,
+  "post_and_settle_4_mixed_open": 111510,
+  "post_and_settle_4_one_band": 45134,
+  "post_bar": 19791
 }

@@ -19,8 +19,6 @@ import {
   getAddressEncoder,
   getBytesDecoder,
   getBytesEncoder,
-  getI64Decoder,
-  getI64Encoder,
   getStructDecoder,
   getStructEncoder,
   getU128Decoder,
@@ -61,10 +59,8 @@ export type Holder = {
   /** USDC e6 earned and not yet claimed. */
   unclaimed: bigint;
   claimed: bigint;
-  /** Lifetime net result, USDC e6: what settling credited them (paid and owed) less the stakes it decided. */
-  net: bigint;
-  /** The deepest net loss they have ever been at (`-net` at its lowest): SKT mints only past it. */
-  worst: bigint;
+  /** Every basis their SKT was minted on, USDC e6: the odds-weighted loss of each band of theirs that missed. */
+  basis: bigint;
   bump: number;
   reserved: ReadonlyUint8Array;
 };
@@ -78,10 +74,8 @@ export type HolderArgs = {
   /** USDC e6 earned and not yet claimed. */
   unclaimed: number | bigint;
   claimed: number | bigint;
-  /** Lifetime net result, USDC e6: what settling credited them (paid and owed) less the stakes it decided. */
-  net: number | bigint;
-  /** The deepest net loss they have ever been at (`-net` at its lowest): SKT mints only past it. */
-  worst: number | bigint;
+  /** Every basis their SKT was minted on, USDC e6: the odds-weighted loss of each band of theirs that missed. */
+  basis: number | bigint;
   bump: number;
   reserved: ReadonlyUint8Array;
 };
@@ -96,8 +90,7 @@ export function getHolderEncoder(): FixedSizeEncoder<HolderArgs> {
       ["accAt", getU128Encoder()],
       ["unclaimed", getU64Encoder()],
       ["claimed", getU64Encoder()],
-      ["net", getI64Encoder()],
-      ["worst", getU64Encoder()],
+      ["basis", getU64Encoder()],
       ["bump", getU8Encoder()],
       ["reserved", fixEncoderSize(getBytesEncoder(), 32)],
     ]),
@@ -114,8 +107,7 @@ export function getHolderDecoder(): FixedSizeDecoder<Holder> {
     ["accAt", getU128Decoder()],
     ["unclaimed", getU64Decoder()],
     ["claimed", getU64Decoder()],
-    ["net", getI64Decoder()],
-    ["worst", getU64Decoder()],
+    ["basis", getU64Decoder()],
     ["bump", getU8Decoder()],
     ["reserved", fixDecoderSize(getBytesDecoder(), 32)],
   ]);
@@ -180,5 +172,5 @@ export async function fetchAllMaybeHolder(
 }
 
 export function getHolderSize(): number {
-  return 129;
+  return 121;
 }

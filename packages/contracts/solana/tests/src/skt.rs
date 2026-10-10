@@ -1,6 +1,6 @@
-//! SKT on chain: the fee split, the accumulator across holders who join at different times, claims, IOUs first, the
-//! high-water mark, the curve, refunds, and that a long shot mints no more SKT per dollar lost than ink at the price.
-//! Then the whole game at random, its books checked after every step.
+//! SKT on chain: the fee split, the accumulator across holders who join at different times, claims, IOUs first, each
+//! miss's odds-weighted basis, the curve, refunds, bets from before SKT, and that a long shot mints no more SKT per
+//! dollar it can expect to lose than ink at the price. Then the whole game at random, its books checked every step.
 
 use std::collections::HashMap;
 
@@ -13,7 +13,7 @@ use solana_signer::Signer;
 use crate::harness::*;
 use skech::error::SkechError;
 use skech::piece::QuoteArgs;
-use skech::skt::mint_amount;
+use skech::skt::{miss_basis, mint_amount};
 use skech::state::{RewardsConfig, ACC_SCALE};
 
 const PRICE: u64 = 83_000 * E8;
@@ -285,63 +285,58 @@ fn while_anything_is_owed_the_holders_share_pays_it_off_instead() {
 }
 
 #[test]
-fn only_a_new_low_mints_and_only_past_the_old_one() {
+fn each_miss_mints_on_its_odds_weighted_loss_and_a_hit_on_nothing() {
     let mut t = Table::new(Game::new());
     let a = t.g.player(10 * E6, 10 * E6);
-    let funder = t.g.player(30 * E6, 25 * E6);
-    t.play(&funder, &[(FAR, 5_000_000, HALF)], HIT_AT);
-    let skt = |t: &Table| t.g.holder(&key(&a)).skt;
-    // A loss: mints.
-    let m = t.play(&a, &[(FAR, 100_000, HALF)], HIT_AT);
+    // A 1% long shot at 96x misses: 1.1¢ · (1 − 0.96) / 0.99, minted at once, from a tracked gain of 0.
+    let m = t.play(&a, &[(AT, 11_000, LONG)], MISS);
     let minted: Vec<skech::events::Minted> = events(&m.logs);
     assert_eq!(minted.len(), 1);
-    assert_eq!((minted[0].player, minted[0].skt, minted[0].net_loss_new_low), (key(&a), skt(&t), 100_000));
-    let first = skt(&t);
-    assert!(first > 0);
-    // A win: takes nothing back, mints nothing. Net −100,000 − 100,000 + 145,000.
+    assert_eq!((minted[0].player, minted[0].basis), (key(&a), 444));
+    assert_eq!(minted[0].skt as u128, mint_amount(RewardsConfig::DEFAULT.mint_scale, 0, 444));
+    assert_eq!((t.g.holder(&key(&a)).basis, t.g.rewards().gain), (444, 444));
+    // A hit mints nothing, and takes nothing back.
+    let skt = t.g.holder(&key(&a)).skt;
     let m = t.play(&a, &[(AT, 100_000, HALF)], HIT_AT);
     assert!(events::<skech::events::Minted>(&m.logs).is_empty());
-    assert_eq!((skt(&t), t.g.holder(&key(&a)).net), (first, -55_000));
-    // Back to the old low exactly: nothing.
-    let m = t.play(&a, &[(FAR, 45_000, HALF)], HIT_AT);
-    assert!(events::<skech::events::Minted>(&m.logs).is_empty());
-    assert_eq!((skt(&t), t.g.holder(&key(&a)).net, t.g.holder(&key(&a)).worst), (first, -100_000, 100_000));
-    // Past it by 30,000: the 30,000 mints, and only it.
-    let g0 = t.g.rewards().gain as i128;
-    let m = t.play(&a, &[(FAR, 30_000, HALF)], HIT_AT);
+    assert_eq!(t.g.holder(&key(&a)).skt, skt);
+    // One piece, a band that hits and one that misses: the miss alone, 10¢ · 0.25 / 0.5, from where the gain is.
+    let m = t.play(&a, &[(AT, 100_000, HALF), (FAR, 100_000, HALF)], HIT_AT);
     let minted: Vec<skech::events::Minted> = events(&m.logs);
-    let want = mint_amount(RewardsConfig::DEFAULT.mint_scale, g0, g0 + 30_000) as u64;
-    assert_eq!((minted[0].skt, minted[0].net_loss_new_low), (want, 130_000));
-    assert_eq!(skt(&t), first + want);
-    // At most 100 SKT a dollar of the deepest net loss, ever.
-    assert!(skt(&t) as u128 <= 100 * 130_000);
+    assert_eq!(minted[0].basis, 50_000);
+    assert_eq!(minted[0].skt as u128, mint_amount(RewardsConfig::DEFAULT.mint_scale, 444, 50_000));
+    // Never more than 100 SKT a dollar of basis, and the basis never more than the stake that missed.
+    let h = t.g.holder(&key(&a));
+    assert_eq!(h.basis, 50_444);
+    assert!(h.skt as u128 <= 100 * h.basis as u128);
 }
 
 #[test]
 fn the_curve_decays_as_the_tracked_gain_grows() {
     let mut t = Table::new(Game::new());
-    // S = $1, so a few dollars of loss walk the whole curve.
+    // S = $1, so a few dollars of basis walk the whole curve.
     t.set_rewards(RewardsConfig { mint_scale: E6, ..RewardsConfig::DEFAULT });
     let (funder, x) = (t.g.player(50 * E6, 50 * E6), t.g.player(10 * E6, 10 * E6));
+    // x's miss at 50% and 1.5x: a basis of half its stake. A cent of basis each time.
     let cent = |t: &mut Table| -> skech::events::Minted {
-        let m = t.play(&x, &[(FAR, 10_000, HALF)], HIT_AT);
-        events::<skech::events::Minted>(&m.logs).remove(0)
+        let from = t.g.rewards().gain;
+        let m = t.play(&x, &[(FAR, 20_000, HALF)], HIT_AT);
+        let e = events::<skech::events::Minted>(&m.logs).remove(0);
+        assert_eq!((e.basis, e.skt as u128), (10_000, mint_amount(E6, from, 10_000)));
+        e
     };
     // G = 0: 100 a dollar.
     let at0 = cent(&mut t);
-    assert_eq!(at0.skt as u128, mint_amount(E6, 0, 10_000));
     assert!((99_000_000..=100_000_000).contains(&at0.rate), "{}", at0.rate);
     // G = S: (1/2)² of it, 25 a dollar.
-    t.play(&funder, &[(FAR, 990_000, HALF)], HIT_AT);
+    t.play(&funder, &[(FAR, 1_980_000, HALF)], HIT_AT);
     assert_eq!(t.g.rewards().gain, 1_000_000);
     let at_s = cent(&mut t);
-    assert_eq!(at_s.skt as u128, mint_amount(E6, 1_000_000, 1_010_000));
     assert!((24_500_000..=25_000_000).contains(&at_s.rate), "{}", at_s.rate);
     // G = 3S: (1/4)², 6.25 a dollar.
-    t.play(&funder, &[(FAR, 1_990_000, HALF)], HIT_AT);
+    t.play(&funder, &[(FAR, 3_980_000, HALF)], HIT_AT);
     assert_eq!(t.g.rewards().gain, 3_000_000);
     let at_3s = cent(&mut t);
-    assert_eq!(at_3s.skt as u128, mint_amount(E6, 3_000_000, 3_010_000));
     assert!((6_200_000..=6_250_000).contains(&at_3s.rate), "{}", at_3s.rate);
     // However much more is lost, by anyone, the whole curve is worth 100 · S: 100 SKT here, to everyone together.
     t.play(&funder, &[(FAR, 15_000_000, HALF)], HIT_AT);
@@ -349,31 +344,49 @@ fn the_curve_decays_as_the_tracked_gain_grows() {
 }
 
 #[test]
-fn a_win_owed_as_iou_counts_at_face_so_losses_into_it_mint_nothing() {
+fn a_hit_owed_as_iou_mints_nothing_and_paying_it_off_changes_no_skt() {
     let mut t = Table::new(Game::new());
     let (a, b) = (t.g.player(10 * E6, 10 * E6), t.g.player(30 * E6, 25 * E6));
     t.play(&b, &[(FAR, 100_000, HALF)], HIT_AT);
-    // A's long shot: paid what the pool has, the rest owed. Credited in full: no SKT for the stake it took.
+    // A's long shot hits: paid what the pool has, the rest owed. A hit: no SKT, owed or not.
     let m = t.play(&a, &[(AT, 50_000, LONG)], HIT_AT);
     let s: Vec<skech::events::Settled> = events(&m.logs);
     assert!(s[0].owed > 0);
+    assert!(events::<skech::events::Minted>(&m.logs).is_empty());
+    assert_eq!(t.g.holder(&key(&a)).skt, 0);
+    // While it is owed, a miss of A's (cash staked from A's balance: nothing in skech stakes an IOU) mints, from a
+    // tracked gain of 0.
+    let m = t.play(&a, &[(FAR, 200_000, HALF)], HIT_AT);
+    let minted: Vec<skech::events::Minted> = events(&m.logs);
+    assert_eq!((minted[0].basis, minted[0].skt as u128), (100_000, mint_amount(RewardsConfig::DEFAULT.mint_scale, 0, 100_000)));
     let h = t.g.holder(&key(&a));
-    assert_eq!((h.skt, h.net), (0, (s[0].paid + s[0].owed) as i64 - 50_000));
-    // Losses that only eat into what A is owed, its net still up: nothing.
-    for _ in 0..5 {
-        t.play(&a, &[(FAR, 200_000, HALF)], HIT_AT);
-    }
-    let h = t.g.holder(&key(&a));
-    assert!(h.net > 0);
-    assert_eq!((h.skt, h.worst), (0, 0));
-    // The IOU paid off a day later, growth and all: no change to A's SKT either way.
+    // The IOU paid off a day later, growth and all: no change to A's SKT.
     let top_up = t.g.player(1000 * E6, 1000 * E6);
     t.play(&top_up, &[(FAR, 15_000_000, HALF)], HIT_AT);
     t.g.set_time(t.g.now + 86_400);
     let w = a.wallet.insecure_clone();
     t.g.send(&[t.redeem_ix(&key(&a), key(&a))], &[&w]).expect("redeemed");
     assert_eq!(t.g.player_state(&a).iou_shares, 0);
-    assert_eq!(t.g.holder(&key(&a)), h);
+    let after = t.g.holder(&key(&a));
+    assert_eq!((after.skt, after.basis), (h.skt, h.basis));
+}
+
+#[test]
+fn a_bet_placed_before_skt_settles_and_mints_nothing() {
+    let mut t = Table::new(Game::new());
+    let a = t.g.player(10 * E6, 10 * E6);
+    let open_at = t.open();
+    let bet = t.place(&a, open_at, &[(FAR, 100_000, HALF)]).unwrap();
+    // Cut back to the bytes a bet had before its chances were kept after it.
+    let mut account = t.g.svm.get_account(&bet).unwrap();
+    assert_eq!(account.data.len(), skech::state::Bet::space_with_chances(1));
+    account.data.truncate(skech::state::Bet::space(1));
+    t.g.svm.set_account(bet, account).unwrap();
+    let m = t.settle(open_at, HIT_AT, &[(bet, key(&a))]);
+    let s: Vec<skech::events::Settled> = events(&m.logs);
+    assert_eq!((s[0].miss_mask, s[0].closed), (1, true));
+    assert!(events::<skech::events::Minted>(&m.logs).is_empty());
+    assert_eq!((t.g.holder(&key(&a)).skt, t.g.rewards().gain), (0, 0));
 }
 
 #[test]
@@ -394,9 +407,9 @@ fn stakes_given_back_mint_nothing() {
     let s: Vec<skech::events::Settled> = events(&m.logs);
     assert_eq!((s[0].miss_mask, s[0].expired_mask, s[0].refunded), (0b01, 0b10, 30_000));
     let h = t.g.holder(&key(&a));
-    // Only the 70,000 that missed: the 30,000 given back is neither staked nor credited.
-    assert_eq!((h.net, h.worst), (-70_000, 70_000));
-    assert_eq!(h.skt as u128, mint_amount(RewardsConfig::DEFAULT.mint_scale, 0, 70_000));
+    // Only the 70,000 that missed counts, half of it at 50% and 1.5x; the 30,000 given back, nothing.
+    assert_eq!(h.basis, 35_000);
+    assert_eq!(h.skt as u128, mint_amount(RewardsConfig::DEFAULT.mint_scale, 0, 35_000));
     // A piece given back whole mints nothing.
     let b = t.g.player(10 * E6, 10 * E6);
     let open_at = t.open();
@@ -405,7 +418,7 @@ fn stakes_given_back_mint_nothing() {
     t.g.settle_on(true, &[(bet, key(&b))]).unwrap();
     assert_eq!(t.g.player_state(&b).balance, 10 * E6);
     let h = t.g.holder(&key(&b));
-    assert_eq!((h.skt, h.net, h.worst), (0, 0, 0));
+    assert_eq!((h.skt, h.basis), (0, 0));
 }
 
 #[test]
@@ -499,93 +512,55 @@ fn a_game_set_up_before_skt_moves_to_its_terms_in_one_step() {
 
 /* ---- farming ---- */
 
-/// One strategy's game: a funder's loss first (so the pool pays every hit and the curve has moved), then `cycles` of
-/// the strategy, each a hit and then misses, ending at a new low.
-struct Farmed {
-    skt: u64,
-    worst: u64,
-    /// Every losing band's stake added up: what a mint on every loss would have counted.
-    lost: u64,
-    /// The tracked gain the player started at, and how many times they minted.
-    from: i128,
-    mints: u64,
-}
-
-fn farm(scale: u64, cycles: usize, hit: Band, misses: usize, miss: Band) -> Farmed {
+/// One strategy, `n` times: a single band of `stake` at `chance` (its rung as the program prices it), hit with exactly
+/// that chance, drawn at random. After a funder's loss, so the pool pays every hit and nothing is ever owed. The SKT
+/// minted, the basis, and what the strategy could expect to lose, USDC e6.
+fn strategy(seed: u64, n: usize, lo: u32, stake: u32, chance: u32) -> (u64, u64, f64, u16) {
     let mut t = Table::new(Game::new());
-    t.set_rewards(RewardsConfig { mint_scale: scale, ..RewardsConfig::DEFAULT });
-    let funder = t.g.player(100 * E6, 100 * E6);
-    t.play(&funder, &[(FAR, 10_000_000, HALF)], HIT_AT);
-    let from = t.g.rewards().gain as i128;
-    let p = t.g.player(100 * E6, 100 * E6);
-    let (mut lost, mut mints) = (0u64, 0u64);
-    for _ in 0..cycles {
-        let m = t.play(&p, &[hit], HIT_AT);
-        mints += events::<skech::events::Minted>(&m.logs).len() as u64;
-        for _ in 0..misses {
-            let m = t.play(&p, &[miss], MISS);
-            mints += events::<skech::events::Minted>(&m.logs).len() as u64;
-            lost += miss.1 as u64;
+    let funder = t.g.player(1000 * E6, 1000 * E6);
+    for _ in 0..10 {
+        t.play(&funder, &[(FAR, 10_000_000, HALF)], HIT_AT);
+    }
+    let from_skt = t.g.rewards().supply;
+    let p = t.g.player(1000 * E6, 1000 * E6);
+    let mut rng = Rng(seed);
+    let mut rung = 0;
+    for i in 0..n {
+        // A session lasts a day at most: a fresh one every few thousand rounds.
+        if i % 3_000 == 2_999 {
+            let w = p.wallet.insecure_clone();
+            t.g.send(&[t.g.session_ix(&p, p.session.pubkey(), t.g.now + 86_400, 1000 * E6)], &[&w]).expect("session");
         }
+        let hit = rng.below(1_000_000_000) < chance as u64;
+        let open_at = t.open();
+        let bet = t.place(&p, open_at, &[(lo, stake, chance)]).expect("placed");
+        rung = t.g.account::<skech::state::Bet>(&bet).unwrap().sections[0].rung;
+        t.settle(open_at, if hit { HIT_AT } else { MISS }, &[(bet, key(&p))]);
     }
+    assert_eq!(t.g.pool().iou_shares, 0, "never owed");
     let h = t.g.holder(&key(&p));
-    assert_eq!(t.g.pool().iou_shares, 0, "never owed: the windows are the tracked gain's own");
-    Farmed { skt: h.skt, worst: h.worst, lost, from, mints }
+    let expected = n as f64 * stake as f64 * (1.0 - chance as f64 / 1e9 * rung as f64 / 100.0);
+    assert_eq!(t.g.rewards().supply - from_skt, h.skt);
+    (h.skt, h.basis, expected, rung)
 }
 
 #[test]
-fn a_long_shot_farms_no_more_skt_per_dollar_lost_than_ink_at_the_price() {
-    // The long shot: 1% at 96x, 1.1¢ a band, a hit then 99 misses: 9.515¢ back for 11¢ in, −1.485¢ a cycle. Near the
-    // price: 50% at 1.5x, 2.7¢ a band, a hit then a miss: 3.915¢ back for 5.4¢ in, ten times, −1.485¢. The same real
-    // loss by very different roads: the long shot loses 7 times as much on the way.
-    let scale = 5 * E6;
-    let long = farm(scale, 3, (AT, 11_000, LONG), 99, (FAR, 11_000, LONG));
-    let near = farm(scale, 30, (AT, 27_000, HALF), 1, (FAR, 27_000, HALF));
-    assert_eq!((long.worst, near.worst), (3 * 148_500, 3 * 148_500));
-    assert_eq!(long.from, near.from);
-    // Each mints the curve's integral over its deepest loss, less a unit at most a mint: the same SKT for the same loss.
-    let curve = mint_amount(scale, long.from, long.from + long.worst as i128) as u64;
-    for (name, f) in [("long shot", &long), ("near the price", &near)] {
-        assert!(f.skt <= curve && curve - f.skt <= f.mints, "{name}: {} SKT for {}, minted {} times; the curve {curve}", f.skt, f.worst, f.mints);
-    }
-    let per_dollar = |f: &Farmed| f.skt as f64 / f.worst as f64;
-    let tolerance = (long.mints + near.mints) as f64 / long.worst as f64;
-    assert!((per_dollar(&long) - per_dollar(&near)).abs() <= tolerance, "SKT a dollar: {} and {}", per_dollar(&long), per_dollar(&near));
-    println!(
-        "SKT per dollar of real loss: long shot {:.6} ({} mints), near the price {:.6} ({} mints); a mint on every loss would give the long shot {:.1}x",
-        per_dollar(&long),
-        long.mints,
-        per_dollar(&near),
-        near.mints,
-        mint_amount(scale, long.from, long.from + long.lost as i128) as f64 / long.skt as f64
-    );
-    // Minting on every losing band instead would have paid the long shot for the 7x it lost on the way.
-    assert!(long.lost > 7 * long.worst);
-    let naive = mint_amount(scale, long.from, long.from + long.lost as i128) as u64;
-    assert!(naive > 3 * long.skt, "a mint on every loss: {naive}, for {}", long.skt);
-}
-
-#[test]
-fn whatever_the_order_skt_is_the_curve_over_the_deepest_loss() {
-    // Long shots in a random order: the deepest loss may come before a late win, and SKT is minted on it, but never
-    // more than the curve gives for the deepest net loss the player was ever at.
-    let mut t = Table::new(Game::new());
-    let funder = t.g.player(200 * E6, 200 * E6);
-    t.play(&funder, &[(FAR, 10_000_000, HALF)], HIT_AT);
-    let p = t.g.player(100 * E6, 100 * E6);
-    let mut rng = Rng(12345);
-    let mut mints = 0u64;
-    let from = t.g.rewards().gain as i128;
-    for _ in 0..300 {
-        let price = if rng.below(100) < 2 { HIT_AT } else { MISS };
-        let m = t.play(&p, &[(AT, 11_000, LONG)], price);
-        mints += events::<skech::events::Minted>(&m.logs).len() as u64;
-    }
-    assert_eq!(t.g.pool().iou_shares, 0);
-    let h = t.g.holder(&key(&p));
-    let curve = mint_amount(RewardsConfig::DEFAULT.mint_scale, from, from + h.worst as i128) as u64;
-    assert!(h.skt <= curve && curve - h.skt <= mints, "{} for a deepest loss worth {curve}", h.skt);
-    assert!(h.skt as u128 <= 100 * h.worst as u128);
+fn a_long_shot_mints_no_more_skt_per_dollar_it_can_expect_to_lose_than_ink_at_the_price() {
+    // A 1% shot at 96x expects to lose 4¢ a dollar; ink at 50% paying 1.5x, 25¢. Sized so both expect to lose $15:
+    // 1,500 long shots of 25¢, 6,000 pieces of ink of 1¢. Each settles alone, its outcome drawn with its own chance.
+    let (long_skt, long_basis, long_expected, long_rung) = strategy(7, 1_500, AT, 250_000, LONG);
+    let (near_skt, near_basis, near_expected, near_rung) = strategy(8, 6_000, AT, 10_000, HALF);
+    assert_eq!((long_rung, near_rung), (9600, 150));
+    assert!((long_expected - 15_000_000.0).abs() < 1.0 && (near_expected - 15_000_000.0).abs() < 1.0);
+    // Each one's basis is its expected loss, within the luck of the draw: the long shot misses 99 times in 100 and
+    // counts 4/0.99 each time, so its luck barely shows; ink misses half the time and counts 50¢ when it does.
+    let off = |got: u64, want: f64| (got as f64 - want).abs() / want;
+    assert!(off(long_basis, long_expected) < 0.01, "long shot: basis {long_basis} for {long_expected} expected");
+    assert!(off(near_basis, near_expected) < 0.05, "near the price: basis {near_basis} for {near_expected} expected");
+    // So the SKT is the same within a few percent, for very different stakes ($375 against $60) and outcomes.
+    let ratio = long_skt as f64 / near_skt as f64;
+    println!("SKT for $15 of expected loss: long shot {long_skt} (basis {long_basis}), near the price {near_skt} (basis {near_basis}): {ratio:.4}");
+    assert!((ratio - 1.0).abs() < 0.05, "{long_skt} against {near_skt}");
 }
 
 /* ---- the whole game at random ---- */
@@ -603,21 +578,15 @@ impl Rng {
     }
 }
 
-/// A player's net result and its low, as the test counts them from what it sent and the events: apart from the
-/// program's own count.
-#[derive(Default, Clone, Copy)]
-struct Book {
-    net: i64,
-    worst: u64,
-}
 
 /// `long_shots`: one band in that many is a 1% shot at 96x; the fewer, the more often the pool is owing.
 fn random_game(seed: u64, steps: usize, long_shots: u64) -> (u64, u64) {
     let mut t = Table::new(Game::new());
     let mut rng = Rng(seed);
     let players: Vec<Player> = (0..4).map(|_| t.g.player(40 * E6, 1000 * E6)).collect();
-    let mut books = vec![Book::default(); players.len()];
-    let mut stakes_of: HashMap<Pubkey, Vec<u64>> = HashMap::new();
+    // Each player's basis, as the test counts it from the bets it placed and the events: apart from the program's count.
+    let mut books = vec![0u64; players.len()];
+    let mut bands_of: HashMap<Pubkey, Vec<(u64, u32, u16)>> = HashMap::new();
     let (mut withdrawn, mut rounds, mut expired, mut owed_steps) = (0u64, 0u64, 0u64, 0u64);
     let idx = |w: &Pubkey| players.iter().position(|p| key(p) == *w).unwrap();
     for step in 0..steps {
@@ -642,7 +611,8 @@ fn random_game(seed: u64, steps: usize, long_shots: u64) -> (u64, u64) {
                         .collect();
                     if let Some(bet) = t.place(p, open_at, &bands) {
                         let b: skech::state::Bet = t.g.account(&bet).unwrap();
-                        stakes_of.insert(bet, b.sections.iter().map(|s| s.stake).collect());
+                        // Every band was offered here (none in a second already posted): the chances line up.
+                        bands_of.insert(bet, b.sections.iter().zip(&bands).map(|(s, x)| (s.stake, x.2, s.rung)).collect());
                         bets.push((bet, key(p)));
                     }
                 }
@@ -659,12 +629,8 @@ fn random_game(seed: u64, steps: usize, long_shots: u64) -> (u64, u64) {
                     t.settle(open_at, price, &bets).logs
                 };
                 for s in events::<skech::events::Settled>(&logs) {
-                    let stakes = &stakes_of[&s.bet];
-                    let decided: u64 = (0..stakes.len()).filter(|i| (s.hit_mask | s.miss_mask) & (1 << i) != 0).map(|i| stakes[i]).sum();
-                    let credited = s.paid + s.owed - s.refunded;
-                    let b = &mut books[idx(&s.player)];
-                    b.net += credited as i64 - decided as i64;
-                    b.worst = b.worst.max((-b.net).max(0) as u64);
+                    let bands = &bands_of[&s.bet];
+                    books[idx(&s.player)] += (0..bands.len()).filter(|i| s.miss_mask & (1 << i) != 0).map(|i| miss_basis(bands[i].0, bands[i].1, bands[i].2)).sum::<u64>();
                 }
             }
             6 => {
@@ -714,14 +680,14 @@ fn random_game(seed: u64, steps: usize, long_shots: u64) -> (u64, u64) {
         assert_eq!(r.holder_funds, r.accrued_total - r.claimed_total, "{at}: holder funds");
         let supply: u64 = players.iter().map(|p| t.g.holder(&key(p)).skt).sum();
         assert_eq!(supply, r.supply, "{at}: the supply is every holder's SKT");
-        let mut gain = 0i64;
+        let mut gain = 0u64;
         for (i, p) in players.iter().enumerate() {
             let h = t.g.holder(&key(p));
-            assert_eq!((h.net, h.worst), (books[i].net, books[i].worst), "{at}: player {i}'s net and its low, as the test counts them");
-            assert!(h.skt as u128 <= 100 * h.worst as u128, "{at}: player {i} minted {} for a deepest loss of {}", h.skt, h.worst);
-            gain -= h.net;
+            assert_eq!(h.basis, books[i], "{at}: player {i}'s basis, as the test counts it");
+            assert!(h.skt as u128 <= 100 * h.basis as u128, "{at}: player {i} minted {} on a basis of {}", h.skt, h.basis);
+            gain += h.basis;
         }
-        assert_eq!(r.gain, gain, "{at}: the tracked gain is every player's net loss");
+        assert_eq!(r.gain, gain, "{at}: the tracked gain is every basis minted on");
     }
     let r = t.g.rewards();
     println!(

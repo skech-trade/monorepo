@@ -1,5 +1,5 @@
-//! SKT: what losing earns back. A player who goes past their deepest net loss so far mints SKT on the difference;
-//! SKT never moves and is always staked, and every SKT earns an equal part of the holders' share of the fees.
+//! SKT: what losing earns back. Every band that misses mints SKT at its settlement, on its basis; SKT never moves and is
+//! always staked, and every SKT earns an equal part of the holders' share of the fees.
 //!
 //! - **The fees.** Of the stake fee, `holder_fee_bps` (3 of 4 points) is the holders'; of the profit fee,
 //!   `holder_profit_fee_bps` (8 of 10). The house keeps the rest and every rounding. While anything is owed as IOU
@@ -7,20 +7,21 @@
 //! - **The accumulator.** Each share raises `acc` by `share · ACC_SCALE / supply`, rounded down. A holder's earnings
 //!   are `skt · (acc − acc_at) / ACC_SCALE`, rounded down, counted into `unclaimed` before their balance changes and
 //!   before a claim. So no holder is ever paid more than their part of what was accrued.
-//! - **The mint.** A player's net result is what settling credited them (paid, and owed at face) less the stakes it
-//!   decided; a band given back counts on neither side, and fees are part of the loss. SKT mints only when the net
-//!   loss goes past its deepest so far (`worst`), on the difference: a win never takes SKT back, and a loss mints
-//!   nothing until it is past the old low. So a player mints at most 100 SKT for every dollar of the deepest net loss
-//!   they were ever at, however they got there.
-//! - **The curve.** The rate is `100 · (S / (S + G))²` SKT a dollar, where G is the tracked gain (every player's net
-//!   loss added up, `Rewards::gain`; 0 while it is negative or anything is owed as IOU) and S is `mint_scale`. What
-//!   a new low of L mints is the integral of that rate across the stretch of G it moves through, so one loss of L
-//!   and two of L/2 mint the same, to the unit.
+//! - **The basis.** A band of stake `s`, chance `p` (the oracle's, as quoted) and rung `m` that misses counts
+//!   `s · (1 − p·m) / (1 − p)`; a hit counts nothing. In expectation that is `(1 − p) · s(1 − p·m)/(1 − p) = s(1 − p·m)`,
+//!   the band's expected loss, whatever `p`: a 1% long shot and ink at the price earn the same SKT per dollar they
+//!   can expect to lose. The stake fee is not added: it is taken from the stake a hit pays on, so it is in `s(1 − p·m)`
+//!   already (certain ink, `p = 1` at 1x, loses nothing and counts nothing, though the house takes its 4%).
+//! - **The curve.** A dollar of basis mints `100 · (S / (S + G))²` SKT, where G is the tracked gain (every basis
+//!   minted on so far, `Rewards::gain`; 0 while anything is owed as IOU) and S is `mint_scale`. A settlement's basis B
+//!   mints the integral of that rate from G to G + B, `100 · S² · B / ((S + G)(S + G + B))`, and moves G on by B: one
+//!   basis of B and two of B/2 mint the same, to the unit.
 
 use anchor_lang::prelude::*;
 
 use crate::error::SkechError;
 use crate::events::{HolderAccrued, Minted};
+use crate::ladder::CHANCE_ONE;
 use crate::state::*;
 // Named, not only globbed: the prelude has a `Rewards` too (the sysvar).
 use crate::state::Rewards;
@@ -29,6 +30,18 @@ use crate::state::Rewards;
 /// fee (which is rounded up): the house keeps the rounding.
 pub fn holder_part(amount: u64, holder_bps: u16, fee_bps: u16) -> u64 {
     (amount as u128 * holder_bps.min(fee_bps) as u128 / BPS as u128) as u64
+}
+
+/// What a band that missed counts toward SKT, USDC e6: `stake · (1 − p·m) / (1 − p)`, rounded down, with `p` the chance
+/// in billionths and `m` the rung, x100. Never more than the stake, as a rung is never under 1x.
+pub fn miss_basis(stake: u64, chance_e9: u32, rung_e2: u16) -> u64 {
+    let (p, one) = (chance_e9 as u128, CHANCE_ONE as u128);
+    if p >= one {
+        return 0;
+    }
+    // 1 − p·m = (1e11 − P·R) / 1e11 and 1 − p = 100 (1e9 − P) / 1e11.
+    let edge = (100 * one).saturating_sub(p * rung_e2 as u128);
+    (stake as u128 * edge / (100 * (one - p))) as u64
 }
 
 /// Where the holders' share of a fee goes now.
@@ -101,35 +114,23 @@ impl Rewards {
         Ok(())
     }
 
-    /// Record a settlement's effect on `holder`'s net result: `staked` decided (bands given back not among it) and
-    /// `credited` paid and owed for its hits. Mints on a new low; what was minted, SKT e6. `ious` is whether anything
-    /// was owed as IOU before the settlement.
-    pub fn record(&mut self, holder: &mut Holder, staked: u64, credited: u64, ious: bool) -> Result<u64> {
-        let delta = credited as i128 - staked as i128;
-        if delta == 0 {
+    /// Mint `holder` SKT on a settlement's `basis`, USDC e6, from the tracked gain on (from 0 if anything was owed as IOU
+    /// before the settlement, `ious`), and move the tracked gain on by it. What was minted, SKT e6.
+    pub fn mint(&mut self, holder: &mut Holder, basis: u64, ious: bool) -> Result<u64> {
+        if basis == 0 {
             return Ok(0);
         }
-        let before = self.gain as i128;
-        let net = holder.net as i128 + delta;
-        holder.net = i64::try_from(net).map_err(|_| SkechError::Overflow)?;
-        self.gain = i64::try_from(before - delta).map_err(|_| SkechError::Overflow)?;
-        let low = (-net).max(0) as u64;
-        if low <= holder.worst {
-            return Ok(0);
-        }
-        // A new low: `low − worst` of it is new. That is the last stretch of this settlement's loss, `-delta`, which
-        // moved the tracked gain from `before` to `before − delta`; so the new loss is integrated over the end of it.
-        let new = (low - holder.worst) as i128;
-        holder.worst = low;
-        let end = if ious { 0 } else { before } - delta;
-        let skt = mint_amount(self.config.mint_scale, end - new, end);
+        let from = if ious { 0 } else { self.gain };
+        let skt = mint_amount(self.config.mint_scale, from, basis);
         let skt = skt.min((u64::MAX - self.supply) as u128) as u64;
+        self.gain = self.gain.saturating_add(basis);
         // What the balance earned so far is counted before it changes.
         holder.settle_rewards(self.acc)?;
         holder.skt += skt;
+        holder.basis = holder.basis.saturating_add(basis);
         self.supply += skt;
         if skt > 0 {
-            emit!(Minted { player: holder.player, skt, rate: (skt as u128 * 1_000_000 / new as u128) as u64, net_loss_new_low: low });
+            emit!(Minted { player: holder.player, skt, rate: (skt as u128 * 1_000_000 / basis as u128) as u64, basis });
         }
         Ok(skt)
     }
@@ -153,29 +154,24 @@ impl Holder {
     }
 }
 
-/// SKT e6 a new net loss mints: the integral of the rate across the tracked gain from `a` to `b` (USDC e6, b − a the
-/// loss). The rate is 100 a unit where the gain is 0 or less, and `100 · S² / (S + g)²` above it, whose integral from
-/// `lo` to `hi` is `100 · S² · (1/(S+lo) − 1/(S+hi))`. The first term is rounded down and the second up: never more
-/// than the exact integral, and less by under 2 units; minted in pieces, under 1 unit a piece less than in one go.
-pub fn mint_amount(scale: u64, a: i128, b: i128) -> u128 {
-    if b <= a {
+/// SKT e6 a basis of `basis` mints from tracked gain `from` (both USDC e6): the integral of `100 · S² / (S + g)²` from
+/// `from` to `from + basis`, `100 · S² · (1/(S + from) − 1/(S + from + basis))`. The first term is rounded down and the
+/// second up: never more than the exact integral, and less by under 2 units; minted in pieces, less than in one go by
+/// under a unit a piece.
+pub fn mint_amount(scale: u64, from: u64, basis: u64) -> u128 {
+    if basis == 0 || scale == 0 {
         return 0;
     }
-    // Below a gain of 0, the full rate.
-    let mut out = if a < 0 { (b.min(0) - a) as u128 * SKT_PER_USDC } else { 0 };
-    let (lo, hi) = (a.max(0) as u128, b.max(0) as u128);
-    if hi > lo && scale > 0 {
-        let s = scale as u128;
-        // S ≤ MAX_MINT_SCALE, so 100 · S² < 2^128.
-        let k = SKT_PER_USDC * s * s;
-        out += (k / s.saturating_add(lo)).saturating_sub(k.div_ceil(s.saturating_add(hi)));
-    }
-    out
+    let s = scale as u128;
+    // S ≤ MAX_MINT_SCALE, so 100 · S² < 2^128; S + from + basis < 2^66.
+    let k = SKT_PER_USDC * s * s;
+    let (lo, hi) = (s + from as u128, s + from as u128 + basis as u128);
+    (k / lo).saturating_sub(k.div_ceil(hi))
 }
 
 /// The rate at tracked gain `g`, SKT per dollar times 1e6: for the curve's table, and tests.
-pub fn rate_e6(scale: u64, g: i128) -> u128 {
-    let (s, g) = (scale as u128, g.max(0) as u128);
+pub fn rate_e6(scale: u64, g: u64) -> u128 {
+    let (s, g) = (scale as u128, g as u128);
     if s == 0 {
         return 0;
     }
@@ -187,14 +183,12 @@ mod tests {
     use super::*;
 
     const S: u64 = 100_000_000_000; // $100,000
-    const E6: i128 = 1_000_000;
+    const E6: u64 = 1_000_000;
 
     /// The integral in floating point.
-    fn reference(scale: u64, a: i128, b: i128) -> f64 {
-        let s = scale as f64;
-        let flat = if a < 0 { (b.min(0) - a) as f64 * 100.0 } else { 0.0 };
-        let (lo, hi) = (a.max(0) as f64, b.max(0) as f64);
-        flat + if hi > lo { 100.0 * s * s * (1.0 / (s + lo) - 1.0 / (s + hi)) } else { 0.0 }
+    fn reference(scale: u64, from: u64, basis: u64) -> f64 {
+        let (s, a, b) = (scale as f64, from as f64, (from + basis) as f64);
+        100.0 * s * s * (1.0 / (s + a) - 1.0 / (s + b))
     }
 
     fn rng(seed: &mut u64) -> u64 {
@@ -206,50 +200,38 @@ mod tests {
 
     #[test]
     fn the_mint_matches_the_integral_in_floating_point() {
-        let cases: &[(i128, i128)] = &[
-            (0, E6),
-            (0, 1),
-            (-5 * E6, 5 * E6),
-            (-10 * E6, -E6),
-            (10_000 * E6, 10_001 * E6),
-            (100_000 * E6, 200_000 * E6),
-            (0, 1_000_000 * E6),
-            (1_000_000 * E6, 1_000_000 * E6 + 1),
-            (1_000_000_000 * E6, 1_000_000_001 * E6),
-            (i64::MAX as i128 - E6, i64::MAX as i128),
-        ];
-        for &(a, b) in cases {
-            let got = mint_amount(S, a, b) as f64;
-            let want = reference(S, a, b);
-            assert!(got <= want + 1e-6 * want.max(1.0), "[{a}, {b}]: {got} over {want}");
-            assert!(want - got < 2.0 + 1e-9 * want, "[{a}, {b}]: {got} short of {want}");
+        let cases: &[(u64, u64)] = &[(0, E6), (0, 1), (10_000 * E6, E6), (100_000 * E6, 100_000 * E6), (0, 1_000_000 * E6), (1_000_000 * E6, 1), (1_000_000_000 * E6, E6), (u64::MAX / 2, E6)];
+        for &(from, basis) in cases {
+            let got = mint_amount(S, from, basis) as f64;
+            let want = reference(S, from, basis);
+            assert!(got <= want * (1.0 + 1e-12) + 1e-6, "{from} + {basis}: {got} over {want}");
+            assert!(want - got < 2.0 + 1e-9 * want, "{from} + {basis}: {got} short of {want}");
         }
         let mut seed = 0x9e37_79b9_7f4a_7c15u64;
         for _ in 0..20_000 {
-            let a = (rng(&mut seed) % (10_000_000 * E6 as u64)) as i128 - 1_000 * E6;
-            let b = a + (rng(&mut seed) % (50_000 * E6 as u64)) as i128;
-            let scale = 1 + rng(&mut seed) % (10_000_000 * E6 as u64);
-            let got = mint_amount(scale, a, b) as f64;
-            let want = reference(scale, a, b);
-            assert!(got <= want * (1.0 + 1e-12) + 1e-6, "[{a}, {b}] at {scale}: {got} over {want}");
-            assert!(want - got < 2.0 + 1e-9 * want, "[{a}, {b}] at {scale}: {got} short of {want}");
+            let from = rng(&mut seed) % (10_000_000 * E6);
+            let basis = rng(&mut seed) % (50_000 * E6);
+            let scale = 1 + rng(&mut seed) % (10_000_000 * E6);
+            let got = mint_amount(scale, from, basis) as f64;
+            let want = reference(scale, from, basis);
+            assert!(got <= want * (1.0 + 1e-12) + 1e-6, "{from} + {basis} at {scale}: {got} over {want}");
+            assert!(want - got < 2.0 + 1e-9 * want, "{from} + {basis} at {scale}: {got} short of {want}");
         }
     }
 
     #[test]
-    fn a_loss_mints_the_same_in_one_go_or_in_pieces() {
+    fn a_basis_mints_the_same_in_one_go_or_in_pieces() {
         let mut seed = 42u64;
         for _ in 0..2_000 {
-            let start = (rng(&mut seed) % (2_000_000 * E6 as u64)) as i128 - 50_000 * E6;
+            let start = rng(&mut seed) % (2_000_000 * E6);
             let pieces = 1 + rng(&mut seed) % 20;
-            let mut at = start;
-            let mut sum = 0u128;
+            let (mut at, mut sum) = (start, 0u128);
             for _ in 0..pieces {
-                let l = (rng(&mut seed) % (20_000 * E6 as u64)) as i128;
-                sum += mint_amount(S, at, at + l);
-                at += l;
+                let b = rng(&mut seed) % (20_000 * E6);
+                sum += mint_amount(S, at, b);
+                at += b;
             }
-            let whole = mint_amount(S, start, at);
+            let whole = mint_amount(S, start, at - start);
             assert!(sum <= whole, "pieces {sum} over one go {whole}");
             assert!(whole - sum <= pieces as u128, "pieces {sum}, one go {whole}: more than a unit a piece apart");
         }
@@ -258,18 +240,67 @@ mod tests {
     #[test]
     fn the_rate_is_the_table_in_the_docs() {
         // At G = 0, $10k, $50k, $100k, $300k, $1M: 100, 82.6, 44.4, 25, 6.25, 0.83 SKT a dollar.
-        let at = |usd: i128| rate_e6(S, usd * E6) as f64 / 1e6;
+        let at = |usd: u64| rate_e6(S, usd * E6) as f64 / 1e6;
         for (g, want) in [(0, 100.0), (10_000, 82.64), (50_000, 44.44), (100_000, 25.0), (300_000, 6.25), (1_000_000, 0.826)] {
             assert!((at(g) - want).abs() < 0.01, "rate at ${g}: {} not {want}", at(g));
         }
-        // A dollar lost at G mints about the rate at G.
         // The first dollar mints 99.999 SKT: averaged across it, the rate is a hundred-thousandth under 100.
         assert_eq!(mint_amount(S, 0, E6), 99_999_000);
-        assert_eq!(mint_amount(S, -E6, 0), 100 * E6 as u128);
-        let at_100k = mint_amount(S, 100_000 * E6, 100_001 * E6);
+        let at_100k = mint_amount(S, 100_000 * E6, E6);
         assert!((24_999_000..=25_000_000).contains(&at_100k), "{at_100k}");
-        // Most a loss can mint is 100 a unit: never more, whatever the gain.
+        // However much is lost, the whole curve is worth 100 · S, to everyone together.
         assert!(mint_amount(S, 0, 1_000_000_000 * E6) < 100 * S as u128);
+    }
+
+    /// `stake · (1 − p·m) / (1 − p)` in floating point.
+    fn basis_reference(stake: u64, chance: u32, rung: u16) -> f64 {
+        let (p, m) = (chance as f64 / 1e9, rung as f64 / 100.0);
+        if p >= 1.0 {
+            return 0.0;
+        }
+        stake as f64 * (1.0 - p * m).max(0.0) / (1.0 - p)
+    }
+
+    #[test]
+    fn a_miss_counts_its_odds_weighted_loss() {
+        // A 1% long shot at 96x: 1 − 0.96 = 4¢ a dollar expected; it misses 99 times in 100, each counting 4/0.99.
+        assert_eq!(miss_basis(1_000_000, 10_000_000, 9600), 40_404);
+        // Ink at 50% paying 1.5x: 25¢ a dollar expected, counted twice over on the half that misses.
+        assert_eq!(miss_basis(1_000_000, 500_000_000, 150), 500_000);
+        // 90% at 1.1x: 1¢ a dollar expected, ten times over on the tenth that misses.
+        assert_eq!(miss_basis(1_000_000, 900_000_000, 110), 100_000);
+        // Certain, or paying its fair multiple or more: nothing.
+        assert_eq!(miss_basis(1_000_000, 1_000_000_000, 100), 0);
+        assert_eq!(miss_basis(1_000_000, 500_000_000, 200), 0);
+        assert_eq!(miss_basis(1_000_000, 0, 9600), 1_000_000);
+        let mut seed = 5u64;
+        for _ in 0..100_000 {
+            let stake = rng(&mut seed) % 10_000_000_000;
+            let chance = (rng(&mut seed) % 1_000_000_001) as u32;
+            let rung = 100 + (rng(&mut seed) % 12_701) as u16;
+            let got = miss_basis(stake, chance, rung);
+            let want = basis_reference(stake, chance, rung);
+            assert!(got as f64 <= want * (1.0 + 1e-12) + 1e-6 && want - (got as f64) < 1.0 + 1e-9 * want, "{stake} at {chance}, {rung}: {got}, {want}");
+            assert!(got <= stake, "never more than the stake");
+        }
+    }
+
+    #[test]
+    fn in_expectation_a_miss_counts_the_bands_expected_loss_whatever_its_odds() {
+        // (1 − p) · basis = s · (1 − p·m), to within the rounding of one basis, for every chance and rung the ladder
+        // can give.
+        let stake = 1_000_000_000u64;
+        for d in [50u8, 51, 55, 70, 85, 100] {
+            for chance in (1..=1000u32).map(|k| k * 1_000_000).chain([1, 999, 7_812_500, 999_999_999]) {
+                let rung = crate::ladder::rung_for(chance, d, false, 0);
+                if rung == 0 {
+                    continue;
+                }
+                let expected_basis = (CHANCE_ONE - chance) as u128 * miss_basis(stake, chance, rung) as u128;
+                let expected_loss = stake as u128 * (100 * CHANCE_ONE as u128).saturating_sub(chance as u128 * rung as u128) / 100;
+                assert!(expected_basis <= expected_loss && expected_loss - expected_basis < CHANCE_ONE as u128, "d {d}, chance {chance}, rung {rung}: {expected_basis} for {expected_loss}");
+            }
+        }
     }
 
     #[test]
@@ -300,7 +331,7 @@ mod tests {
             let mut holders: Vec<Holder> = (0..n).map(|_| Holder { skt: 1 + rng(&mut seed) % 1_000_000_000_000, ..Default::default() }).collect();
             let mut r = rewards(holders.iter().map(|h| h.skt).sum());
             for _ in 0..50 {
-                // A fee, or a holder's balance changing (counted first), at random.
+                // A fee, or a holder's balance growing (counted first), at random.
                 if rng(&mut seed) % 3 == 0 {
                     let i = (rng(&mut seed) % n as u64) as usize;
                     holders[i].settle_rewards(r.acc).unwrap();

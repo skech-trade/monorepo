@@ -145,14 +145,14 @@ pub struct IouRateSet {
     pub rate: u64,
 }
 
-/// `player` went past their deepest net loss: it is `net_loss_new_low` now (USDC e6), and the new stretch of it minted
-/// `skt` (SKT e6) at an average `rate` of SKT per dollar (times 1e6).
+/// A settlement of `player`'s bet with bands that missed: their odds-weighted loss, `basis` (USDC e6), minted `skt`
+/// (SKT e6), at an average `rate` of SKT per dollar of basis (times 1e6).
 #[event]
 pub struct Minted {
     pub player: Pubkey,
     pub skt: u64,
     pub rate: u64,
-    pub net_loss_new_low: u64,
+    pub basis: u64,
 }
 
 /// The holders' share of a fee, `amount` USDC e6, shared among `supply` SKT: `acc` is what each SKT unit has earned

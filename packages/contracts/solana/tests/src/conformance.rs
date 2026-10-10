@@ -135,14 +135,13 @@ struct SktState {
     supply: String,
     acc: String,
     holder_funds: u64,
-    gain: i64,
+    gain: u64,
     holders: HashMap<String, HolderState>,
 }
 #[derive(Deserialize)]
 struct HolderState {
     skt: String,
-    worst: u64,
-    net: i64,
+    basis: u64,
     claimable: u64,
 }
 
@@ -309,7 +308,7 @@ fn run(c: &Case) {
                 let h = g.holder(&p.wallet.pubkey());
                 let e = &k.holders[name];
                 let pending = if rewards.acc > h.acc_at { (h.skt as u128 * (rewards.acc - h.acc_at) / skech::state::ACC_SCALE) as u64 } else { 0 };
-                assert_eq!((h.skt.to_string(), h.worst, h.net, h.unclaimed + pending), (e.skt.clone(), e.worst, e.net, e.claimable), "{at}: {name}'s SKT");
+                assert_eq!((h.skt.to_string(), h.basis, h.unclaimed + pending), (e.skt.clone(), e.basis, e.claimable), "{at}: {name}'s SKT");
             }
         }
     }

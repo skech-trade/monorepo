@@ -101,6 +101,8 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
     // Each band: offered unless its second is already over on chain or its chance earns no rung.
     let bars = a.bars.load()?;
     let mut sections: Vec<BetSection> = Vec::with_capacity(n);
+    // Each kept band's chance, as quoted: kept after the bet, for SKT's basis when the band misses.
+    let mut kept_chances: Vec<u32> = Vec::with_capacity(n);
     let mut kept: u64 = 0;
     for (s, &chance) in piece.sections.iter().zip(&quote.chances) {
         // A band beyond any price a u64 holds is not a band.
@@ -117,6 +119,7 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
         // One section never pays past 256 dots: a big one stakes only what that pays for.
         let stake = (s.stake as u64).min(ladder::max_stake(piece.per_dot as u64, rung));
         sections.push(BetSection { second: s.second, lo, hi, stake, rung });
+        kept_chances.push(chance);
         kept += stake;
     }
     drop(bars);
@@ -154,10 +157,14 @@ pub fn place(ctx: Context<Place>, piece: PieceMessage, quote: QuoteArgs) -> Resu
         rent_payer: ctx.accounts.payer.key(),
         sections,
     };
-    create_pda(&ctx.accounts.payer, &ctx.accounts.bet, &ctx.accounts.system_program, Bet::space(count), ctx.program_id, seeds)?;
+    create_pda(&ctx.accounts.payer, &ctx.accounts.bet, &ctx.accounts.system_program, Bet::space_with_chances(count), ctx.program_id, seeds)?;
     let info = ctx.accounts.bet.to_account_info();
     let mut data = info.try_borrow_mut_data()?;
     bet.try_serialize(&mut &mut data[..])?;
+    for (i, c) in kept_chances.iter().enumerate() {
+        let at = Bet::space(count) + 4 * i;
+        data[at..at + 4].copy_from_slice(&c.to_le_bytes());
+    }
 
     emit!(Placed {
         bet: bet_key,

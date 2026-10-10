@@ -25,7 +25,7 @@ export type RewardsConfig = {
   holderFeeBps: number;
   /** Of every hit's profit, to SKT holders: part of `Config::profit_fee_bps`, never more. */
   holderProfitFeeBps: number;
-  /** `S` in the mint curve, USDC e6: at tracked gain G a dollar of new net loss mints 100 · (S / (S + G))² SKT. */
+  /** `S` in the mint curve, USDC e6: at tracked gain G a dollar of basis mints 100 · (S / (S + G))² SKT. */
   mintScale: bigint;
 };
 
@@ -34,7 +34,7 @@ export type RewardsConfigArgs = {
   holderFeeBps: number;
   /** Of every hit's profit, to SKT holders: part of `Config::profit_fee_bps`, never more. */
   holderProfitFeeBps: number;
-  /** `S` in the mint curve, USDC e6: at tracked gain G a dollar of new net loss mints 100 · (S / (S + G))² SKT. */
+  /** `S` in the mint curve, USDC e6: at tracked gain G a dollar of basis mints 100 · (S / (S + G))² SKT. */
   mintScale: number | bigint;
 };
 

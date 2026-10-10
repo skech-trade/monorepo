@@ -178,14 +178,20 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
         return Ok(());
     }
     require!(bet_info.is_writable && player_info.is_writable && player_info.owner == program_id, SkechError::BadSettleAccounts);
-    let mut bet = Bet::try_deserialize(&mut &bet_info.try_borrow_data()?[..])?;
+    let (mut bet, chances) = {
+        let data = bet_info.try_borrow_data()?;
+        let bet = Bet::try_deserialize(&mut &data[..])?;
+        // Each band's chance, kept after the bet; none for a bet placed before SKT, whose misses mint nothing.
+        let chances = Bet::chances(&data, bet.sections.len());
+        (bet, chances)
+    };
     let mut player = Player::try_deserialize(&mut &player_info.try_borrow_data()?[..])?;
     require_keys_eq!(player.authority, bet.player, SkechError::BadSettleAccounts);
     require!(bet.market == b.market, SkechError::BadSettleAccounts);
 
     let live = bet.live_mask;
     let (mut hits, mut decided, mut expired) = (0u32, 0u32, 0u32);
-    let (mut gross_pay, mut stake_hit, mut stake_back, mut stake_decided) = (0u64, 0u64, 0u64, 0u64);
+    let (mut gross_pay, mut stake_hit, mut stake_back, mut basis) = (0u64, 0u64, 0u64, 0u64);
     for (i, s) in bet.sections.iter().enumerate() {
         let bit = 1u32 << i;
         if live & bit == 0 {
@@ -201,11 +207,13 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
             continue;
         };
         decided |= bit;
-        stake_decided += s.stake;
         if ladder::crosses(bar.prev_close, bar.high, bar.low, s.lo, s.hi, bet.unit) {
             hits |= bit;
             stake_hit += s.stake;
             gross_pay += ladder::gross(s.stake, s.rung);
+        } else if let Some(c) = &chances {
+            // A miss counts its odds-weighted loss toward SKT; a hit, or a band given back, nothing.
+            basis += skt::miss_basis(s.stake, c[i], s.rung);
         }
     }
     // A bet is not closed while its piece could still be placed: that would let the same piece go in again. Nor
@@ -218,14 +226,13 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
     bet.hit_mask |= hits;
     // Whether anything was owed before this bet was settled: if so, a loss here mints as if the tracked gain were 0.
     let ious = b.pool.iou_shares > 0;
-    let (mut paid, mut owed, mut credited) = (0, 0, 0);
+    let (mut paid, mut owed) = (0, 0);
     if gross_pay > 0 {
         let c = &b.game.config;
         let profit = gross_pay - stake_hit;
         // Rounded up, as on Monad: a small profit never slips under the fee.
         let profit_fee = (profit * c.profit_fee_bps as u64).div_ceil(BPS);
-        credited = gross_pay - profit_fee;
-        (paid, owed) = pay(b.pool, &mut player, credited, now);
+        (paid, owed) = pay(b.pool, &mut player, gross_pay - profit_fee, now);
         // The player is paid first. The house's cut comes after, out of what the pool has left, and is never owed: a
         // shortfall is never made worse by a debt growing to the house. The holders' share is taken the same way.
         let to_holders = skt::holder_part(profit, b.rewards.config.holder_profit_fee_bps, c.profit_fee_bps);
@@ -244,12 +251,9 @@ fn settle_one<'info>(b: &mut Batch<'_, 'info>, bet_info: &AccountInfo<'info>, pl
     }
     if decided != 0 {
         player.try_serialize(&mut &mut player_info.try_borrow_mut_data()?[..])?;
-        // The player's net result: the stakes decided here (a band given back is neither staked nor credited) against
-        // what the hits credited them, paid or owed.
-        if stake_decided > 0 {
+        if basis > 0 {
             let mut holder = holder_of(b, holder_info, bet.player)?;
-            holder.settle_rewards(b.rewards.acc)?;
-            b.rewards.record(&mut holder, stake_decided, credited, ious)?;
+            b.rewards.mint(&mut holder, basis, ious)?;
             holder.try_serialize(&mut &mut holder_info.try_borrow_mut_data()?[..])?;
         }
     }

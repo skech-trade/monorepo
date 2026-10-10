@@ -17,8 +17,6 @@ import {
   fixEncoderSize,
   getBytesDecoder,
   getBytesEncoder,
-  getI64Decoder,
-  getI64Encoder,
   getStructDecoder,
   getStructEncoder,
   getU128Decoder,
@@ -68,8 +66,8 @@ export type Rewards = {
   accruedTotal: bigint;
   claimedTotal: bigint;
   /**
-   * The tracked gain, USDC e6: every player's net loss added up (stakes settled less what settling credited them,
-   * IOUs at face) since SKT began. Signed: players as a whole may be up.
+   * The tracked gain, USDC e6: every basis SKT has been minted on since it began, which is what players have lost
+   * to the game in expectation. The mint curve reads it.
    */
   gain: bigint;
   bump: number;
@@ -89,8 +87,8 @@ export type RewardsArgs = {
   accruedTotal: number | bigint;
   claimedTotal: number | bigint;
   /**
-   * The tracked gain, USDC e6: every player's net loss added up (stakes settled less what settling credited them,
-   * IOUs at face) since SKT began. Signed: players as a whole may be up.
+   * The tracked gain, USDC e6: every basis SKT has been minted on since it began, which is what players have lost
+   * to the game in expectation. The mint curve reads it.
    */
   gain: number | bigint;
   bump: number;
@@ -109,7 +107,7 @@ export function getRewardsEncoder(): FixedSizeEncoder<RewardsArgs> {
       ["holderFunds", getU64Encoder()],
       ["accruedTotal", getU64Encoder()],
       ["claimedTotal", getU64Encoder()],
-      ["gain", getI64Encoder()],
+      ["gain", getU64Encoder()],
       ["bump", getU8Encoder()],
       ["reserved", fixEncoderSize(getBytesEncoder(), 64)],
     ]),
@@ -127,7 +125,7 @@ export function getRewardsDecoder(): FixedSizeDecoder<Rewards> {
     ["holderFunds", getU64Decoder()],
     ["accruedTotal", getU64Decoder()],
     ["claimedTotal", getU64Decoder()],
-    ["gain", getI64Decoder()],
+    ["gain", getU64Decoder()],
     ["bump", getU8Decoder()],
     ["reserved", fixDecoderSize(getBytesDecoder(), 64)],
   ]);

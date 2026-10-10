@@ -3052,8 +3052,8 @@
     {
       "name": "Holder",
       "docs": [
-        "A player's SKT: their balance (always staked), what it has earned, and the low-water mark of their net result",
-        "that decides what they mint. Keyed by their wallet; created at the first settlement that decides a band of theirs."
+        "A player's SKT: their balance (always staked), what it has earned, and the basis it was minted on. Keyed by their",
+        "wallet; opened by the first settlement with a live bet of theirs in it."
       ],
       "type": {
         "kind": "struct",
@@ -3088,16 +3088,9 @@
             "type": "u64"
           },
           {
-            "name": "net",
+            "name": "basis",
             "docs": [
-              "Lifetime net result, USDC e6: what settling credited them (paid and owed) less the stakes it decided."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "worst",
-            "docs": [
-              "The deepest net loss they have ever been at (`-net` at its lowest): SKT mints only past it."
+              "Every basis their SKT was minted on, USDC e6: the odds-weighted loss of each band of theirs that missed."
             ],
             "type": "u64"
           },
@@ -3220,8 +3213,8 @@
     {
       "name": "Minted",
       "docs": [
-        "`player` went past their deepest net loss: it is `net_loss_new_low` now (USDC e6), and the new stretch of it minted",
-        "`skt` (SKT e6) at an average `rate` of SKT per dollar (times 1e6)."
+        "A settlement of `player`'s bet with bands that missed: their odds-weighted loss, `basis` (USDC e6), minted `skt`",
+        "(SKT e6), at an average `rate` of SKT per dollar of basis (times 1e6)."
       ],
       "type": {
         "kind": "struct",
@@ -3239,7 +3232,7 @@
             "type": "u64"
           },
           {
-            "name": "net_loss_new_low",
+            "name": "basis",
             "type": "u64"
           }
         ]
@@ -3717,10 +3710,10 @@
           {
             "name": "gain",
             "docs": [
-              "The tracked gain, USDC e6: every player's net loss added up (stakes settled less what settling credited them,",
-              "IOUs at face) since SKT began. Signed: players as a whole may be up."
+              "The tracked gain, USDC e6: every basis SKT has been minted on since it began, which is what players have lost",
+              "to the game in expectation. The mint curve reads it."
             ],
-            "type": "i64"
+            "type": "u64"
           },
           {
             "name": "bump",
@@ -3766,7 +3759,7 @@
           {
             "name": "mint_scale",
             "docs": [
-              "`S` in the mint curve, USDC e6: at tracked gain G a dollar of new net loss mints 100 · (S / (S + G))² SKT."
+              "`S` in the mint curve, USDC e6: at tracked gain G a dollar of basis mints 100 · (S / (S + G))² SKT."
             ],
             "type": "u64"
           }

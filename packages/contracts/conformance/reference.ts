@@ -26,24 +26,25 @@ const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 /** The holders' part of a fee taken at `feeBps` on `amount`: their bps of it, rounded down. */
 export const holderPart = (amount: bigint, holderBps: number, feeBps: number) => (amount * BigInt(Math.min(holderBps, feeBps))) / BPS;
 /**
- * SKT e6 a new net loss mints: the integral of the rate across the tracked gain from `a` to `b`: 100 a unit at a gain of
- * 0 or less, `100 · S² / (S + g)²` above it, so `100 · S² · (1/(S+lo) − 1/(S+hi))`, the first term rounded down and the
- * second up.
+ * SKT e6 a basis mints from tracked gain `from`: the integral of `100 · S² / (S + g)²` from `from` to `from + basis`,
+ * `100 · S² · (1/(S+from) − 1/(S+from+basis))`, the first term rounded down and the second up.
  */
-export function mintAmount(scale: bigint, a: bigint, b: bigint): bigint {
-  if (b <= a) return 0n;
-  let out = a < 0n ? ((b < 0n ? b : 0n) - a) * SKT_PER_USDC : 0n;
-  const lo = a > 0n ? a : 0n;
-  const hi = b > 0n ? b : 0n;
-  if (hi > lo && scale > 0n) {
-    const k = SKT_PER_USDC * scale * scale;
-    const d = k / (scale + lo) - ceilDiv(k, scale + hi);
-    out += d > 0n ? d : 0n;
-  }
-  return out;
+export function mintAmount(scale: bigint, from: bigint, basis: bigint): bigint {
+  if (basis <= 0n || scale <= 0n) return 0n;
+  const k = SKT_PER_USDC * scale * scale;
+  const d = k / (scale + from) - ceilDiv(k, scale + from + basis);
+  return d > 0n ? d : 0n;
+}
+const CHANCE_ONE = 1_000_000_000n;
+/** What a band that missed counts toward SKT: `stake · (1 − p·m) / (1 − p)`, rounded down. */
+export function missBasis(stake: bigint, chanceE9: number, rungE2: number): bigint {
+  const p = BigInt(chanceE9);
+  if (p >= CHANCE_ONE) return 0n;
+  const edge = 100n * CHANCE_ONE - p * BigInt(rungE2);
+  return edge > 0n ? (stake * edge) / (100n * (CHANCE_ONE - p)) : 0n;
 }
 /** What each SKT holder has, in a case's state. */
-export type HolderState = { skt: string; worst: number; net: number; claimable: number };
+export type HolderState = { skt: string; basis: number; claimable: number };
 export type SktState = { supply: string; acc: string; holderFunds: number; gain: number; holders: Record<string, HolderState> };
 
 export type Band = { second: number; lo: number; hi: number; stake: number; rung: number };
@@ -52,7 +53,7 @@ export type Settled = { id: string; hitMask: number; missMask: number; paid: num
 export type State = { balance: Record<string, number>; allowance: Record<string, number>; pool: number; fees: number; owed: Record<string, number>; houseOwed: number; skt?: SktState };
 export type StepOut = { place?: PlaceOut; settled?: Settled[]; difficulty?: { ok: true } | { ok: false; refused: string }; claimed?: number; state: State };
 
-type Bet = { player: string; unit: number; sections: Band[]; live: number; hit: number };
+type Bet = { player: string; unit: number; sections: Band[]; chances: number[]; live: number; hit: number };
 
 export function run(c: Case): StepOut[] {
   const players = Object.keys(c.players);
@@ -77,8 +78,8 @@ export function run(c: Case): StepOut[] {
   let acc = 0n;
   let holderFunds = 0n;
   let gain = 0n;
-  const holders: Record<string, { skt: bigint; accAt: bigint; unclaimed: bigint; net: bigint; worst: bigint }> = {};
-  for (const p of players) holders[p] = { skt: 0n, accAt: 0n, unclaimed: 0n, net: 0n, worst: 0n };
+  const holders: Record<string, { skt: bigint; accAt: bigint; unclaimed: bigint; basis: bigint }> = {};
+  for (const p of players) holders[p] = { skt: 0n, accAt: 0n, unclaimed: 0n, basis: 0n };
   const earned = (h: (typeof holders)[string]) => (acc > h.accAt && h.skt > 0n ? (h.skt * (acc - h.accAt)) / ACC_SCALE : 0n);
   const settleRewards = (h: (typeof holders)[string]) => {
     h.unclaimed += earned(h);
@@ -104,24 +105,15 @@ export function run(c: Case): StepOut[] {
     if (supply === 0n) fees += taken;
     else accrue(taken);
   };
-  /** A settlement's stakes decided and what its hits credited: a new low mints. */
-  const record = (who: string, staked: bigint, credited: bigint, ious: boolean) => {
+  /** A settlement's basis mints, from the tracked gain on (from 0 while anything was owed), and moves the gain on. */
+  const mint = (who: string, basis: bigint, ious: boolean) => {
+    if (!basis) return;
     const h = holders[who];
-    // Counted at every settlement that decides a stake of theirs, as the program does: each count is rounded down.
-    if (staked > 0n) settleRewards(h);
-    const delta = credited - staked;
-    if (!delta) return;
-    const before = gain;
-    h.net += delta;
-    gain -= delta;
-    const low = h.net < 0n ? -h.net : 0n;
-    if (low <= h.worst) return;
-    const fresh = low - h.worst;
-    h.worst = low;
-    const end = (ious ? 0n : before) - delta;
-    const minted = mintAmount(BigInt(skt!.mintScale), end - fresh, end);
+    const minted = mintAmount(BigInt(skt!.mintScale), ious ? 0n : gain, basis);
+    gain += basis;
     settleRewards(h);
     h.skt += minted;
+    h.basis += basis;
     supply += minted;
   };
   const state = (): State => ({
@@ -138,7 +130,7 @@ export function run(c: Case): StepOut[] {
             acc: String(acc),
             holderFunds: Number(holderFunds),
             gain: Number(gain),
-            holders: Object.fromEntries(players.map((p) => [p, { skt: String(holders[p].skt), worst: Number(holders[p].worst), net: Number(holders[p].net), claimable: Number(holders[p].unclaimed + earned(holders[p])) }])),
+            holders: Object.fromEntries(players.map((p) => [p, { skt: String(holders[p].skt), basis: Number(holders[p].basis), claimable: Number(holders[p].unclaimed + earned(holders[p])) }])),
           },
         }
       : {}),
@@ -211,6 +203,7 @@ export function run(c: Case): StepOut[] {
       }
       const momentum = s.momentum ?? 0;
       const bands: Band[] = [];
+      const chances: number[] = [];
       for (const x of s.sections) {
         const lo = x.lo * c.unit;
         const hi = (x.lo + x.width) * c.unit;
@@ -219,6 +212,7 @@ export function run(c: Case): StepOut[] {
         if (!rung) continue;
         const most = Number(maxStakeE6(BigInt(perDot), rung));
         bands.push({ second: x.second, lo, hi, stake: Math.min(x.stake, most), rung });
+        chances.push(x.chance);
       }
       const kept = BigInt(bands.reduce((n, b) => n + b.stake, 0));
       if (kept === 0n) {
@@ -240,7 +234,7 @@ export function run(c: Case): StepOut[] {
       pool += kept - fee;
       fees += fee - toHolders;
       shareStakeFee(toHolders);
-      bets.set(s.id, { player: who, unit: c.unit, sections: bands, live: (1 << bands.length) - 1, hit: 0 });
+      bets.set(s.id, { player: who, unit: c.unit, sections: bands, chances, live: (1 << bands.length) - 1, hit: 0 });
       out.push({ place: { ok: true, sections: bands, staked: Number(kept), fee: Number(fee), refunded: total - Number(kept) }, state: state() });
     } else {
       const b = step.bar;
@@ -253,19 +247,18 @@ export function run(c: Case): StepOut[] {
         let decided = 0;
         let gross = 0n;
         let stakeHit = 0n;
-        let stakeDecided = 0n;
+        let basis = 0n;
         bet.sections.forEach((x, i) => {
           const bit = 1 << i;
           if (!(bet.live & bit)) return;
           const bar = posted.get(x.second);
           if (!bar) return;
           decided |= bit;
-          stakeDecided += BigInt(x.stake);
           if (crosses(bar, BigInt(x.lo), BigInt(x.hi), BigInt(bet.unit))) {
             hits |= bit;
             stakeHit += BigInt(x.stake);
             gross += grossE6(BigInt(x.stake), x.rung);
-          }
+          } else basis += missBasis(BigInt(x.stake), bet.chances[i], x.rung);
         });
         if (!decided) continue;
         bet.live &= ~decided;
@@ -273,16 +266,14 @@ export function run(c: Case): StepOut[] {
         const ious = owing();
         let paid = 0n;
         let left = 0n;
-        let credited = 0n;
         if (gross > 0n) {
           const profitFee = feeOf(gross - stakeHit, c.profitFeeBps);
-          credited = gross - profitFee;
-          ({ paid, owed: left } = pay(bet.player, credited));
+          ({ paid, owed: left } = pay(bet.player, gross - profitFee));
           const toHolders = skt ? holderPart(gross - stakeHit, skt.holderProfitFeeBps, c.profitFeeBps) : 0n;
           cut(profitFee - toHolders);
           shareProfitFee(toHolders);
         }
-        if (skt) record(bet.player, stakeDecided, credited, ious);
+        if (skt) mint(bet.player, basis, ious);
         settled.push({ id, hitMask: hits, missMask: decided & ~hits, paid: Number(paid), owed: Number(left) });
       }
       out.push({ settled, state: state() });

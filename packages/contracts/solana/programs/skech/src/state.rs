@@ -276,14 +276,30 @@ pub struct Bet {
 impl Bet {
     /// Everything but the sections.
     pub const FIXED: usize = 8 + Bet::INIT_SPACE;
+    /// The bet as it is serialized: what a bet placed before SKT is, all of it.
     pub fn space(sections: usize) -> usize {
         Self::FIXED + sections * BetSection::INIT_SPACE
+    }
+    /// The bet and, after it, each section's chance as the oracle quoted it (u32, billionths, little-endian), which
+    /// SKT's basis reads: outside the struct, so the struct and every bet placed before it keep their bytes.
+    pub fn space_with_chances(sections: usize) -> usize {
+        Self::space(sections) + sections * 4
+    }
+    /// The chances after a bet of `sections` in `data`; none for a bet placed before they were kept.
+    pub fn chances(data: &[u8], sections: usize) -> Option<[u32; MAX_SECTIONS]> {
+        let at = Self::space(sections);
+        let bytes = data.get(at..at + sections * 4)?;
+        let mut out = [0u32; MAX_SECTIONS];
+        for (i, c) in bytes.chunks_exact(4).enumerate().take(MAX_SECTIONS) {
+            out[i] = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+        }
+        Some(out)
     }
 }
 
 /* ---- SKT: what losing earns back, and the holders' share of the fees (skt.rs has the rules) ---- */
 
-/// SKT a dollar of new net loss mints while the tracked gain is nothing: 100. SKT and USDC are both in millionths.
+/// SKT a dollar of basis mints while the tracked gain is nothing: 100. SKT and USDC are both in millionths.
 pub const SKT_PER_USDC: u128 = 100;
 /// The holders' accumulator is USDC e6 per SKT unit, times this.
 pub const ACC_SCALE: u128 = 1_000_000_000_000_000_000;
@@ -297,7 +313,7 @@ pub struct RewardsConfig {
     pub holder_fee_bps: u16,
     /// Of every hit's profit, to SKT holders: part of `Config::profit_fee_bps`, never more.
     pub holder_profit_fee_bps: u16,
-    /// `S` in the mint curve, USDC e6: at tracked gain G a dollar of new net loss mints 100 · (S / (S + G))² SKT.
+    /// `S` in the mint curve, USDC e6: at tracked gain G a dollar of basis mints 100 · (S / (S + G))² SKT.
     pub mint_scale: u64,
 }
 
@@ -321,16 +337,16 @@ pub struct Rewards {
     /// Every holder share ever accrued, and every claim paid out: `holder_funds` is the one less the other.
     pub accrued_total: u64,
     pub claimed_total: u64,
-    /// The tracked gain, USDC e6: every player's net loss added up (stakes settled less what settling credited them,
-    /// IOUs at face) since SKT began. Signed: players as a whole may be up.
-    pub gain: i64,
+    /// The tracked gain, USDC e6: every basis SKT has been minted on since it began, which is what players have lost
+    /// to the game in expectation. The mint curve reads it.
+    pub gain: u64,
     pub bump: u8,
     /// Room for what comes later, without a realloc.
     pub _reserved: [u8; 64],
 }
 
-/// A player's SKT: their balance (always staked), what it has earned, and the low-water mark of their net result
-/// that decides what they mint. Keyed by their wallet; created at the first settlement that decides a band of theirs.
+/// A player's SKT: their balance (always staked), what it has earned, and the basis it was minted on. Keyed by their
+/// wallet; opened by the first settlement with a live bet of theirs in it.
 #[account]
 #[derive(InitSpace, Default, PartialEq, Eq, Debug)]
 pub struct Holder {
@@ -342,10 +358,8 @@ pub struct Holder {
     /// USDC e6 earned and not yet claimed.
     pub unclaimed: u64,
     pub claimed: u64,
-    /// Lifetime net result, USDC e6: what settling credited them (paid and owed) less the stakes it decided.
-    pub net: i64,
-    /// The deepest net loss they have ever been at (`-net` at its lowest): SKT mints only past it.
-    pub worst: u64,
+    /// Every basis their SKT was minted on, USDC e6: the odds-weighted loss of each band of theirs that missed.
+    pub basis: u64,
     pub bump: u8,
     pub _reserved: [u8; 32],
 }

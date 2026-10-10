@@ -42,14 +42,14 @@ export type MintedEvent = {
   player: Address;
   skt: bigint;
   rate: bigint;
-  netLossNewLow: bigint;
+  basis: bigint;
 };
 
 export type MintedEventArgs = {
   player: Address;
   skt: number | bigint;
   rate: number | bigint;
-  netLossNewLow: number | bigint;
+  basis: number | bigint;
 };
 
 /** Gets the encoder for {@link MintedEventArgs} event data. */
@@ -59,7 +59,7 @@ export function getMintedEventEncoder(): FixedSizeEncoder<MintedEventArgs> {
       ["player", getAddressEncoder()],
       ["skt", getU64Encoder()],
       ["rate", getU64Encoder()],
-      ["netLossNewLow", getU64Encoder()],
+      ["basis", getU64Encoder()],
     ]),
     [getConstantEncoder(MINTED_EVENT_DISCRIMINATOR)],
   );
@@ -72,7 +72,7 @@ export function getMintedEventDecoder(): FixedSizeDecoder<MintedEvent> {
       ["player", getAddressDecoder()],
       ["skt", getU64Decoder()],
       ["rate", getU64Decoder()],
-      ["netLossNewLow", getU64Decoder()],
+      ["basis", getU64Decoder()],
     ]),
     [getConstantDecoder(MINTED_EVENT_DISCRIMINATOR)],
   );

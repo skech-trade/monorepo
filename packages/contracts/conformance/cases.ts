@@ -319,19 +319,17 @@ export const CASES: Case[] = [
   },
   {
     ...skt,
-    name: "SKT: only a new low mints, and only past the old one",
+    name: "SKT: each miss mints on its odds-weighted loss, a hit on nothing, at the curve's falling rate",
     steps: [
-      { place: { id: "down", sections: [{ second: 1, lo: AT + 5000, width: 5, stake: 100_000, chance: 500_000_000 }] } },
-      { bar: { ...flat(1, PRICE), settle: ["down"] } },
-      // A win: no SKT taken back, none minted.
-      { place: { id: "up", sections: [{ second: 2, lo: AT, width: 5, stake: 100_000, chance: 500_000_000 }] } },
-      { bar: { ...flat(2, PRICE), settle: ["up"] } },
-      // Back down to the old low exactly: nothing.
-      { place: { id: "back", sections: [{ second: 3, lo: AT + 5000, width: 5, stake: 45_000, chance: 500_000_000 }] } },
-      { bar: { ...flat(3, PRICE), settle: ["back"] } },
-      // Past it: the 30,000 past it, and only that.
-      { place: { id: "past", sections: [{ second: 4, lo: AT + 5000, width: 5, stake: 30_000, chance: 500_000_000 }] } },
-      { bar: { ...flat(4, PRICE), settle: ["past"] } },
+      // A 1% long shot at 96x misses: 1.1¢ · (1 − 0.96) / 0.99.
+      { place: { id: "long", sections: [{ second: 1, lo: AT, width: 5, stake: 11_000, chance: 10_000_000 }] } },
+      { bar: { ...flat(1, PRICE - e8(5)), settle: ["long"] } },
+      // Ink at 50% paying 1.5x misses: 10¢ · 0.25 / 0.5. And a hit beside it, in the same piece: nothing for it.
+      { place: { id: "near", sections: [{ second: 2, lo: AT + 5000, width: 5, stake: 100_000, chance: 500_000_000 }, { second: 2, lo: AT, width: 5, stake: 100_000, chance: 500_000_000 }] } },
+      { bar: { second: 2, prevClose: PRICE - e8(5), high: PRICE, low: PRICE - e8(5), close: PRICE, settle: ["near"] } },
+      // Two bands that miss in one settlement: their bases together, minted from where the tracked gain is.
+      { place: { id: "two", player: "b", perDot: 1_000_000, sections: [{ second: 3, lo: AT + 5000, width: 5, stake: 1_000_000, chance: 200_000_000 }, { second: 3, lo: AT - 5000, width: 5, stake: 2_000_000, chance: 900_000_000 }] } },
+      { bar: { ...flat(3, PRICE), settle: ["two"] } },
     ],
   },
 ];

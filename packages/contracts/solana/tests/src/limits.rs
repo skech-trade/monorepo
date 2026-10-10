@@ -186,7 +186,7 @@ fn account_sizes_are_what_is_on_chain() {
     assert_eq!(skech::state::Bet::FIXED, 130);
     assert_eq!(skech::state::Bet::space(32), 130 + 32 * 27);
     // And the new ones: a Holder's rent is the relayer's, once a player.
-    assert_eq!(skech::state::Holder::SPACE, 129);
+    assert_eq!(skech::state::Holder::SPACE, 121);
     assert_eq!(8 + <skech::state::Rewards as anchor_lang::Space>::INIT_SPACE, 141);
 }
 
