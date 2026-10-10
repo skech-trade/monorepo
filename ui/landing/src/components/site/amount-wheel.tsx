@@ -1,18 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DOT_BETS } from "@skech/core/dots";
 import styles from "./amount-wheel.module.css";
 
-const STEP = 5;
-const MIN = 20;
-const MAX = 500;
-const START = 100;
-
-const VALUES = Array.from(
-  { length: (MAX - MIN) / STEP + 1 },
-  (_, i) => MIN + i * STEP,
-);
-const START_INDEX = VALUES.indexOf(START);
+/*
+  What a dot costs, as the canvas offers it: DOT_BETS in @skech/core. The wheel
+  used to run $20 to $500 in fives, which is a position size on a venue that
+  takes them. This game stakes per dot, and the smallest is ten cents.
+*/
+const VALUES: readonly number[] = DOT_BETS;
+const MIN = VALUES[0];
+const MAX = VALUES[VALUES.length - 1];
+const START = 0.25;
+const START_INDEX = Math.max(0, VALUES.indexOf(START));
+/** Cents under a dollar, dollars at it: "10¢", "25¢", "$1". */
+const label = (n: number) => (n < 1 ? `${Math.round(n * 100)}¢` : `$${n}`);
 
 /**
  * The stake, picked on a wheel.
@@ -28,9 +31,8 @@ const START_INDEX = VALUES.indexOf(START);
  * trackpad, a mouse wheel and the arrow keys without four code paths. Reading
  * the value back out is one division.
  *
- * Deliberately not reported anywhere. The leverage card next to it still says
- * $100 and $1,000, and wiring the two together means lifting this state above
- * both cards — worth doing, and a bigger change than this component.
+ * Deliberately not reported anywhere: nothing else on the page depends on which
+ * amount is showing.
  */
 export function AmountWheel() {
   const [index, setIndex] = useState(START_INDEX);
@@ -93,11 +95,11 @@ export function AmountWheel() {
         so the key and the gesture agree.
       */}
       <div
-        aria-label="How much you put in"
+        aria-label="What a dot costs"
         aria-valuemax={MAX}
         aria-valuemin={MIN}
         aria-valuenow={value}
-        aria-valuetext={`$${value}`}
+        aria-valuetext={label(value)}
         className={styles.wheel}
         onKeyDown={(event) => {
           const by =
@@ -136,7 +138,7 @@ export function AmountWheel() {
               data-selected={i === index ? "" : undefined}
               key={amount}
             >
-              ${amount}
+              {label(amount)}
             </div>
           ))}
         </div>

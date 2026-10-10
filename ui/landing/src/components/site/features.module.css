@@ -22,12 +22,9 @@
 .fees { grid-area: fees; }
 .markets { grid-area: markets; background: #fbfaf9; }
 .redraw { grid-area: redraw; }
-/* The wide redraw art carries its own padding inside the PNG, so `contain`
-   left a band of empty blue above it. `cover` fills the tile instead, and the
-   tile height is then the crop: shorter eats more of the baked-in blank,
-   taller shows more of it. The art is wide, so none of the drawing is lost. */
-.redraw .artwork { flex: none; height: 8.75rem; margin-top: auto; }
-.redraw .artwork img { object-fit: cover; object-position: center; }
+/* The community tile draws its own lines, so the artwork box is a fixed strip at the tile's foot. */
+.redraw .artwork { flex: none; height: 8.75rem; margin-top: auto; background: #f2ebe0; }
+.crowd { width: 100%; height: 100%; padding: 0.75rem 1rem; }
 .rewards { grid-area: rewards; display: grid; grid-template-columns: 0.9fr 1.1fr; align-items: center; border-radius: 2rem 2rem 5rem 2rem; }
 .rewards .caption { padding-bottom: 1.75rem; }
 /* The card's bottom-right corner is a 5rem sweep and the tile sits 1rem

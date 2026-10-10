@@ -30,8 +30,7 @@
 
 .steps { background: #f6f4ef; }
 .example { background: #edf2fd; }
-.redraw { background: #f2ebe0; }
-:global(.dark) .steps, :global(.dark) .example, :global(.dark) .redraw { background: #242321; }
+:global(.dark) .steps, :global(.dark) .example { background: #242321; }
 
 .intro, .demo { min-width: 0; }
 
@@ -92,9 +91,6 @@
 .ctaArt { width: 100%; max-width: 32rem; height: auto; justify-self: center; }
 
 @media (min-width: 64rem) {
-  .redraw { grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.8fr); }
-  .redraw .demo { grid-column: 1; grid-row: 1; }
-  .redraw .intro { grid-column: 2; grid-row: 1; }
   .chapter[data-pinned="true"] { position: sticky; top: 1.5rem; }
 }
 
@@ -134,7 +130,7 @@
    with the interactive chart. */
 .companion { display: block; width: 12rem; max-width: 55%; margin-top: 1.25rem; }
 @media (min-width: 48rem) and (max-width: 63.999rem) {
-  .example .intro, .redraw .intro { display: flex; align-items: center; justify-content: space-between; gap: 2rem; }
+  .example .intro { display: flex; align-items: center; justify-content: space-between; gap: 2rem; }
   .companion { flex-shrink: 0; margin: 0; }
 }
 @media (max-width: 47.999rem) {
