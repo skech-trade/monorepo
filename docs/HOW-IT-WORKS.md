@@ -262,11 +262,10 @@ network latency. Model agreement does not guarantee future returns.
 ### The paper run
 
 Signed out, "Try it free" plays thirty seconds on $10 of paper money (`paper.ts`):
-the live price, the real screen, nothing sent to the relayer, no fees, and a pill
-that says "Practice · easier odds than real play" the whole time. It plays at
-difficulty 0 (`PAPER_DIFFICULTY`, best ink $1.20 a dollar), below the 50 real play
-is held to; the same `ladderSection` prices the map and the payout, so what shows is
-what pays.
+the live price, the real screen, nothing sent to the relayer, no fees, a cent a dot,
+and a "Practice" pill the whole time. It plays the real game's odds: the live game's
+difficulty when the relayer has said it, else the game's own. A practice run that paid
+more than the real game would sell one that isn't there.
 
 `check-paper.ts` replays six strokes drawn near the price (a level line within a
 market step, with and against the move, along the price, from the price drifting
@@ -275,10 +274,10 @@ BTC-USD, October 7–9, 46,494 drawings per level:
 
 | Difficulty | Best ink | Touched | Came out ahead | Per $1 |
 | --- | --- | --- | --- | --- |
-| 55 (real) | 0.98 | 59.7% | 28.6% | 0.783 |
+| **55 (real, and paper)** | **0.98** | **59.7%** | **28.6%** | **0.783** |
 | 50 | 1.00 | 59.7% | 29.1% | 0.799 |
 | 25 | 1.10 | 59.7% | 31.2% | 0.880 |
-| **0 (paper)** | **1.20** | **59.7%** | **33.0%** | **0.961** |
+| 0 | 1.20 | 59.7% | 33.0% | 0.961 |
 | −50 | 1.40 | 59.7% | 36.0% | 1.122 |
 | −100 | 1.60 | 59.7% | 38.4% | 1.286 |
 

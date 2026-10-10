@@ -8,7 +8,6 @@ import {
   debitPaper,
   leftOf,
   levelFor,
-  PAPER_DIFFICULTY,
   PAPER_LINGER_MS,
   PAPER_MS,
   PAPER_SETTLE_MAX_MS,
@@ -101,21 +100,15 @@ test("the end card says what happened, win, loss or nothing drawn", () => {
   expect(paperResult(run, money).headline).toBe("You didn’t draw this time");
 });
 
-test("only the paper run plays under the least real setting", () => {
-  expect(PAPER_DIFFICULTY).toBeLessThan(MIN_DIFFICULTY);
-  expect(levelFor({ paper: true, chain: 70, house: 60 })).toEqual({ level: PAPER_DIFFICULTY, least: PAPER_DIFFICULTY });
+test("the paper run plays the real game's odds", () => {
+  expect(levelFor({ paper: true, chain: 51, house: 60 })).toEqual({ level: 51, least: MIN_DIFFICULTY });
+  expect(levelFor({ paper: true, house: 60 })).toEqual({ level: DIFFICULTY, least: MIN_DIFFICULTY });
   expect(levelFor({ paper: false, chain: 70, house: 60 })).toEqual({ level: 70, least: MIN_DIFFICULTY });
   expect(levelFor({ paper: false, house: 60 })).toEqual({ level: 60, least: MIN_DIFFICULTY });
   expect(levelFor({ paper: false })).toEqual({ level: DIFFICULTY, least: MIN_DIFFICULTY });
-  // Asked for without the paper run's floor, the paper setting is still held to real play's least.
-  expect(difficulty(PAPER_DIFFICULTY)).toEqual(difficulty(MIN_DIFFICULTY));
-  // Easier: every rung a chance earns is at least the real one, and the best ink returns more.
-  const paper = difficulty(PAPER_DIFFICULTY, PAPER_DIFFICULTY);
-  expect(paper.ladderBest).toBeGreaterThan(difficulty(DIFFICULTY).ladderBest);
-  expect(paper.momentumMargin).toBe(difficulty(DIFFICULTY).momentumMargin);
 });
 
-test("what the paper map shows is what a paper hit pays: the same ladder, at the paper setting", () => {
+test("what the paper map shows is what a paper hit pays: real play\u2019s ladder", () => {
   for (const p of [0.95, 0.6, 0.3, 0.1, 0.03, 0.005]) {
     setDifficulty(DIFFICULTY);
     const real = ladderSection(p, RULES.rtp, 1)!;
@@ -124,7 +117,7 @@ test("what the paper map shows is what a paper hit pays: the same ladder, at the
     const shown = ladderSection(p, RULES.rtp, 1)!;
     // The opening prices the section by the same function at the same setting: the multiple shown is the one paid.
     expect(ladderSection(p, RULES.rtp, 1)).toEqual(shown);
-    expect(shown.multiple).toBeGreaterThanOrEqual(real.multiple);
+    expect(shown.multiple).toBe(real.multiple);
     expect(shown.multiple).toBeGreaterThanOrEqual(1);
     expect(shown.multiple * p).toBeLessThanOrEqual(RULES.ladderBest + 1e-9);
   }

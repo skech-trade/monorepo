@@ -3,7 +3,7 @@
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DIFFICULTY, difficulty, features, type Field, type Library, MIN_DIFFICULTY, openFor, readLibrary, RULES, setDifficulty, stepFor } from "@skech/core/dots";
-import { canDraw, levelFor, PAPER_DIFFICULTY, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
+import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { areaCostOf, cost, decided, isArea, liveInkTotals, judge, open, openOn, INK_EDGE_CELLS, drawingLayout, INK_CELL, placeInk, refund, type InkBet, type Stroke, won } from "@skech/core/ink";
 import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
 import { encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor } from "@skech/core/chain";
@@ -225,7 +225,7 @@ function PaperClock() {
     <div className={cn(feedback.clockPill, run.urgent && feedback.clockUrgent)} role="timer">
       <strong className="figures">{run.clock}</strong>
       <span aria-hidden="true">·</span>
-      <span>Practice · easier odds than real play</span>
+      <span>Practice</span>
     </div>
   );
 }
@@ -239,7 +239,7 @@ function PaperEnd({ onSignIn, onAgain }: { onSignIn: () => void; onAgain: () => 
     <div aria-label="Your practice run" className={cn(feedback.notice, "absolute inset-0 z-30 flex items-center justify-center bg-background/30 px-4 backdrop-blur-md")} role="dialog">
       <div className={cn(feedback.notice, "w-full max-w-[360px] rounded-[28px] bg-raised p-6 shadow-[var(--raised-shadow)]")}>
         <h2 className="font-semibold text-[22px] leading-tight">{headline}</h2>
-        <p className="mt-1.5 text-[15px] text-muted-foreground">Practice money on the live Bitcoin price, with easier odds than real play.</p>
+        <p className="mt-1.5 text-[15px] text-muted-foreground">Practice money on the live Bitcoin price.</p>
         <Button className="mt-5 h-12 w-full rounded-full font-semibold text-base sm:h-12" onClick={onSignIn}>Sign in to play for real</Button>
         <Button className="mt-2 h-12 w-full rounded-full font-semibold text-base sm:h-12" onClick={onAgain} variant="outline">Try again</Button>
       </div>
@@ -382,7 +382,7 @@ export function InkScreen() {
    * How hard the game is here: on chain, what the game contract says; on a paper run, its own easier setting;
    * else what the house set on this browser, or the game's own. `least`: only the paper run goes under 50.
    */
-  const { level, least } = levelFor({ paper: paperOn, chain: real ? chain.hello?.difficulty ?? null : null, house: state.houseDifficulty });
+  const { level, least } = levelFor({ paper: paperOn, chain: real || paperOn ? chain.hello?.difficulty ?? null : null, house: state.houseDifficulty });
   /* The house's controls show in development, or with ?house in the address. */
   const [house] = useState(() => typeof window !== "undefined" && (process.env.NODE_ENV !== "production" || new URLSearchParams(window.location.search).has("house")));
   const [live, setLive] = useState(0);
@@ -1355,9 +1355,9 @@ export function InkScreen() {
           thirty seconds on paper money first, to feel the game before signing in for it. */}
       {signedOut && owner !== false && !paperOn ? (
         <div className={cn(feedback.notice, "absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-background/30 backdrop-blur-md")} onClick={() => gate.openSignIn("overlay")}>
-          <Button className="h-12 rounded-full px-6 font-semibold text-base sm:h-12">Sign in to play</Button>
+          <Button className="h-12 w-64 rounded-full px-6 font-semibold text-base sm:h-12">Sign in to play</Button>
           <Button
-            className="h-12 rounded-full px-6 font-semibold text-base sm:h-12"
+            className="h-12 w-64 rounded-full px-6 font-semibold text-base sm:h-12"
             onClick={(e) => {
               e.stopPropagation();
               startPaper(false);
@@ -1408,7 +1408,7 @@ export function InkScreen() {
             <p>Ink is bet as you draw it, not when you lift the pen: each new bit opens on the next second at the price for that moment, so a slow stroke is not priced on where the market has gone by the time you finish. Going back over your own ink costs nothing. The drawing’s cost rounds up to the cent once, over all of it.</p>
             <p>Placing a drawing takes its stake from your balance straight away; what just moved your balance shows under it. The number beside it is what you have won: this round&rsquo;s payouts while ink is in play, this session&rsquo;s otherwise. Tap it for the scoreboard. Hits pay the moment the price touches them; the rest settles when its second closes.</p>
             <p>Ink starts counting one to two seconds ahead: everything right of the dashed wait line always counts, and it reaches {RULES.horizon} seconds ahead.</p>
-            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for {difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {paperOn ? `This practice run plays easier odds than real play, and takes no fees: ink exactly on a rung returns ${money(difficulty(PAPER_DIFFICULTY, PAPER_DIFFICULTY).ladderBest)} per dollar here, ${money(difficulty(DIFFICULTY).ladderBest)} in real play. The multiples on the map are the ones it pays; real play's are lower. Its paper money is gone when it ends.` : forReal ? `${feesLine(chain.hello?.terms)} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills. Your balance is USDC held by the game on Solana: deposits and withdrawals are transactions skech pays the network fee for, and each drawing is placed and settled on chain.` : "Your balance is practice money saved in this browser."}</p>
+            <p className="text-muted-foreground">Odds use historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns {Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for {difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Hits are resolved using one-second price ranges. {paperOn ? `This practice run plays the real game’s odds on paper money, with no fees and a cent a dot. Its paper money is gone when it ends.` : forReal ? `${feesLine(chain.hello?.terms)} Wins are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills. Your balance is USDC held by the game on Solana: deposits and withdrawals are transactions skech pays the network fee for, and each drawing is placed and settled on chain.` : "Your balance is practice money saved in this browser."}</p>
             <p className="text-muted-foreground text-xs">
               Avatars: <a className="underline underline-offset-2" href={AVATAR_CREDIT.source} rel="noopener noreferrer" target="_blank">“Dylan”</a> by Natalia Spivak, <a className="underline underline-offset-2" href={AVATAR_CREDIT.licence} rel="noopener noreferrer" target="_blank">CC BY 4.0</a>
             </p>

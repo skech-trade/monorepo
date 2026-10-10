@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DIFFICULTY, difficulty, features, type Field, type Library, openFor, RULES, setDifficulty, stepFor } from "@skech/core/dots";
-import { canDraw, levelFor, PAPER_DIFFICULTY, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
+import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { areaCostOf, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
 import { POINT_PRICES, roundedTerms as areaTerms } from "@skech/core/odds";
 import { encodeStroke, fromE8, gridStep, LATE_MS, stakeOf, toE6, toE8, toSections, unitFor } from "@skech/core/chain";
@@ -209,7 +209,7 @@ function PaperClock({ top }: { top: number }) {
           <Text className={cn("min-w-[30px] font-semibold text-[13px]", run.urgent ? "text-destructive-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }}>
             {run.clock}
           </Text>
-          <Text className={cn("text-[13px]", run.urgent ? "text-destructive-foreground" : "text-muted-foreground")}>· Practice · easier odds than real play</Text>
+          <Text className={cn("text-[13px]", run.urgent ? "text-destructive-foreground" : "text-muted-foreground")}>· Practice</Text>
         </View>
       </Arrive>
     </View>
@@ -224,11 +224,11 @@ function PaperEnd({ onSignIn, onAgain }: { onSignIn: () => void; onAgain: () => 
   const { headline } = paperResult(run, money);
   return (
     <View accessibilityLabel="Your practice run" className="absolute inset-0 z-30 items-center justify-center px-4">
-      <BlurView intensity={60} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }} tint={dark ? "dark" : "light"} />
+      <BlurView experimentalBlurMethod="dimezisBlurView" intensity={60} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }} tint={dark ? "dark" : "light"} />
       <Arrive motion={MOTION.cardIn} style={{ width: "100%", alignItems: "center" }}>
         <View className="w-full max-w-[360px] rounded-[28px] bg-raised p-6" style={raised}>
           <Text className="font-semibold text-[22px] text-foreground">{headline}</Text>
-          <Text className="mt-1.5 text-[15px] text-muted-foreground">Practice money on the live Bitcoin price, with easier odds than real play.</Text>
+          <Text className="mt-1.5 text-[15px] text-muted-foreground">Practice money on the live Bitcoin price.</Text>
           <Button className="mt-5" onPress={onSignIn}>
             Sign in to play for real
           </Button>
@@ -293,7 +293,7 @@ export function InkScreen() {
   const paperPhase = usePaperPhase();
   const paperOn = paperPhase !== null && !real;
   // On chain, the game's; on a paper run, its own easier one; else the house's or the game's own. Only paper goes under 50.
-  const { level, least } = levelFor({ paper: paperOn, chain: real ? (chain.hello?.difficulty ?? null) : null, house: state.houseDifficulty });
+  const { level, least } = levelFor({ paper: paperOn, chain: real || paperOn ? (chain.hello?.difficulty ?? null) : null, house: state.houseDifficulty });
   const [live, setLive] = useState(0);
   const [result, setResult] = useState<{ key: string; won: number; cost: number; hits: number; points: number; voided: boolean; best?: number; streak?: number } | null>(null);
   useEffect(() => {
@@ -1071,13 +1071,15 @@ export function InkScreen() {
           thirty seconds on paper money first, to feel the game before signing in for it. */}
       {forReal && me.ready && !me.signedIn && !paperOn ? (
         <Pressable className="absolute inset-0 z-30 items-center justify-center gap-2" onPress={() => gate.openSignIn("overlay")}>
-          <BlurView intensity={60} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }} tint={dark ? "dark" : "light"} />
-          <Button className="px-6" onPress={() => gate.openSignIn("overlay")}>
-            Sign in to play
-          </Button>
-          <Button className="px-6" onPress={() => startPaper(false)} variant="secondary">
-            Try it free · 30 seconds
-          </Button>
+          <BlurView experimentalBlurMethod="dimezisBlurView" intensity={60} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }} tint={dark ? "dark" : "light"} />
+          <View className="w-64 gap-2">
+            <Button className="w-full px-6" onPress={() => gate.openSignIn("overlay")}>
+              Sign in to play
+            </Button>
+            <Button className="w-full px-6" onPress={() => startPaper(false)} variant="secondary">
+              Try it free · 30 seconds
+            </Button>
+          </View>
         </Pressable>
       ) : null}
       {paperOn ? (
@@ -1196,7 +1198,7 @@ export function InkScreen() {
         <Text className="text-[15px] text-muted-foreground leading-relaxed">
           {`Multiples are set from historical Bitcoin paths, price distance, time, volatility and momentum. Every part pays a rung of one ladder, 1.1× to 128×, set by its chance: ink exactly on a rung returns ${Math.round(difficulty(level).ladderBest * 100)}¢ per dollar, and everywhere else rounds down to the rung below, a little less on the side the price is moving towards. Ink too likely for ${difficulty(level).ladderFloor}× pays what its chance earns, never under 1×. This is not a guaranteed return. Calls are resolved using one-second price ranges. `}
           {paperOn
-            ? `This practice run plays easier odds than real play, and takes no fees: ink exactly on a rung returns ${money(difficulty(PAPER_DIFFICULTY, PAPER_DIFFICULTY).ladderBest)} per dollar here, ${money(difficulty(DIFFICULTY).ladderBest)} in real play. The multiples on the map are the ones it pays; real play\u2019s are lower. Its paper money is gone when it ends.`
+            ? `This practice run plays the real game\u2019s odds on paper money, with no fees and a cent a dot. Its paper money is gone when it ends.`
             : forReal
             ? `${fees ? `skech keeps ${fees.feeBps / 100}% of what you put in and ${fees.profitFeeBps / 100}% of the profit on every correct call.` : "skech keeps a share of what you put in and of the profit on every correct call."} Profits are paid from what other players lose; if that runs short, the rest is owed to you and paid as it refills.`
             : "Your balance is practice money saved on this phone."}
