@@ -33,8 +33,8 @@ import { ThemeToggle } from "./theme-toggle";
  * Taller on a phone, where the things in it are thumb-sized: fifty-six
  * pixels is what a phone header is on both platforms.
  *
- * During a "Try it free" run the middle's "Sign in to play" is gone, so the
- * way in moves here: Sign in, on the right.
+ * Signed out, a quiet Sign in sits on the right, in practice and during a
+ * "Try it free" run alike.
  *
  * Under the game, a trophy opens the community (the leaderboard, the live
  * feed, profiles); on a phone it takes light or dark's place, which moves into
@@ -75,8 +75,8 @@ export function AppBar({ lead, showTheme = true }: { lead?: React.ReactNode; sho
         ) : null}
         {showTheme ? <ThemeToggle className={cn("size-11 rounded-full border-0 bg-secondary sm:size-11 [&_svg]:size-5", community && "max-sm:hidden")} /> : null}
         {lead}
-        {hasAuth && me.ready && !me.signedIn && paper ? (
-          <Button className="h-11 rounded-full border-0 bg-secondary px-5 font-semibold sm:h-11" onClick={() => gate.openSignIn("paper_bar")} variant="secondary">
+        {hasAuth && me.ready && !me.signedIn ? (
+          <Button className="h-11 rounded-full border-0 bg-secondary px-5 font-semibold sm:h-11" onClick={() => gate.openSignIn(paper ? "paper_bar" : "bar")} variant="secondary">
             Sign in
           </Button>
         ) : null}
