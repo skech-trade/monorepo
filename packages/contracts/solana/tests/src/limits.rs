@@ -87,12 +87,116 @@ fn compute_units() {
     let r = g.post_and_settle((S + 2) * 1000 + 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &[]).expect("posted");
     println!("post a bar alone: {} CU", r.compute_units_consumed);
     out.insert("post_bar".into(), r.compute_units_consumed.into());
+    settle_costs(&mut out);
     let _ = AccountMeta::new(Pubkey::default(), false);
     if std::env::var("SNAPSHOT").is_ok() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../snapshots/compute.json");
         std::fs::create_dir_all(std::path::Path::new(path).parent().unwrap()).unwrap();
         std::fs::write(path, serde_json::to_string_pretty(&out).unwrap() + "\n").unwrap();
     }
+}
+
+/// What settling costs, part by part, for the relayer's budget (`packages/relayer/src/solana/compute.ts`): the
+/// instruction with no bets, each bet, each band a bet has (every one is read), and each band decided (the dearer of a
+/// hit and a miss). A settlement is budgeted as their sum, so a second full of bands is budgeted for its bands and not
+/// only for its bets.
+fn settle_costs(out: &mut serde_json::Map<String, serde_json::Value>) {
+    let mut g = Game::new();
+    // A loser who fills the pool, so the hits below are paid.
+    let funder = g.player(1_000 * E6, 1_000 * E6);
+    let mut at = S + 10;
+    g.set_time(at);
+    let mut fund = g.piece(&funder, 1, 0, (at + 1) * 1000, &[(1, 300_000, 5, 100_000_000)]);
+    fund.per_dot = 100_000_000;
+    let quote = g.quote(&fund, 500_000_000);
+    g.place(&funder, &fund, &quote).expect("placed");
+    g.set_time(at + 3);
+    g.post_and_settle((at + 2) * 1000, 83_000 * E8, 83_000 * E8, 83_000 * E8, 83_000 * E8, &[(bet_pda(&funder.wallet.pubkey(), 1, 0).0, funder.wallet.pubkey())]).expect("settled");
+    let p = g.player(100 * E6, 100 * E6);
+    let mut drawing = 10;
+    // Settle one piece of `bands` (second, lo) at its second 1, on a bar at 83,000: what it costs, the bar included.
+    let mut one = |g: &mut Game, bands: Vec<(u8, u32)>| -> u64 {
+        at += 40;
+        drawing += 1;
+        g.set_time(at);
+        let sections: Vec<(u8, u32, u16, u32)> = bands.iter().map(|&(s, lo)| (s, lo, 5, 10_000)).collect();
+        let piece = g.piece(&p, drawing, 0, (at + 1) * 1000, &sections);
+        g.place(&p, &piece, &g.quote(&piece, 500_000_000)).expect("placed");
+        g.set_time(at + 3);
+        let [limit, _] = budget(1_400_000, 0);
+        let ix = g.post_and_settle_ix((at + 2) * 1000, 83_000 * E8, 83_000 * E8, 83_000 * E8, 83_000 * E8, &[(bet_pda(&p.wallet.pubkey(), drawing, 0).0, p.wallet.pubkey())]);
+        g.send(&[limit, ix], &[]).expect("settled").compute_units_consumed
+    };
+    let one_band = one(&mut g, vec![(1, 300_000)]);
+    let one_of_32 = one(&mut g, (0..32).map(|i| (if i == 0 { 1 } else { 2 + (i % 29) as u8 }, 300_000 + 40 * i as u32)).collect());
+    let all_miss = one(&mut g, (0..32).map(|i| (1, 300_000 + 40 * i as u32)).collect());
+    let all_hit = one(&mut g, (0..32).map(|_| (1, 415_000)).collect());
+    at += 40;
+    g.set_time(at);
+    let [limit, _] = budget(1_400_000, 0);
+    let post_bar = g.send(&[limit.clone(), g.post_and_settle_ix(at * 1000, 83_000 * E8, 83_000 * E8, 83_000 * E8, 83_000 * E8, &[])], &[]).expect("posted").compute_units_consumed;
+    let settle = g.ix(skech::accounts::Settle { game: game_pda(), bars: bars_pda(0), pool: pool_pda(), rent_receiver: g.relayer.pubkey() }, skech::instruction::Settle { market: 0 });
+    let base = g.send(&[limit, settle], &[]).expect("settled nothing").compute_units_consumed;
+    let section = (one_of_32 - one_band).div_ceil(31);
+    let decided = (all_miss.max(all_hit) - one_of_32).div_ceil(31);
+    let bet = one_band.saturating_sub(post_bar + section + decided);
+    println!("settle: {base} CU with no bets; each bet {bet}, each of its bands {section}, each decided {decided} (32 missed {all_miss}, 32 hit {all_hit})");
+    for (k, v) in [("settle_base", base), ("settle_bet", bet), ("settle_section", section), ("settle_decided", decided)] {
+        out.insert(k.into(), v.into());
+    }
+}
+
+/// The relayer's budget for one settlement (`compute.ts` `settleCompute`), from `snapshots/compute.json`: the bar or
+/// not, and each bet's (bands, bands decided).
+fn relayer_budget(bar: bool, bets: &[(u64, u64)]) -> u32 {
+    let snap: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../snapshots/compute.json")).unwrap()).unwrap();
+    let k = |key: &str| snap[key].as_f64().unwrap_or(0.0);
+    let mut cu = if bar { k("post_bar") } else { k("settle_base") };
+    for &(sections, decided) in bets {
+        cu += k("settle_bet") + k("settle_section") * sections as f64 + k("settle_decided") * decided as f64;
+    }
+    ((cu * 1.25).ceil() as u32 + 5_000).min(1_400_000)
+}
+
+/// The audit's liveness finding, turned round: one wallet's nine pieces of 32 one-micro-USDC bands in one second, every
+/// band missing, settle at the budget the relayer now asks for, by their bands; and twelve players' full pieces too.
+#[test]
+fn nine_full_pieces_in_one_second_settle_within_the_budget() {
+    let mut g = Game::new();
+    let s0 = S + 5;
+    g.set_time(s0);
+    let p = g.player(10 * E6, 10 * E6);
+    let mut bets = vec![];
+    for d in 0..9u64 {
+        let sections: Vec<(u8, u32, u16, u32)> = (0..32).map(|i| (1u8, 300_000 + 40 * i as u32, 5, 1)).collect();
+        let piece = g.piece(&p, d + 1, 0, (s0 + 1) * 1000, &sections);
+        g.place(&p, &piece, &g.quote(&piece, 300_000_000)).unwrap();
+        bets.push((bet_pda(&p.wallet.pubkey(), d + 1, 0).0, p.wallet.pubkey()));
+    }
+    g.set_time(s0 + 3);
+    let ask = relayer_budget(true, &[(32, 32); 9]);
+    let [limit, _] = budget(ask, 0);
+    let r = g.send(&[limit, g.post_and_settle_ix((s0 + 2) * 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &bets)], &[]);
+    let used = r.as_ref().map(|m| m.compute_units_consumed).unwrap_or_else(|f| panic!("over its budget {ask}: {:?}", f.meta.logs.last()));
+    println!("one wallet, 9 x 32 dust bands in one second: {used} CU of a budget of {ask}");
+
+    // Twelve players, the most a settlement holds, each a full piece in one second.
+    let mut g = Game::new();
+    g.set_time(s0);
+    let mut bets = vec![];
+    for _ in 0..12 {
+        let p = g.player(10 * E6, 10 * E6);
+        let sections: Vec<(u8, u32, u16, u32)> = (0..32).map(|i| (1u8, 300_000 + 40 * i as u32, 5, 10_000)).collect();
+        let piece = g.piece(&p, 1, 0, (s0 + 1) * 1000, &sections);
+        g.place(&p, &piece, &g.quote(&piece, 300_000_000)).unwrap();
+        bets.push((bet_pda(&p.wallet.pubkey(), 1, 0).0, p.wallet.pubkey()));
+    }
+    g.set_time(s0 + 3);
+    let ask = relayer_budget(true, &[(32, 32); 12]);
+    let [limit, _] = budget(ask, 0);
+    let r = g.send(&[limit, g.post_and_settle_ix((s0 + 2) * 1000, 83_000 * E8, 83_001 * E8, 82_999 * E8, 83_000 * E8, &bets)], &[]);
+    let used = r.as_ref().map(|m| m.compute_units_consumed).unwrap_or_else(|f| panic!("over its budget {ask}: {:?}", f.meta.logs.last()));
+    println!("twelve players, 12 x 32 missed bands in one second: {used} CU of a budget of {ask}");
 }
 
 /// The accounts' sizes, now worked out rather than written out: the same bytes as the accounts already on chain.
