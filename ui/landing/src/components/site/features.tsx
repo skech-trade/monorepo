@@ -87,6 +87,7 @@ export function Features() {
                     width={feature.size[0]}
                     height={feature.size[1]}
                     sizes="(max-width: 767px) calc(100vw - 56px), (max-width: 1023px) 45vw, 500px"
+                    quality={96}
                   />
                 ))
               )}
