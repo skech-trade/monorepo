@@ -38,6 +38,10 @@ export type Event =
   | "drawing_key_ready"
   | "drawing_key_failed"
   | "first_drawing"
+  // Thirty seconds on paper money, signed out: started, again, and what it came to.
+  | "paper_started"
+  | "paper_again"
+  | "paper_ended"
   // Playing.
   | "round_finished"
   | "piece_refused"

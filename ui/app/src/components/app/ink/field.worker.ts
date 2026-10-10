@@ -11,7 +11,7 @@ import { type Features, field, type Library, readLibrary, setDifficulty } from "
 
 let lib: Library | null = null;
 
-type Ask = { kind: "lib"; bytes: ArrayBuffer } | { kind: "field"; id: number; f: Features; at: number; step: number; cell: number; difficulty: number };
+type Ask = { kind: "lib"; bytes: ArrayBuffer } | { kind: "field"; id: number; f: Features; at: number; step: number; cell: number; difficulty: number; least: number };
 
 self.onmessage = (e: MessageEvent<Ask>) => {
   const m = e.data;
@@ -21,7 +21,7 @@ self.onmessage = (e: MessageEvent<Ask>) => {
   }
   if (!lib) return;
   // Worker globals must use the same difficulty as this request.
-  setDifficulty(m.difficulty);
+  setDifficulty(m.difficulty, m.least);
   const fl = field(lib, m.f, m.at, m.step, m.cell, INK_EDGE_CELLS);
   (self as unknown as Worker).postMessage({ id: m.id, field: fl }, [fl.chance.buffer, fl.lowCdf!.buffer, fl.highCdf!.buffer]);
 };

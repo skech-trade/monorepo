@@ -24,6 +24,14 @@
 .floatPill strong { font-weight: 600; color: var(--foreground); font-variant-numeric: tabular-nums; }
 .floatPill .win { color: var(--brand); }
 .hintPill { position: absolute; z-index: 20; left: 50%; top: 150px; transform: translateX(-50%); padding: 10px 16px; border-radius: 999px; background: var(--raised); box-shadow: var(--raised-shadow); font-size: 15px; font-weight: 600; white-space: nowrap; pointer-events: none; }
+/* A paper run's clock, where the stroke's pill shows: quiet, and urgent in its last seconds. What would sit there moves under it. */
+.clockPill { composes: floatPill; gap: 6px; font-size: 13px; transition: color 240ms ease-out, border-color 240ms ease-out; }
+.clockPill strong { min-width: 3ch; }
+.clockUrgent { color: var(--destructive-foreground); border-color: color-mix(in oklab, var(--destructive-foreground) 35%, transparent) !important; }
+.clockUrgent strong { color: var(--destructive-foreground); animation: clock-beat 1s ease-in-out infinite; }
+@keyframes clock-beat { 50% { opacity: .55; } }
+.belowClock { margin-top: 46px; }
+@media (prefers-reduced-motion: reduce) { .clockUrgent strong { animation: none; } }
 /* Nothing to draw with: the hint itself, tappable, opening the deposit sheet. */
 .depositPill { composes: hintPill; color: var(--foreground); font: inherit; font-size: 15px; font-weight: 600; pointer-events: auto; cursor: pointer; }
 .depositPill:active { scale: .97; }
