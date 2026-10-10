@@ -372,6 +372,29 @@ export function Stage({
     };
     /** The price tag's width, measured again only when its text changes. */
     let tagMeasured = { text: "", w: 0 };
+    /*
+      The tiles' shape, drawn once into a small canvas in the ink's colour and copied for every tile, faded to its
+      shade: every tile is the same size. Filled as a path, each rounded tile was a shape the GPU had to cover anew,
+      a hundred a frame, and on this canvas that was more of a frame's time than everything else on it; copies of
+      one image cost next to nothing. Made again when the tile's size, the screen's density or the palette change.
+    */
+    const TILE_PAD = 2;
+    let tileSprite: { canvas: HTMLCanvasElement; key: string } | null = null;
+    const tileSpriteFor = (width: number, height: number, radius: number, ink: Rgb) => {
+      const key = `${width}:${height}:${radius}:${dpr}:${ink.join(",")}`;
+      if (tileSprite?.key === key) return tileSprite.canvas;
+      const canvas = tileSprite?.canvas ?? document.createElement("canvas");
+      canvas.width = Math.ceil(width * dpr) + 2 * TILE_PAD;
+      canvas.height = Math.ceil(height * dpr) + 2 * TILE_PAD;
+      const t = canvas.getContext("2d")!;
+      t.clearRect(0, 0, canvas.width, canvas.height);
+      t.setTransform(dpr, 0, 0, dpr, TILE_PAD, TILE_PAD);
+      roundRect(t, 0, 0, width, height, radius);
+      t.fillStyle = rgba(ink);
+      t.fill();
+      tileSprite = { canvas, key };
+      return canvas;
+    };
     const gPen = () => game.current!.drawing?.pen ?? game.current!.pen;
     /** Where the tiles start: the wait line, two seconds ahead, where ink always counts. */
     const WAIT_MS = 2000;
@@ -1075,12 +1098,15 @@ export function Stage({
         c.rect(0, plotTop(), w, plotBottom() - plotTop());
         c.clip();
         const most = dark ? 0.12 : 0.072;
+        // Every tile in a map is the same width.
+        const sprite = tileSpriteFor(tiles[0].width, tileH, phone() ? 9 : 12, pal.ink);
+        const pad = TILE_PAD / dpr, sw = sprite.width / dpr, sh = sprite.height / dpr;
         for (const tile of tiles) {
           if (tile.opacity < 0.01) continue;
-          roundRect(c, tile.x0, tile.y0, tile.width, tileH, phone() ? 9 : 12);
-          c.fillStyle = rgba(pal.ink, most * Math.pow(height(tile.rung), 0.6) * tile.opacity);
-          c.fill();
+          c.globalAlpha = most * Math.pow(height(tile.rung), 0.6) * tile.opacity;
+          c.drawImage(sprite, tile.x0 - pad, tile.y0 - pad, sw, sh);
         }
+        c.globalAlpha = 1;
         c.restore();
       }
 
