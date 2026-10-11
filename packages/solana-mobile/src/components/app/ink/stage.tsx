@@ -384,8 +384,9 @@ export const Stage = memo(function Stage({
       const gap = 4;
       const pitchX = phone() ? 42 : 88;
       map.rowPx = phone() ? 36 : 46;
+      // Tile columns stay anchored to the viewport while the live marker advances.
       const start = WAIT_MS * pxMs(),
-        end = w - nowX() - 6;
+        end = w - layout().nowX - 6;
       if (end <= start) return;
       const cols = Math.max(1, Math.floor((end - start + gap) / pitchX));
       const width = (end - start + gap) / cols - gap;
@@ -397,7 +398,7 @@ export const Stage = memo(function Stage({
         const offset = (left + width / 2) / pxMs();
         for (let k = kLo; k <= kHi; k++) {
           const p = (k + 0.5) * rowP;
-          const rung = tap(sampledAt + offset, p);
+          const rung = tap((cameraAt ?? sampledAt) + offset, p);
           const id = `${i}:${k}`;
           const label = rung ? fmtMultiple(rung) : "";
           const old = previous.get(id);
@@ -759,7 +760,7 @@ export const Stage = memo(function Stage({
       const top = plotTop(), bottom = plotBottom();
       // Each tile's place this frame, worked out once and read by everything that draws it.
       for (const tile of tiles) {
-        tile.x0 = nx + tile.left;
+        tile.x0 = layout().nowX + tile.left;
         tile.y0 = y(tile.p) - map.rowPx / 2 + 2;
         const onChart = tile.y0 >= top && tile.y0 + tileH <= bottom;
         const underTag = tile.x0 < tagX1 + 4 && tile.x0 + tile.width > tagX - 4 && tile.y0 < tagY1 + 4 && tile.y0 + tileH > tagY0 - 4;

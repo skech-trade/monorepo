@@ -355,7 +355,7 @@ export function Stage({
     /*
       The map: a grid of tiles ahead of the wait line, each the multiple a
       tap at its middle pays, from the same quotes a stroke is priced on.
-      Columns are fixed distances ahead of now, as the pen sees them; rows
+      Columns are fixed to the viewport; their quoted times follow the camera. Rows
       are fixed prices, so they ride with the chart.
     */
     /** `x0` and `y0` are where it is on screen this frame, worked out once and read by everything that draws it. */
@@ -422,7 +422,8 @@ export function Stage({
       const gap = 4;
       const pitchX = phone() ? 42 : 88;
       map.rowPx = phone() ? 36 : 46;
-      const start = WAIT_MS * pxMs(), end = w - nowX() - 6;
+      // Tile columns stay anchored to the viewport while the live marker advances.
+      const start = WAIT_MS * pxMs(), end = w - layout().nowX - 6;
       if (end <= start) return;
       const cols = Math.max(1, Math.floor((end - start + gap) / pitchX));
       const width = (end - start + gap) / cols - gap;
@@ -433,7 +434,7 @@ export function Stage({
         const offset = (left + width / 2) / pxMs();
         for (let k = kLo; k <= kHi; k++) {
           const p = (k + 0.5) * rowP;
-          const rung = tap(sampledAt + offset, p);
+          const rung = tap((cameraAt ?? sampledAt) + offset, p);
           const id = `${i}:${k}`;
           const text = rung ? fmtMultiple(rung) : "";
           const old = previous.get(id);
@@ -883,7 +884,7 @@ export function Stage({
             const decided = piece.hitMask | piece.missMask | (piece.expiredMask ?? 0);
             piece.sections.forEach((section, i) => {
               if ((decided & (1 << i)) !== 0) return;
-              const col = Math.floor((x(piece.openAt + section.second * 1000 + 500) - nx - first.left) / (first.width + 4));
+              const col = Math.floor((x(piece.openAt + section.second * 1000 + 500) - layout().nowX - first.left) / (first.width + 4));
               if (col < 0) return;
               const id = `${col}:${Math.floor((Number(section.lo) + Number(section.hi)) / 2e8 / rowP)}`;
               let crowd = tileCrowds.get(id);
@@ -1091,7 +1092,7 @@ export function Stage({
       // Ease every tile toward whether it shows: on the chart, clear of the price's tag, and with a multiple.
       const top = plotTop(), bottom = plotBottom();
       for (const tile of tiles) {
-        tile.x0 = nx + tile.left;
+        tile.x0 = layout().nowX + tile.left;
         tile.y0 = y(tile.p) - map.rowPx / 2 + 2;
         // Whole tiles only: one cut by the chart's edge reads as a mistake.
         const onChart = tile.y0 >= top && tile.y0 + tileH <= bottom;
