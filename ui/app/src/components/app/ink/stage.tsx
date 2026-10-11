@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { type Bar, type Field, openFor } from "@skech/core/dots";
-import { drawingLayout, INK_CELL, VIEW_SECONDS, CHART_STEP_PX, PEN_CELLS, type BetCell, type Cell, type InkBet, type Pen, type Stroke } from "@skech/core/ink";
+import { drawingCameraAt, drawingLayout, INK_CELL, VIEW_SECONDS, CHART_STEP_PX, PEN_CELLS, type BetCell, type Cell, type InkBet, type Pen, type Stroke } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
 import { BURST, type Tier } from "@skech/core/cheer";
 import type { Tick } from "@/lib/engine";
@@ -310,6 +310,7 @@ export function Stage({
     /* Geometry. One scale of time for past and future, so the price runs straight into the space you draw in. */
     let centre = 0;
     let at = 0;
+    let cameraAt: number | null = null;
     const phone = () => w < 640;
     // Worked out again only when the size or the scale changes: x() and y() ask for it several times each, many times a frame.
     let laid = { w: -1, h: -1, step: -1, layout: drawingLayout(0, 0, 1) };
@@ -318,7 +319,10 @@ export function Stage({
       if (laid.w !== w || laid.h !== h || laid.step !== step) laid = { w, h, step, layout: drawingLayout(w, h, step) };
       return laid.layout;
     };
-    const nowX = () => layout().nowX;
+    const nowX = () => {
+      const l = layout();
+      return l.nowX + (at - (cameraAt ?? at)) * l.pxMs;
+    };
     const pxMs = () => layout().pxMs;
     const pitchY = CHART_STEP_PX;
     const plotTop = () => layout().top;
@@ -332,14 +336,15 @@ export function Stage({
     */
     const NEAR_MS = 4000;
     const pastMs = () => (phone() ? 30_000 : 60_000);
-    const farPxMs = () => Math.max(0.0004, (nowX() - 8 - NEAR_MS * pxMs()) / (pastMs() - NEAR_MS));
+    const farPxMs = () => Math.max(0.0004, (layout().nowX - 8 - NEAR_MS * pxMs()) / (pastMs() - NEAR_MS));
     const x = (t: number) => {
-      const d = at - t;
-      return d <= NEAR_MS ? nowX() - d * pxMs() : nowX() - NEAR_MS * pxMs() - (d - NEAR_MS) * farPxMs();
+      const d = (cameraAt ?? at) - t;
+      return d <= NEAR_MS ? layout().nowX - d * pxMs() : layout().nowX - NEAR_MS * pxMs() - (d - NEAR_MS) * farPxMs();
     };
     const tAt = (px: number) => {
-      const edge = nowX() - NEAR_MS * pxMs();
-      return px >= edge ? at + (px - nowX()) / pxMs() : at - NEAR_MS - (edge - px) / farPxMs();
+      const edge = layout().nowX - NEAR_MS * pxMs();
+      const origin = cameraAt ?? at;
+      return px >= edge ? origin + (px - layout().nowX) / pxMs() : origin - NEAR_MS - (edge - px) / farPxMs();
     };
     const y = (p: number) => middleY() - ((p - centre) / game.current!.step) * pitchY;
     const pAt = (py: number) => centre + ((middleY() - py) * game.current!.step) / pitchY;
@@ -418,6 +423,7 @@ export function Stage({
       const pitchX = phone() ? 42 : 88;
       map.rowPx = phone() ? 36 : 46;
       const start = WAIT_MS * pxMs(), end = w - nowX() - 6;
+      if (end <= start) return;
       const cols = Math.max(1, Math.floor((end - start + gap) / pitchX));
       const width = (end - start + gap) / cols - gap;
       const rowP = map.rowPx * game.current.step / pitchY;
@@ -832,6 +838,11 @@ export function Stage({
       const ease = (rate: number) => reducedMotion.matches ? 1 : 1 - Math.exp(-rate * dt);
       // Paint the newest trade immediately. Camera easing is independent;
       // never add synthetic lag to the market price itself.
+      // Keep placed cards still and let the live marker travel toward them.
+      // A held gesture also locks time so ink stays underneath the pointer.
+      const engaged = !!pen || g.bets.some(bet => bet.status === "opening" || bet.status === "live");
+      const advanceMs = pen ? Infinity : Math.max(0, w - 16 - layout().nowX) / pxMs();
+      cameraAt = drawingCameraAt(cameraAt, at, engaged, advanceMs, dt, reducedMotion.matches);
       const p = latest;
       c = screen;
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1073,7 +1084,7 @@ export function Stage({
       }
       const tagW = tagMeasured.w + 20;
       // On a phone the tiles start close to now: the tag sits left of the dot, over the past, so the price's own row keeps its multiples.
-      const tagX = phone() ? nx - 12 - tagW : nx + 12;
+      const tagX = phone() ? nx - 12 - tagW : Math.min(nx + 12, w - tagW - 8);
       const tag = { x0: tagX, x1: tagX + tagW, y0: py - 12, y1: py + 12 };
       const tileH = map.rowPx - 4;
       const tiles = fl && map.field === fl ? map.tiles : [];

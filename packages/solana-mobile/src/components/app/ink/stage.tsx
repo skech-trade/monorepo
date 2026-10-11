@@ -5,7 +5,7 @@ import { AppState, type LayoutChangeEvent, Platform, View } from "react-native";
 import { Gesture, GestureDetector, State } from "react-native-gesture-handler";
 import { useReducedMotion, useSharedValue } from "react-native-reanimated";
 import { type Bar, type Field, openFor } from "@skech/core/dots";
-import { type BetCell, CHART_STEP_PX, type Cell, drawingLayout, INK_CELL, type InkBet, type Pen, PEN_CELLS, type Stroke, VIEW_SECONDS } from "@skech/core/ink";
+import { type BetCell, CHART_STEP_PX, type Cell, drawingCameraAt, drawingLayout, INK_CELL, type InkBet, type Pen, PEN_CELLS, type Stroke, VIEW_SECONDS } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
 import type { Tick } from "@/lib/engine";
 import { feel, pen as penSound } from "@/lib/feel";
@@ -312,6 +312,7 @@ export const Stage = memo(function Stage({
     /* Geometry. One scale of time for past and future, so the price runs straight into the space you draw in. */
     let centre = 0;
     let at = 0;
+    let cameraAt: number | null = null;
     const W = () => size.current.w;
     const H = () => size.current.h;
     const phone = () => W() < 640;
@@ -334,19 +335,23 @@ export const Stage = memo(function Stage({
       }
       return laid;
     };
-    const nowX = () => layout().nowX;
+    const nowX = () => {
+      const l = layout();
+      return l.nowX + (at - (cameraAt ?? at)) * l.pxMs;
+    };
     const pxMs = () => layout().pxMs;
     const pitchY = CHART_STEP_PX;
     const plotTop = () => layout().top;
     const plotBottom = () => layout().bottom;
     const x = (t: number) => {
       const l = layout();
-      const d = at - t;
+      const d = (cameraAt ?? at) - t;
       return d <= NEAR_MS ? l.nowX - d * l.pxMs : l.nearX - (d - NEAR_MS) * l.far;
     };
     const tAt = (px: number) => {
       const l = layout();
-      return px >= l.nearX ? at + (px - l.nowX) / l.pxMs : at - NEAR_MS - (l.nearX - px) / l.far;
+      const origin = cameraAt ?? at;
+      return px >= l.nearX ? origin + (px - l.nowX) / l.pxMs : origin - NEAR_MS - (l.nearX - px) / l.far;
     };
     const y = (p: number) => layout().mid - ((p - centre) / game.current.step) * pitchY;
     const pAt = (py: number) => centre + ((layout().mid - py) * game.current.step) / pitchY;
@@ -381,6 +386,7 @@ export const Stage = memo(function Stage({
       map.rowPx = phone() ? 36 : 46;
       const start = WAIT_MS * pxMs(),
         end = w - nowX() - 6;
+      if (end <= start) return;
       const cols = Math.max(1, Math.floor((end - start + gap) / pitchX));
       const width = (end - start + gap) / cols - gap;
       const rowP = (map.rowPx * game.current.step) / pitchY;
@@ -718,6 +724,11 @@ export const Stage = memo(function Stage({
       const dt = Math.min(64, Math.max(0, ms - previousFrame));
       previousFrame = ms;
       const ease = (rate: number) => (still.current ? 1 : 1 - Math.exp(-rate * dt));
+      // Keep placed cards still and let the live marker travel toward them.
+      // A held gesture also locks time so ink stays underneath the finger.
+      const engaged = !!pen || g.bets.some(bet => bet.status === "opening" || bet.status === "live");
+      const advanceMs = pen ? Infinity : Math.max(0, w - 16 - layout().nowX) / pxMs();
+      cameraAt = drawingCameraAt(cameraAt, at, engaged, advanceMs, dt, still.current);
       const p = latest;
       if (!p) return;
       const pal = g.dark ? PALETTES.dark : PALETTES.light;
@@ -741,7 +752,7 @@ export const Stage = memo(function Stage({
       if (tagFor.price !== shownPrice) tagFor = { price: shownPrice, text: fmtPrice(shownPrice, true) };
       const tagText = tagFor.text;
       const tagW = measure(tagFont, tagText) + 20;
-      const tagX = phone() ? nx - 12 - tagW : nx + 12;
+      const tagX = phone() ? nx - 12 - tagW : Math.min(nx + 12, w - tagW - 8);
       const tagX1 = tagX + tagW, tagY0 = py - 12, tagY1 = py + 12;
       const tileH = map.rowPx - 4;
       const tiles = fl && map.field === fl ? map.tiles : [];
