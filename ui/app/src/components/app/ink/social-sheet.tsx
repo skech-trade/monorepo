@@ -42,7 +42,6 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
   const tablet = useSyncExternalStore(subscribeTablet, () => matchMedia(tabletPortrait).matches, () => false);
   const me = useAccount();
   const social = useSocial();
-  const community = useCommunity();
   const gate = useGate();
   const viewer = me.address ?? "";
   const [tab, setTab] = useState<SocialTab>(initialTab);
@@ -181,20 +180,6 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
                 </>
               ) : tab === "activity" ? (
                 <>
-                  <div className="flex items-center gap-1.5 px-1">
-                    <span className="mr-auto text-[13px] text-muted-foreground">Ink on your chart</span>
-                    {(
-                      [
-                        { value: "everyone", label: "Everyone" },
-                        { value: "following", label: "Following" },
-                        { value: "me", label: "Just me" },
-                      ] as const
-                    ).map((item) => (
-                      <button aria-pressed={community?.audience === item.value} className={cn("min-h-11 rounded-full px-3 font-medium text-[13px]", community?.audience === item.value ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-muted")} key={item.value} onClick={() => community?.changeAudience(item.value)} type="button">
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
                   {feed.length ? (
                     <div className="flex flex-col gap-2">
                       {feed.map((run) => (
