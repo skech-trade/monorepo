@@ -189,12 +189,7 @@ export const remoteDrawings = () => remoteOf(current, viewer, audience, followin
 export const visibleSocialDrawings = () => visibleDrawings(current, viewer, audience, following);
 /* ---- the spotlight: one player's ink brought forward, everyone else's pushed back ---- */
 
-/**
- * Who is in the spotlight, or null.
- *
- * Kept out here with the feed rather than in React because the canvas reads it every frame, and a focus that
- * re-rendered the tree sixty times a second would cost more than the ink it is lighting.
- */
+/** Who is in the spotlight. Out here, not in React: the canvas reads it every frame. */
 let focus: string | null = null;
 const watchers = new Set<() => void>();
 export const focusedPlayer = () => focus;

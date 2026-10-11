@@ -7,14 +7,8 @@ import { PlayerAvatar } from "@/components/app/player-avatar";
 import styles from "./presence-rail.module.css";
 
 /**
- * Who is drawing, over the chart they are drawing on.
- *
- * The community used to live in a drawer, which covered the one thing it was about: other players' ink arrives on
- * your chart, and opening the sheet to look at them hid it. This sits on the chart instead and never takes it away.
- *
- * Each face is ringed in that player's own hue, the same `playerHue` the canvas paints their ink with, so the ring
- * and the line are visibly the same person without anything having to say so. Pressing a face lights their ink and
- * pushes everyone else's back; pressing it again lets the chart go.
+ * Who is drawing, over the chart rather than in a drawer that covered it. Each face is ringed in that player's
+ * `playerHue`, the hue the canvas paints their ink with, so the ring and the line are the same person.
  */
 
 const MOST = 8;
@@ -55,7 +49,6 @@ function Face({ profile, focused }: { profile: PlayerProfile; focused: string | 
       aria-pressed={mine}
       className={cn(styles.face, dimmed && styles.dimmed)}
       onClick={() => focusPlayer(profile.player)}
-      /* The ring is the line: the hue is the one the canvas paints this player's ink with. */
       style={{ "--hue": playerHue(profile.player) } as React.CSSProperties}
       title={playerName(profile)}
       type="button"

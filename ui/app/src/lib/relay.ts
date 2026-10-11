@@ -1,16 +1,11 @@
 import { CLUSTER, NETWORK } from "./chain";
 
 /**
- * Money in from somewhere else, through Relay (relay.link).
+ * Money in from the chain it is already on, through Relay (relay.link). Ask for a deposit address on that chain,
+ * the player sends to it, USDC arrives here in about a second.
  *
- * A player signs in and gets an empty Solana wallet. Their money is on an exchange or an EVM chain, and today the
- * deposit sheet can only say "send USDC on Solana", which for most people is a dead end. Relay answers that: ask it
- * for a deposit address on the chain the money is already on, the player sends to it, and USDC arrives here. No
- * wallet to connect, no bridge to learn, about a second to fill.
- *
- * Switching networks is one setting and nothing here: `CLUSTER` decides, `NETWORK.usdc` is already the right mint
- * for whichever cluster that is, and `RELAY_ON` is false anywhere Relay cannot reach. Relay's testnet carries only
- * Base Sepolia and Sepolia, with no Solana at all, so on devnet the sheet keeps the address-and-faucet it has.
+ * `CLUSTER` decides everything. RELAY_ON is false off mainnet: Relay's testnet has Base Sepolia and Sepolia and
+ * no Solana, so devnet keeps its own address and faucet.
  */
 
 /** Relay's own id for Solana. Not a Solana thing: it is how Relay names the chain in its API. */
@@ -63,13 +58,7 @@ type ChainRow = {
 
 let chains: Promise<RelayChain[]> | null = null;
 
-/**
- * Where money can come from, asked once and kept for the tab's life.
- *
- * Read rather than written down, so the list grows when Relay adds a chain and shrinks when one goes down, without
- * anything here changing. Only chains that can hand out a deposit address are offered: `depositEnabled` is a wider
- * flag and includes chains this flow cannot use.
- */
+/** Where money can come from, asked once. Read, not written down, so the list grows when Relay adds a chain. */
 export function relayChains(): Promise<RelayChain[]> {
   if (!RELAY_ON) return Promise.resolve([]);
   chains ??= fetch(`${API}/chains`)
@@ -102,13 +91,8 @@ export const sortCurrencies = (list: RelayCurrency[]) =>
   });
 
 /**
- * An address on `chain` that turns into USDC here.
- *
- * `from` is the player's address on the chain the money is coming from, and Relay refuses a quote without one that
- * fits: a Solana address for an EVM origin is rejected outright. It is also where a fill that fails is sent back
- * to, which is why it has to be an address the player actually holds and not a stand-in.
- *
- * The address is tied to this route, so one per chain and token, not one per player.
+ * An address on `chain` that turns into USDC here. `from` is the player's address on the origin chain: Relay
+ * refuses a Solana one for an EVM origin, and a failed fill goes back there. One address per route, not per player.
  */
 export async function relayDeposit(opts: { chain: number; currency: string; amount: number; decimals: number; from: string; to: string }): Promise<RelayDeposit> {
   if (!RELAY_ON) throw new Error("Money from other chains is off on this network");
@@ -138,8 +122,5 @@ export async function relayDeposit(opts: { chain: number; currency: string; amou
   return { address: step.depositAddress, requestId: step.requestId, arrives, cost: Math.max(0, paid - arrives), seconds: quote.details?.timeEstimate ?? 0 };
 }
 
-/**
- * What Relay takes is nearly all fixed gas, so it is a quarter of a percent on $100 and over four on $5. Under
- * this, the sheet says so rather than letting someone lose a twentieth of their money to find out.
- */
+/** Relay's cut is nearly all fixed gas: a quarter of a percent on $100, over four on $5. */
 export const RELAY_WORTH_IT = 20;
