@@ -1,7 +1,8 @@
-import { Canvas, Points, type SkPoint, vec } from "@shopify/react-native-skia";
+import { advanceConfetti, confettiPiece, CONFETTI_POOL, type ConfettiPiece } from "@skech/core/cheer";
+import { Canvas, Picture, Skia } from "@shopify/react-native-skia";
 import { type ReactNode, type Ref, useEffect, useImperativeHandle } from "react";
 import { StyleSheet, type StyleProp, TextInput, type TextStyle, View, type ViewStyle } from "react-native";
-import Animated, { Easing, interpolate, useAnimatedProps, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
+import Animated, { Easing, interpolate, useAnimatedProps, useAnimatedStyle, useDerivedValue, useFrameCallback, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 
 /*
   The web's motion (drawing-feedback.module.css), on the UI thread: the round card springs in, pills arrive, the
@@ -132,58 +133,59 @@ export function RisingMoney({ value, className, style, size = 16 }: { value: num
 }
 
 export type ConfettiHandle = { fire: (x: number, y: number, pieces: number, tier: number) => void };
-/** The most pieces in the air at once: a top round's. */
-const MOST = 120;
-const FLIGHT_MS = 2200;
-/** Where one colour's pieces are, `ms` into their flight: a little air (speed falls away over 0.9 s), and gravity. */
-function flying(p: number[], ms: number, hue: number) {
-  "worklet";
-  const out: SkPoint[] = [];
-  if (ms >= FLIGHT_MS) return out;
-  const TAU = 900;
-  const flown = TAU * (1 - Math.exp(-ms / TAU));
-  const fall = 0.00055 * ms * ms;
-  for (let i = 0; i < p.length; i += 5) if (p[i + 4] === hue) out.push(vec(p[i] + p[i + 2] * flown, p[i + 1] + p[i + 3] * flown + fall));
-  return out;
-}
-
-/**
- * Confetti, thrown from where the price met a profitable round's ink: its own canvas over the chart, every piece
- * moved on the UI thread from where and how fast it was thrown, so the JS thread (the pen, the chart) pays nothing
- * for it. Three of the app's colours, a few shapes; up and out in a fountain, then falling, fading at the end. None
- * with Reduce Motion on.
- */
+/** Spinning cards with the web's launch, lifetime, drag, gravity, colours, and overlap limit. */
 export function Confetti({ ref, colors }: { ref: Ref<ConfettiHandle>; colors: [string, string, string] }) {
   const still = useReducedMotion();
-  // Each piece: where it starts, how fast it goes (px/ms), and which colour. Flat, so it crosses to the UI thread cheaply.
-  const pieces = useSharedValue<number[]>([]);
-  const t = useSharedValue(FLIGHT_MS);
+  const pieces = useSharedValue<ConfettiPiece[]>([]);
+  const canvasSize = useSharedValue({ width: 0, height: 0 });
+  const next = useSharedValue(0);
   useImperativeHandle(ref, () => ({
-    fire: (x, y, n, tier) => {
+    fire: (x, y, count, tier) => {
       if (still) return;
-      const reach = 0.75 + tier * 0.18;
-      const next: number[] = [];
-      for (let k = 0; k < Math.min(MOST, n); k++) {
-        const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.95;
-        const v = (0.32 + Math.random() * 0.38) * reach;
-        next.push(x + (Math.random() - 0.5) * 8, y + (Math.random() - 0.5) * 8, Math.cos(a) * v, Math.sin(a) * v - 0.12 * reach, k % 3);
+      const pool = pieces.value.map((piece) => ({ ...piece }));
+      let index = next.value;
+      for (let k = 0; k < count; k++) {
+        pool[index] = confettiPiece(x, y, tier, k % 3);
+        index = (index + 1) % CONFETTI_POOL;
       }
-      pieces.value = next;
-      t.value = 0;
-      t.value = withTiming(FLIGHT_MS, { duration: FLIGHT_MS, easing: Easing.linear });
+      next.value = index;
+      pieces.value = pool;
     },
-  }), [still, pieces, t]);
-  const first = useDerivedValue(() => flying(pieces.value, t.value, 0)),
-    second = useDerivedValue(() => flying(pieces.value, t.value, 1)),
-    third = useDerivedValue(() => flying(pieces.value, t.value, 2));
-  const opacity = useDerivedValue(() => Math.max(0, Math.min(1, (FLIGHT_MS - t.value) / 500)));
+  }), [still, pieces, next]);
+  useFrameCallback((frame) => {
+    if (still || !pieces.value.some((piece) => piece.life > 0)) return;
+    const dt = Math.min(64, Math.max(0, frame.timeSincePreviousFrame ?? 0));
+    pieces.modify((pool) => {
+      for (const piece of pool) {
+        advanceConfetti(piece, dt);
+        if (piece.y > canvasSize.value.height + 20) piece.life = 0;
+      }
+      return pool;
+    });
+  });
+  const picture = useDerivedValue(() => {
+    const recorder = Skia.PictureRecorder();
+    const c = recorder.beginRecording(Skia.XYWHRect(0, 0, canvasSize.value.width, canvasSize.value.height));
+    const paint = Skia.Paint();
+    paint.setAntiAlias(true);
+    if (!still) for (const piece of pieces.value) {
+      if (piece.life <= 0) continue;
+      paint.setColor(Skia.Color(colors[piece.hue]));
+      paint.setAlphaf(Math.min(1, piece.life / 400));
+      c.save();
+      c.translate(piece.x, piece.y);
+      c.rotate(piece.spin * 180 / Math.PI, 0, 0);
+      const turn = Math.abs(Math.cos(piece.spin * 1.7));
+      c.drawRect(Skia.XYWHRect(-piece.size / 2 * turn, -piece.size * 0.32, piece.size * turn + 0.6, piece.size * 0.64), paint);
+      c.restore();
+    }
+    return recorder.finishRecordingAsPicture();
+  });
   if (still) return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <Canvas style={StyleSheet.absoluteFill}>
-        <Points color={colors[0]} mode="points" opacity={opacity} points={first} strokeCap="square" strokeWidth={6} style="stroke" />
-        <Points color={colors[1]} mode="points" opacity={opacity} points={second} strokeCap="round" strokeWidth={6} style="stroke" />
-        <Points color={colors[2]} mode="points" opacity={opacity} points={third} strokeCap="square" strokeWidth={4.5} style="stroke" />
+      <Canvas onSize={canvasSize} style={StyleSheet.absoluteFill}>
+        <Picture picture={picture} />
       </Canvas>
     </View>
   );

@@ -27,7 +27,8 @@ const g = globalThis as unknown as Record<string, unknown>;
 const real = { window: g.window, navigator: Object.getOwnPropertyDescriptor(globalThis, "navigator") };
 g.window = { AudioContext: FakeContext };
 Object.defineProperty(globalThis, "navigator", { value: { vibrate: (pattern: number | number[]) => void buzzes.push({ at: performance.now(), pattern }), userAgent: "test" }, configurable: true });
-mock.module(new URL("./practice.ts", import.meta.url).pathname, () => ({ practice: () => ({ sound: true, haptics: true }) }));
+let settings = { sound: true, haptics: true };
+mock.module(new URL("./practice.ts", import.meta.url).pathname, () => ({ practice: () => settings }));
 const logs: string[] = [];
 const info = console.info;
 console.info = (...a: unknown[]) => void logs.push(a.join(" "));
@@ -38,7 +39,7 @@ afterAll(() => {
   console.info = info;
 });
 
-const { celebrate, feel } = await import("./feel");
+const { celebrate, feel, haptic } = await import("./feel");
 const microtask = () => new Promise<void>((r) => queueMicrotask(r));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -77,4 +78,24 @@ describe("a hit is heard and felt the instant it is found", () => {
     expect(audioStarts.at(-1)! - t).toBeLessThan(5);
     expect(buzzes.length).toBe(before);
   });
+});
+
+test("a streak escalates to the shared top rhythm without tap feedback interrupting it", async () => {
+  await sleep(1600);
+  buzzes.length = 0;
+  celebrate(3, 3);
+  expect(buzzes.map(({ pattern }) => pattern)).toEqual([[26, 40, 22, 40, 30, 40, 40, 110, 80]]);
+  haptic("tap");
+  expect(buzzes).toHaveLength(1);
+});
+
+test("disabled feedback does not vibrate or start audio", async () => {
+  await sleep(1500);
+  settings = { sound: false, haptics: false };
+  buzzes.length = 0;
+  audioStarts.length = 0;
+  feel("hit", { multiple: 2 });
+  await microtask();
+  expect(buzzes).toHaveLength(0);
+  expect(audioStarts).toHaveLength(0);
 });

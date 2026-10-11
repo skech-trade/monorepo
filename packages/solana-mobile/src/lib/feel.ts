@@ -1,6 +1,7 @@
+import { Platform, Vibration } from "react-native";
 import * as Haptics from "expo-haptics";
 import { AudioContext, type AudioBuffer, type AudioBufferSourceNode, type BiquadFilterNode, type GainNode, type OscillatorType } from "react-native-audio-api";
-import { climbRate, feltLevel, type Tier, type Voice, voiceFor, voiceJob } from "@skech/core/cheer";
+import { hapticPattern, hapticBeats, patternDuration, TILL_AT, hitRate, hitFallback, winFallback, cashFallback, climbRate, feltLevel, type Tier, type Voice, voiceFor, voiceJob } from "@skech/core/cheer";
 import { type Cue, type CueDetail, cueQueue, isHit, RANK } from "@skech/core/cue";
 import { practice } from "./practice";
 import { storage } from "./storage";
@@ -139,11 +140,6 @@ function hiss(at: number, dur: number, gain: number, freq: number, q = 1.2) {
   };
 }
 
-// A major pentatonic from A5: whatever order the notes come in, they never clash.
-const PENTA = [0, 2, 4, 7, 9];
-const note = (step: number, base = 880) => base * 2 ** ((12 * Math.floor(step / 5) + PENTA[((step % 5) + 5) % 5]) / 12);
-// A major triad and its octave, as steps of that scale.
-const MAJOR = [0, 2, 3, 5];
 
 /*
   The celebrations, made once: from the first sound on, a slice of a few milliseconds every other frame or so, the
@@ -202,22 +198,6 @@ function voice(v: Voice, { at = 0, rate = 1, gain = 1 }: { at?: number; rate?: n
     g.disconnect();
   };
   return true;
-}
-/** When the till rings after a round's chord, by tier: as the balance's count-up lands, later for the longer chords. */
-const TILL_AT: Record<Tier, number> = { 0: 0, 1: 0.26, 2: 0.32, 3: 0.42, 4: 0.62 };
-
-/** One clean chime: a sine with a quiet octave over it for the glassy edge, struck fast and let ring. */
-function chime(freq: number, at: number, gain: number, dur = 0.32) {
-  tone({ freq, at, dur, gain, attack: 0.003 });
-  tone({ freq: freq * 2, at, dur: dur * 0.45, gain: gain * 0.22, attack: 0.002 });
-}
-
-/** A chord, its notes a few milliseconds apart so it blooms rather than clicks; softer and longer than a chime. */
-function chord(steps: number[], base: number, at: number, gain: number, dur: number) {
-  steps.forEach((s, i) => {
-    tone({ freq: note(s, base), at: at + i * 0.012, dur, gain, attack: 0.012 });
-    tone({ freq: note(s, base) * 2, at: at + i * 0.012, dur: dur * 0.5, gain: gain * 0.18, type: "triangle", attack: 0.008 });
-  });
 }
 
 /*
@@ -282,8 +262,8 @@ export const pen = {
   },
 };
 
-/** How the last hit was heard, for the timing log: the made bell, or the chimes standing in for it. */
-let heard: "bell" | "chime" = "chime";
+/** How the last hit was heard, for the timing log: the made bell, or the coins standing in for it. */
+let heard: "bell" | "coins" = "coins";
 
 export const sound = {
   /** A drop of ink landing: a falling "plip" with a wet edge. Every tap, the instant it lands. */
@@ -297,52 +277,28 @@ export const sound = {
   /** A piece the chain took: a crisp click, an order going in, with a low knock under it. */
   placed: () => {
     if (!on()) return;
-    hiss(0, 0.018, 0.09, 4200, 3);
-    hiss(0.012, 0.02, 0.05, 2600, 2.5);
-    tone({ freq: vary(520, 30), to: 300, dur: 0.06, gain: 0.05, type: "triangle", attack: 0.001 });
-    tone({ freq: 140, to: 90, dur: 0.08, gain: 0.05, attack: 0.002 });
+    tone({ freq: 330, to: 262, dur: 0.09, gain: 0.03, type: "triangle" });
   },
 
-  /**
-   * A correct call: one chime, a step up the scale for each call in a run (up to a sixth, so it lifts without
-   * squealing). Four times or more rings a second note higher up the scale; ten or more a third, and a soft
-   * octave under them for body.
-   */
+  /** A hit's bell and extra notes, pitched up a semitone for each hit in a run; shared fallback coins until ready. */
   hit: (multiple: number, run = 0) => {
     if (!on()) return;
-    // Up the pentatonic a step a hit in a row, as the chimes below climb.
-    const lift = note(Math.min(run, 4)) / note(0);
+    const lift = hitRate(run);
     if (voice("hit", { rate: vary(lift, 6) })) {
       heard = "bell";
       if (multiple >= 4) voice("hit", { at: 0.07, rate: lift * 2 ** (7 / 12), gain: 0.7 });
       if (multiple >= 10) voice("hit", { at: 0.14, rate: lift * 2, gain: 0.55 });
       return;
     }
-    // The bell is not made yet: the chimes, at once, rather than wait for it.
-    heard = "chime";
-    const root = Math.min(run, 4);
-    chime(vary(note(root), 6), 0, 0.06);
-    if (multiple >= 4) chime(note(root + 2), 0.07, 0.045);
-    if (multiple >= 10) {
-      chime(note(root + 3), 0.14, 0.04, 0.45);
-      tone({ freq: note(root, 440), at: 0.07, dur: 0.5, gain: 0.025, type: "triangle", attack: 0.01 });
-    }
+    heard = "coins";
+    hitFallback(multiple, run, tone, hiss);
   },
 
-  /**
-   * A round that came out ahead: its tier's chord (cheer.ts), a step up the scale for each profitable round in a row,
-   * and the till as the money lands. Until the chord is made: a major chord with a chime on top, fuller from tier 3,
-   * with a warm chord a fourth below resolving into it for a top round.
-   */
+  /** A profitable round's shared chord and till; the same fallback score as web while the cached voice prepares. */
   win: (tier: Tier, rounds = 1, till = true) => {
     if (!on() || tier === 0) return;
     const lift = climbRate(rounds);
-    if (!voice(voiceFor(tier), { rate: lift })) {
-      const at = tier >= 4 ? 0.16 : 0;
-      if (tier >= 4) chord([0, 2, 3], 440 * 2 ** (-7 / 12) * lift, 0, 0.03, 0.5);
-      chord(tier >= 3 ? MAJOR : [0, 2, 3], 440 * lift, at, 0.035, tier >= 4 ? 1.2 : 0.8);
-      chime(note(tier >= 3 ? 3 : 0) * lift, at + 0.05, 0.04, 0.5);
-    }
+    if (!voice(voiceFor(tier), { rate: lift })) winFallback(tier, lift, tone);
     if (till) voice("coins", { at: TILL_AT[tier], gain: 0.75 + tier * 0.08 });
   },
 
@@ -353,13 +309,12 @@ export const sound = {
     tone({ freq: 196, at: 0.09, dur: 0.09, gain: 0.05, type: "triangle" });
   },
 
-  /** Money arrived: the till, then a bright chord; until they are made, two chimes up a major third over a soft chord. */
+  /** Money arrived: the shared till, then a bright chord. */
   cash: () => {
     if (!on()) return;
     if (voice("coins") && voice("win2", { at: 0.18, gain: 0.85 })) return;
-    chime(note(0), 0, 0.055);
-    chime(note(2), 0.09, 0.05, 0.45);
-    chord(MAJOR, 440, 0.16, 0.025, 0.7);
+    sound.hit(4);
+    cashFallback(tone);
   },
 };
 
@@ -373,83 +328,33 @@ export const sound = {
  */
 export type Feel = "tap" | "tick" | Cue;
 
-/*
-  A pattern's later pulses, and how much the pattern they belong to matters, so the next pattern can cancel the
-  smaller ones instead of buzzing over them, and leave a bigger one (another round's roll) to finish.
-*/
-let pulses: { timer: ReturnType<typeof setTimeout>; rank: number }[] = [];
-let pulseRank = 0;
-const later = (ms: number, f: () => void) => void pulses.push({ timer: setTimeout(f, ms), rank: pulseRank });
-const impact = (style: Haptics.ImpactFeedbackStyle) => void Haptics.impactAsync(style);
-const HAPTIC: Record<Feel, (() => void) | null> = {
-  tap: () => impact(Haptics.ImpactFeedbackStyle.Light),
-  tick: () => void Haptics.selectionAsync(),
-  placed: null,
-  hit: () => impact(Haptics.ImpactFeedbackStyle.Medium),
-  run: () => {
-    impact(Haptics.ImpactFeedbackStyle.Medium);
-    later(90, () => impact(Haptics.ImpactFeedbackStyle.Light));
-  },
-  big: () => {
-    impact(Haptics.ImpactFeedbackStyle.Heavy);
-    later(120, () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
-  },
-  win: () => WIN_HAPTIC[1](),
-  great: () => WIN_HAPTIC[3](),
-  top: () => WIN_HAPTIC[4](),
-  nope: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning),
-  cash: () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
-};
-/**
- * A profitable round, by how strongly it is felt (cheer.ts's `feltLevel`: its tier, more for a run of them): a quick
- * double tap, a firmer one, a rolling triple, and for a top round a longer roll that lands on the system's success.
- */
-const WIN_HAPTIC: Record<1 | 2 | 3 | 4, () => void> = {
-  1: () => {
-    impact(Haptics.ImpactFeedbackStyle.Medium);
-    later(85, () => impact(Haptics.ImpactFeedbackStyle.Medium));
-  },
-  2: () => {
-    impact(Haptics.ImpactFeedbackStyle.Medium);
-    later(80, () => impact(Haptics.ImpactFeedbackStyle.Heavy));
-  },
-  3: () => {
-    impact(Haptics.ImpactFeedbackStyle.Light);
-    later(65, () => impact(Haptics.ImpactFeedbackStyle.Medium));
-    later(130, () => impact(Haptics.ImpactFeedbackStyle.Heavy));
-  },
-  4: () => {
-    impact(Haptics.ImpactFeedbackStyle.Heavy);
-    later(80, () => impact(Haptics.ImpactFeedbackStyle.Medium));
-    later(150, () => impact(Haptics.ImpactFeedbackStyle.Medium));
-    later(220, () => impact(Haptics.ImpactFeedbackStyle.Heavy));
-    later(420, () => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
-  },
-};
-// How long each pattern keeps the motor, ms: nothing else is felt until it is done.
-const MOTOR: Record<Feel, number> = { tap: 40, tick: 70, placed: 0, hit: 90, run: 160, big: 220, win: 200, great: 260, top: 620, nope: 200, cash: 200 };
-const WIN_MOTOR: Record<1 | 2 | 3 | 4, number> = { 1: 160, 2: 170, 3: 260, 4: 620 };
+/** A new pulse sequence replaces smaller ones, while a bigger celebration finishes. */
+let pulses: ReturnType<typeof setTimeout>[] = [];
 let motorUntil = 0;
-
-/**
- * Plays a pattern now, cutting off the later pulses of whatever smaller (or same-sized) pattern was still running; a
- * bigger one's are left to finish. `level`: how strongly a profitable round is felt.
- */
+let motorRank = 0;
 function buzz(kind: Feel, now: number, level: Tier = 0) {
-  const round = level > 0 && (kind === "win" || kind === "great" || kind === "top") ? (level as 1 | 2 | 3 | 4) : 0;
-  const pattern = round ? WIN_HAPTIC[round] : HAPTIC[kind];
-  if (!pattern || !practice().haptics) return;
-  // Hits are one kind here: a new one replaces the tail of the last, whichever was bigger.
+  if (!practice().haptics || kind === "placed") return;
   const rank = kind === "tap" || kind === "tick" ? 0 : isHit(kind) ? RANK.big : RANK[kind];
-  for (const p of pulses) if (p.rank <= rank) clearTimeout(p.timer);
-  pulses = pulses.filter((p) => p.rank > rank);
-  const until = now + (round ? WIN_MOTOR[round] : MOTOR[kind]);
-  motorUntil = pulses.length ? Math.max(motorUntil, until) : until;
-  pulseRank = rank;
-  try {
-    pattern();
-  } catch {
-    /* not on this device */
+  if (now < motorUntil && motorRank > rank) return;
+  const pattern = hapticPattern(kind, level);
+  for (const timer of pulses) clearTimeout(timer);
+  pulses = [];
+  motorUntil = now + patternDuration(pattern);
+  motorRank = rank;
+  // Android can play the browser's exact vibration/pause lengths. React Native starts with a wait slot.
+  if (Platform.OS === "android") {
+    Vibration.cancel();
+    Vibration.vibrate([0, ...pattern]);
+    return;
+  }
+  // iOS exposes impact presets rather than pulse durations; preserve the shared beat times and strengths.
+  const play = (strength: "light" | "medium" | "heavy") => {
+    const style = strength === "light" ? Haptics.ImpactFeedbackStyle.Light : strength === "medium" ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Heavy;
+    void Haptics.impactAsync(style).catch(() => {});
+  };
+  for (const beat of hapticBeats(pattern)) {
+    if (beat.at === 0) play(beat.strength);
+    else pulses.push(setTimeout(() => play(beat.strength), beat.at));
   }
 }
 

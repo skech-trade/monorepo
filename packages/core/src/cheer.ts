@@ -340,3 +340,5 @@ export function renderVoice(voice: Voice, sampleRate: number): Float32Array<Arra
   job.run(Infinity);
   return job.result();
 }
+
+export { hapticPattern, hapticBeats, patternDuration, TILL_AT, hitRate, hitFallback, winFallback, cashFallback, EFFECT_MS, BURST_MS, CONFETTI_POOL, confettiPiece, advanceConfetti, type ConfettiPiece } from "./feedback";
