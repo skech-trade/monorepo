@@ -133,6 +133,7 @@ export class SolanaServer {
 
   readonly notify = {
     placed: (p: Placed) => {
+      this.chain.accounts.invalidate(p.player);
       // The stroke is the player's own: the app has it, and it is the social feed's to show.
       const { stroke: _stroke, unit: _unit, ...told } = p;
       this.toPlayer(p.player, { type: "placed", ...told });
@@ -140,6 +141,7 @@ export class SolanaServer {
     },
     refused: (r: Refused) => this.toPlayer(r.player, { type: "refused", ...r }),
     settled: (s: Settled) => {
+      this.chain.accounts.invalidate(s.player);
       this.sequencer?.credit(s.player, s.paid);
       this.toPlayer(s.player, { type: "settled", ...s });
       this.social?.settled(s);

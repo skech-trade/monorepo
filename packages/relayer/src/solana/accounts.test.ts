@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Address } from "@solana/kit";
 import type { Player, Pool } from "@skech/contracts/solana/sdk";
 import { Accounts, type Snapshot } from "./accounts";
+import { Holds } from "@skech/core/optimistic";
 
 const A = "Alice111111111111111111111111111111111111111" as Address;
 const B = "Bob11111111111111111111111111111111111111111" as Address;
@@ -96,8 +97,39 @@ describe("a player's accounts", () => {
     await Bun.sleep(15);
     a.invalidate(A);
     expect((await a.get(A)).player?.balance).toBe(2n);
-    await slow;
+    expect((await slow).player?.balance).toBe(2n);
     expect((await a.get(A, 10_000)).player?.balance).toBe(2n);
+  });
+
+  test.each([["stake", -1], ["payout", 2]] as const)("an earlier balance read cannot acknowledge a %s", async (kind, delta) => {
+    let finish!: () => void;
+    let started!: () => void;
+    const began = new Promise<void>((resolve) => (started = resolve));
+    const gate = new Promise<void>((resolve) => (finish = resolve));
+    let balance = 10n;
+    const holds = new Holds();
+    holds.hold(kind, delta);
+    let reads = 0;
+    const a = new Accounts(async () => {
+      const captured = balance;
+      if (++reads === 1) {
+        started();
+        await gate;
+      }
+      return { player: { balance: captured } as unknown as Player, pool: {} as Pool, token: null, holder: null, rewards: null };
+    }, 0);
+    const before = a.get(A);
+    await began;
+    balance += BigInt(delta);
+    a.invalidate(A);
+    holds.land(kind);
+    finish();
+    // The app marks the adjustment as landed before receiving this account.
+    // A stale $10 snapshot would clear it and change the displayed balance.
+    const said = Number((await before).player?.balance);
+    holds.heard();
+    expect(said + holds.total()).toBe(10 + delta);
+    expect(reads).toBe(2);
   });
 
   test("a read that fails fails for everyone who waited on it, and the next is tried afresh", async () => {
