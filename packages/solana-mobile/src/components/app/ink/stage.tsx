@@ -1,3 +1,4 @@
+import { BURST_MS, EFFECT_MS } from "@skech/core/cheer";
 import { BlendMode, Canvas, ClipOp, matchFont, PaintStyle, Picture, Skia, StrokeCap, StrokeJoin, TileMode, type SkCanvas, type SkFont, type SkPaint, type SkPath, type SkPicture, type SkRect } from "@shopify/react-native-skia";
 import { grouped } from "@/lib/money";
 import { memo, type RefObject, useEffect, useMemo, useRef } from "react";
@@ -393,7 +394,7 @@ export const Stage = memo(function Stage({
           const p = (k + 0.5) * rowP;
           const rung = tap(sampledAt + offset, p);
           const id = `${i}:${k}`;
-          const label = rung ? fmtMultiple(rung) : "";
+          const label = rung ? fmtMultiple(rung) : "—";
           const old = previous.get(id);
           const changing = !!old && old.text !== label;
           map.tiles.push({ id, left, width, offset, p, rung, text: label, was: changing ? old!.text : (old?.was ?? label), changed: changing ? performance.now() : (old?.changed ?? 0), opacity: old?.opacity ?? 0, x0: 0, y0: 0 });
@@ -752,7 +753,7 @@ export const Stage = memo(function Stage({
         tile.y0 = y(tile.p) - map.rowPx / 2 + 2;
         const onChart = tile.y0 >= top && tile.y0 + tileH <= bottom;
         const underTag = tile.x0 < tagX1 + 4 && tile.x0 + tile.width > tagX - 4 && tile.y0 < tagY1 + 4 && tile.y0 + tileH > tagY0 - 4;
-        const visible = onChart && tile.rung ? (underTag ? 0.12 : 1) : 0;
+        const visible = onChart ? (underTag ? 0.12 : tile.rung ? 1 : 0.55) : 0;
         tile.opacity += (visible - tile.opacity) * ease(0.012);
       }
       const underPen = tip ? tiles.find((tile) => tile.rung && tip.x >= tile.x0 - 2 && tip.x <= tile.x0 + tile.width + 2 && tip.y >= tile.y0 - 2 && tip.y <= tile.y0 + tileH + 2) : undefined;
@@ -765,7 +766,7 @@ export const Stage = memo(function Stage({
         const corner = phone() ? 9 : 12;
         for (const tile of tiles) {
           if (tile.opacity < 0.01) continue;
-          c.drawRRect(rrect(tile.x0, tile.y0, tile.width, tileH, corner), paintOf(color(pal.ink, most * Math.pow(height(tile.rung), 0.6) * tile.opacity)));
+          c.drawRRect(rrect(tile.x0, tile.y0, tile.width, tileH, corner), paintOf(color(pal.ink, most * (tile.rung ? Math.pow(height(tile.rung), 0.6) : 0.35) * tile.opacity)));
         }
         c.restore();
       }
@@ -1025,7 +1026,7 @@ export const Stage = memo(function Stage({
             // Each multiple's face and shade, by its text: a dozen or so values on a few dozen tiles.
             let style = labelStyles.get(s);
             if (!style) {
-              const m = parseFloat(s);
+              const m = parseFloat(s) || 1;
               labelStyles.set(s, (style = { font: font(m >= 8 ? 600 : 500, size), rgb: mix(pal.faint, pal.ink, height(m)) }));
             }
             text(c, s, tile.x0 + tile.width / 2, tile.y0 + tileH / 2 + 0.5, style.font, color(style.rgb, tile.opacity * alpha));
@@ -1047,9 +1048,9 @@ export const Stage = memo(function Stage({
 
       // Hits burst and float what they paid; a drawing pops once when it goes in.
       // Made anew only when one has run its course, not every frame.
-      if (g.fx.some((e) => ms - e.born >= 1500)) g.fx = g.fx.filter((e) => ms - e.born < 1500);
+      if (g.fx.some((e) => ms - e.born >= (e.kind === "burst" ? BURST_MS : EFFECT_MS))) g.fx = g.fx.filter((e) => ms - e.born < (e.kind === "burst" ? BURST_MS : EFFECT_MS));
       for (const e of g.fx) {
-        const age = (ms - e.born) / 1500;
+        const age = (ms - e.born) / EFFECT_MS;
         const ex = x(e.t);
         const ey = y(e.price);
         if (e.kind === "hit") {
@@ -1094,8 +1095,10 @@ export const Stage = memo(function Stage({
           if (life < 1) {
             const out = still.current ? 1 : 1 - (1 - life) ** 3;
             const r = (28 + 18 * (e.tier ?? 1)) * (0.4 + 0.6 * out);
-            c.drawCircle(ex, ey, r, paintOf(color(pal.up, 0.16 * (1 - life))));
-            c.drawCircle(ex, ey, r * 0.55, paintOf(color(pal.up, 0.22 * (1 - life))));
+            const glow = Skia.Paint();
+            glow.setAntiAlias(true);
+            glow.setShader(Skia.Shader.MakeRadialGradient({ x: ex, y: ey }, r, [color(pal.up, 0.38 * (1 - life)), color(pal.up, 0)], [0, 1], TileMode.Clamp));
+            c.drawCircle(ex, ey, r, glow);
           }
         } else if (e.kind === "drop") {
           const life = Math.min(1, (ms - e.born) / 520);

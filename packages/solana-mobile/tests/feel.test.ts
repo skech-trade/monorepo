@@ -51,6 +51,12 @@ class FakeContext {
   suspend = async () => {}
 }
 
+const platform = { OS: 'ios' }
+const vibrations: number[][] = []
+mock.module('react-native', () => ({
+  Platform: platform,
+  Vibration: { cancel() {}, vibrate: (pattern: number[]) => void vibrations.push(pattern) },
+}))
 mock.module('react-native-audio-api', () => ({ AudioContext: FakeContext }))
 mock.module('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
@@ -69,7 +75,7 @@ mock.module(new URL('../src/lib/storage.ts', import.meta.url).pathname, () => ({
 const info = console.info
 console.info = (...a: unknown[]) => void logs.push(a.join(' '))
 
-const { celebrate, feel } = await import('../src/lib/feel')
+const { celebrate, feel, haptic } = await import('../src/lib/feel')
 const microtask = () => new Promise<void>((r) => queueMicrotask(r))
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const reset = () => {
@@ -118,15 +124,15 @@ describe('a hit is heard and felt the instant it is found', () => {
     await sleep(120)
     feel('hit', { multiple: 2 })
     await microtask()
-    // The run's second, light pulse was due 90 ms after it, and fired. A big hit's success pulse is due 120 ms after
-    // it: a hit 90 ms on (past the 80 ms that would merge it into the big one) cancels it.
+    // The shared run's light pulses start at 0 and 61 ms. The big hit pulses start at 0, 64 and 128 ms:
+    // a hit 90 ms later (past the merge window) cancels the last pulse, but not the one already felt at 64 ms.
     feel('big', { multiple: 12 })
     await microtask()
     await sleep(90)
     feel('hit', { multiple: 2 })
     await microtask()
     await sleep(200)
-    expect(pulses.map((p) => p.what)).toEqual(['medium', 'light', 'medium', 'heavy', 'medium'])
+    expect(pulses.map((p) => p.what)).toEqual(['light', 'light', 'medium', 'heavy', 'heavy', 'medium'])
   })
 
   test('a round that ends on a hit rings its chord as the hit ends, not on top of it', async () => {
@@ -156,4 +162,13 @@ describe('a hit is heard and felt the instant it is found', () => {
     expect(audioStarts.length).toBeGreaterThan(0)
     expect(audioStarts[0].at - t).toBeLessThan(5)
   })
+})
+
+test('Android plays the exact web pattern and taps do not cancel a celebration', async () => {
+  await sleep(1600)
+  platform.OS = 'android'
+  celebrate(3, 3)
+  expect(vibrations).toEqual([[0, 26, 40, 22, 40, 30, 40, 40, 110, 80]])
+  haptic('tap')
+  expect(vibrations).toHaveLength(1)
 })

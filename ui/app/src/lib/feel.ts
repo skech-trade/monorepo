@@ -1,6 +1,6 @@
 "use client";
 
-import { climbRate, feltLevel, type Tier, type Voice, voiceFor, voiceJob } from "@skech/core/cheer";
+import { hapticPattern, hapticBeats, patternDuration, TILL_AT, hitRate, hitFallback, winFallback, cashFallback, climbRate, feltLevel, type Tier, type Voice, voiceFor, voiceJob } from "@skech/core/cheer";
 import { type Cue, type CueDetail, cueQueue, isHit, RANK } from "@skech/core/cue";
 import { practice } from "./practice";
 
@@ -134,9 +134,6 @@ function hiss(at: number, dur: number, gain: number, freq: number, q = 1.2) {
   };
 }
 
-// A major pentatonic from A5: whatever order the notes come in, they never clash.
-const PENTA = [0, 2, 4, 7, 9];
-const note = (step: number, base = 880) => base * 2 ** ((12 * Math.floor(step / 5) + PENTA[((step % 5) + 5) % 5]) / 12);
 
 /*
   The celebrations, made once. Not at load: the first finished tap starts audio, and from then on they are made in
@@ -199,9 +196,6 @@ function voice(v: Voice, { at = 0, rate = 1, gain = 1 }: { at?: number; rate?: n
   };
   return true;
 }
-/** When the till rings after a round's chord, by tier: as the balance's count-up lands, later for the longer chords. */
-const TILL_AT: Record<Tier, number> = { 0: 0, 1: 0.26, 2: 0.32, 3: 0.42, 4: 0.62 };
-
 
 /*
   The pen: looped noise shaped into the scratch of a nib on paper. A bandpass high in the treble is the nib,
@@ -290,9 +284,9 @@ export const sound = {
    * A hit: a bell, a step up for every hit in a row; four times its stake or more rings a
    * fifth over it, ten or more the octave too. Until the bell is made, coins.
    */
-  hit: (multiple: number, streak = 0) => {
+  hit: (multiple: number, run = 0) => {
     if (!on()) return;
-    const lift = 2 ** (Math.min(streak, 7) / 12);
+    const lift = hitRate(run);
     if (voice("hit", { rate: vary(lift, 6) })) {
       heard = "bell";
       if (multiple >= 4) voice("hit", { at: 0.07, rate: lift * 2 ** (7 / 12), gain: 0.7 });
@@ -300,17 +294,7 @@ export const sound = {
       return;
     }
     heard = "coins";
-    const coins = multiple >= 10 ? 4 : multiple >= 4 ? 3 : 2;
-    for (let i = 0; i < coins; i++) {
-      const t = i * 0.06;
-      const f = vary(1318.5 * lift * (1 + i * 0.12), 10);
-      tone({ freq: f, at: t, dur: 0.2, gain: 0.05 });
-      tone({ freq: f * 1.5, at: t, dur: 0.11, gain: 0.02 });
-      tone({ freq: f * 2.01, at: t, dur: 0.06, gain: 0.012 });
-      hiss(t, 0.025, 0.02, 6000, 2);
-    }
-    // A big hit: a sparkle running up over the coins.
-    if (multiple >= 10) for (let i = 0; i < 5; i++) tone({ freq: note(10 + i, 880) * lift, at: 0.22 + i * 0.045, dur: 0.16, gain: 0.03, type: "triangle" });
+    hitFallback(multiple, run, tone, hiss);
   },
 
   /**
@@ -320,11 +304,7 @@ export const sound = {
   win: (tier: Tier, rounds = 1, till = true) => {
     if (!on() || tier === 0) return;
     const lift = climbRate(rounds);
-    if (!voice(voiceFor(tier), { rate: lift })) {
-      const steps = tier >= 3 ? [0, 2, 4, 5, 7] : [0, 2, 4];
-      steps.forEach((s, i) => tone({ freq: note(5 + s, 440) * lift, at: 0.05 + i * 0.075, dur: 0.35, gain: 0.045, type: "triangle" }));
-      if (tier >= 3) steps.forEach((s, i) => tone({ freq: note(10 + s, 440) * lift, at: 0.4 + i * 0.05, dur: 0.25, gain: 0.02 }));
-    }
+    if (!voice(voiceFor(tier), { rate: lift })) winFallback(tier, lift, tone);
     if (till) voice("coins", { at: TILL_AT[tier], gain: 0.75 + tier * 0.08 });
   },
 
@@ -340,7 +320,7 @@ export const sound = {
     if (!on()) return;
     if (voice("coins") && voice("win2", { at: 0.18, gain: 0.85 })) return;
     sound.hit(4);
-    [0, 2, 4, 7].forEach((s, i) => tone({ freq: note(5 + s, 440), at: 0.2 + i * 0.07, dur: 0.4, gain: 0.04, type: "triangle" }));
+    cashFallback(tone);
   },
 };
 
@@ -362,31 +342,6 @@ export const sound = {
  */
 export type Feel = "tap" | "tick" | Exclude<Cue, "placed">;
 
-const VIBRATE: Record<Feel, number | number[]> = {
-  tap: 10,
-  tick: 4,
-  hit: 18,
-  run: [16, 45, 12],
-  big: [24, 40, 24, 40, 60],
-  win: [18, 70, 26],
-  great: [18, 45, 24, 45, 40],
-  top: [26, 40, 22, 40, 30, 40, 40, 110, 80],
-  nope: [18, 60, 18],
-  cash: [12, 40, 12, 40, 40],
-};
-/**
- * A profitable round, by how strongly it is felt (cheer.ts's `feltLevel`: its tier, more for a run of them): a quick
- * double tap, a firmer one, a rolling triple, and a longer roll with a last beat for a top round.
- */
-const WIN_VIBRATE: Record<1 | 2 | 3 | 4, number[]> = {
-  1: [18, 70, 26],
-  2: [22, 55, 36],
-  3: [18, 45, 24, 45, 40],
-  4: [26, 40, 22, 40, 30, 40, 40, 110, 80],
-};
-/** How many switch flips each is on an iPhone: it has one strength, so a pattern is a count. */
-const FLIPS: Record<Feel, number> = { tap: 1, tick: 0, hit: 1, run: 2, big: 3, win: 2, great: 3, top: 5, nope: 2, cash: 3 };
-const WIN_FLIPS: Record<1 | 2 | 3 | 4, number> = { 1: 2, 2: 2, 3: 3, 4: 5 };
 /** A pattern's later flips, so the next pattern cancels them instead of buzzing over them. */
 let flips: ReturnType<typeof setTimeout>[] = [];
 
@@ -426,25 +381,25 @@ export function settleHaptic(e: { preventDefault(): void }) {
 /** Touch: `level` is how strongly a profitable round is felt (1-4); a new pattern replaces whatever was still playing. */
 export function haptic(kind: Feel, level: Tier = 0) {
   if (typeof window === "undefined" || !practice().haptics) return;
-  const round = level > 0 && (kind === "win" || kind === "great" || kind === "top") ? (level as 1 | 2 | 3 | 4) : 0;
+  if ((kind === "tap" || kind === "tick") && performance.now() < buzzUntil) return;
+  const pattern = hapticPattern(kind, level);
+  const beats = hapticBeats(pattern);
   try {
     if (typeof navigator.vibrate === "function") {
-      navigator.vibrate(round ? WIN_VIBRATE[round] : VIBRATE[kind]);
+      navigator.vibrate(pattern);
       return;
     }
-    const count = round ? WIN_FLIPS[round] : FLIPS[kind];
-    if (!ios() || !count) return;
+    if (!ios() || !beats.length) return;
+    for (const f of flips) clearTimeout(f);
+    flips = [];
     // A finger is on the host: its own click plays it, on every iOS from 17.4 on. One buzz: a tap has one click.
     if (performance.now() - armedAt < 1000) {
       owed = true;
       return;
     }
-    for (const f of flips) clearTimeout(f);
-    flips = [];
-    for (let i = 0; i < count; i++) {
-      if (i === 0) flip();
-      // A roll speeds up a little towards its end, as a top round's does.
-      else flips.push(setTimeout(flip, i * (round === 4 ? 80 : 90)));
+    for (const beat of beats) {
+      if (beat.at === 0) flip();
+      else flips.push(setTimeout(flip, beat.at));
     }
   } catch {
     /* not on this device */
@@ -465,13 +420,11 @@ function sounds(kind: Cue, detail?: CueDetail) {
 */
 let buzzUntil = 0;
 let buzzRank = 0;
-const lasts = (p: number | number[]) => (typeof p === "number" ? p : p.reduce((a, b) => a + b, 0));
 function touch(kind: Feel, level: Tier, now: number) {
   // Hits are one kind here: a new one replaces the last, whichever was bigger.
   const rank = isHit(kind as Cue) ? RANK.big : RANK[kind as Cue];
   if (now < buzzUntil && buzzRank > rank) return;
-  const round = level > 0 && (kind === "win" || kind === "great" || kind === "top") ? (level as 1 | 2 | 3 | 4) : 0;
-  buzzUntil = now + lasts(round ? WIN_VIBRATE[round] : VIBRATE[kind]);
+  buzzUntil = now + patternDuration(hapticPattern(kind, level));
   buzzRank = rank;
   haptic(kind, level);
 }

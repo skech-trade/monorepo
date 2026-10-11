@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { type Bar, type Field, openFor } from "@skech/core/dots";
 import { drawingLayout, INK_CELL, VIEW_SECONDS, CHART_STEP_PX, PEN_CELLS, type BetCell, type Cell, type InkBet, type Pen, type Stroke } from "@skech/core/ink";
 import { roundedTerms as areaTerms } from "@skech/core/odds";
-import { BURST, type Tier } from "@skech/core/cheer";
+import { BURST, BURST_MS, EFFECT_MS, CONFETTI_POOL, confettiPiece, advanceConfetti, type ConfettiPiece, type Tier } from "@skech/core/cheer";
 import type { Tick } from "@/lib/engine";
 import { tracePricePath } from "./price-path";
 import { feel, pen as penSound } from "@/lib/feel";
@@ -215,77 +215,36 @@ export function Stage({
       upMark: resolve("var(--up-mark)", el.parentElement ?? document.body),
       downMark: resolve("var(--down-mark)", el.parentElement ?? document.body),
       down: resolve("var(--destructive)", el.parentElement ?? document.body),
-      gold: resolve("var(--warning)", el.parentElement ?? document.body),
+      gold: resolve(dark ? "#ff9f0a" : "#ff9500", el.parentElement ?? document.body),
       dark,
     });
     /*
       Confetti, from a pool made once: a profit's burst takes pieces from it rather than making any, and a piece is
       free again once it has fallen. Each is a small card turning as it falls, drawn with one transform and one fill.
     */
-    const PIECES = 240;
-    const confetti = {
-      x: new Float32Array(PIECES),
-      y: new Float32Array(PIECES),
-      vx: new Float32Array(PIECES),
-      vy: new Float32Array(PIECES),
-      spin: new Float32Array(PIECES),
-      turn: new Float32Array(PIECES),
-      size: new Float32Array(PIECES),
-      life: new Float32Array(PIECES),
-      hue: new Uint8Array(PIECES),
-      live: 0,
-      next: 0,
-    };
-    /** Throw `n` pieces up and out from (x, y): a fountain, wider and higher the bigger the profit. */
+    const confetti: ConfettiPiece[] = [];
+    let nextConfetti = 0;
+    /** Shared launch and physics: native draws the same spinning cards on its UI thread. */
     const throwConfetti = (x0: number, y0: number, n: number, tier: number) => {
-      const reach = 0.75 + tier * 0.18;
       for (let k = 0; k < n; k++) {
-        const i = confetti.next;
-        confetti.next = (i + 1) % PIECES;
-        if (confetti.life[i] <= 0) confetti.live++;
-        const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 0.95;
-        const v = (0.32 + Math.random() * 0.38) * reach;
-        confetti.x[i] = x0 + (Math.random() - 0.5) * 8;
-        confetti.y[i] = y0 + (Math.random() - 0.5) * 8;
-        confetti.vx[i] = Math.cos(a) * v;
-        confetti.vy[i] = Math.sin(a) * v - 0.12 * reach;
-        confetti.spin[i] = Math.random() * Math.PI * 2;
-        confetti.turn[i] = (Math.random() - 0.5) * 0.024;
-        confetti.size[i] = 4 + Math.random() * 4;
-        confetti.life[i] = 1300 + Math.random() * 700 + tier * 150;
-        confetti.hue[i] = k % 3;
+        confetti[nextConfetti] = confettiPiece(x0, y0, tier, k % 3);
+        nextConfetti = (nextConfetti + 1) % CONFETTI_POOL;
       }
     };
-    /** Moves and draws the pieces in the air: gravity, a little air, and a turn that shows each face in its time. */
     const drawConfetti = (dt: number) => {
-      if (!confetti.live || !pal) return;
+      if (!pal || !confetti.some(piece => piece.life > 0)) return;
       const fills = [rgba(pal.up), rgba(pal.ink), rgba(pal.gold)];
-      const drag = Math.exp(-dt / 900);
-      for (let i = 0; i < PIECES; i++) {
-        if (confetti.life[i] <= 0) continue;
-        confetti.life[i] -= dt;
-        if (confetti.life[i] <= 0) {
-          confetti.live--;
-          continue;
-        }
-        confetti.vx[i] *= drag;
-        confetti.vy[i] = confetti.vy[i] * drag + 0.0011 * dt;
-        confetti.x[i] += confetti.vx[i] * dt;
-        confetti.y[i] += confetti.vy[i] * dt;
-        confetti.spin[i] += confetti.turn[i] * dt;
-        if (confetti.y[i] > h + 20) {
-          confetti.life[i] = 0;
-          confetti.live--;
-          continue;
-        }
-        const cos = Math.cos(confetti.spin[i]),
-          sin = Math.sin(confetti.spin[i]);
-        const sz = confetti.size[i];
-        c.globalAlpha = Math.min(1, confetti.life[i] / 400);
-        c.fillStyle = fills[confetti.hue[i]];
-        c.setTransform(dpr * cos, dpr * sin, -dpr * sin, dpr * cos, dpr * confetti.x[i], dpr * confetti.y[i]);
-        // A card seen turning: its width follows the turn, so it flickers as real confetti does.
-        c.fillRect((-sz / 2) * Math.abs(Math.cos(confetti.spin[i] * 1.7)), -sz * 0.32, sz * Math.abs(Math.cos(confetti.spin[i] * 1.7)) + 0.6, sz * 0.64);
+      for (const piece of confetti) {
+        advanceConfetti(piece, dt);
+        if (piece.life <= 0) continue;
+        if (piece.y > h + 20) { piece.life = 0; continue; }
+        const cos = Math.cos(piece.spin), sin = Math.sin(piece.spin);
+        const sz = piece.size;
+        c.globalAlpha = Math.min(1, piece.life / 400);
+        c.fillStyle = fills[piece.hue];
+        c.setTransform(dpr * cos, dpr * sin, -dpr * sin, dpr * cos, dpr * piece.x, dpr * piece.y);
+        const turn = Math.abs(Math.cos(piece.spin * 1.7));
+        c.fillRect((-sz / 2) * turn, -sz * 0.32, sz * turn + 0.6, sz * 0.64);
       }
       c.globalAlpha = 1;
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -365,7 +324,7 @@ export function Stage({
     const labelStyle = (text: string) => {
       let s = labelStyles.get(text);
       if (!s) {
-        const m = parseFloat(text);
+        const m = parseFloat(text) || 1;
         labelStyles.set(text, (s = { font: `${m >= 8 ? 600 : 500} ${phone() ? 11 : 14}px ${SANS}`, fill: rgba(mix(pal!.faint, pal!.ink, height(m))) }));
       }
       return s;
@@ -429,7 +388,7 @@ export function Stage({
           const p = (k + 0.5) * rowP;
           const rung = tap(sampledAt + offset, p);
           const id = `${i}:${k}`;
-          const text = rung ? fmtMultiple(rung) : "";
+          const text = rung ? fmtMultiple(rung) : "—";
           const old = previous.get(id);
           // A changed number fades across from the old one; it never rolls or snaps.
           const changing = !!old && old.text !== text;
@@ -1085,7 +1044,7 @@ export function Stage({
         // Whole tiles only: one cut by the chart's edge reads as a mistake.
         const onChart = tile.y0 >= top && tile.y0 + tileH <= bottom;
         const underTag = tile.x0 < tag.x1 + 4 && tile.x0 + tile.width > tag.x0 - 4 && tile.y0 < tag.y1 + 4 && tile.y0 + tileH > tag.y0 - 4;
-        const visible = onChart && tile.rung ? underTag ? 0.12 : 1 : 0;
+        const visible = onChart ? underTag ? 0.12 : tile.rung ? 1 : 0.55 : 0;
         tile.opacity += (visible - tile.opacity) * ease(0.012);
       }
       const underPen = tip ? tiles.find(tile => tile.rung && tip.x >= tile.x0 - 2 && tip.x <= tile.x0 + tile.width + 2 && tip.y >= tile.y0 - 2 && tip.y <= tile.y0 + tileH + 2) : undefined;
@@ -1103,7 +1062,7 @@ export function Stage({
         const pad = TILE_PAD / dpr, sw = sprite.width / dpr, sh = sprite.height / dpr;
         for (const tile of tiles) {
           if (tile.opacity < 0.01) continue;
-          c.globalAlpha = most * Math.pow(height(tile.rung), 0.6) * tile.opacity;
+          c.globalAlpha = most * (tile.rung ? Math.pow(height(tile.rung), 0.6) : 0.35) * tile.opacity;
           c.drawImage(sprite, tile.x0 - pad, tile.y0 - pad, sw, sh);
         }
         c.globalAlpha = 1;
@@ -1374,10 +1333,10 @@ export function Stage({
       }
 
       // Hits burst and float what they paid; a drawing pops once when it goes in; a profitable round throws confetti.
-      g.fx = g.fx.filter((e) => ms - e.born < (e.kind === "burst" ? 2600 : 1500));
+      g.fx = g.fx.filter((e) => ms - e.born < (e.kind === "burst" ? BURST_MS : EFFECT_MS));
       c.textAlign = "center";
       for (const e of g.fx) {
-        const age = (ms - e.born) / 1500;
+        const age = (ms - e.born) / EFFECT_MS;
         const ex = x(e.t);
         const ey = y(e.price);
         if (e.kind === "hit") {

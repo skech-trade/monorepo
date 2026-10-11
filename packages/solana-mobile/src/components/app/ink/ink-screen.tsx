@@ -21,7 +21,7 @@ import { hasAuth } from "@/lib/config";
 import { useAppActive } from "@/lib/lifecycle";
 import { type Market, useEngine } from "@/lib/engine";
 import { track } from "@/lib/analytics";
-import { celebrate, feel, stayAwake } from "@/lib/feel";
+import { celebrate, feel, sound, stayAwake } from "@/lib/feel";
 import { FieldMaker } from "@/lib/field";
 import { library } from "@/lib/library";
 import { money, signed, skt as sktAmount } from "@/lib/money";
@@ -932,7 +932,7 @@ export function InkScreen() {
         if (!done) return;
         // On chain: the soft seal as the finger lifts, once a drawing has ink going in. It plays as placed from the
         // start; the chain's own word on it comes later, and only a refusal is heard from it (the soft "nope").
-        if (chainRef.current.real && (drawing.current.get(line)?.pieces ?? 0) > 0) feel("placed");
+        if (chainRef.current.real && (drawing.current.get(line)?.pieces ?? 0) > 0) sound.placed();
         drawing.current.delete(line);
         closeLine(line);
       };
@@ -1277,12 +1277,9 @@ export function InkScreen() {
   // What How it works explains: the paper run, real USDC (a build that signs in), or practice money.
   const helpMode = paperOn ? "paper" : forReal ? "real" : "practice";
   // The balance, green and a little larger for a moment when money comes back, and what just moved it under it.
-  const balanceFigure = (shownBalance: number) =>
-    cheer ? (
-      <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} key={cheer.key} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
-    ) : (
-      <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
-    );
+  const balanceFigure = (shownBalance: number) => (
+    <RisingMoney className={cn("font-semibold text-[16px]", gained ? "text-success-foreground" : "text-foreground")} style={{ fontVariant: ["tabular-nums"] }} value={shownBalance} />
+  );
   const balance = (
     <>
       <Text className="text-[12px] text-muted-foreground">Balance</Text>
