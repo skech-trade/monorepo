@@ -1,0 +1,108 @@
+/*
+  Who is drawing, laid over the chart.
+
+  It floats rather than taking a row of its own: the chart is the game, and a strip that pushed it down would be
+  the drawer's mistake in a thinner shape. Pointer events are off on the rail and back on for the faces, so the
+  gaps between them stay drawable.
+*/
+.rail {
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background) 82%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
+}
+
+.count {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding-left: 0.375rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.pulse {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 999px;
+  background: var(--color-success);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+
+/* Faces overlap, so a crowd stays one object rather than a row that grows past the chart. */
+.faces {
+  display: flex;
+  align-items: center;
+}
+
+.face {
+  pointer-events: auto;
+  display: block;
+  margin-right: -0.4375rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+  transition: transform 140ms ease, opacity 140ms ease;
+  animation: arrive 260ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.face:last-of-type { margin-right: 0; }
+.face:hover, .face:focus-visible { transform: translateY(-2px) scale(1.08); z-index: 1; }
+.face:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
+
+/* Someone arriving should be felt, not just appear. */
+@keyframes arrive {
+  from { opacity: 0; transform: scale(0.4); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/*
+  The ring is this player's own hue: the same one the canvas paints their ink with, so a face and a line are the
+  same person without a label saying so. The inner ring is the page's ground, to keep the hue off the avatar.
+*/
+.avatar {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px hsl(var(--hue) 62% 52%);
+}
+
+.dimmed { opacity: 0.34; }
+
+.more {
+  margin-left: 0.6875rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.release {
+  pointer-events: auto;
+  padding: 0.25rem 0.625rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-secondary);
+  color: var(--color-secondary-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse, .face { animation: none; }
+  .face:hover, .face:focus-visible { transform: none; }
+}
