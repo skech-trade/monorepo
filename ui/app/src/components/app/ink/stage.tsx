@@ -894,11 +894,7 @@ export function Stage({
       };
       const viewFrom = tAt(0), viewTo = tAt(w);
       const quiet = dark ? 0.45 : 0.4, quietStyle = people.length ? rgba(pal.muted, quiet) : "";
-      /*
-        The spotlight (presence-rail.tsx). Everyone's ink is the same quiet grey, which is right when it is
-        everyone: it has to sit behind the player's own. One player picked out is the exception, and theirs is
-        drawn in their own hue, the one their face is ringed with, while the rest fall back.
-      */
+      // The spotlight (presence-rail.tsx): one player drawn in their own hue, everyone else pushed back.
       const lit = focusedPlayer();
       const dim = 0.22;
       const litStyle = (player: string, fade: number) => `hsl(${hueOf(player)} 64% ${dark ? 64 : 46}% / ${(0.95 * fade).toFixed(2)})`;

@@ -1,10 +1,4 @@
-/*
-  Who is drawing, laid over the chart.
-
-  It floats rather than taking a row of its own: the chart is the game, and a strip that pushed it down would be
-  the drawer's mistake in a thinner shape. Pointer events are off on the rail and back on for the faces, so the
-  gaps between them stay drawable.
-*/
+/* Floats over the chart so it costs no height. Only the faces take the pointer; the gaps stay drawable. */
 .rail {
   pointer-events: none;
   display: flex;
@@ -40,7 +34,7 @@
   50% { opacity: 0.45; transform: scale(0.82); }
 }
 
-/* Faces overlap, so a crowd stays one object rather than a row that grows past the chart. */
+/* Overlapped, so a crowd stays one object. */
 .faces {
   display: flex;
   align-items: center;
@@ -63,16 +57,12 @@
 .face:hover, .face:focus-visible { transform: translateY(-2px) scale(1.08); z-index: 1; }
 .face:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
 
-/* Someone arriving should be felt, not just appear. */
 @keyframes arrive {
   from { opacity: 0; transform: scale(0.4); }
   to { opacity: 1; transform: scale(1); }
 }
 
-/*
-  The ring is this player's own hue: the same one the canvas paints their ink with, so a face and a line are the
-  same person without a label saying so. The inner ring is the page's ground, to keep the hue off the avatar.
-*/
+/* The ring is the player's hue. The inner ring is the ground, to keep the hue off the face. */
 .avatar {
   width: 1.75rem;
   height: 1.75rem;

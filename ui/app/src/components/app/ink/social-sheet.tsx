@@ -2,7 +2,7 @@
 
 import { ArrowLeftIcon, CheckIcon, RadioIcon, Share2Icon, ShuffleIcon, TrophyIcon, UserIcon, UsersIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { BIO_MAX, playerName, usernameProblem, type LeaderboardRow, type PlayerProfile, type ProfileResponse, type PublicDrawing, type SocialWindow } from "@skech/core/social";
+import { BIO_MAX, playerName, usernameProblem, type LeaderboardRow, type PlayerProfile, type ProfileResponse, type PublicDrawing, type SocialActivity, type SocialWindow } from "@skech/core/social";
 import { useAccount } from "@/components/app/auth";
 import { PlayerAvatar } from "@/components/app/player-avatar";
 import { Avatar, AvatarImage } from "@/components/ui/avatar";
@@ -38,27 +38,6 @@ const windows: { value: SocialWindow; label: string }[] = [
 const quietCard = "rounded-[18px] bg-muted";
 
 /** Who is playing now: their faces in a row, each a way to their profile. */
-function PlayingNow({ onPlayer }: { onPlayer: (player: string) => void }) {
-  const { playing } = useSocial();
-  if (!playing.length) return <p className="px-1 text-[13px] text-muted-foreground">Nobody is playing right now.</p>;
-  return (
-    <div className={cn(quietCard, "flex flex-col gap-2.5 p-3")}>
-      <span className="flex items-center gap-2 text-[13px]">
-        <span className="size-2 rounded-full bg-success" />
-        <strong className="font-semibold">{playing.length}</strong> playing now
-      </span>
-      <div className="flex flex-wrap gap-2">
-        {playing.map((p) => (
-          <button aria-label={`Open ${playerName(p)}'s profile`} className="flex flex-col items-center gap-1" key={p.player} onClick={() => onPlayer(p.player)} title={playerName(p)} type="button">
-            <PlayerAvatar className="size-10" profile={p} />
-            <span className="max-w-12 truncate text-[10px] text-muted-foreground">{playerName(p)}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose }: { initialTab: SocialTab; initialPlayer?: string; initialDrawing?: string; onClose: () => void }) {
   const tablet = useSyncExternalStore(subscribeTablet, () => matchMedia(tabletPortrait).matches, () => false);
   const me = useAccount();
@@ -71,6 +50,19 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
   const [drawing, setDrawing] = useState<string | null>(initialDrawing ?? null);
   const [window, setWindow] = useState<SocialWindow>("all");
   const [friends, setFriends] = useState(false);
+  // One row per drawing, then one row per run of drawings by the same player: one player drawing ten times in a
+  // minute filled the tab with ten rows that only differed by a cent.
+  const feed = useMemo(() => {
+    const newest = new Map<string, SocialActivity>();
+    for (const item of social.activity) if (!newest.has(item.drawing)) newest.set(item.drawing, item);
+    const runs: SocialActivity[][] = [];
+    for (const item of newest.values()) {
+      const last = runs.at(-1);
+      if (last && last[0].player === item.player) last.push(item);
+      else runs.push([item]);
+    }
+    return runs.slice(0, 20);
+  }, [social.activity]);
   const [board, setBoard] = useState<{ rows: LeaderboardRow[]; me: LeaderboardRow | null; counting: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [alerts, setAlerts] = useState(() => {
@@ -94,7 +86,7 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
           setError(null);
         }
       } catch {
-        if (!controller.signal.aborted) setError("The leaderboard is unavailable right now. Try again shortly.");
+        if (!controller.signal.aborted) setError("Could not load the board.");
       } finally {
         pending = false;
       }
@@ -117,8 +109,8 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
     <Sheet onOpenChange={(open) => !open && onClose()} open>
       <SheetPopup className={cn("rounded-t-3xl motion-reduce:transition-none sm:rounded-2xl", tablet ? "mx-auto max-h-[85dvh] max-w-xl" : "sm:max-w-md")} closeProps={{ className: "absolute end-2 top-2 min-h-11 min-w-11" }} side={tablet ? "bottom" : "right"} variant="inset">
         <SheetHeader className="px-5 pt-6 sm:px-6 sm:pt-8">
-          <SheetTitle className="font-bold text-xl">{drawing ? "The drawing" : tab === "profile" ? (player === viewer ? "Your profile" : "Player") : "Draw together"}</SheetTitle>
-          <SheetDescription>{drawing ? "Every piece, one result." : "Who is drawing, and how it went."}</SheetDescription>
+          <SheetTitle className="font-bold text-xl">{drawing ? "The drawing" : tab === "profile" ? (player === viewer ? "Your profile" : "Player") : "Players"}</SheetTitle>
+          <SheetDescription className="sr-only">{drawing ? "One drawing, piece by piece." : "Who is here and what they drew."}</SheetDescription>
         </SheetHeader>
         <SheetPanel className="flex flex-col gap-4 px-5 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6">
           {drawing ? (
@@ -166,13 +158,13 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
                       {friends ? "Following" : "Everyone"}
                     </button>
                   </div>
-                  {board?.counting || social.counting ? <p className="text-[13px] text-muted-foreground">Reading earlier drawings from the chain… the board fills in as they arrive.</p> : null}
+                  {board?.counting || social.counting ? <p className="text-[13px] text-muted-foreground">Still reading older drawings.</p> : null}
                   {error ? (
                     <Notice text={error} />
                   ) : !board ? (
                     <LoadingRows />
                   ) : !board.rows.length ? (
-                    <Empty text={friends ? "Follow a player to see them here." : "The first drawings will start the board."} />
+                    <Empty text={friends ? "You follow nobody yet." : "No drawings yet."} />
                   ) : (
                     <div className={cn(quietCard, "divide-y divide-border overflow-hidden")}>
                       {board.rows.map((row) => (
@@ -185,59 +177,39 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
                       <LeaderRow me onClick={() => viewPlayer(viewer)} row={board.me} />
                     </div>
                   ) : null}
-                  <p className="px-1 text-muted-foreground text-xs leading-relaxed">PnL is what was paid and earned as IOUs, less the stakes settled. Ink still in play has no result yet.</p>
+                  <p className="px-1 text-muted-foreground text-xs">Ink still in play is not counted.</p>
                 </>
               ) : tab === "activity" ? (
                 <>
-                  <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
-                    <span className={cn("size-1.5 rounded-full", social.connected ? "bg-success" : "bg-muted-foreground")} />
-                    {social.connected ? "Live" : "Reconnecting…"}
+                  <div className="flex items-center gap-1.5 px-1">
+                    <span className="mr-auto text-[13px] text-muted-foreground">Ink on your chart</span>
+                    {(
+                      [
+                        { value: "everyone", label: "Everyone" },
+                        { value: "following", label: "Following" },
+                        { value: "me", label: "Just me" },
+                      ] as const
+                    ).map((item) => (
+                      <button aria-pressed={community?.audience === item.value} className={cn("min-h-11 rounded-full px-3 font-medium text-[13px]", community?.audience === item.value ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-muted")} key={item.value} onClick={() => community?.changeAudience(item.value)} type="button">
+                        {item.label}
+                      </button>
+                    ))}
                   </div>
-                  <PlayingNow onPlayer={viewPlayer} />
-                  <div className={cn(quietCard, "p-3")}>
-                    <span className="text-muted-foreground text-xs">Ink on your chart</span>
-                    <div className="mt-2 flex gap-1">
-                      {(
-                        [
-                          { value: "everyone", label: "Everyone" },
-                          { value: "following", label: "Following" },
-                          { value: "me", label: "Only me" },
-                        ] as const
-                      ).map((item) => (
-                        <button aria-pressed={community?.audience === item.value} className={cn("min-h-11 flex-1 rounded-full font-medium text-[13px]", community?.audience === item.value ? "bg-background shadow-sm" : "text-muted-foreground")} key={item.value} onClick={() => community?.changeAudience(item.value)} type="button">
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {social.activity.length ? (
-                    <div className={cn(quietCard, "divide-y divide-border overflow-hidden")}>
-                      {social.activity.map((item) => (
-                        <div className="flex items-center gap-3 px-3.5 py-3" key={item.id}>
-                          <button aria-label={`Open ${playerName(item.profile)}'s profile`} onClick={() => viewPlayer(item.player)} type="button">
-                            <PlayerAvatar className="size-9" profile={item.profile} />
-                          </button>
-                          <button className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left" onClick={() => setDrawing(item.drawing)} type="button">
-                            <span className="flex min-w-0 flex-col">
-                              <strong className="truncate font-medium text-sm">{playerName(item.profile)}</strong>
-                              <span className="text-muted-foreground text-xs">
-                                {item.kind === "placed" ? "Drew" : item.complete ? "Drawing finished" : "Ink settled"} · {when(item.at)}
-                              </span>
-                            </span>
-                            <span className={cn("figures shrink-0 font-semibold text-sm", item.kind === "settled" && BigInt(item.amount) > 0n && "text-success-foreground")}>{socialMoney(item.amount, item.kind === "settled")}</span>
-                          </button>
-                        </div>
+                  {feed.length ? (
+                    <div className="flex flex-col gap-2">
+                      {feed.map((run) => (
+                        <LiveRow drawings={social.drawings} key={run[0].drawing} onOpen={setDrawing} onPlayer={() => viewPlayer(run[0].player)} run={run} />
                       ))}
                     </div>
                   ) : (
-                    <Empty text="New drawings and results will appear here." />
+                    <Empty text={social.connected ? "Nobody is drawing." : "Reconnecting…"} />
                   )}
                   <div className="flex min-h-11 items-center justify-between px-1 text-[13px] sm:hidden">
                     <span>Appearance</span>
                     <ThemeToggle className="size-11 rounded-full" />
                   </div>
                   <label className="flex min-h-11 items-center justify-between gap-3 px-1 text-[13px]">
-                    Alerts for players you follow
+                    Tell me when someone I follow finishes
                     <input
                       checked={alerts}
                       className="size-5 accent-brand"
@@ -270,6 +242,33 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
 }
 
 const when = (at: number) => (Date.now() - at < 86_400_000 ? new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : new Date(at).toLocaleDateString([], { month: "short", day: "numeric" }));
+
+/** A player's run in the feed: their latest line, how many it was, and where the run stands. */
+function LiveRow({ run, drawings, onOpen, onPlayer }: { run: SocialActivity[]; drawings: PublicDrawing[]; onOpen: (id: string) => void; onPlayer: () => void }) {
+  const head = run[0];
+  const net = run.reduce((sum, item) => sum + (item.kind === "settled" ? BigInt(item.amount) : 0n), 0n);
+  const open = run.filter((item) => !item.complete).length;
+  const drawing = drawings.find((d) => d.id === head.drawing);
+  // Only a real line is worth showing. DrawingPreview falls back to bands, which on a two-second drawing is a block.
+  const line = drawing?.pieces.some((piece) => (piece.stroke?.pts.length ?? 0) > 1) ? drawing : null;
+  return (
+    <div className={cn(quietCard, "flex items-center gap-3 px-3 py-2")}>
+      <button aria-label={`Open ${playerName(head.profile)}'s profile`} className="shrink-0" onClick={onPlayer} type="button">
+        <PlayerAvatar className="size-9" profile={head.profile} />
+      </button>
+      <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => onOpen(head.drawing)} type="button">
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <strong className="truncate font-medium text-sm">{playerName(head.profile)}</strong>
+          <span className="text-muted-foreground text-xs">
+            {run.length > 1 ? `${run.length} lines` : open ? "Still going" : "Done"} · {when(head.at)}
+          </span>
+        </span>
+        {line ? <DrawingPreview className="h-7 w-14 shrink-0 text-brand" drawing={line} /> : null}
+        <span className={cn("figures shrink-0 font-semibold text-sm", net > 0n && "text-success-foreground")}>{net === 0n && open ? "" : socialMoney(net.toString(), true)}</span>
+      </button>
+    </div>
+  );
+}
 
 function LeaderRow({ row, me, onClick }: { row: LeaderboardRow; me: boolean; onClick: () => void }) {
   return (
@@ -304,7 +303,7 @@ function ProfileView({ player, window, onDrawing }: { player: string; window: So
         if (!controller.signal.aborted) setData(result);
       },
       () => {
-        if (!controller.signal.aborted) setError("This profile is unavailable right now. Try again shortly.");
+        if (!controller.signal.aborted) setError("Could not load this profile.");
       },
     );
     return () => {

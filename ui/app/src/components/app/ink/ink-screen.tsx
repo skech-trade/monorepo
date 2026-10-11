@@ -1576,10 +1576,6 @@ export function InkScreen() {
           <HapticHost className="absolute inset-0">
             <Stage onViewport={onViewport} className="absolute inset-0 size-full" game={game} onPlace={onPlace} onPreview={onPreview} />
           </HapticHost>
-          {/*
-            Who is drawing, over the chart rather than in a drawer that covered it. It floats, so it costs the
-            chart no height, and only the faces take the pointer: the gaps between them stay drawable.
-          */}
           <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center px-3">
             <PresenceRail />
           </div>
