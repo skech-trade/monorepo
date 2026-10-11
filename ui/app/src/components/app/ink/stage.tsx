@@ -8,7 +8,7 @@ import { BURST, BURST_MS, EFFECT_MS, CONFETTI_POOL, confettiPiece, advanceConfet
 import type { Tick } from "@/lib/engine";
 import { tracePricePath } from "./price-path";
 import { feel, pen as penSound } from "@/lib/feel";
-import { livePens, type LivePen, openPlayerProfile, penFlush, penLift, remoteDrawings, socialMoney, visibleSocialDrawings } from "@/lib/social";
+import { focusedPlayer, livePens, type LivePen, openPlayerProfile, penFlush, penLift, remoteDrawings, socialMoney, visibleSocialDrawings } from "@/lib/social";
 import { faceOf } from "@/lib/avatar";
 import { playerHue, type PublicDrawing } from "@skech/core/social";
 
@@ -894,6 +894,14 @@ export function Stage({
       };
       const viewFrom = tAt(0), viewTo = tAt(w);
       const quiet = dark ? 0.45 : 0.4, quietStyle = people.length ? rgba(pal.muted, quiet) : "";
+      /*
+        The spotlight (presence-rail.tsx). Everyone's ink is the same quiet grey, which is right when it is
+        everyone: it has to sit behind the player's own. One player picked out is the exception, and theirs is
+        drawn in their own hue, the one their face is ringed with, while the rest fall back.
+      */
+      const lit = focusedPlayer();
+      const dim = 0.22;
+      const litStyle = (player: string, fade: number) => `hsl(${hueOf(player)} 64% ${dark ? 64 : 46}% / ${(0.95 * fade).toFixed(2)})`;
       for (const drawing of people) {
         const age = Math.max(0, Date.now() - drawing.updatedAt);
         if (drawing.complete && age > 15_000) continue;
@@ -901,14 +909,17 @@ export function Stage({
         // Only what is on screen: a drawing wholly behind now, or beyond the view, is not drawn.
         if (!line || line.t0 > viewTo || drawing.pieces.every((q) => q.openAt + 30_000 < viewFrom)) continue;
         const fade = drawing.complete ? Math.max(0, 1 - age / 15_000) : 1;
-        remote(line, remotePath(line), fade < 1 ? rgba(pal.muted, quiet * fade) : quietStyle, 1.25);
+        const mine = lit === drawing.player;
+        const style = mine ? litStyle(drawing.player, fade) : rgba(pal.muted, quiet * fade * (lit ? dim : 1));
+        remote(line, remotePath(line), fade < 1 || lit ? style : quietStyle, mine ? 2.25 : 1.25);
       }
       // Lines being drawn right now, elsewhere: the same, catching up smoothly between their ten updates a second.
       const penStyle = pens.length ? rgba(pal.muted, dark ? 0.6 : 0.55) : "";
       for (const p of pens) {
         if (p.shown < p.pts.length) p.shown = Math.min(p.pts.length, p.shown + Math.max(1, Math.ceil((p.pts.length - p.shown) / 5)));
         if (!p.shown) continue;
-        remote(p, penLine(p), penStyle, 1.5);
+        const mine = lit === p.player;
+        remote(p, penLine(p), mine ? litStyle(p.player, 1) : lit ? rgba(pal.muted, (dark ? 0.6 : 0.55) * dim) : penStyle, mine ? 2.5 : 1.5);
       }
       for (const group of renderedGroups) {
         if (group.id !== pen?.drawing) {

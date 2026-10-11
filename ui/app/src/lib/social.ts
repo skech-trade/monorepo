@@ -187,6 +187,31 @@ export function setDrawingAudience(value: DrawingAudience) {
 export const remoteDrawings = () => remoteOf(current, viewer, audience, following);
 /** Every drawing the chart may label, the viewer's own included. */
 export const visibleSocialDrawings = () => visibleDrawings(current, viewer, audience, following);
+/* ---- the spotlight: one player's ink brought forward, everyone else's pushed back ---- */
+
+/**
+ * Who is in the spotlight, or null.
+ *
+ * Kept out here with the feed rather than in React because the canvas reads it every frame, and a focus that
+ * re-rendered the tree sixty times a second would cost more than the ink it is lighting.
+ */
+let focus: string | null = null;
+const watchers = new Set<() => void>();
+export const focusedPlayer = () => focus;
+/** Light one player's ink, or let the chart go back to everyone. The same player again releases it. */
+export function focusPlayer(player: string | null) {
+  const next = player === focus ? null : player;
+  if (next === focus) return;
+  focus = next;
+  for (const w of watchers) w();
+}
+const watchFocus = (fn: () => void) => {
+  watchers.add(fn);
+  return () => void watchers.delete(fn);
+};
+/** The spotlight, for the parts of the app that are not the canvas. */
+export const useFocusedPlayer = () => useSyncExternalStore(watchFocus, focusedPlayer, () => null);
+
 export function openPlayerProfile(player: string) {
   window.dispatchEvent(new CustomEvent("skech:profile", { detail: player }));
 }
