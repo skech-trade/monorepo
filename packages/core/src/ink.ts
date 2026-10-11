@@ -12,6 +12,7 @@ import { fairSection, ladderSection, newInk, smoothRoundedMultiple, cappedRounde
 export { VIEW_SECONDS, MAX_INK_MULTIPLE, LADDER, LADDER_BEST, ladderSection, newInk, sectionsOf, fairSection, roundedMultiple, roundedCells, INK_EDGE_CELLS, drawingLayout, areaCells, areaMultiple, areaCostOf, INK_CELL, MIN_INK_MULTIPLE, CHART_STEP_PX, CHART_LINE_PX } from "./ink-area";
 
 export { RULES } from "./dots";
+export { drawingCameraAt } from "./ink-camera";
 
 /** A pen stroke: points in time (ms, the feed's clock) and price, from `t0` and `p0`; the pen's half-width in each. */
 export type Stroke = { t0: number; p0: number; pts: { t: number; p: number }[]; rt: number; rp: number };
