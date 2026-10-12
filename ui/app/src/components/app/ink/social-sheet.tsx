@@ -2,7 +2,7 @@
 
 import { ArrowLeftIcon, CheckIcon, RadioIcon, Share2Icon, ShuffleIcon, TrophyIcon, UserIcon, UsersIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { BIO_MAX, playerName, usernameProblem, type LeaderboardRow, type PlayerProfile, type ProfileResponse, type PublicDrawing, type SocialActivity, type SocialWindow } from "@skech/core/social";
+import { activityRuns, BIO_MAX, playerName, usernameProblem, type LeaderboardRow, type PlayerProfile, type ProfileResponse, type PublicDrawing, type SocialActivity, type SocialWindow } from "@skech/core/social";
 import { useAccount } from "@/components/app/auth";
 import { PlayerAvatar } from "@/components/app/player-avatar";
 import { Avatar, AvatarImage } from "@/components/ui/avatar";
@@ -49,19 +49,7 @@ export function SocialSheet({ initialTab, initialPlayer, initialDrawing, onClose
   const [drawing, setDrawing] = useState<string | null>(initialDrawing ?? null);
   const [window, setWindow] = useState<SocialWindow>("all");
   const [friends, setFriends] = useState(false);
-  // One row per drawing, then one row per run of drawings by the same player: one player drawing ten times in a
-  // minute filled the tab with ten rows that only differed by a cent.
-  const feed = useMemo(() => {
-    const newest = new Map<string, SocialActivity>();
-    for (const item of social.activity) if (!newest.has(item.drawing)) newest.set(item.drawing, item);
-    const runs: SocialActivity[][] = [];
-    for (const item of newest.values()) {
-      const last = runs.at(-1);
-      if (last && last[0].player === item.player) last.push(item);
-      else runs.push([item]);
-    }
-    return runs.slice(0, 20);
-  }, [social.activity]);
+  const feed = useMemo(() => activityRuns(social.activity), [social.activity]);
   const [board, setBoard] = useState<{ rows: LeaderboardRow[]; me: LeaderboardRow | null; counting: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [alerts, setAlerts] = useState(() => {

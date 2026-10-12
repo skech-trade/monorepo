@@ -90,7 +90,16 @@
       "./plugins/with-release-signing",
       "./plugins/with-gradle-properties",
       "./plugins/with-unbundled-barcode",
-      "./plugins/with-english-only"
+      "./plugins/with-english-only",
+      "./plugins/with-worklets-link",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose a photo for your skech profile.",
+          "cameraPermission": "To scan an address to withdraw to.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false

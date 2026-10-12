@@ -16,6 +16,19 @@ export type DrawingPiece = { betId: string; stroke: Stroke | null; from?: number
 export type PublicDrawing = { id: string; player: string; profile: PlayerProfile; at: number; updatedAt: number; stake: string; settledStake: string; paid: string; owed: string; pnl: string; complete: boolean; pieces: DrawingPiece[]; tx: string };
 export type LeaderboardRow = { rank: number; profile: PlayerProfile; stats: PlayerStats };
 export type SocialActivity = { id: string; kind: "placed" | "settled"; drawing: string; player: string; profile: PlayerProfile; at: number; amount: string; complete: boolean };
+
+/** Latest event per drawing, grouped into consecutive runs by the same player. */
+export function activityRuns(activity: readonly SocialActivity[], limit = 20): SocialActivity[][] {
+  const newest = new Map<string, SocialActivity>();
+  for (const item of activity) if (!newest.has(item.drawing)) newest.set(item.drawing, item);
+  const runs: SocialActivity[][] = [];
+  for (const item of newest.values()) {
+    const last = runs.at(-1);
+    if (last && last[0].player === item.player) last.push(item);
+    else runs.push([item]);
+  }
+  return runs.slice(0, limit);
+}
 export type ProfileResponse = { profile: PlayerProfile; stats: PlayerStats; drawings: PublicDrawing[]; next: string | null; curve: { at: number; pnl: string }[]; badges: string[]; following: boolean };
 /** `playing`: who is playing now, most recent first (a piece in the last 30 s, or a drawing still in play). */
 export type SocialSnapshot = { type: "snapshot"; drawings: PublicDrawing[]; activity: SocialActivity[]; playing: PlayerProfile[]; counting: boolean; progress: number };

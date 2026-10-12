@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyFeed, avatarChoices, PEN_POINTS_PER_MESSAGE, penPack, penProblem, penUnpack, avatarSeedOf, avatarSeedProblem, BIO_MAX, cleanBio, EMPTY_FEED, LIVE_MS, looksLikePlayer, type PlayerProfile, playerHue, playerName, type PublicDrawing, remoteDrawings, socialMoney, socialSocketUrl, socialUrl, usernameProblem, visibleDrawings, windowStart } from "./social";
+import { activityRuns, type SocialActivity, applyFeed, avatarChoices, PEN_POINTS_PER_MESSAGE, penPack, penProblem, penUnpack, avatarSeedOf, avatarSeedProblem, BIO_MAX, cleanBio, EMPTY_FEED, LIVE_MS, looksLikePlayer, type PlayerProfile, playerHue, playerName, type PublicDrawing, remoteDrawings, socialMoney, socialSocketUrl, socialUrl, usernameProblem, visibleDrawings, windowStart } from "./social";
 
 describe("social", () => {
   test("usernames: lowercase, 3 to 24, a letter first, nothing reserved", () => {
@@ -90,4 +90,17 @@ describe("social", () => {
     expect(windowStart("all", 1e12)).toBe(0);
     expect(windowStart("24h", 1e12)).toBe(1e12 - 86_400_000);
   });
+});
+
+
+test("Live feed deduplicates drawing events before grouping consecutive player runs", () => {
+  const item = (drawing: string, player: string, kind: "placed" | "settled", amount: string) => ({ drawing, player, kind, amount } as SocialActivity);
+  const latest = item("a1", "a", "settled", "50000");
+  const feed = [latest, item("a1", "a", "placed", "10000"), item("a2", "a", "settled", "-20000"), item("b1", "b", "placed", "10000"), item("a3", "a", "settled", "10000")];
+  const runs = activityRuns(feed);
+  expect(runs.map((run) => run.map((item) => item.drawing))).toEqual([["a1", "a2"], ["b1"], ["a3"]]);
+  expect(runs[0][0]).toBe(latest);
+  expect(runs[0].reduce((sum, item) => sum + BigInt(item.amount), 0n)).toBe(30000n);
+  expect(activityRuns(feed, 1)).toEqual([runs[0]]);
+  expect(activityRuns([])).toEqual([]);
 });
