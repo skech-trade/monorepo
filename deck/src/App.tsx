@@ -509,7 +509,7 @@ export default function App() {
           <div className="sk-bento">
             <div className="sk-tile">
               <div>
-                <h3>Everyone’s ink, live</h3>
+                <h3>Social trading</h3>
                 <p>Other players’ lines appear on your chart as they draw them.</p>
               </div>
               <Crowd />
