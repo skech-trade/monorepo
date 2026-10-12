@@ -34,9 +34,8 @@ const TICKET = [
 ];
 
 function OrderTicket() {
-  const { clicks } = useDeck();
   return (
-    <div className={'sk-ticket' + (clicks >= 1 ? ' struck' : '')}>
+    <div className="sk-ticket">
       <div className="sk-card-head">New order</div>
       {TICKET.map(([label, value]) => (
         <div className="sk-ticket-row" key={label}>
@@ -45,9 +44,6 @@ function OrderTicket() {
         </div>
       ))}
       <div className="sk-ticket-btn">Confirm</div>
-      <svg className="sk-strike" viewBox="0 0 300 300" preserveAspectRatio="none" aria-hidden="true">
-        <path d="M-6 262 C 70 250, 170 150, 306 34" pathLength={1} />
-      </svg>
     </div>
   );
 }
@@ -310,25 +306,6 @@ function Crowd() {
   );
 }
 
-const FLOW = [
-  {
-    title: 'You',
-    body: 'A session key on your device signs each piece of ink. It cannot withdraw.',
-  },
-  {
-    title: 'Engine',
-    body: 'Coinbase BTC-USD, trade by trade. Every price is signed.',
-  },
-  {
-    title: 'Relayer',
-    body: 'Checks and prices each piece, and pays every network fee.',
-  },
-  {
-    title: 'Program',
-    body: 'Works out the multiple on chain and pays hits from one shared pool.',
-  },
-];
-
 const FEES = [
   { label: 'What you put in', fee: '4%', holders: '3%', skech: '1%' },
   { label: 'Profit when you are paid', fee: '10%', holders: '8%', skech: '2%' },
@@ -381,7 +358,8 @@ export default function App() {
       <Slide
         center
         nav="Problem"
-        notes="Everyone has a view. Almost nobody trades it: the form is the obstacle. Click: one line replaces it."
+        className="sk-problem"
+        notes="Everyone has a view. The order form is the obstacle. One line replaces it."
       >
         <Reveal>
           <h2 className="headline sk-wide">You have a view on Bitcoin’s next move.</h2>
@@ -393,16 +371,16 @@ export default function App() {
           <Reveal delay={0.1}>
             <OrderTicket />
           </Reveal>
-          <Build at={1} className="sk-versus-next">
+          <Reveal delay={0.16} className="sk-versus-next">
             <span className="sk-arrow" aria-hidden="true">
               →
             </span>
             <OneLine />
-          </Build>
+          </Reveal>
         </div>
-        <Build at={1}>
+        <Reveal delay={0.22}>
           <p className="sk-caption">What once took an order form now takes one line.</p>
-        </Build>
+        </Reveal>
       </Slide>
 
       {/* 3. What it is: the launch film */}
@@ -414,7 +392,7 @@ export default function App() {
         </Reveal>
         <Reveal delay={0.06}>
           <p className="lead sk-lead">
-            Draw where you think Bitcoin goes over the next 30 seconds. That drawing is the trade.
+            Draw where you think Bitcoin goes. That drawing is the trade.
           </p>
         </Reveal>
         <Reveal delay={0.1}>
@@ -482,18 +460,19 @@ export default function App() {
         </Reveal>
       </Slide>
 
-      {/* 7. Measured, not modelled */}
+      {/* 7. Price history and verifiable payouts */}
       <Slide
         center
         nav="Measured"
-        notes="The odds are not a formula. They come from real price history and are replayed on days the library never saw."
+        notes="Chances come from real Bitcoin price history. A local model calibrated price difficulty to 50/50; the payout equation runs onchain and is verifiable."
       >
         <Reveal>
-          <h2 className="headline sk-wide">The chance is measured, not modelled.</h2>
+          <h2 className="headline sk-wide">Chances come from real Bitcoin price history</h2>
         </Reveal>
         <Reveal delay={0.06}>
           <p className="lead sk-lead">
-            Chances come from real Bitcoin price history, then are checked on days the library never saw.
+            We ran a local model to calibrate the price difficulty to 50/50. The payout equation is entirely
+            onchain and verifiable.
           </p>
         </Reveal>
         <div className="sk-panels" style={{ ['--n' as string]: 3 }}>
@@ -530,7 +509,7 @@ export default function App() {
           <div className="sk-bento">
             <div className="sk-tile">
               <div>
-                <h3>Everyone’s ink, live</h3>
+                <h3>Social trading</h3>
                 <p>Other players’ lines appear on your chart as they draw them.</p>
               </div>
               <Crowd />
@@ -560,33 +539,7 @@ export default function App() {
         </Reveal>
       </Slide>
 
-      {/* 9. On chain */}
-      <Slide
-        center
-        nav="On chain"
-        notes="Who vouches for what. The player never holds SOL, and the house never holds the players' money."
-      >
-        <Reveal>
-          <h2 className="headline sk-wide">Every drawing settles on Solana.</h2>
-        </Reveal>
-        <Reveal delay={0.06}>
-          <p className="lead sk-lead">Your balance is USDC held by the game’s program. Players never hold SOL.</p>
-        </Reveal>
-        <div className="sk-panels sk-flow" style={{ ['--n' as string]: 4 }}>
-          {FLOW.map((f, i) => (
-            <Reveal key={f.title} delay={0.1 + i * 0.08} className="sk-panel">
-              <div className="sk-no">0{i + 1}</div>
-              <h3>{f.title}</h3>
-              <p>{f.body}</p>
-            </Reveal>
-          ))}
-        </div>
-        <Reveal delay={0.4}>
-          <p className="sk-source">On Solana devnet today, where the USDC is test money.</p>
-        </Reveal>
-      </Slide>
-
-      {/* 10. Revenue */}
+      {/* 9. Revenue */}
       <Slide center nav="Revenue" notes="Two fees. Most of each goes back to the players who hold SKT; skech keeps the rest.">
         <Reveal>
           <h2 className="headline sk-wide">Revenue</h2>
@@ -617,14 +570,15 @@ export default function App() {
         </Build>
       </Slide>
 
-      {/* 11. SKT */}
-      <Slide center nav="SKT" notes="SKT is what a missed line earns back: a share of fees and surplus. Mechanics only.">
+      {/* 10. SKT */}
+      <Slide center nav="SKT" notes="Players whose predictions miss earn skech tokens (SKT). Token holders share in the game's revenue, claimed in USDC.">
         <Reveal>
-          <h2 className="headline sk-wide">Ink the price misses earns SKT.</h2>
+          <h2 className="headline sk-wide">Missed Bitcoin predictions earn skech tokens.</h2>
         </Reveal>
         <Reveal delay={0.06}>
           <p className="lead sk-lead">
-            SKT is a share of the fees and of the pool’s surplus, claimed in USDC.
+            Players whose predictions miss earn skech tokens (SKT). Token holders share in the game’s revenue,
+            claimed in USDC.
           </p>
         </Reveal>
         <div className="sk-panels" style={{ ['--n' as string]: 4 }}>
@@ -637,7 +591,7 @@ export default function App() {
         </div>
       </Slide>
 
-      {/* 12. What's next */}
+      {/* 11. What's next */}
       <Slide center nav="Roadmap" notes="Live on devnet now. The list before mainnet is short and specific.">
         <Reveal>
           <h2 className="headline sk-wide">What’s next.</h2>
@@ -653,7 +607,7 @@ export default function App() {
         </div>
       </Slide>
 
-      {/* 13. Team */}
+      {/* 12. Team */}
       <Slide center nav="Team" notes="Who builds it.">
         <Reveal>
           <h2 className="headline sk-wide" style={{ marginBottom: 'clamp(20px, 3.4vh, 36px)' }}>
@@ -664,9 +618,20 @@ export default function App() {
           people={[
             { name: 'Abhi', role: 'Founder', img: '/team/abhi.jpg', href: 'https://t.me/Oxabhii' },
             { name: 'Swayam', role: 'Engineering', img: '/team/swayam.jpg', href: 'https://x.com/devswayam' },
-            { name: 'Vivek Sahu', role: 'Engineering' },
+            { name: 'Vivek Sahu', role: 'Engineering', img: '/team/vivek.png' },
           ]}
         />
+      </Slide>
+
+      {/* 13. Early traction */}
+      <Slide center nav="Traction" notes="We acquired our first 10 users from X.">
+        <Reveal>
+          <h2 className="headline sk-wide">Our first users came from X.</h2>
+        </Reveal>
+        <Reveal delay={0.1}>
+          <div className="sk-traction-number">10</div>
+          <p className="sk-caption">We acquired our first 10 users from X.</p>
+        </Reveal>
       </Slide>
 
       {/* 14. Close */}
@@ -678,7 +643,7 @@ export default function App() {
           <h2 className="display sk-close">Go draw something.</h2>
         </Reveal>
         <Build at={1}>
-          <p className="sk-url">skech.trade</p>
+          <p className="sk-url"><a href="https://app.skech.trade" target="_blank" rel="noopener noreferrer">app.skech.trade</a></p>
         </Build>
         <Reveal delay={0.3}>
           <p className="sk-source">You can lose what you put in. Never put in more than you’d be fine losing.</p>
