@@ -571,13 +571,14 @@ export default function App() {
       </Slide>
 
       {/* 10. SKT */}
-      <Slide center nav="SKT" notes="SKT is what a missed line earns back: a share of fees and surplus. Mechanics only.">
+      <Slide center nav="SKT" notes="Players whose predictions miss earn skech tokens (SKT). Token holders share in the game's revenue, claimed in USDC.">
         <Reveal>
-          <h2 className="headline sk-wide">Ink the price misses earns SKT.</h2>
+          <h2 className="headline sk-wide">Missed Bitcoin predictions earn skech tokens.</h2>
         </Reveal>
         <Reveal delay={0.06}>
           <p className="lead sk-lead">
-            SKT is a share of the fees and of the pool’s surplus, claimed in USDC.
+            Players whose predictions miss earn skech tokens (SKT). Token holders share in the game’s revenue,
+            claimed in USDC.
           </p>
         </Reveal>
         <div className="sk-panels" style={{ ['--n' as string]: 4 }}>
