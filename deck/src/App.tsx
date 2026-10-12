@@ -460,18 +460,19 @@ export default function App() {
         </Reveal>
       </Slide>
 
-      {/* 7. Measured, not modelled */}
+      {/* 7. Price history and verifiable payouts */}
       <Slide
         center
         nav="Measured"
-        notes="The odds are not a formula. They come from real price history and are replayed on days the library never saw."
+        notes="Chances come from real Bitcoin price history. A local model calibrated price difficulty to 50/50; the payout equation runs onchain and is verifiable."
       >
         <Reveal>
-          <h2 className="headline sk-wide">The chance is measured, not modelled.</h2>
+          <h2 className="headline sk-wide">Chances come from real Bitcoin price history</h2>
         </Reveal>
         <Reveal delay={0.06}>
           <p className="lead sk-lead">
-            Chances come from real Bitcoin price history, then are checked on days the library never saw.
+            We ran a local model to calibrate the price difficulty to 50/50. The payout equation is entirely
+            onchain and verifiable.
           </p>
         </Reveal>
         <div className="sk-panels" style={{ ['--n' as string]: 3 }}>
