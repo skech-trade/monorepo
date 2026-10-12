@@ -22,6 +22,7 @@ Bun-workspaces monorepo.
     │   └── deployments/  #   the deployed addresses, written by the deploy, read by everything
     └── solana-mobile/    # the phone app (Expo, Privy): the web game, screen for screen; its own npm project
 infra/                    # the EC2 box: setup, deploy, Caddy, systemd
+deck/                     # the pitch deck (Vite, React): its own npm project; see deck/README.md
 ```
 
 Both apps are Next.js 16 (App Router, TypeScript, Tailwind v4, ESLint, Turbopack)
