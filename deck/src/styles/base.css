@@ -3017,20 +3017,29 @@ h3 {
 
 /* Problem: an order ticket, then one line */
 .sk-versus {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  width: min(100%, 820px);
   align-items: stretch;
   justify-content: center;
-  flex-wrap: wrap;
-  gap: clamp(12px, 2vw, 28px);
+  gap: clamp(24px, 5vw, 64px);
 }
 .sk-versus > * {
   display: flex;
+  min-width: 0;
 }
 .sk-versus-next {
+  position: relative;
   align-items: stretch;
   gap: clamp(12px, 2vw, 28px);
 }
 .sk-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  right: 100%;
+  width: clamp(24px, 5vw, 64px);
+  text-align: center;
   align-self: center;
   font-size: clamp(22px, 2.6vw, 34px);
   color: var(--fg-faint);
@@ -3038,7 +3047,8 @@ h3 {
 .sk-ticket,
 .sk-oneline {
   position: relative;
-  width: clamp(240px, 27vw, 372px);
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   padding: clamp(14px, 1.6vw, 22px);
@@ -3094,7 +3104,7 @@ h3 {
   inset: 0;
   width: 100%;
   height: 100%;
-  overflow: visible;
+  overflow: hidden;
   pointer-events: none;
 }
 .sk-strike path {
@@ -3109,6 +3119,16 @@ h3 {
 }
 .sk-ticket.struck .sk-strike path {
   stroke-dashoffset: 0;
+}
+.sk-problem .sk-lead {
+  max-width: 58ch;
+}
+.sk-traction-number {
+  color: var(--primary);
+  font-size: clamp(100px, 18vw, 220px);
+  font-weight: 700;
+  letter-spacing: -0.06em;
+  line-height: 1;
 }
 .sk-oneline svg {
   flex: 1;
@@ -3611,7 +3631,7 @@ h3 {
   }
   .sk-ticket,
   .sk-oneline {
-    width: min(42vw, 220px);
+    width: 100%;
   }
   .sk-ticket-row:nth-of-type(n + 5) {
     display: none;

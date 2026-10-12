@@ -35,7 +35,7 @@ Open the address it prints (usually http://localhost:5173).
 | `H` | Hide the UI |
 | `Esc` | Close overlays |
 
-The URL hash tracks the slide (`/#7`), so a link can open on any slide. Slides 2, 10 and 14 have one click-build each.
+The URL hash tracks the slide (`/#7`), so a link can open on any slide. Slides 9 and 14 have one click-build each. Slide 2 shows the full comparison immediately.
 
 ## Where things are
 
