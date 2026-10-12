@@ -91,6 +91,7 @@
       "./plugins/with-gradle-properties",
       "./plugins/with-unbundled-barcode",
       "./plugins/with-english-only",
+      "./plugins/with-worklets-link",
       [
         "expo-image-picker",
         {
