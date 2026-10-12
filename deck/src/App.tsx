@@ -35,7 +35,7 @@ const TICKET = [
 
 function OrderTicket() {
   return (
-    <div className="sk-ticket struck">
+    <div className="sk-ticket">
       <div className="sk-card-head">New order</div>
       {TICKET.map(([label, value]) => (
         <div className="sk-ticket-row" key={label}>
@@ -44,9 +44,6 @@ function OrderTicket() {
         </div>
       ))}
       <div className="sk-ticket-btn">Confirm</div>
-      <svg className="sk-strike" viewBox="0 0 300 300" preserveAspectRatio="none" aria-hidden="true">
-        <path d="M20 268 C 90 244, 180 144, 280 34" pathLength={1} />
-      </svg>
     </div>
   );
 }
