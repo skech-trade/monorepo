@@ -13,7 +13,7 @@ import { feel, pen as penSound } from "@/lib/feel";
 import { tracePricePath } from "./price-path";
 import { avatarSeedOf, playerHue, type PublicDrawing, socialMoney } from "@skech/core/social";
 import { dylanXml } from "@/lib/avatar";
-import { livePens, type LivePen, penFlush, penLift, remoteDrawings, visibleSocialDrawings } from "@/lib/social";
+import { focusedPlayer, livePens, type LivePen, penFlush, penLift, remoteDrawings, visibleSocialDrawings } from "@/lib/social";
 
 /**
  * The stage: the price so far on the left, now in the middle, and the space ahead of it to draw in. The web's
@@ -906,16 +906,23 @@ export const Stage = memo(function Stage({
       const people = remoteDrawings();
       const viewFrom = tAt(0), viewTo = tAt(w);
       const quiet = pal.dark ? 0.45 : 0.4;
-      for (let i = 0, most = Math.min(people.length, phone() ? 12 : 18); i < most; i++) {
+      const lit = focusedPlayer();
+      const spotlight = (player: string, alpha: number) => color(hueRgb(player, pal.dark ? 64 : 46, 0.64), alpha);
+      for (let i = 0, most = Math.min(people.length, phone() ? 12 : 18); i < people.length; i++) {
         const drawing = people[i];
+        if (i >= most && drawing.player !== lit) continue;
         const age = Math.max(0, Date.now() - drawing.updatedAt);
         if (drawing.complete && age > 15_000) continue;
         const l = remoteLine(drawing);
         if (!l || l.t0 > viewTo || drawing.pieces.every((q) => q.openAt + 30_000 < viewFrom)) continue;
         const fade = drawing.complete ? Math.max(0, 1 - age / 15_000) : 1;
-        remote(l, remotePath(l), color(pal.muted, quiet * fade), 1.25);
+        const mine = lit === drawing.player;
+        remote(l, remotePath(l), mine ? spotlight(drawing.player, 0.95 * fade) : color(pal.muted, quiet * fade * (lit ? 0.22 : 1)), mine ? 2.25 : 1.25);
       }
-      for (const p of pens) if (p.shown) remote(p, penLine(p), color(pal.muted, pal.dark ? 0.6 : 0.55), 1.5);
+      for (const p of pens) if (p.shown) {
+        const mine = lit === p.player;
+        remote(p, penLine(p), mine ? spotlight(p.player, 0.95) : color(pal.muted, (pal.dark ? 0.6 : 0.55) * (lit ? 0.22 : 1)), mine ? 2.5 : 1.5);
+      }
       if (renderedBets !== g.bets) {
         renderedBets = g.bets;
         const groups = new Map<string, (typeof renderedGroups)[number]>();

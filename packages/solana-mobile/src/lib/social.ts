@@ -158,6 +158,26 @@ export const remoteDrawings = () => remoteOf(current, viewer, audience, followin
 /** Every drawing the chart may label, the viewer's own included. */
 export const visibleSocialDrawings = () => visibleDrawings(current, viewer, audience, following);
 
+/* ---- the spotlight: one player's ink brought forward, everyone else's pushed back ---- */
+
+/** Who is in the spotlight. Out here, not in React: the canvas reads it every frame. */
+let focus: string | null = null;
+const watchers = new Set<() => void>();
+export const focusedPlayer = () => focus;
+/** Light one player's ink, or let the chart go back to everyone. The same player again releases it. */
+export function focusPlayer(player: string | null) {
+  const next = player === focus ? null : player;
+  if (next === focus) return;
+  focus = next;
+  for (const w of watchers) w();
+}
+const watchFocus = (fn: () => void) => {
+  watchers.add(fn);
+  return () => void watchers.delete(fn);
+};
+/** The spotlight, for the parts of the app that are not the canvas. */
+export const useFocusedPlayer = () => useSyncExternalStore(watchFocus, focusedPlayer, () => null);
+
 /* ---- the live pen: strokes as they are drawn, everyone's, display only (never money) ---- */
 
 let liveSocket: () => WebSocket | null = () => null;

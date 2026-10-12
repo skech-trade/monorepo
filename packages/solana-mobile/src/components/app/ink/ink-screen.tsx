@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { BURST, type Tier, winTier } from "@skech/core/cheer";
 import { AppState, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { type Bar, DIFFICULTY, difficulty, type Features, features, type Field, field, type Library, openFor, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
+import { type Bar, difficulty, type Features, features, type Field, field, type Library, openFor, RULES, setDifficulty, setMaxReturn, stepFor } from "@skech/core/dots";
 import { canDraw, levelFor, PAPER_PER_DOT, paperResult } from "@skech/core/paper";
 import { howItWorks, howItWorksSummary } from "@skech/core/explain";
 import { areaCells, areaCostOf, type Cell, CELL, cost, decided, drawingLayout, INK_CELL, INK_EDGE_CELLS, type InkBet, isArea, judge, liveInkTotals, open, openOn, placeInk, refund, type Stroke, won } from "@skech/core/ink";
@@ -40,6 +40,7 @@ import { Onboarding, Pill, useOnboarding } from "./onboarding";
 import { type Game, type Placed, type Preview, Stage } from "./stage";
 import { WalletButton } from "./wallet-button";
 import { publishStroke } from "@/lib/social";
+import { PresenceRail } from "./presence-rail";
 
 /** How old a map of multiples may be, in ms past its second, and still be shown. */
 const STALE_MAP_MS = 3500;
@@ -1307,6 +1308,9 @@ export function InkScreen() {
         {cannotPlay ? <Pressable className="absolute inset-0" onPress={() => (feel("nope"), gate.openDeposit("tap"))} /> : null}
       </View>
       <LinearGradient colors={[c.bg, c.bg, dark ? "rgba(0,0,0,0)" : "rgba(255,255,255,0)"]} locations={[0, 0.8, 1]} pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: top + 64 }} />
+      <View className="absolute inset-x-0 items-center" pointerEvents="box-none" style={{ top: top + 58, zIndex: 21 }}>
+        <PresenceRail />
+      </View>
 
       <Arrive motion={MOTION.settle} pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, top, zIndex: 20 }}>
         <View className="flex-row items-center justify-between gap-4 px-5 pt-1.5 pb-2.5" pointerEvents="box-none">
