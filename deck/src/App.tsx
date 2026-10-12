@@ -643,7 +643,7 @@ export default function App() {
           <h2 className="display sk-close">Go draw something.</h2>
         </Reveal>
         <Build at={1}>
-          <p className="sk-url">skech.trade</p>
+          <p className="sk-url"><a href="https://app.skech.trade" target="_blank" rel="noopener noreferrer">app.skech.trade</a></p>
         </Build>
         <Reveal delay={0.3}>
           <p className="sk-source">You can lose what you put in. Never put in more than you’d be fine losing.</p>

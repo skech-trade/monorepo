@@ -3568,6 +3568,10 @@ h3 {
   letter-spacing: -0.02em;
   color: var(--primary);
 }
+.sk-url a {
+  color: inherit;
+  text-underline-offset: 0.18em;
+}
 
 /* Narrow screens: panels stack, small type holds */
 @media (max-width: 760px) {
