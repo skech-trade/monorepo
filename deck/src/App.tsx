@@ -392,7 +392,7 @@ export default function App() {
         </Reveal>
         <Reveal delay={0.06}>
           <p className="lead sk-lead">
-            Draw where you think Bitcoin goes over the next 30 seconds. That drawing is the trade.
+            Draw where you think Bitcoin goes. That drawing is the trade.
           </p>
         </Reveal>
         <Reveal delay={0.1}>
